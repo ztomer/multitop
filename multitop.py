@@ -13,6 +13,25 @@ from textual.binding import Binding
 from textual.containers import Vertical
 from textual.widgets import Static
 
+import sys
+from datetime import datetime
+
+
+_DEBUG_LOG = None
+
+
+def _debug(msg):
+    global _DEBUG_LOG
+    if _DEBUG_LOG is None:
+        try:
+            _DEBUG_LOG = open("/tmp/multitop-debug.log", "a")
+        except OSError:
+            return
+    ts = datetime.now().isoformat(timespec="milliseconds")
+    _DEBUG_LOG.write(f"[{ts}] {msg}\n")
+    _DEBUG_LOG.flush()
+
+
 CONFIG_PATH = os.path.expanduser("~/.config/multitop/config.toml")
 _EXAMPLE_CONFIG = os.path.join(os.path.dirname(os.path.abspath(__file__)), "config.example.toml")
 
@@ -166,6 +185,7 @@ class MonitorApp(App):
         target = self._target(srv)
         gen = self._next_gen(panel)
         self._mode[panel] = "monitor"
+        _debug(f"MONITOR {host} gen={gen}")
 
         n = len(self.servers)
         term = shutil.get_terminal_size()
@@ -219,7 +239,10 @@ class MonitorApp(App):
             "else echo '>> no dockers'; fi"
         )
         gen = self._next_gen(panel)
+        host = srv["host"]
+        _debug(f"SHOW_DOCKER {host} gen={gen}")
         await self._run_ssh_cmd(panel, srv, cmd, gen, "Docker")
+        _debug(f"SHOW_DOCKER {host} done, mode={self._mode.get(panel)}, gen_check={self._current_gen(panel)}=={gen}")
 
     async def _run_upgrade(self, panel, srv):
         cmd = srv.get("upgrade_cmd", "")
@@ -247,6 +270,7 @@ class MonitorApp(App):
         host = srv["host"]
         port = srv.get("port", 22)
         target = self._target(srv)
+        _debug(f"RUN_SSH {host} label={label} gen={gen}")
 
         proc = None
         try:
@@ -264,11 +288,17 @@ class MonitorApp(App):
                     break
                 lines.append(raw.decode("utf-8", errors="replace").rstrip())
             await proc.wait()
-            if self._current_gen(panel) == gen:
+            current = self._current_gen(panel)
+            _debug(f"RUN_SSH {host} done exit={proc.returncode} current_gen={current} my_gen={gen}")
+            if current == gen:
+                _debug(f"  {host}: gen match, updating panel")
                 panel.output.update(Text.from_ansi("\n".join(lines)))
+            else:
+                _debug(f"  {host}: gen mismatch, skipping update")
         except asyncio.CancelledError:
             raise
         except Exception as e:
+            _debug(f"RUN_SSH {host} error: {e}")
             if self._current_gen(panel) == gen:
                 panel.output.update(Text.from_ansi(f"[red]{e}[/]"))
         finally:
@@ -279,18 +309,22 @@ class MonitorApp(App):
         panels = list(self.query(ServerPanel))
         servers = self.servers
         in_docker = any(self._mode.get(p) == "docker" for p in panels)
+        _debug(f"TOGGLE_DOCKER in_docker={in_docker} modes={self._mode}")
         for panel, srv in zip(panels, servers):
             if in_docker:
                 self._next_gen(panel)
                 self._mode[panel] = "monitor"
+                _debug(f"  {panel}: -> monitor (from frame={bool(self._frames.get(panel))})")
                 if panel in self._frames:
                     panel.output.update(Text.from_ansi("\n".join(self._frames[panel])))
                 else:
                     panel.output.update(Text.from_ansi("[yellow]waiting for data...[/]"))
             else:
                 self._mode[panel] = "docker"
+                _debug(f"  {panel}: -> docker, ssh starting")
                 panel.output.update(Text.from_ansi("[yellow]→ Docker loading...[/]"))
                 asyncio.create_task(self._show_docker(panel, srv))
+        _debug(f"  result modes={self._mode}")
 
     async def action_switch_stats(self):
         panels = self.query(ServerPanel)

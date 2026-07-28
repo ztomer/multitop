@@ -315,12 +315,17 @@ def _render_output(host, cols, bar_len, cpu_pct, core_lines,
 
     def _proc_content(pid, name, cpu, mem, nw):
         name_trunc = name if len(name) < nw else name[:nw - 3] + "..."
-        cpu_c = Colors.YELLOW if float(cpu or 0) >= 10 else Colors.WHITE
+        try:
+            cpu_val = float(cpu or 0)
+        except (ValueError, TypeError):
+            cpu_val = 0.0
+        cpu_c = Colors.YELLOW if cpu_val >= 10 else Colors.WHITE
+        mem_str = fmt_size(mem)
         return (
             f"{Colors.GRAY}{pid:>7}{Colors.RESET}"
             f"  {Colors.WHITE}{name_trunc:<{nw}}{Colors.RESET}"
-            f"  {cpu_c}{cpu:>5}{Colors.RESET}"
-            f"  {Colors.CYAN}{fmt_size(mem):>7}{Colors.RESET}"
+            f"  {cpu_c}{cpu_val:5.1f}{Colors.RESET}"
+            f"  {Colors.CYAN}{mem_str:>7}{Colors.RESET}"
         )
 
     out.append(f" {Colors.GRAY}{'─' * max(0, cols - 2)}{Colors.RESET}")
