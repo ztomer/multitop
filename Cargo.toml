@@ -1,0 +1,22 @@
+[workspace]
+resolver = "2"
+members = ["crates/agent", "crates/multitop"]
+
+[workspace.package]
+version = "0.3.0"
+edition = "2021"
+rust-version = "1.85"
+license = "MIT"
+
+[profile.release]
+opt-level = 3
+lto = "fat"
+codegen-units = 1
+panic = "abort"
+strip = true
+
+# The agent is uploaded to every monitored host on first connect, so it is
+# tuned for size. Its work is a few hundred microseconds of /proc parsing;
+# opt-level "s" costs nothing measurable and saves ~40% of the transfer.
+[profile.release.package.multitop-agent]
+opt-level = "s"

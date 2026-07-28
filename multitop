@@ -1,2 +1,11 @@
 #!/usr/bin/env bash
-exec python3 "$(dirname "$0")/multitop.py" "$@"
+# Convenience launcher for the built binary.
+set -euo pipefail
+cd "$(dirname "$0")"
+
+BIN="target/release/multitop"
+if [ ! -x "$BIN" ]; then
+    printf 'x %s not built yet - run ./build.sh first.\n' "$BIN" >&2
+    exit 1
+fi
+exec "./$BIN" "$@"

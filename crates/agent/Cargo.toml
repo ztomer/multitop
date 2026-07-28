@@ -1,0 +1,22 @@
+[package]
+name = "multitop-agent"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "Compact system/docker monitor, uploaded to and run on monitored hosts"
+
+[[bin]]
+name = "multitop-agent"
+path = "src/main.rs"
+
+[lib]
+name = "multitop_agent"
+path = "src/lib.rs"
+
+[dependencies]
+libc = "0.2"
+# Docker's /containers/json and /stats payloads are deeply nested; a hand-rolled
+# parser here would be the fragile part of the agent. No derive feature - the
+# few fields we read are pulled straight off Value.
+serde_json = { version = "1", default-features = false, features = ["std"] }

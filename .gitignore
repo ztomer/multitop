@@ -1,5 +1,3 @@
-__pycache__/
-.pytest_cache/
-.coverage
-*.pyc
+/target
 .DS_Store
+.claude/

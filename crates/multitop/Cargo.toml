@@ -1,0 +1,14 @@
+[package]
+name = "multitop"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "Multi-server TUI dashboard over SSH"
+
+[dependencies]
+crossterm = { version = "0.29", features = ["event-stream"] }
+ratatui = { version = "0.30", default-features = false, features = ["crossterm"] }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "process", "io-util", "sync", "time"] }
+tokio-stream = { version = "0.1.19", default-features = false }
+toml = { version = "1", default-features = false, features = ["parse", "serde"] }
