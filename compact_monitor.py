@@ -322,6 +322,15 @@ def _render_output(host, cols, bar_len, cpu_pct, core_lines,
     return out
 
 
+def _calc_core_rows(num_cores, cols):
+    if num_cores < 2:
+        return 0
+    # Rough seg width: "0:100%" = 6, plus 1 sep space
+    seg_w = 7
+    per_line = max(1, (cols - 6) // seg_w)
+    return (num_cores + per_line - 1) // per_line - 1
+
+
 def _iteration(host, prev_agg, prev_cores, net_prev, interval, cols, term_lines):
     bar_len = max(8, cols - 16)
 
@@ -349,7 +358,7 @@ def _iteration(host, prev_agg, prev_cores, net_prev, interval, cols, term_lines)
     tx_rate = (net_tx - net_tx_prev) / interval
 
     num_cores = len(core_lines)
-    core_rows = ((num_cores + 1) // 2) if num_cores >= 2 else 0
+    core_rows = _calc_core_rows(num_cores, cols)
     base = 2 + core_rows
     if mem_total:
         base += 1
@@ -357,7 +366,7 @@ def _iteration(host, prev_agg, prev_cores, net_prev, interval, cols, term_lines)
         base += 1
     if rx_rate > 1024 or tx_rate > 1024:
         base += 1
-    max_procs = max(1, term_lines - base - 3)
+    max_procs = max(1, term_lines - base - 2)
 
     procs = get_top_procs(max_procs)
 
@@ -383,6 +392,20 @@ def main():
 
 def loop(interval, is_tty=False):
     host = get_host_info()
+
+    default_cols = 80
+    default_lines = 24
+    if len(sys.argv) > 2:
+        try:
+            default_cols = int(sys.argv[2])
+        except (ValueError, IndexError):
+            pass
+    if len(sys.argv) > 3:
+        try:
+            default_lines = int(sys.argv[3])
+        except (ValueError, IndexError):
+            pass
+
     data = read_proc("/proc/stat")
     prev_agg, prev_cores = parse_proc_stat(data)
     net_prev = get_net()
@@ -390,7 +413,7 @@ def loop(interval, is_tty=False):
     time.sleep(interval)
 
     while True:
-        term = shutil.get_terminal_size((80, 24))
+        term = shutil.get_terminal_size((default_cols, default_lines))
         cols = term.columns
         term_lines = term.lines
 

@@ -145,8 +145,13 @@ class MonitorApp(App):
         user = srv.get("user", "")
         target = f"{user}@{host}" if user else host
 
+        n = len(self.servers)
+        term = shutil.get_terminal_size()
+        panel_w = max(40, term.columns - 4)
+        panel_h = max(8, ((term.lines - 2) // n) - 2)
+
         quoted = shlex.quote(COMPACT_MONITOR)
-        cmd = f"python3 -c {quoted} {shlex.quote(host)}"
+        cmd = f"python3 -c {quoted} {shlex.quote(host)} {panel_w} {panel_h}"
 
         try:
             proc = await asyncio.create_subprocess_exec(
