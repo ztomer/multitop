@@ -6,7 +6,7 @@ import pytest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from monitor import MonitorError, build_ssh_cmd, get_ssh_target, parse_toml_servers, require_commands, validate_user
+from multitop import MonitorError, parse_toml_servers, require_commands, validate_user
 
 
 @pytest.fixture
