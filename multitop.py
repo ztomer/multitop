@@ -6,13 +6,6 @@ import shutil
 import sys
 import tomllib
 
-
-_SSH_BASE = [
-    "-o", "ControlMaster=auto",
-    "-o", "ControlPath=/tmp/multitop-ssh-%C",
-    "-o", "ControlPersist=30s",
-]
-
 from rich.text import Text
 
 from textual.app import App, ComposeResult
@@ -22,6 +15,12 @@ from textual.widgets import Static
 
 CONFIG_PATH = os.path.expanduser("~/.config/multitop/config.toml")
 _EXAMPLE_CONFIG = os.path.join(os.path.dirname(os.path.abspath(__file__)), "config.example.toml")
+
+_SSH_BASE = [
+    "-o", "ControlMaster=auto",
+    "-o", "ControlPath=/tmp/multitop-ssh-%C",
+    "-o", "ControlPersist=30s",
+]
 
 
 def _compact_monitor_source():
@@ -123,6 +122,7 @@ class MonitorApp(App):
     BINDINGS = [
         Binding("escape", "quit", "ESC Quit"),
         Binding("d", "toggle_docker", "D"),
+        Binding("s", "switch_stats", "S"),
         Binding("u", "run_upgrade", "U"),
     ]
 
@@ -131,14 +131,16 @@ class MonitorApp(App):
         self.servers = servers
         self._tasks = {}
         self._procs = {}
+        self._aux_procs = {}
         self._gen = {}
-        self._mode = {}  # panel -> "monitor" | "docker" | "upgrade"
+        self._mode = {}
+        self._frames = {}
 
     def compose(self):
         with Vertical():
             for srv in self.servers:
                 yield ServerPanel(srv)
-        yield Static(" ESC Quit  D Docker  U Upgrade", id="keybar")
+        yield Static(" ESC Quit  D Docker  S Stats  U Upgrade", id="keybar")
 
     async def on_mount(self):
         for panel, srv in zip(self.query(ServerPanel), self.servers):
@@ -148,16 +150,6 @@ class MonitorApp(App):
         user = srv.get("user", "")
         host = srv["host"]
         return f"{user}@{host}" if user else host
-
-    def _cancel_tasks(self, *panels):
-        for p in panels:
-            if p in self._tasks:
-                self._tasks[p].cancel()
-            if p in self._procs:
-                try:
-                    self._procs[p].terminate()
-                except Exception:
-                    pass
 
     def _current_gen(self, panel):
         return self._gen.get(panel, 0)
@@ -199,12 +191,16 @@ class MonitorApp(App):
                 line = raw.decode("utf-8", errors="replace").rstrip()
                 if line == "===MONITOR===":
                     if buf:
-                        panel.output.update(Text.from_ansi("\n".join(buf)))
+                        self._frames[panel] = list(buf)
+                        if self._mode.get(panel) in (None, "monitor"):
+                            panel.output.update(Text.from_ansi("\n".join(buf)))
                     buf = []
                 else:
                     buf.append(line)
             if buf:
-                panel.output.update(Text.from_ansi("\n".join(buf)))
+                self._frames[panel] = list(buf)
+                if self._mode.get(panel) in (None, "monitor"):
+                    panel.output.update(Text.from_ansi("\n".join(buf)))
         except asyncio.CancelledError:
             raise
         except FileNotFoundError:
@@ -216,7 +212,6 @@ class MonitorApp(App):
                 del self._procs[panel]
 
     async def _show_docker(self, panel, srv):
-        self._mode[panel] = "docker"
         cmd = (
             "if command -v docker >/dev/null 2>&1; then "
             "docker ps --format 'table {{.Names}}\t{{.Status}}\t{{.Image}}' 2>&1; "
@@ -224,11 +219,8 @@ class MonitorApp(App):
         )
         gen = self._next_gen(panel)
         await self._run_ssh_cmd(panel, srv, cmd, gen, "Docker")
-        if self._current_gen(panel) == gen:
-            await self._restart_monitor(panel, srv)
 
     async def _run_upgrade(self, panel, srv):
-        self._mode[panel] = "upgrade"
         cmd = srv.get("upgrade_cmd", "")
         gen = self._next_gen(panel)
 
@@ -238,12 +230,17 @@ class MonitorApp(App):
             )
             await asyncio.sleep(5)
             if self._current_gen(panel) == gen:
-                await self._restart_monitor(panel, srv)
+                self._mode[panel] = "monitor"
+                if panel in self._frames:
+                    panel.output.update(Text.from_ansi("\n".join(self._frames[panel])))
             return
 
+        self._mode[panel] = "upgrade"
         await self._run_ssh_cmd(panel, srv, cmd, gen, "Upgrade")
         if self._current_gen(panel) == gen:
-            await self._restart_monitor(panel, srv)
+            self._mode[panel] = "monitor"
+            if panel in self._frames:
+                panel.output.update(Text.from_ansi("\n".join(self._frames[panel])))
 
     async def _run_ssh_cmd(self, panel, srv, cmd, gen, label):
         host = srv["host"]
@@ -257,7 +254,7 @@ class MonitorApp(App):
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.STDOUT,
             )
-            self._procs[panel] = proc
+            self._aux_procs[panel] = proc
 
             lines = [f"[bold]{label} on {host}[/]"]
             while True:
@@ -274,36 +271,42 @@ class MonitorApp(App):
             if self._current_gen(panel) == gen:
                 panel.output.update(Text.from_ansi(f"[red]{e}[/]"))
         finally:
-            if proc is not None and self._procs.get(panel) is proc:
-                del self._procs[panel]
-
-    async def _restart_monitor(self, panel, srv):
-        self._tasks[panel] = asyncio.create_task(self._monitor_server(panel, srv))
+            if proc is not None and self._aux_procs.get(panel) is proc:
+                del self._aux_procs[panel]
 
     async def action_toggle_docker(self):
         panels = list(self.query(ServerPanel))
         servers = self.servers
         in_docker = any(self._mode.get(p) == "docker" for p in panels)
-        self._cancel_tasks(*panels)
         for panel, srv in zip(panels, servers):
             if in_docker:
-                self._tasks[panel] = asyncio.create_task(self._monitor_server(panel, srv))
+                self._mode[panel] = "monitor"
+                if panel in self._frames:
+                    panel.output.update(Text.from_ansi("\n".join(self._frames[panel])))
             else:
-                self._tasks[panel] = asyncio.create_task(self._show_docker(panel, srv))
+                self._mode[panel] = "docker"
+                asyncio.create_task(self._show_docker(panel, srv))
+
+    async def action_switch_stats(self):
+        panels = self.query(ServerPanel)
+        for panel in panels:
+            self._mode[panel] = "monitor"
+            if panel in self._frames:
+                panel.output.update(Text.from_ansi("\n".join(self._frames[panel])))
 
     async def action_run_upgrade(self):
         panels = list(self.query(ServerPanel))
         servers = self.servers
-        self._cancel_tasks(*panels)
         for panel, srv in zip(panels, servers):
-            self._tasks[panel] = asyncio.create_task(self._run_upgrade(panel, srv))
+            asyncio.create_task(self._run_upgrade(panel, srv))
 
     async def action_quit(self) -> None:
-        for proc in self._procs.values():
-            try:
-                proc.terminate()
-            except Exception:
-                pass
+        for store in (self._procs, self._aux_procs):
+            for proc in store.values():
+                try:
+                    proc.terminate()
+                except Exception:
+                    pass
         for task in self._tasks.values():
             try:
                 task.cancel()

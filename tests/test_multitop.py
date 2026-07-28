@@ -211,6 +211,8 @@ class TestMonitorApp:
         app = MonitorApp(servers)
         assert len(app.servers) == 2
         assert app._procs == {}
+        assert app._aux_procs == {}
+        assert app._frames == {}
 
     def test_empty_servers(self):
         app = MonitorApp([])
@@ -235,9 +237,10 @@ class TestMonitorApp:
         app = MonitorApp(servers)
         mock_proc = MagicMock()
         app._procs[MagicMock()] = mock_proc
+        app._aux_procs[MagicMock()] = mock_proc
         async with app.run_test():
             await app.action_quit()
-        mock_proc.terminate.assert_called_once()
+        assert mock_proc.terminate.call_count == 2
 
     async def test_monitor_server_ssh_not_found(self):
         with patch("asyncio.create_subprocess_exec", side_effect=FileNotFoundError):
@@ -261,9 +264,10 @@ class TestMonitorApp:
         failing_proc = MagicMock()
         failing_proc.terminate.side_effect = OSError("no such process")
         app._procs[MagicMock()] = failing_proc
+        app._aux_procs[MagicMock()] = failing_proc
         async with app.run_test():
             await app.action_quit()
-        failing_proc.terminate.assert_called_once()
+        assert failing_proc.terminate.call_count == 2
 
     async def test_data_before_marker(self):
         proc = make_proc(b"line1\n", b"line2\n", b"===MONITOR===\n", b"")
@@ -312,31 +316,6 @@ class TestMonitorApp:
         assert app._next_gen("x") == 2
         assert app._gen["x"] == 2
 
-    def test_cancel_tasks_terminates_procs(self):
-        app = MonitorApp([])
-        panel = MagicMock()
-        mock_task = MagicMock()
-        mock_proc = MagicMock()
-        app._tasks[panel] = mock_task
-        app._procs[panel] = mock_proc
-        app._cancel_tasks(panel)
-        mock_task.cancel.assert_called_once()
-        mock_proc.terminate.assert_called_once()
-
-    def test_cancel_tasks_no_raise_on_missing(self):
-        app = MonitorApp([])
-        app._cancel_tasks("nonexistent")
-
-    def test_cancel_tasks_proc_terminate_swallows(self):
-        app = MonitorApp([])
-        panel = MagicMock()
-        app._tasks[panel] = MagicMock()
-        failing = MagicMock()
-        failing.terminate.side_effect = OSError("gone")
-        app._procs[panel] = failing
-        app._cancel_tasks(panel)
-        failing.terminate.assert_called_once()
-
     def test_target_no_user(self):
         app = MonitorApp([])
         assert app._target({"host": "10.0.0.1"}) == "10.0.0.1"
@@ -352,10 +331,7 @@ class TestMonitorApp:
         app = MonitorApp(servers)
         async with app.run_test() as pilot:
             panel = app.query(ServerPanel).first()
-            with (
-                patch.object(MonitorApp, "on_mount", new=AsyncMock()),
-                patch.object(MonitorApp, "_restart_monitor", new=AsyncMock()),
-            ):
+            with patch.object(MonitorApp, "on_mount", new=AsyncMock()):
                 await pilot.pause()
                 await app.action_toggle_docker()
                 await pilot.pause()
@@ -367,40 +343,64 @@ class TestMonitorApp:
         async with app.run_test() as pilot:
             panel = app.query(ServerPanel).first()
             app._mode[panel] = "docker"
-            with patch.object(MonitorApp, "on_mount", new=AsyncMock()):
-                await pilot.pause()
-                await app.action_toggle_docker()
-                await pilot.pause()
-                assert app._mode.get(panel) == "monitor"
+            await app.action_toggle_docker()
+            await pilot.pause()
+            assert app._mode.get(panel) == "monitor"
+
+    # --- action_switch_stats ---
+
+    async def test_switch_stats_sets_monitor_mode(self):
+        servers = [{"host": "a"}]
+        app = MonitorApp(servers)
+        async with app.run_test() as pilot:
+            panel = app.query(ServerPanel).first()
+            app._mode[panel] = "docker"
+            await app.action_switch_stats()
+            await pilot.pause()
+            assert app._mode.get(panel) == "monitor"
+
+    async def test_switch_stats_shows_frame_when_available(self):
+        servers = [{"host": "a"}]
+        app = MonitorApp(servers)
+        with patch.object(MonitorApp, "on_mount", new=AsyncMock()):
+            async with app.run_test() as pilot:
+                panel = app.query(ServerPanel).first()
+                app._mode[panel] = "docker"
+                app._frames[panel] = ["line1", "line2"]
+                await app.action_switch_stats()
+                assert "line1" in panel.output.content
 
     # --- action_run_upgrade ---
 
     async def test_run_upgrade_shows_message_when_no_cmd(self):
         servers = [{"host": "a"}]
         app = MonitorApp(servers)
-        async with app.run_test() as pilot:
-            panel = app.query(ServerPanel).first()
-            with patch.object(MonitorApp, "on_mount", new=AsyncMock()):
+        with patch.object(MonitorApp, "on_mount", new=AsyncMock()):
+            async with app.run_test() as pilot:
+                panel = app.query(ServerPanel).first()
                 await pilot.pause()
                 task = asyncio.create_task(app._run_upgrade(panel, servers[0]))
                 app._tasks[panel] = task
                 await pilot.pause()
                 assert "No upgrade_cmd" in panel.output.content
 
-    async def test_run_upgrade_sets_mode(self):
+    async def test_run_upgrade_runs_ssh_and_shows_output(self):
         servers = [{"host": "a", "upgrade_cmd": "apt upgrade -y"}]
         app = MonitorApp(servers)
-        async with app.run_test() as pilot:
-            panel = app.query(ServerPanel).first()
-            with (
-                patch.object(MonitorApp, "on_mount", new=AsyncMock()),
-                patch.object(MonitorApp, "_restart_monitor", new=AsyncMock()),
-            ):
+        proc = make_proc(b"upgrade output\n", b"")
+        with (
+            patch.object(MonitorApp, "on_mount", new=AsyncMock()),
+            patch("asyncio.create_subprocess_exec",
+                  new_callable=AsyncMock, return_value=proc),
+        ):
+            async with app.run_test() as pilot:
+                panel = app.query(ServerPanel).first()
                 await pilot.pause()
                 task = asyncio.create_task(app._run_upgrade(panel, servers[0]))
                 app._tasks[panel] = task
                 await pilot.pause()
-                assert app._mode.get(panel) == "upgrade"
+                assert "Upgrade on a" in panel.output.content
+                assert "upgrade output" in panel.output.content
 
     # --- gen-based stale guard ---
 
