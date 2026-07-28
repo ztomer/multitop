@@ -300,19 +300,7 @@ pub fn parse_cli_ps(text: &str) -> Vec<Container> {
         .collect()
 }
 
-/// `docker stats` prints preformatted strings; keep them as-is rather than
-/// round-tripping through a parse.
-pub fn parse_cli_stats(text: &str) -> HashMap<String, (String, String)> {
-    text.lines()
-        .filter_map(|line| {
-            let f: Vec<&str> = line.split('\t').collect();
-            if f.len() < 3 {
-                return None;
-            }
-            Some((f[0].to_string(), (f[1].to_string(), f[2].to_string())))
-        })
-        .collect()
-}
+pub use crate::docker_cli::*;
 
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Row {

@@ -14,93 +14,7 @@ use tokio::io::AsyncWriteExt;
 use tokio::process::{Child, Command};
 
 use crate::config::Server;
-
-include!(concat!(env!("OUT_DIR"), "/agents.rs"));
-
-/// Printed by the bootstrap script when the cached agent is absent. The
-/// architecture follows so the local side knows which binary to send.
-pub const NEED_AGENT: &str = "===NEEDAGENT===";
-
-/// Connection reuse across the several SSH invocations each panel makes; the
-/// keepalives turn a dead link into an error instead of an indefinite hang.
-const SSH_OPTS: &[&str] = &[
-    "-o",
-    "ControlMaster=auto",
-    "-o",
-    "ControlPath=/tmp/multitop-ssh-%C",
-    "-o",
-    "ControlPersist=30s",
-    "-o",
-    "ConnectTimeout=10",
-    "-o",
-    "ServerAliveInterval=15",
-    "-o",
-    "ServerAliveCountMax=3",
-    // Don't forward locale env vars — the agent reads /proc directly and
-    // doesn't need them, and servers without the locale installed emit a
-    // noisy "setlocale: LC_ALL: cannot change locale" warning.
-    "-o",
-    "SendEnv=-*",
-    "-T",
-];
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Arch {
-    X86_64,
-    Aarch64,
-}
-
-impl Arch {
-    /// Map a `uname -m` string onto an architecture we ship.
-    pub fn from_uname(s: &str) -> Option<Arch> {
-        match s.trim() {
-            "x86_64" | "amd64" => Some(Arch::X86_64),
-            "aarch64" | "arm64" => Some(Arch::Aarch64),
-            _ => None,
-        }
-    }
-
-    pub fn binary(self) -> Option<&'static [u8]> {
-        match self {
-            Arch::X86_64 => AGENT_X86_64,
-            Arch::Aarch64 => AGENT_AARCH64,
-        }
-    }
-
-    pub fn hash(self) -> &'static str {
-        match self {
-            Arch::X86_64 => HASH_X86_64,
-            Arch::Aarch64 => HASH_AARCH64,
-        }
-    }
-
-    pub fn label(self) -> &'static str {
-        match self {
-            Arch::X86_64 => "x86_64",
-            Arch::Aarch64 => "aarch64",
-        }
-    }
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Mode {
-    Monitor,
-    Docker,
-}
-
-impl Mode {
-    fn word(self) -> &'static str {
-        match self {
-            Mode::Monitor => "monitor",
-            Mode::Docker => "docker",
-        }
-    }
-}
-
-/// Quote a value for POSIX `sh`.
-pub fn sh_quote(s: &str) -> String {
-    format!("'{}'", s.replace('\'', r"'\''"))
-}
+pub use crate::ssh_opts::*;
 
 /// Remote cache path for a given build of the agent.
 pub fn agent_path(hash: &str) -> String {
@@ -454,10 +368,7 @@ mod tests {
     #[test]
     fn need_agent_parsed() {
         assert_eq!(parse_need_agent("===NEEDAGENT=== x86_64"), Some("x86_64"));
-        assert_eq!(
-            parse_need_agent("===NEEDAGENT=== aarch64\n"),
-            Some("aarch64")
-        );
+        assert_eq!(parse_need_agent("===NEEDAGENT=== aarch64\n"), Some("aarch64"));
         assert_eq!(parse_need_agent("===MONITOR==="), None);
         assert_eq!(parse_need_agent("some output"), None);
     }
@@ -465,8 +376,7 @@ mod tests {
     #[test]
     fn need_agent_round_trips_with_arch() {
         for label in ["x86_64", "aarch64"] {
-            let arch =
-                Arch::from_uname(parse_need_agent(&format!("{NEED_AGENT} {label}")).unwrap());
+            let arch = Arch::from_uname(parse_need_agent(&format!("{NEED_AGENT} {label}")).unwrap());
             assert_eq!(arch.map(Arch::label), Some(label));
         }
     }
@@ -490,14 +400,9 @@ mod tests {
 
     #[test]
     fn missing_agent_reports_how_to_fix() {
-        // Only meaningful when the build did not embed this arch.
         if Arch::X86_64.binary().is_none() {
-            let rt = tokio::runtime::Builder::new_current_thread()
-                .build()
-                .unwrap();
-            let e = rt
-                .block_on(upload_agent(&server(), Arch::X86_64, "t"))
-                .unwrap_err();
+            let rt = tokio::runtime::Builder::new_current_thread().build().unwrap();
+            let e = rt.block_on(upload_agent(&server(), Arch::X86_64, "t")).unwrap_err();
             assert!(e.contains("build.sh"), "{e}");
         }
     }

@@ -8,11 +8,14 @@
 pub mod color;
 pub mod consts;
 pub mod docker;
+pub mod docker_cli;
 pub mod fmt;
 pub mod monitor;
 pub mod proc;
+pub mod proc_sys;
 pub mod proto;
 pub mod render;
+pub mod render_layout;
 pub mod sys;
 
 /// Frame delimiter on the wire between agent and TUI.
