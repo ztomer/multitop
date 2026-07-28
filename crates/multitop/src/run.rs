@@ -233,7 +233,7 @@ fn restart_all_agents(
 
 // ------------------------------------------------------------------- streams
 
-pub(crate) struct PacketStream {
+pub struct PacketStream {
     pub _child: Child,
     pub stdout: BufReader<ChildStdout>,
     pub stderr: Lines<BufReader<ChildStderr>>,
@@ -241,7 +241,7 @@ pub(crate) struct PacketStream {
 }
 
 /// Start the remote agent, uploading it first if the host has no cached copy.
-pub(crate) async fn connect(
+pub async fn connect(
     server: &Server,
     mode: Mode,
     sort: SortBy,
@@ -325,7 +325,7 @@ pub(crate) async fn connect(
     unreachable!("loop returns on both attempts")
 }
 
-pub(crate) async fn next_packet(
+pub async fn next_packet(
     stream: &mut PacketStream,
     errbuf: &mut Vec<String>,
 ) -> std::io::Result<Option<multitop_agent::proto::Payload>> {

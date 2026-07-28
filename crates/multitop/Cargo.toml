@@ -18,3 +18,7 @@ multitop-agent = { path = "../agent" }
 name = "client_bench"
 harness = false
 
+[[bench]]
+name = "remote_ssh_bench"
+harness = false
+
