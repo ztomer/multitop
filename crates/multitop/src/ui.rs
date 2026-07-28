@@ -27,8 +27,28 @@ fn regions(area: Rect, panels: usize) -> (Vec<Rect>, Rect) {
     if panels == 0 {
         return (Vec::new(), keybar);
     }
-    let rows = Layout::vertical(vec![Constraint::Ratio(1, panels as u32); panels]).split(body);
-    (rows.to_vec(), keybar)
+    if panels == 1 {
+        return (vec![body], keybar);
+    }
+    if panels == 2 {
+        let rows = Layout::vertical([Constraint::Ratio(1, 2), Constraint::Ratio(1, 2)]).split(body);
+        return (rows.to_vec(), keybar);
+    }
+
+    // For panels >= 3, use a 2-column grid layout
+    let grid_cols: u32 = 2;
+    let grid_rows: u32 = (panels as u32 + 1) / 2;
+    let v_chunks = Layout::vertical(vec![Constraint::Ratio(1, grid_rows); grid_rows as usize]).split(body);
+    let mut rects = Vec::with_capacity(panels);
+    for (r_idx, row_rect) in v_chunks.iter().enumerate() {
+        let h_chunks = Layout::horizontal([Constraint::Ratio(1, grid_cols), Constraint::Ratio(1, grid_cols)]).split(*row_rect);
+        for (c_idx, col_rect) in h_chunks.iter().enumerate() {
+            if r_idx * 2 + c_idx < panels {
+                rects.push(*col_rect);
+            }
+        }
+    }
+    (rects, keybar)
 }
 
 /// The panel size to tell the agent about, so its frames arrive pre-fitted.
@@ -37,22 +57,80 @@ pub fn agent_dims(size: Size, panels: usize) -> (u16, u16) {
         return (MIN_AGENT_COLS, MIN_AGENT_ROWS);
     }
     let body_h = size.height.saturating_sub(KEYBAR_H);
-    let cols = size
-        .width
+    let (grid_cols, grid_rows) = match panels {
+        1 => (1u16, 1u16),
+        2 => (1u16, 2u16),
+        n => (2u16, (n as u16 + 1) / 2),
+    };
+    let cols = (size.width / grid_cols)
         .saturating_sub(SIDE_MARGIN * 2)
         .max(MIN_AGENT_COLS);
-    let rows = (body_h / panels as u16).max(MIN_AGENT_ROWS);
+    let rows = (body_h / grid_rows).max(MIN_AGENT_ROWS);
     (cols, rows)
 }
 
-/// Show the tail when there is more content than room — for streamed command
-/// output the newest lines are the interesting ones.
-fn visible(lines: &[String], height: usize) -> &[String] {
-    if lines.len() <= height {
-        lines
-    } else {
-        &lines[lines.len() - height..]
+/// Reflow line 0 header if target_cols differs from the line's pre-rendered width.
+pub fn refit_header(line: &str, target_cols: usize) -> Option<String> {
+    if !line.contains('\u{2500}') {
+        return None;
     }
+    let fw: String = line
+        .chars()
+        .filter(|c| (0xFF01..=0xFF5E).contains(&(*c as u32)) || *c == ' ')
+        .collect();
+    let fw_trimmed = fw.trim();
+    if fw_trimmed.is_empty() {
+        return None;
+    }
+    let disp_w: usize = fw_trimmed
+        .chars()
+        .map(|c| if (0xFF01..=0xFF5E).contains(&(c as u32)) { 2 } else { 1 })
+        .sum();
+
+    if target_cols <= disp_w {
+        return Some(format!("\x1b[36;1m{fw_trimmed}\x1b[0m"));
+    }
+    let space_needed = disp_w + 2;
+    if target_cols < space_needed {
+        return Some(format!("\x1b[36;1m{fw_trimmed}\x1b[0m"));
+    }
+    let rem = target_cols - space_needed;
+    let left_len = rem / 2;
+    let right_len = rem - left_len;
+
+    Some(format!(
+        "\x1b[90m{}\x1b[0m\x1b[36;1m {} \x1b[0m\x1b[90m{}\x1b[0m",
+        "\u{2500}".repeat(left_len),
+        fw_trimmed,
+        "\u{2500}".repeat(right_len)
+    ))
+}
+
+/// Show the tail when there is more content than room, optionally pinning
+/// the header (line 0) so the server name stays visible.
+fn visible(lines: &[String], height: usize, pin_header: bool, target_cols: usize) -> Vec<String> {
+    if lines.is_empty() {
+        return Vec::new();
+    }
+    let mut out = if lines.len() <= height {
+        lines.to_vec()
+    } else if pin_header && height > 1 {
+        let mut v = Vec::with_capacity(height);
+        v.push(lines[0].clone());
+        let tail_count = height - 1;
+        v.extend_from_slice(&lines[lines.len() - tail_count..]);
+        v
+    } else {
+        lines[lines.len() - height..].to_vec()
+    };
+
+    if !out.is_empty() && target_cols > 0 {
+        if let Some(refitted) = refit_header(&out[0], target_cols) {
+            out[0] = refitted;
+        }
+    }
+
+    out
 }
 
 fn keybar_line() -> Line<'static> {
@@ -83,11 +161,11 @@ pub fn draw(f: &mut Frame, app: &App) {
         if inner.width == 0 || inner.height == 0 {
             continue;
         }
-        let lines = visible(&panel.view, inner.height as usize);
+        let lines = visible(&panel.view, inner.height as usize, true, inner.width as usize);
         // No wrapping: frames are pre-formatted to the width we asked for,
         // and wrapping a bar chart turns one row into two and breaks the
         // whole panel's alignment.
-        f.render_widget(Paragraph::new(ansi::to_text(lines)), inner);
+        f.render_widget(Paragraph::new(ansi::to_text(&lines)), inner);
     }
 
     f.render_widget(
@@ -110,8 +188,8 @@ mod tests {
     #[test]
     fn agent_dims_leave_room_for_margins_and_keybar() {
         let (cols, rows) = agent_dims(size(100, 31), 3);
-        assert_eq!(cols, 98, "one column of margin each side");
-        assert_eq!(rows, 10, "30 body rows over 3 panels");
+        assert_eq!(cols, 48, "half width minus margins for 2-column grid");
+        assert_eq!(rows, 15, "30 body rows over 2 grid rows");
     }
 
     #[test]
@@ -143,13 +221,16 @@ mod tests {
     }
 
     #[test]
-    fn regions_do_not_overlap() {
+    fn regions_grid_layout_for_three_panels() {
         let (panels, keybar) = regions(Rect::new(0, 0, 80, 30), 3);
-        for pair in panels.windows(2) {
-            assert_eq!(pair[0].y + pair[0].height, pair[1].y);
-        }
-        let last = panels.last().unwrap();
-        assert!(last.y + last.height <= keybar.y);
+        assert_eq!(panels.len(), 3);
+        assert_eq!(keybar.y, 29);
+        // Panels 0 and 1 are in top row, panel 2 is in bottom row
+        assert_eq!(panels[0].y, 0);
+        assert_eq!(panels[1].y, 0);
+        assert_eq!(panels[2].y, 15);
+        assert_eq!(panels[0].width, 40);
+        assert_eq!(panels[1].width, 40);
     }
 
     #[test]
@@ -162,25 +243,35 @@ mod tests {
     #[test]
     fn visible_shows_everything_when_it_fits() {
         let lines: Vec<String> = (0..3).map(|i| i.to_string()).collect();
-        assert_eq!(visible(&lines, 10).len(), 3);
-        assert_eq!(visible(&lines, 3).len(), 3);
+        assert_eq!(visible(&lines, 10, false, 0).len(), 3);
+        assert_eq!(visible(&lines, 3, false, 0).len(), 3);
     }
 
-    /// Overflowing output must keep its tail: for a running command, the last
-    /// lines are the result.
+    /// Overflowing output keeps its tail when pin_header is false.
     #[test]
     fn visible_keeps_the_tail() {
         let lines: Vec<String> = (0..100).map(|i| i.to_string()).collect();
-        let shown = visible(&lines, 5);
+        let shown = visible(&lines, 5, false, 0);
         assert_eq!(shown.len(), 5);
         assert_eq!(shown[0], "95");
         assert_eq!(shown[4], "99");
     }
 
+    /// When pin_header is true, line 0 (header) is kept at position 0, followed by the tail.
+    #[test]
+    fn visible_pins_header() {
+        let lines: Vec<String> = (0..100).map(|i| format!("line_{i}")).collect();
+        let shown = visible(&lines, 5, true, 0);
+        assert_eq!(shown.len(), 5);
+        assert_eq!(shown[0], "line_0");
+        assert_eq!(shown[1], "line_96");
+        assert_eq!(shown[4], "line_99");
+    }
+
     #[test]
     fn visible_handles_zero_height() {
         let lines: Vec<String> = (0..3).map(|i| i.to_string()).collect();
-        assert!(visible(&lines, 0).is_empty());
+        assert!(visible(&lines, 0, false, 0).is_empty());
     }
 
     #[test]

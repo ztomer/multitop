@@ -130,6 +130,37 @@ pub fn fullwidth_display_width(s: &str) -> usize {
         .sum()
 }
 
+use crate::color::Palette;
+
+/// Center-aligned header line: `────── ｈｏｓｔｎａｍｅ ──────`
+pub fn center_header(host: &str, cols: usize, pal: &Palette) -> String {
+    let fw = fullwidth(host);
+    let disp_w = fullwidth_display_width(host);
+    if cols <= disp_w {
+        return format!("{}{}{}{}", pal.cyan, pal.bold, fw, pal.reset);
+    }
+    let space_needed = disp_w + 2;
+    if cols < space_needed {
+        return format!("{}{}{}{}", pal.cyan, pal.bold, fw, pal.reset);
+    }
+    let rem = cols - space_needed;
+    let left_len = rem / 2;
+    let right_len = rem - left_len;
+    format!(
+        "{}{}{}{}{}{} {}{}{}{}",
+        pal.gray,
+        "\u{2500}".repeat(left_len),
+        pal.reset,
+        pal.cyan,
+        pal.bold,
+        fw,
+        pal.reset,
+        pal.gray,
+        "\u{2500}".repeat(right_len),
+        pal.reset
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -331,5 +362,15 @@ mod tests {
         assert_eq!(fullwidth_display_width("ab"), 4);
         assert_eq!(fullwidth_display_width("a b"), 5);
         assert_eq!(fullwidth_display_width(""), 0);
+    }
+
+    #[test]
+    fn center_header_is_centered() {
+        use crate::color::strip_ansi;
+        let line = strip_ansi(&center_header("h", 40, &ANSI));
+        assert!(line.contains("\u{ff48}"));
+        let left_rules = line.chars().take_while(|c| *c == '\u{2500}').count();
+        let right_rules = line.chars().rev().take_while(|c| *c == '\u{2500}').count();
+        assert_eq!(left_rules, right_rules);
     }
 }

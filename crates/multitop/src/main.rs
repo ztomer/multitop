@@ -1,11 +1,6 @@
 //! multitop — watch several servers at once in one terminal.
 
-mod ansi;
-mod app;
-mod config;
-mod run;
-mod ssh;
-mod ui;
+use multitop::{config, run, ssh};
 
 use std::path::PathBuf;
 use std::process::ExitCode;
@@ -18,6 +13,9 @@ USAGE:
 
 OPTIONS:
     -c, --config <PATH>    Config file (default: ~/.config/multitop/config.toml)
+    -r, --remote <HOSTS>   Override config with comma-separated remote hosts/IPs
+        --local            Include local machine (localhost) in server list
+        --local-only       Monitor local machine only (no config or SSH required)
     -h, --help             Print this help
     -V, --version          Print version
 
@@ -28,15 +26,24 @@ KEYS:
     u          Run each server's configured upgrade_cmd
 ";
 
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct CliOptions {
+    pub config_path: Option<PathBuf>,
+    pub local: bool,
+    pub local_only: bool,
+    pub remote_hosts: Vec<String>,
+}
+
 enum Startup {
-    Run(PathBuf),
+    Run(CliOptions),
+    Agent(Vec<String>),
     Print(String),
     Fail(String),
 }
 
 fn parse_cli<I: IntoIterator<Item = String>>(argv: I) -> Startup {
     let mut args = argv.into_iter();
-    let mut path = None;
+    let mut opts = CliOptions::default();
     while let Some(arg) = args.next() {
         match arg.as_str() {
             "-h" | "--help" => return Startup::Print(USAGE.to_string()),
@@ -44,13 +51,30 @@ fn parse_cli<I: IntoIterator<Item = String>>(argv: I) -> Startup {
                 return Startup::Print(format!("multitop {}", env!("CARGO_PKG_VERSION")))
             }
             "-c" | "--config" => match args.next() {
-                Some(p) => path = Some(PathBuf::from(p)),
+                Some(p) => opts.config_path = Some(PathBuf::from(p)),
                 None => return Startup::Fail("--config requires a path".into()),
             },
+            "-r" | "--remote" => match args.next() {
+                Some(remotes) => {
+                    for h in remotes.split(',') {
+                        let trimmed = h.trim();
+                        if !trimmed.is_empty() {
+                            opts.remote_hosts.push(trimmed.to_string());
+                        }
+                    }
+                }
+                None => return Startup::Fail("--remote requires host or IP list".into()),
+            },
+            "--local" => opts.local = true,
+            "--local-only" => opts.local_only = true,
+            "--agent" => {
+                let rest: Vec<String> = args.collect();
+                return Startup::Agent(rest);
+            }
             other => return Startup::Fail(format!("Unknown argument '{other}'\n\n{USAGE}")),
         }
     }
-    Startup::Run(path.unwrap_or_else(config::default_config_path))
+    Startup::Run(opts)
 }
 
 /// `ssh` is invoked by name; a missing binary should be reported up front
@@ -66,8 +90,12 @@ fn require_ssh() -> Result<(), String> {
 }
 
 fn main() -> ExitCode {
-    let config_path = match parse_cli(std::env::args().skip(1)) {
-        Startup::Run(p) => p,
+    let opts = match parse_cli(std::env::args().skip(1)) {
+        Startup::Run(opts) => opts,
+        Startup::Agent(agent_args) => {
+            multitop_agent::run_agent(agent_args);
+            return ExitCode::SUCCESS;
+        }
         Startup::Print(text) => {
             println!("{text}");
             return ExitCode::SUCCESS;
@@ -78,20 +106,69 @@ fn main() -> ExitCode {
         }
     };
 
-    let servers = match require_ssh().and_then(|()| config::load(&config_path).map_err(|e| e.0)) {
-        Ok(s) => s,
-        Err(e) => {
+    let local_server = config::Server {
+        host: "localhost".into(),
+        port: 0,
+        user: String::new(),
+        upgrade_cmd: None,
+    };
+
+    let servers = if opts.local_only {
+        vec![local_server]
+    } else if !opts.remote_hosts.is_empty() {
+        let mut list: Vec<config::Server> = opts
+            .remote_hosts
+            .into_iter()
+            .map(|h| config::Server {
+                host: h,
+                port: 22,
+                user: String::new(),
+                upgrade_cmd: None,
+            })
+            .collect();
+        if opts.local {
+            list.insert(0, local_server);
+        }
+        list
+    } else {
+        let path = opts
+            .config_path
+            .unwrap_or_else(config::default_config_path);
+        let mut list = match config::load(&path).map_err(|e| e.0) {
+            Ok(s) => s,
+            Err(e) => {
+                if opts.local {
+                    Vec::new()
+                } else {
+                    eprintln!("[Error] {e}");
+                    return ExitCode::FAILURE;
+                }
+            }
+        };
+        if opts.local {
+            list.insert(0, local_server);
+        }
+        list
+    };
+
+    if servers.is_empty() {
+        eprintln!("[Error] No servers to monitor.");
+        return ExitCode::FAILURE;
+    }
+
+    let has_remote = servers.iter().any(|s| !ssh::is_local(s));
+    if has_remote {
+        if let Err(e) = require_ssh() {
             eprintln!("[Error] {e}");
             return ExitCode::FAILURE;
         }
-    };
-
-    if !ssh::any_agent_embedded() {
-        eprintln!(
-            "[Error] This build contains no agent binaries.\n\
-             \x20       Run ./build.sh to cross-compile them, then rebuild."
-        );
-        return ExitCode::FAILURE;
+        if !ssh::any_agent_embedded() {
+            eprintln!(
+                "[Error] This build contains no agent binaries.\n\
+                 \x20       Run ./build.sh to cross-compile them, then rebuild."
+            );
+            return ExitCode::FAILURE;
+        }
     }
 
     let runtime = match tokio::runtime::Builder::new_multi_thread()
@@ -123,9 +200,14 @@ mod tests {
     }
 
     #[test]
-    fn no_arguments_uses_the_default_path() {
+    fn no_arguments_uses_default_options() {
         match cli(&[]) {
-            Startup::Run(p) => assert!(p.ends_with("multitop/config.toml")),
+            Startup::Run(opts) => {
+                assert_eq!(opts.config_path, None);
+                assert!(!opts.local);
+                assert!(!opts.local_only);
+                assert!(opts.remote_hosts.is_empty());
+            }
             _ => panic!("expected Run"),
         }
     }
@@ -134,9 +216,33 @@ mod tests {
     fn config_flag_overrides_the_path() {
         for flag in ["-c", "--config"] {
             match cli(&[flag, "/tmp/x.toml"]) {
-                Startup::Run(p) => assert_eq!(p, PathBuf::from("/tmp/x.toml")),
+                Startup::Run(opts) => {
+                    assert_eq!(opts.config_path, Some(PathBuf::from("/tmp/x.toml")))
+                }
                 _ => panic!("expected Run for {flag}"),
             }
+        }
+    }
+
+    #[test]
+    fn remote_flag_parses_hosts() {
+        match cli(&["--remote", "10.0.0.1,10.0.0.2"]) {
+            Startup::Run(opts) => {
+                assert_eq!(opts.remote_hosts, vec!["10.0.0.1", "10.0.0.2"]);
+            }
+            _ => panic!("expected Run for remote flag"),
+        }
+    }
+
+    #[test]
+    fn local_flags_parsed() {
+        match cli(&["--local"]) {
+            Startup::Run(opts) => assert!(opts.local && !opts.local_only),
+            _ => panic!("expected Run"),
+        }
+        match cli(&["--local-only"]) {
+            Startup::Run(opts) => assert!(opts.local_only),
+            _ => panic!("expected Run"),
         }
     }
 

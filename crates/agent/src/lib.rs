@@ -6,6 +6,7 @@
 //! `===MONITOR===` so the reader can tell them apart.
 
 pub mod color;
+pub mod consts;
 pub mod docker;
 pub mod fmt;
 pub mod monitor;
@@ -77,6 +78,67 @@ pub fn parse_args<I: IntoIterator<Item = String>>(argv: I) -> Args {
         args.lines = v;
     }
     args
+}
+
+pub fn run_agent<I: IntoIterator<Item = String>>(argv: I) {
+    use std::io::{self, IsTerminal, Write};
+    use std::time::{Duration, Instant};
+
+    let args = parse_args(argv);
+    let is_tty = io::stdout().is_terminal();
+    let pal = if std::env::var_os("NO_COLOR").is_some() {
+        &color::PLAIN
+    } else {
+        &color::ANSI
+    };
+    let host = proc::host_info(args.display_ip.as_deref());
+
+    match args.mode {
+        Mode::Docker => {
+            let frame = docker::render(&host, args.cols, args.lines, &docker::collect(), pal);
+            let mut out = io::stdout().lock();
+            let _ = writeln!(out, "{}", frame.join("\n"));
+        }
+        Mode::Monitor => {
+            if is_tty {
+                let _ = io::stdout().write_all(b"\x1b[?25l");
+            }
+            let interval = Duration::from_secs_f64(DEFAULT_INTERVAL);
+            let mut monitor = monitor::Monitor::new(host);
+
+            let mut buf = String::with_capacity(8192);
+            let mut last = Instant::now();
+            std::thread::sleep(interval);
+
+            loop {
+                let elapsed = last.elapsed().as_secs_f64();
+                last = Instant::now();
+
+                let snap = monitor.tick(elapsed, args.cols, args.lines);
+                let frame = render::render(&snap, args.cols, args.lines, render::bar_len_for(args.cols), pal);
+
+                buf.clear();
+                if is_tty {
+                    buf.push_str("\x1b[H\x1b[J");
+                } else {
+                    buf.push_str(FRAME_MARKER);
+                    buf.push('\n');
+                }
+                for line in &frame {
+                    buf.push_str(line);
+                    buf.push('\n');
+                }
+
+                let mut out = io::stdout().lock();
+                if out.write_all(buf.as_bytes()).is_err() || out.flush().is_err() {
+                    return;
+                }
+                drop(out);
+
+                std::thread::sleep(interval);
+            }
+        }
+    }
 }
 
 #[cfg(test)]

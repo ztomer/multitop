@@ -7,6 +7,7 @@
 //! and then never happens again for that build.
 
 use std::io;
+use std::path::Path;
 use std::process::Stdio;
 
 use tokio::io::AsyncWriteExt;
@@ -35,6 +36,11 @@ const SSH_OPTS: &[&str] = &[
     "ServerAliveInterval=15",
     "-o",
     "ServerAliveCountMax=3",
+    // Don't forward locale env vars — the agent reads /proc directly and
+    // doesn't need them, and servers without the locale installed emit a
+    // noisy "setlocale: LC_ALL: cannot change locale" warning.
+    "-o",
+    "SendEnv=",
     "-T",
 ];
 
@@ -113,7 +119,8 @@ pub fn agent_path(hash: &str) -> String {
 /// paying an extra round trip whenever the guess is wrong.
 pub fn bootstrap_script(mode: Mode, display_ip: &str, cols: u16, lines: u16) -> String {
     format!(
-        "M=$(uname -m)\n\
+        "LC_ALL=C; LANG=C; export LC_ALL LANG\n\
+         M=$(uname -m)\n\
          case \"$M\" in\n\
          x86_64|amd64) A=\"{x86}\" ;;\n\
          aarch64|arm64) A=\"{arm}\" ;;\n\
@@ -150,10 +157,45 @@ pub fn parse_need_agent(line: &str) -> Option<&str> {
 
 fn ssh_command(server: &Server) -> Command {
     let mut cmd = Command::new("ssh");
+    cmd.env("LC_ALL", "C").env("LANG", "C");
     cmd.args(SSH_OPTS);
     cmd.arg("-p").arg(server.port.to_string());
     cmd.arg(server.target());
     cmd
+}
+
+pub fn is_local(server: &Server) -> bool {
+    server.host == "localhost" || server.host == "127.0.0.1" || server.port == 0
+}
+
+pub fn spawn_local_agent(mode: Mode, cols: u16, lines: u16) -> io::Result<Child> {
+    let path_var = std::env::var_os("PATH").unwrap_or_default();
+    let on_path = std::env::split_paths(&path_var).any(|dir| dir.join("multitop-agent").is_file());
+
+    let (mut cmd, extra_args) = if on_path {
+        (Command::new("multitop-agent"), vec![])
+    } else if let Ok(exe) = std::env::current_exe() {
+        let candidate = exe.parent().unwrap_or(Path::new("")).join("multitop-agent");
+        if candidate.is_file() {
+            (Command::new(candidate), vec![])
+        } else {
+            (Command::new(exe), vec!["--agent".to_string()])
+        }
+    } else {
+        (Command::new("multitop-agent"), vec![])
+    };
+
+    if !extra_args.is_empty() {
+        cmd.args(extra_args);
+    }
+
+    cmd.args([mode.word(), "127.0.0.1", &cols.to_string(), &lines.to_string()])
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .kill_on_drop(true);
+
+    cmd.spawn()
 }
 
 /// Start the agent, or learn that it needs uploading first.
@@ -162,6 +204,9 @@ fn ssh_command(server: &Server) -> Command {
 /// (`Permission denied`, `Host key verification failed`) lands in the panel
 /// instead of vanishing.
 pub async fn spawn_agent(server: &Server, mode: Mode, cols: u16, lines: u16) -> io::Result<Child> {
+    if is_local(server) {
+        return spawn_local_agent(mode, cols, lines);
+    }
     let script = bootstrap_script(mode, &server.host, cols, lines);
     let mut cmd = ssh_command(server);
     cmd.arg("sh")
@@ -180,6 +225,16 @@ pub async fn spawn_agent(server: &Server, mode: Mode, cols: u16, lines: u16) -> 
 
 /// Run an arbitrary command on the server (used for `upgrade_cmd`).
 pub fn spawn_command(server: &Server, command: &str) -> io::Result<Child> {
+    if is_local(server) {
+        return Command::new("sh")
+            .arg("-c")
+            .arg(command)
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .kill_on_drop(true)
+            .spawn();
+    }
     ssh_command(server)
         .arg(command)
         .stdin(Stdio::null())

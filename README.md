@@ -4,8 +4,8 @@ SSH into multiple servers and watch a compact real-time system monitor
 for each one, side by side in a single terminal. Written in Rust
 ([ratatui](https://ratatui.rs) + tokio).
 
-```
-ｈｏｓｔｎａｍｅ　（１０．０．０．３３）  ──────────────────────────────────
+```text
+─────────── ｈｏｓｔｎａｍｅ　（１０．０．０．３３） ───────────
  CPU  0:[####....] 45%  1:[##......] 22%  2:[#.......] 11%  3:[###.....] 33%
  MEM [####################....................]  62%  6.2GiB/10.0GiB
  DSK [#######.................................]  18%  167GiB/931GiB
@@ -16,15 +16,32 @@ for each one, side by side in a single terminal. Written in Rust
      789  python3         8.0   45.1MiB │     101  sshd            0.1    3.2MiB
 ```
 
+## Installation
+
+### Homebrew (macOS & Linux)
+
+```bash
+brew tap ztomer/tap
+brew install multitop
+```
+
 ## Quick start
 
 ```bash
+# Monitor your local machine standalone as a top replacement (no SSH or config required):
+multitop --local-only
+
+# Or monitor remote servers via config:
 mkdir -p ~/.config/multitop
 cp config.example.toml ~/.config/multitop/config.toml
 # edit it with your server list
 
+# Build locally and run:
 ./build.sh
 ./multitop
+
+# Include your local machine alongside remote servers:
+./multitop --local
 ```
 
 ## How it works
@@ -39,9 +56,11 @@ The agent samples `/proc` directly and streams pre-rendered frames back over
 the SSH connection. Connections are multiplexed (`ControlMaster`), so the
 Docker and upgrade views reuse the session the monitor already opened.
 
+When monitoring locally (`--local` or `--local-only`), `multitop` executes the local agent directly without SSH overhead or network connections.
+
 ## What you see
 
-- **Hostname/IP** — cyan header, identifies the server
+- **Hostname/IP** — cyan header center-aligned dynamically on window resize
 - **CPU** — per-core bars when the panel is wide enough, otherwise one
   aggregate bar (green < 50 %, yellow 50–80 %, red ≥ 80 %)
 - **MEM** — used / total
@@ -49,6 +68,16 @@ Docker and upgrade views reuse the session the monitor already opened.
 - **NET** — aggregate up/down across non-loopback interfaces
 - **Top processes** — by instantaneous CPU, in two columns on wide panels,
   sized to fill the space available
+
+## Options & Flags
+
+| Flag | Action |
+|------|--------|
+| `-c`, `--config <PATH>` | Config file path (default: `~/.config/multitop/config.toml`) |
+| `--local` | Include local machine (`localhost`) in the server list |
+| `--local-only` | Monitor local machine only as a standalone top replacement (no SSH or config needed) |
+| `-h`, `--help` | Print help information |
+| `-V`, `--version` | Print version information |
 
 ## Keys
 
@@ -111,43 +140,29 @@ the result is a single self-contained executable.
 cargo test --workspace
 ```
 
-The test suite includes a parity suite (`crates/agent/tests/parity.rs`) that
-diffs the renderer against golden output across 67 panel shapes, covering
-the host header, CPU block, and MEM/DSK/NET rows.
+The test suite covers panel rendering across multiple terminal dimensions, docker table parsing/formatting, `/proc` parsing, and TUI app state transitions across dedicated test files in `tests/`.
 
 ## Design notes
 
-- **Per-core CPU bars.** The renderer shows individual core utilisation when
-  the panel is wide enough, falling back to a single aggregate bar on narrow
-  terminals. Core layout and row counting share one geometry implementation
-  to prevent overflow.
-- **Instantaneous process CPU.** CPU percentage is differenced from
-  `/proc/<pid>/stat` between samples, so a daemon that is busy *right now*
-  reads correctly (unlike lifetime-average approaches).
-- **Wide panels list more processes.** Two-column layouts fill both columns
-  independently, doubling the visible process count.
-- **Docker stats read the daemon socket.** The agent takes two one-shot
-  samples 250 ms apart, in parallel across containers, falling back to the
-  CLI when the socket is not readable. This avoids the fixed ~1.5 s cost
-  of `docker stats --no-stream`.
-- **Upgrade output stays on screen** until you press **s**, and streams live
-  rather than appearing only when the command exits.
-- **Panels resize.** Changing the terminal size restarts the agents at the
-  new dimensions (debounced).
-- **Dropped connections retry** with backoff instead of leaving a dead panel.
-- **An empty process table draws nothing** rather than rendering an empty
-  header.
+- **Center-aligned headers.** Server headers are dynamically centered within horizontal rule borders on window resize.
+- **Adaptive layout & grid scaling.** Automatically switches between 1-column and 2-column panel grids based on terminal size and server count.
+- **Per-core CPU bars.** The renderer shows individual core utilisation when the panel is wide enough, falling back to a single aggregate bar on narrow terminals.
+- **Instantaneous process CPU.** CPU percentage is differenced from `/proc/<pid>/stat` between samples, so a daemon that is busy *right now* reads correctly.
+- **Standalone local monitoring.** Use `--local-only` as a fast local top replacement without requiring SSH or config files.
+- **Docker stats read the daemon socket.** The agent takes two one-shot samples 250 ms apart in parallel across containers.
+- **Upgrade output stays on screen** until you press **s**, and streams live rather than appearing only when the command exits.
 
 ## Project structure
 
 ```
-├── build.sh                  # cross-compiles the agents, then the binary
+├── build.sh                  # cross-compiles agents, then builds release binary
 ├── multitop                  # launcher for target/release/multitop
 ├── config.example.toml
 ├── crates/
-│   ├── agent/                # multitop-agent - runs on the monitored host
-│   │   └── src/{proc,render,docker,monitor,fmt,color}.rs
-│   └── multitop/             # the local TUI
-│       └── src/{app,ui,ansi,ssh,config,run}.rs
-└── tests/parity/             # golden output for renderer parity tests
+│   ├── agent/                # multitop-agent - runs on monitored host
+│   │   ├── src/{color,consts,docker,fmt,lib,main,monitor,proc,render}.rs
+│   │   └── tests/{docker_test,proc_test,render_layout_test,render_test}.rs
+│   └── multitop/             # local TUI dashboard
+│       ├── src/{ansi,app,config,consts,lib,main,run,ssh,tasks,ui}.rs
+│       └── tests/app_test.rs
 ```

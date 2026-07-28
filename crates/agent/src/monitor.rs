@@ -37,14 +37,15 @@ impl Monitor {
 
         let cpu_pct = cpu.aggregate.pct_since(&self.prev_cpu.aggregate);
 
-        // Per-core percentages need a matching previous sample; on the first
-        // tick, or right after a hotplug, a core simply has no history.
-        let cores: Vec<(usize, f64)> = cpu
+        let temps = proc::get_core_temps();
+        let cores: Vec<(usize, f64, Option<f64>)> = cpu
             .cores
             .iter()
             .filter_map(|(idx, curr)| {
                 let prev = self.prev_cpu.core(*idx)?;
-                Some((*idx, curr.pct_since(&prev)))
+                let cp = curr.pct_since(&prev);
+                let t = temps.get(idx).copied().or_else(|| temps.get(&0).copied());
+                Some((*idx, cp, t))
             })
             .collect();
 
@@ -64,13 +65,14 @@ impl Monitor {
             host: self.host.clone(),
             cpu_pct,
             cores,
+            temp_unit: Default::default(),
             mem,
             disk,
             rx_rate,
             tx_rate,
             procs: Vec::new(),
         };
-        let budget = Chrome::of(&snap, cols).proc_budget(lines);
+        let budget = Chrome::of(&snap, cols, lines).proc_budget(lines);
         snap.procs = self.sampler.top(interval, budget);
 
         self.prev_cpu = cpu;
@@ -89,7 +91,7 @@ mod tests {
     fn snapshot(cores: usize, procs: usize) -> Snapshot {
         Snapshot {
             host: "h".into(),
-            cores: (0..cores).map(|i| (i, 10.0)).collect(),
+            cores: (0..cores).map(|i| (i, 10.0, None)).collect(),
             mem: Usage {
                 total: 1 << 31,
                 used: 1 << 30,
@@ -120,10 +122,10 @@ mod tests {
         for cols in [40usize, 72, 100, 200] {
             for lines in [4usize, 8, 12, 24, 50] {
                 for cores in [1usize, 4, 16] {
-                    let chrome = Chrome::of(&snapshot(cores, 0), cols);
+                    let chrome = Chrome::of(&snapshot(cores, 0), cols, lines);
                     let budget = chrome.proc_budget(lines);
                     let s = snapshot(cores, budget);
-                    let height = frame_height(&s, cols);
+                    let height = frame_height(&s, cols, lines);
                     // Below the irreducible chrome height nothing fits; the
                     // budget must at least not add to the overflow.
                     let limit = lines.max(chrome.height());
@@ -131,7 +133,7 @@ mod tests {
                         height <= limit,
                         "cols={cols} lines={lines} cores={cores}: {height} > {limit}"
                     );
-                    assert_eq!(height, render(&s, cols, bar_len_for(cols), &ANSI).len());
+                    assert_eq!(height, render(&s, cols, lines, bar_len_for(cols), &ANSI).len());
                 }
             }
         }
