@@ -11,7 +11,7 @@ from rich.text import Text
 from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.containers import Vertical
-from textual.widgets import Header, Static
+from textual.widgets import Static
 
 CONFIG_PATH = os.path.expanduser("~/.config/multitop/config.toml")
 _EXAMPLE_CONFIG = os.path.join(os.path.dirname(os.path.abspath(__file__)), "config.example.toml")
@@ -82,14 +82,9 @@ def parse_toml_servers(path):
     return servers
 
 
-class KeyBar(Static):
-    pass
-
-
 class ServerPanel(Vertical):
     def __init__(self, server_cfg):
         super().__init__()
-        self.border_title = server_cfg["host"]
         self.output = Static("connecting...")
 
     def compose(self):
@@ -105,13 +100,12 @@ class MonitorApp(App):
         height: 1fr;
     }
     ServerPanel {
-        border: solid $primary;
         height: 1fr;
     }
     ServerPanel > Static {
         margin: 0 1;
     }
-    KeyBar {
+    #keybar {
         background: $panel;
         color: $text-muted;
         height: 1;
@@ -120,30 +114,58 @@ class MonitorApp(App):
     """
 
     BINDINGS = [
-        Binding("escape", "quit", "Exit"),
+        Binding("escape", "quit", "ESC Quit"),
+        Binding("d", "toggle_docker", "D"),
+        Binding("u", "run_upgrade", "U"),
     ]
 
     def __init__(self, servers):
         super().__init__()
         self.servers = servers
-        self._ssh_procs = []
+        self._tasks = {}
+        self._procs = {}
+        self._gen = {}
+        self._mode = {}  # panel -> "monitor" | "docker" | "upgrade"
 
     def compose(self):
-        yield Header(show_clock=False)
         with Vertical():
             for srv in self.servers:
                 yield ServerPanel(srv)
-        yield KeyBar(" ESC Quit")
+        yield Static(" ESC Quit  D Docker  U Upgrade", id="keybar")
 
     async def on_mount(self):
         for panel, srv in zip(self.query(ServerPanel), self.servers):
-            asyncio.create_task(self._monitor_server(panel, srv))
+            self._tasks[panel] = asyncio.create_task(self._monitor_server(panel, srv))
+
+    def _target(self, srv):
+        user = srv.get("user", "")
+        host = srv["host"]
+        return f"{user}@{host}" if user else host
+
+    def _cancel_tasks(self, *panels):
+        for p in panels:
+            if p in self._tasks:
+                self._tasks[p].cancel()
+            if p in self._procs:
+                try:
+                    self._procs[p].terminate()
+                except Exception:
+                    pass
+
+    def _current_gen(self, panel):
+        return self._gen.get(panel, 0)
+
+    def _next_gen(self, panel):
+        g = self._current_gen(panel) + 1
+        self._gen[panel] = g
+        return g
 
     async def _monitor_server(self, panel, srv):
         host = srv["host"]
         port = srv.get("port", 22)
-        user = srv.get("user", "")
-        target = f"{user}@{host}" if user else host
+        target = self._target(srv)
+        gen = self._next_gen(panel)
+        self._mode[panel] = "monitor"
 
         n = len(self.servers)
         term = shutil.get_terminal_size()
@@ -153,13 +175,14 @@ class MonitorApp(App):
         quoted = shlex.quote(COMPACT_MONITOR)
         cmd = f"python3 -c {quoted} {shlex.quote(host)} {panel_w} {panel_h}"
 
+        proc = None
         try:
             proc = await asyncio.create_subprocess_exec(
                 "ssh", target, "-p", str(port), cmd,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.STDOUT,
             )
-            self._ssh_procs.append(proc)
+            self._procs[panel] = proc
 
             buf = []
             while True:
@@ -175,15 +198,108 @@ class MonitorApp(App):
                     buf.append(line)
             if buf:
                 panel.output.update(Text.from_ansi("\n".join(buf)))
+        except asyncio.CancelledError:
+            raise
         except FileNotFoundError:
             panel.output.update(Text.from_ansi("[red]ssh command not found[/]"))
         except Exception as e:
             panel.output.update(Text.from_ansi(f"[red]{e}[/]"))
+        finally:
+            if proc is not None and self._procs.get(panel) is proc:
+                del self._procs[panel]
+
+    async def _show_docker(self, panel, srv):
+        self._mode[panel] = "docker"
+        cmd = (
+            "if command -v docker >/dev/null 2>&1; then "
+            "docker ps --format 'table {{.Names}}\t{{.Status}}\t{{.Image}}' 2>&1; "
+            "else echo '>> no dockers'; fi"
+        )
+        gen = self._next_gen(panel)
+        await self._run_ssh_cmd(panel, srv, cmd, gen, "Docker")
+        if self._current_gen(panel) == gen:
+            await self._restart_monitor(panel, srv)
+
+    async def _run_upgrade(self, panel, srv):
+        self._mode[panel] = "upgrade"
+        cmd = srv.get("upgrade_cmd", "")
+        gen = self._next_gen(panel)
+
+        if not cmd:
+            panel.output.update(
+                Text.from_ansi("[yellow]No upgrade_cmd configured for this server[/]")
+            )
+            await asyncio.sleep(5)
+            if self._current_gen(panel) == gen:
+                await self._restart_monitor(panel, srv)
+            return
+
+        await self._run_ssh_cmd(panel, srv, cmd, gen, "Upgrade")
+        if self._current_gen(panel) == gen:
+            await self._restart_monitor(panel, srv)
+
+    async def _run_ssh_cmd(self, panel, srv, cmd, gen, label):
+        host = srv["host"]
+        port = srv.get("port", 22)
+        target = self._target(srv)
+
+        proc = None
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                "ssh", target, "-p", str(port), cmd,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.STDOUT,
+            )
+            self._procs[panel] = proc
+
+            lines = [f"[bold]{label} on {host}[/]"]
+            while True:
+                raw = await proc.stdout.readline()
+                if not raw:
+                    break
+                lines.append(raw.decode("utf-8", errors="replace").rstrip())
+            await proc.wait()
+            if self._current_gen(panel) == gen:
+                panel.output.update(Text.from_ansi("\n".join(lines)))
+        except asyncio.CancelledError:
+            raise
+        except Exception as e:
+            if self._current_gen(panel) == gen:
+                panel.output.update(Text.from_ansi(f"[red]{e}[/]"))
+        finally:
+            if proc is not None and self._procs.get(panel) is proc:
+                del self._procs[panel]
+
+    async def _restart_monitor(self, panel, srv):
+        self._tasks[panel] = asyncio.create_task(self._monitor_server(panel, srv))
+
+    async def action_toggle_docker(self):
+        panels = list(self.query(ServerPanel))
+        servers = self.servers
+        in_docker = any(self._mode.get(p) == "docker" for p in panels)
+        self._cancel_tasks(*panels)
+        for panel, srv in zip(panels, servers):
+            if in_docker:
+                self._tasks[panel] = asyncio.create_task(self._monitor_server(panel, srv))
+            else:
+                self._tasks[panel] = asyncio.create_task(self._show_docker(panel, srv))
+
+    async def action_run_upgrade(self):
+        panels = list(self.query(ServerPanel))
+        servers = self.servers
+        self._cancel_tasks(*panels)
+        for panel, srv in zip(panels, servers):
+            self._tasks[panel] = asyncio.create_task(self._run_upgrade(panel, srv))
 
     async def action_quit(self) -> None:
-        for proc in self._ssh_procs:
+        for proc in self._procs.values():
             try:
                 proc.terminate()
+            except Exception:
+                pass
+        for task in self._tasks.values():
+            try:
+                task.cancel()
             except Exception:
                 pass
         self.exit()
