@@ -326,28 +326,44 @@ class TestMonitorApp:
 
     # --- action_toggle_docker ---
 
-    async def test_toggle_docker_starts_docker_task(self):
-        servers = [{"host": "a"}]
+    async def test_toggle_docker_switches_all_panels_at_once(self):
+        servers = [{"host": f"s{i}"} for i in range(3)]
         app = MonitorApp(servers)
         async with app.run_test() as pilot:
-            panel = app.query(ServerPanel).first()
-            with patch.object(MonitorApp, "on_mount", new=AsyncMock()):
-                await pilot.pause()
-                await app.action_toggle_docker()
-                await pilot.pause()
-                assert app._mode.get(panel) == "docker"
-
-    async def test_toggle_docker_returns_to_monitor(self):
-        servers = [{"host": "a"}]
-        app = MonitorApp(servers)
-        async with app.run_test() as pilot:
-            panel = app.query(ServerPanel).first()
-            app._mode[panel] = "docker"
+            panels = list(app.query(ServerPanel))
+            assert len(panels) == 3
+            for p in panels:
+                assert app._mode.get(p) == "monitor" or app._mode.get(p) is None
             await app.action_toggle_docker()
             await pilot.pause()
-            assert app._mode.get(panel) == "monitor"
+            for p in panels:
+                assert app._mode.get(p) == "docker", f"Panel not docker: {app._mode.get(p)}"
+
+    async def test_toggle_docker_returns_all_to_monitor(self):
+        servers = [{"host": f"s{i}"} for i in range(3)]
+        app = MonitorApp(servers)
+        async with app.run_test() as pilot:
+            panels = list(app.query(ServerPanel))
+            for p in panels:
+                app._mode[p] = "docker"
+            await app.action_toggle_docker()
+            await pilot.pause()
+            for p in panels:
+                assert app._mode.get(p) == "monitor"
 
     # --- action_switch_stats ---
+
+    async def test_switch_stats_restores_all_panels_at_once(self):
+        servers = [{"host": f"s{i}"} for i in range(3)]
+        app = MonitorApp(servers)
+        async with app.run_test() as pilot:
+            panels = list(app.query(ServerPanel))
+            for p in panels:
+                app._mode[p] = "docker"
+            await app.action_switch_stats()
+            await pilot.pause()
+            for p in panels:
+                assert app._mode.get(p) == "monitor"
 
     async def test_switch_stats_sets_monitor_mode(self):
         servers = [{"host": "a"}]
