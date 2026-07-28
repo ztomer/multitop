@@ -4,5 +4,6 @@ pub mod config;
 pub mod consts;
 pub mod run;
 pub mod ssh;
+pub mod sparkline;
 pub mod tasks;
 pub mod ui;

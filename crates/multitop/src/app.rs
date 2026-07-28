@@ -100,14 +100,38 @@ pub struct App {
     pub panels: Vec<Panel>,
     pub should_quit: bool,
     pub sort: SortBy,
+    pub filter_query: String,
+    pub is_filtering: bool,
+    pub sparklines: Vec<crate::sparkline::SparklineHistory>,
 }
 
 impl App {
     pub fn new(servers: Vec<Server>) -> Self {
+        let count = servers.len();
         App {
             panels: servers.into_iter().map(Panel::new).collect(),
             should_quit: false,
             sort: SortBy::Cpu,
+            filter_query: String::new(),
+            is_filtering: false,
+            sparklines: (0..count).map(|_| crate::sparkline::SparklineHistory::new(30)).collect(),
+        }
+    }
+
+    pub fn filtered_indices(&self) -> Vec<usize> {
+        if self.filter_query.trim().is_empty() {
+            (0..self.panels.len()).collect()
+        } else {
+            let q = self.filter_query.to_lowercase();
+            self.panels
+                .iter()
+                .enumerate()
+                .filter(|(_, p)| {
+                    p.server.host.to_lowercase().contains(&q)
+                        || p.server.user.to_lowercase().contains(&q)
+                })
+                .map(|(i, _)| i)
+                .collect()
         }
     }
 

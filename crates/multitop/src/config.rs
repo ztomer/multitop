@@ -181,6 +181,66 @@ pub fn parse(text: &str) -> Result<Vec<Server>, ConfigError> {
     Ok(out)
 }
 
+/// Parse standard SSH config file (~/.ssh/config) for Host blocks.
+pub fn parse_ssh_config(text: &str) -> Vec<Server> {
+    let mut servers = Vec::new();
+    let mut current_host: Option<String> = None;
+    let mut current_user = String::new();
+    let mut current_port = DEFAULT_PORT;
+    let mut real_hostname: Option<String> = None;
+
+    for line in text.lines() {
+        let line = line.trim();
+        if line.is_empty() || line.starts_with('#') {
+            continue;
+        }
+
+        let mut parts = line.split_whitespace();
+        let Some(key) = parts.next() else { continue };
+        let val = parts.collect::<Vec<_>>().join(" ");
+
+        match key.to_lowercase().as_str() {
+            "host" => {
+                if let Some(host_alias) = current_host.take() {
+                    if host_alias != "*" && !host_alias.contains('*') && !host_alias.contains('?') {
+                        servers.push(Server {
+                            host: real_hostname.unwrap_or(host_alias),
+                            port: current_port,
+                            user: current_user.clone(),
+                            upgrade_cmd: None,
+                        });
+                    }
+                }
+                current_host = Some(val.clone());
+                current_user.clear();
+                current_port = DEFAULT_PORT;
+                real_hostname = None;
+            }
+            "hostname" => real_hostname = Some(val),
+            "user" => current_user = val,
+            "port" => {
+                if let Ok(p) = val.parse::<u16>() {
+                    current_port = p;
+                }
+            }
+            _ => {}
+        }
+    }
+
+    if let Some(host_alias) = current_host {
+        if host_alias != "*" && !host_alias.contains('*') && !host_alias.contains('?') {
+            servers.push(Server {
+                host: real_hostname.unwrap_or(host_alias),
+                port: current_port,
+                user: current_user,
+                upgrade_cmd: None,
+            });
+        }
+    }
+
+    servers
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -350,5 +410,15 @@ mod tests {
         assert!(e
             .0
             .contains("Configuration file missing at /nonexistent/multitop/config.toml"));
+    }
+
+    #[test]
+    fn parse_ssh_config_extracts_hosts() {
+        let ssh_cfg = "Host prod-db\n  HostName 192.168.0.33\n  User ztomer\n  Port 2222\n\nHost *\n  User root\n";
+        let servers = parse_ssh_config(ssh_cfg);
+        assert_eq!(servers.len(), 1);
+        assert_eq!(servers[0].host, "192.168.0.33");
+        assert_eq!(servers[0].user, "ztomer");
+        assert_eq!(servers[0].port, 2222);
     }
 }
