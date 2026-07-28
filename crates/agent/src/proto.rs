@@ -298,4 +298,95 @@ mod tests {
             panic!("expected Monitor payload");
         }
     }
+
+    #[test]
+    fn docker_round_trip() {
+        let row = DockerRow {
+            name: "web_nginx_1".to_string(),
+            status: "Up 3 days".to_string(),
+            cpu: "1.25%".to_string(),
+            cpu_pct: 1.25,
+            mem: "15.4MiB / 2.0GiB".to_string(),
+            mem_bytes: 16_148_070,
+        };
+        let payload = Payload::Docker {
+            host: "docker-host-01".to_string(),
+            rows: vec![row.clone()],
+        };
+
+        let encoded = encode_packet(&payload);
+        assert_eq!(&encoded[..4], MAGIC);
+        let decoded = decode_packet(&encoded).expect("decode docker packet");
+
+        if let Payload::Docker { host, rows } = decoded {
+            assert_eq!(host, "docker-host-01");
+            assert_eq!(rows.len(), 1);
+            assert_eq!(rows[0].name, row.name);
+            assert_eq!(rows[0].status, row.status);
+            assert_eq!(rows[0].cpu, row.cpu);
+            assert!((rows[0].cpu_pct - row.cpu_pct).abs() < 0.01);
+            assert_eq!(rows[0].mem, row.mem);
+            assert_eq!(rows[0].mem_bytes, row.mem_bytes);
+        } else {
+            panic!("expected Docker payload");
+        }
+    }
+
+    #[test]
+    fn decode_fuzz_garbage_never_panics() {
+        let garbage_inputs: Vec<&[u8]> = vec![
+            b"",
+            b"MTO",
+            b"MTOP",
+            b"MTOP\x01\x00\x00\x00",
+            b"MTOP\x01\x00\x05\x00\x01\x02\x03", // length says 5, only 3 bytes
+            b"MTOP\x01\x00\xff\xff12345",      // length says 65535, buffer tiny
+            b"MTOP\x01\x02\x00\x00",            // unknown mode 2
+            b"MTOP\x01\x00\x10\x00\xff\xff\x00\x00\x00\x00", // corrupted string length
+            &[0u8; 100],
+            &[0xff; 100],
+        ];
+
+        for input in garbage_inputs {
+            let res = std::panic::catch_unwind(|| decode_packet(input));
+            assert!(res.is_ok(), "decode_packet panicked on input: {:?}", input);
+            assert!(decode_packet(input).is_none());
+        }
+    }
+
+    #[test]
+    fn boundary_values_and_unicode_handling() {
+        let snap = Snapshot {
+            host: "🚀-prod-node-üñîçødê".to_string(),
+            cpu_pct: 99.99,
+            cores: (0..128).map(|i| (i, 100.0, Some(85.5))).collect(),
+            temp_unit: TempUnit::F,
+            mem: Usage::new(u64::MAX, u64::MAX / 2),
+            disk: Usage::new(u64::MAX, u64::MAX / 4),
+            rx_rate: f64::MAX,
+            tx_rate: 0.0,
+            procs: vec![Proc {
+                pid: u32::MAX,
+                name: "🔥-worker-process".to_string(),
+                cpu: 999.9,
+                mem: u64::MAX,
+            }],
+        };
+
+        let payload = Payload::Monitor(snap.clone());
+        let encoded = encode_packet(&payload);
+        let decoded = decode_packet(&encoded).expect("decode boundary snapshot");
+
+        if let Payload::Monitor(d_snap) = decoded {
+            assert_eq!(d_snap.host, snap.host);
+            assert_eq!(d_snap.cores.len(), 128);
+            assert_eq!(d_snap.temp_unit, TempUnit::F);
+            assert_eq!(d_snap.mem, snap.mem);
+            assert_eq!(d_snap.disk, snap.disk);
+            assert_eq!(d_snap.procs[0].pid, u32::MAX);
+            assert_eq!(d_snap.procs[0].name, "🔥-worker-process");
+        } else {
+            panic!("expected Monitor payload");
+        }
+    }
 }
