@@ -19,19 +19,12 @@ hostname (10.0.0.33)  ───────────────────�
 
 ## Quick start
 
-Write `~/.config/multitop/config.toml`:
+Copy the example config and edit it:
 
-```toml
-[[servers]]
-host = "192.168.0.33"
-
-[[servers]]
-host = "192.168.0.90"
-user = "admin"
-
-[[servers]]
-host = "192.168.0.158"
-port = 2222
+```bash
+mkdir -p ~/.config/multitop
+cp config.example.toml ~/.config/multitop/config.toml
+# edit ~/.config/multitop/config.toml with your server list
 ```
 
 Then run:
@@ -88,6 +81,7 @@ python3 -m pytest tests/ --cov=multitop
 ├── multitop              # Shell wrapper → multitop.py
 ├── multitop.py           # Textual TUI app
 ├── compact_monitor.py    # Embedded system monitor (runs remotely via SSH)
+├── config.example.toml   # Example config — bootstrap from this
 ├── setup.cfg             # pytest + coverage config
 ├── tests/
 │   ├── __init__.py

@@ -126,6 +126,31 @@ user = "bad user"
         with pytest.raises(MonitorError, match="not a table"):
             parse_toml_servers(str(path))
 
+    def test_missing_suggests_old_migration(self, monkeypatch, tmp_path):
+        new_path = tmp_path / "new.toml"
+        old_path = str(tmp_path / "old" / "config.toml")
+        monkeypatch.setattr("multitop.os.path.expanduser", lambda p: old_path)
+        monkeypatch.setattr("multitop.os.path.exists", lambda p: p in (old_path, "/nonexistent"))
+        monkeypatch.setattr("multitop._EXAMPLE_CONFIG", "/nonexistent")
+        with pytest.raises(MonitorError, match="old location"):
+            parse_toml_servers(str(new_path))
+
+    def test_missing_shows_example(self, monkeypatch, tmp_path):
+        example = tmp_path / "example.toml"
+        example.write_text("[[servers]]\nhost = '10.0.0.1'\n")
+        new_path = tmp_path / "new.toml"
+        monkeypatch.setattr("multitop._EXAMPLE_CONFIG", str(example))
+        monkeypatch.setattr("multitop.os.path.exists", lambda p: p == str(example))
+        with pytest.raises(MonitorError, match="10.0.0.1"):
+            parse_toml_servers(str(new_path))
+
+    def test_missing_no_old_no_example(self, monkeypatch, tmp_path):
+        new_path = tmp_path / "new.toml"
+        monkeypatch.setattr("multitop._EXAMPLE_CONFIG", "")
+        monkeypatch.setattr("multitop.os.path.exists", lambda p: False)
+        with pytest.raises(MonitorError, match="Example"):
+            parse_toml_servers(str(new_path))
+
 
 class TestIntegration:
     def test_full_config_parse(self):

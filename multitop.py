@@ -14,6 +14,7 @@ from textual.containers import Vertical
 from textual.widgets import Header, Footer, Static
 
 CONFIG_PATH = os.path.expanduser("~/.config/multitop/config.toml")
+_EXAMPLE_CONFIG = os.path.join(os.path.dirname(os.path.abspath(__file__)), "config.example.toml")
 
 
 def _compact_monitor_source():
@@ -45,7 +46,25 @@ def validate_user(user):
 
 def parse_toml_servers(path):
     if not os.path.exists(path):
-        raise MonitorError(f"Configuration file missing at {path}")
+        old = os.path.expanduser("~/.config/monitor/config.toml")
+        if os.path.exists(old):
+            raise MonitorError(
+                f"Configuration file missing at {path}\n\n"
+                f"  Your config is still at the old location:\n"
+                f"    {old}\n\n"
+                f"  Migrate it:\n"
+                f"    mkdir -p ~/.config/multitop\n"
+                f"    mv {old} {path}"
+            )
+        example = _EXAMPLE_CONFIG if os.path.exists(_EXAMPLE_CONFIG) else ""
+        hint = ""
+        if example:
+            with open(example) as f:
+                hint = "\n".join("  " + l.rstrip() for l in f if l.strip())
+        raise MonitorError(
+            f"Configuration file missing at {path}\n\n"
+            f"  Create it. Example:\n\n{hint}\n"
+        )
     with open(path, "rb") as f:
         cfg = tomllib.load(f)
     servers = cfg.get("servers", [])

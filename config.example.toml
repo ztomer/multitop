@@ -1,0 +1,14 @@
+[[servers]]
+host = "192.168.0.33"
+port = 22
+user = ""
+
+[[servers]]
+host = "192.168.0.90"
+port = 22
+user = "admin"
+
+[[servers]]
+host = "192.168.0.158"
+port = 22
+user = ""
