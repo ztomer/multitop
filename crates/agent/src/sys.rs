@@ -7,15 +7,21 @@ use std::collections::HashMap;
 use crate::proc::{CpuStat, CpuTimes, NetTotals, RawProcStat, Usage};
 
 #[cfg(target_os = "macos")]
+extern "C" {
+    fn mach_port_deallocate(target_task: libc::mach_port_t, name: libc::mach_port_t) -> libc::kern_return_t;
+}
+
+#[cfg(target_os = "macos")]
 pub fn get_cpu_stat_macos() -> CpuStat {
     let mut stat = CpuStat::default();
     let mut num_cpus: libc::natural_t = 0;
     let mut cpu_info: libc::processor_info_array_t = std::ptr::null_mut();
     let mut msg_type: libc::mach_msg_type_number_t = 0;
 
+    let host_port = unsafe { libc::mach_host_self() };
     let ret = unsafe {
         libc::host_processor_info(
-            libc::mach_host_self(),
+            host_port,
             libc::PROCESSOR_CPU_LOAD_INFO,
             &mut num_cpus,
             &mut cpu_info,
@@ -54,6 +60,9 @@ pub fn get_cpu_stat_macos() -> CpuStat {
         };
         stat.cores.sort_unstable_by_key(|(i, _)| *i);
     }
+    unsafe {
+        mach_port_deallocate(libc::mach_task_self(), host_port);
+    }
     stat
 }
 
@@ -85,6 +94,9 @@ pub fn get_memory_macos() -> Usage {
             &mut count,
         )
     };
+    unsafe {
+        mach_port_deallocate(libc::mach_task_self(), host_port);
+    }
 
     if ret == libc::KERN_SUCCESS {
         let ps = unsafe { libc::sysconf(libc::_SC_PAGESIZE) };

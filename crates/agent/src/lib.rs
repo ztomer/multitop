@@ -141,7 +141,6 @@ pub fn run_agent<I: IntoIterator<Item = String>>(argv: I) {
                 last = Instant::now();
 
                 let snap = monitor.tick(elapsed, args.cols, args.lines, args.sort);
-                let frame = render::render(&snap, args.cols, args.lines, render::bar_len_for(args.cols), pal);
 
                 buf.clear();
                 if is_tty {
@@ -150,10 +149,7 @@ pub fn run_agent<I: IntoIterator<Item = String>>(argv: I) {
                     buf.push_str(FRAME_MARKER);
                     buf.push('\n');
                 }
-                for line in &frame {
-                    buf.push_str(line);
-                    buf.push('\n');
-                }
+                render::render_to_buf(&snap, args.cols, args.lines, render::bar_len_for(args.cols), pal, &mut buf);
 
                 let mut out = io::stdout().lock();
                 if out.write_all(buf.as_bytes()).is_err() || out.flush().is_err() {

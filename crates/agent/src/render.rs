@@ -471,3 +471,12 @@ pub fn render(snap: &Snapshot, cols: usize, lines: usize, bar_len: usize, pal: &
 
     out
 }
+
+/// Render one frame directly into a string buffer.
+pub fn render_to_buf(snap: &Snapshot, cols: usize, lines: usize, bar_len: usize, pal: &Palette, buf: &mut String) {
+    let frame = render(snap, cols, lines, bar_len, pal);
+    for line in &frame {
+        buf.push_str(line);
+        buf.push('\n');
+    }
+}

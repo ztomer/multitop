@@ -379,10 +379,14 @@ impl ProcSampler {
     /// Top `n` processes over the last `elapsed` seconds, sorted by `sort_by`.
     pub fn top(&mut self, elapsed: f64, n: usize, sort_by: crate::SortBy) -> Vec<Proc> {
         let scanned = self.scan();
-        let mut procs = Vec::with_capacity(scanned.len());
-        let mut next = HashMap::with_capacity(scanned.len());
+        let mut temp_procs: Vec<(usize, f64, u64)> = Vec::with_capacity(scanned.len());
+        let mut next = std::mem::take(&mut self.prev);
+        next.clear();
+        if next.capacity() < scanned.len() {
+            next.reserve(scanned.len() - next.capacity());
+        }
 
-        for s in &scanned {
+        for (i, s) in scanned.iter().enumerate() {
             // starttime guards against PID reuse handing us a bogus delta.
             let cpu = match self.prev.get(&s.pid) {
                 Some(p) if p.starttime == s.starttime && elapsed > 0.0 => {
@@ -397,32 +401,37 @@ impl ProcSampler {
                     starttime: s.starttime,
                 },
             );
-            procs.push(Proc {
-                pid: s.pid,
-                name: s.comm.clone(),
-                cpu,
-                mem: s.rss_pages * self.page_size,
-            });
+            temp_procs.push((i, cpu, s.rss_pages * self.page_size));
         }
         self.prev = next;
 
         match sort_by {
-            crate::SortBy::Cpu => procs.sort_unstable_by(|a, b| {
-                b.cpu
-                    .partial_cmp(&a.cpu)
+            crate::SortBy::Cpu => temp_procs.sort_unstable_by(|&(i_a, cpu_a, mem_a), &(i_b, cpu_b, mem_b)| {
+                cpu_b
+                    .partial_cmp(&cpu_a)
                     .unwrap_or(std::cmp::Ordering::Equal)
-                    .then_with(|| b.mem.cmp(&a.mem))
-                    .then_with(|| a.pid.cmp(&b.pid))
+                    .then_with(|| mem_b.cmp(&mem_a))
+                    .then_with(|| scanned[i_a].pid.cmp(&scanned[i_b].pid))
             }),
-            crate::SortBy::Mem => procs.sort_unstable_by(|a, b| {
-                b.mem
-                    .cmp(&a.mem)
-                    .then_with(|| b.cpu.partial_cmp(&a.cpu).unwrap_or(std::cmp::Ordering::Equal))
-                    .then_with(|| a.pid.cmp(&b.pid))
+            crate::SortBy::Mem => temp_procs.sort_unstable_by(|&(i_a, cpu_a, mem_a), &(i_b, cpu_b, mem_b)| {
+                mem_b
+                    .cmp(&mem_a)
+                    .then_with(|| cpu_b.partial_cmp(&cpu_a).unwrap_or(std::cmp::Ordering::Equal))
+                    .then_with(|| scanned[i_a].pid.cmp(&scanned[i_b].pid))
             }),
         }
-        procs.truncate(n);
-        procs
+
+        temp_procs.truncate(n);
+
+        temp_procs
+            .into_iter()
+            .map(|(i, cpu, mem)| Proc {
+                pid: scanned[i].pid,
+                name: scanned[i].comm.clone(),
+                cpu,
+                mem,
+            })
+            .collect()
     }
 }
 

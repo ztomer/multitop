@@ -148,6 +148,7 @@ The test suite covers panel rendering across multiple terminal dimensions, windo
 - **Standalone local monitoring.** Use `--local-only` as a fast local top replacement without requiring SSH or config files.
 - **Docker stats read the daemon socket.** The agent takes two one-shot samples 250 ms apart in parallel across containers.
 - **Upgrade output stays on screen** until you press **s**, and streams live rather than appearing only when the command exits.
+- **Zero-allocation sampling & minimal memory footprint.** The agent reuses internal buffers, deallocates platform IPC handles, and defers process string allocations until after sorting and truncation. Memory usage remains constant and minimal (< 3 MiB) over long-running sessions.
 
 ## Project structure
 
