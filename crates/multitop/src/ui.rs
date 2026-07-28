@@ -106,6 +106,22 @@ pub fn refit_header(line: &str, target_cols: usize) -> Option<String> {
     ))
 }
 
+pub fn refit_line(line: &str, target_cols: usize) -> String {
+    if target_cols == 0 {
+        return line.to_string();
+    }
+    if let Some(h) = refit_header(line, target_cols) {
+        return h;
+    }
+    let plain = multitop_agent::color::strip_ansi(line);
+    let trimmed = plain.trim();
+    if !trimmed.is_empty() && trimmed.chars().all(|c| c == '\u{2500}') {
+        let rule_w = target_cols.saturating_sub(2);
+        return format!(" \x1b[90m{}\x1b[0m", "\u{2500}".repeat(rule_w));
+    }
+    line.to_string()
+}
+
 /// Show the tail when there is more content than room, optionally pinning
 /// the header (line 0) so the server name stays visible.
 fn visible(lines: &[String], height: usize, pin_header: bool, target_cols: usize) -> Vec<String> {
@@ -125,8 +141,8 @@ fn visible(lines: &[String], height: usize, pin_header: bool, target_cols: usize
     };
 
     if !out.is_empty() && target_cols > 0 {
-        if let Some(refitted) = refit_header(&out[0], target_cols) {
-            out[0] = refitted;
+        for line in out.iter_mut() {
+            *line = refit_line(line, target_cols);
         }
     }
 

@@ -3,7 +3,7 @@ use ratatui::Terminal;
 
 use multitop::app::{App, Mode};
 use multitop::config::Server;
-use multitop::ui::{agent_dims, draw, refit_header};
+use multitop::ui::{agent_dims, draw, refit_header, refit_line};
 
 fn sample_servers(count: usize) -> Vec<Server> {
     (0..count)
@@ -27,6 +27,14 @@ fn refit_header_expands_and_shrinks_dynamically() {
     // 2. Shrink width to 20 cols
     let refitted_narrow = refit_header(raw_header, 20).expect("should refit narrow");
     assert!(refitted_narrow.contains("ｂｅｅｌｉｎｋ"));
+}
+
+#[test]
+fn refit_line_reflows_divider_rules() {
+    let raw_rule = " \x1b[90m────────────────────\x1b[0m";
+    let refitted = refit_line(raw_rule, 80);
+    let plain = multitop_agent::color::strip_ansi(&refitted);
+    assert_eq!(plain.chars().count(), 79);
 }
 
 #[test]

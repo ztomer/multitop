@@ -19,9 +19,8 @@ use crate::ui;
 const FRAME_MARKER: &str = "===MONITOR===";
 
 /// How long to wait after the last resize event before restarting the agents
-/// at the new size. Dragging a window edge emits a burst of events; without
-/// this every intermediate width would tear down and rebuild every SSH task.
-const RESIZE_DEBOUNCE: Duration = Duration::from_millis(250);
+/// at the new size. Dragging a window edge emits a burst of events.
+const RESIZE_DEBOUNCE: Duration = Duration::from_millis(30);
 
 /// Backoff between reconnection attempts after a dropped SSH session.
 const RECONNECT_BACKOFF: [u64; 4] = [2, 5, 10, 20];
