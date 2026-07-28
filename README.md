@@ -4,17 +4,8 @@ SSH into multiple servers and watch a compact real-time system monitor
 for each one, side by side in a single terminal. Written in Rust
 ([ratatui](https://ratatui.rs) + tokio).
 
-```text
-─────────── ｈｏｓｔｎａｍｅ　（１０．０．０．３３） ───────────
- CPU  0:[####....] 45%  1:[##......] 22%  2:[#.......] 11%  3:[###.....] 33%
- MEM [####################....................]  62%  6.2GiB/10.0GiB
- DSK [#######.................................]  18%  167GiB/931GiB
- NET ↑ 1.2M  ↓ 3.4M
- ──────────────────────────────────────────────────────────────────────────
-     PID  NAME            CPU      MEM │     PID  NAME            CPU      MEM
-     123  firefox        15.2  210.4MiB │     456  chrome         12.1  180.2MiB
-     789  python3         8.0   45.1MiB │     101  sshd            0.1    3.2MiB
-```
+<img width="1002" height="1232" alt="image" src="https://github.com/user-attachments/assets/63eb4cf2-0b1b-4b8a-8fba-f57cd9fcec24" />
+
 
 ## Installation
 
