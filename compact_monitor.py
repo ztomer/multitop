@@ -77,19 +77,35 @@ def get_host_info():
             hostname = data
     except OSError:
         pass
+
+    if len(sys.argv) > 1:
+        return f"{hostname} ({sys.argv[1]})"
+
     ips = []
     try:
-        data = read_proc("/proc/net/fib_trie")
-        if data:
-            for line in data.splitlines():
-                if "+--" in line:
-                    parts = line.strip().split()
-                    if len(parts) >= 2 and parts[0] == "+--":
-                        ip = parts[1]
+        result = subprocess.run(
+            ["ip", "-4", "-o", "addr", "show", "scope", "global"],
+            capture_output=True, text=True, timeout=3,
+        )
+        for line in result.stdout.splitlines():
+            parts = line.split()
+            if len(parts) >= 4:
+                ips.append(parts[3].split("/")[0])
+    except (subprocess.SubprocessError, FileNotFoundError):
+        pass
+
+    if not ips:
+        try:
+            data = read_proc("/proc/net/fib_trie")
+            if data:
+                for line in data.splitlines():
+                    if "src " in line:
+                        ip = line.split()[-1]
                         if ":" not in ip:
                             ips.append(ip)
-    except OSError:
-        pass
+        except OSError:
+            pass
+
     if ips:
         return f"{hostname} ({ips[0]})"
     return hostname

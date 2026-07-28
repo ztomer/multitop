@@ -38,6 +38,11 @@ class TestBuildSshCmd:
         assert result[:5] == ["ssh", "-t", "admin@192.168.0.33", "-p", "22"]
         assert result[5].startswith("python3 -c ")
 
+    def test_with_display_ip(self):
+        result = build_ssh_cmd("192.168.0.33", 22, display_ip="192.168.0.33")
+        assert result[5].count(" ") >= 2
+        assert "192.168.0.33" in result[5].split()[-1]
+
 
 class TestGetSshTarget:
     def test_no_user_default_port(self):
@@ -232,6 +237,8 @@ class TestCreateSession:
         assert any("new-session" in c for c in calls)
         assert any("select-layout" in c for c in calls)
         assert not any("split-window" in c for c in calls)
+        ssh_cmd = next(c for c in calls if "new-session" in c)
+        assert "192.168.0.33" in ssh_cmd[-1]
 
     def test_multi_server(self, monkeypatch):
         calls = []
@@ -252,6 +259,9 @@ class TestCreateSession:
         assert any("select-layout" in c for c in calls)
         split_calls = [c for c in calls if "split-window" in c]
         assert len(split_calls) == 2
+        for c in calls:
+            if any(x in c for x in ("new-session", "split-window")):
+                assert any(ip in c[-1] for ip in ("33", "90", "158"))
 
     def test_new_session_failure_raises(self, monkeypatch):
         def fake_run(cmd, *a, **kw):

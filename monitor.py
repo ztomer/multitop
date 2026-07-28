@@ -31,9 +31,12 @@ def require_commands(*cmds):
         )
 
 
-def build_ssh_cmd(target, port):
+def build_ssh_cmd(target, port, display_ip=None):
     quoted = shlex.quote(COMPACT_MONITOR)
-    return ["ssh", "-t", target, "-p", str(port), f"python3 -c {quoted}"]
+    cmd = f"python3 -c {quoted}"
+    if display_ip:
+        cmd += f" {shlex.quote(str(display_ip))}"
+    return ["ssh", "-t", target, "-p", str(port), cmd]
 
 
 def validate_user(user):
@@ -116,7 +119,7 @@ def create_session(servers):
     target, port = get_ssh_target(servers[0])
     subprocess.run(
         ["tmux", "new-session", "-d", "-s", SESSION_NAME]
-        + build_ssh_cmd(target, port),
+        + build_ssh_cmd(target, port, servers[0]["host"]),
         check=True,
     )
 
@@ -124,7 +127,7 @@ def create_session(servers):
         target, port = get_ssh_target(srv)
         subprocess.run(
             ["tmux", "split-window", "-v", "-t", SESSION_NAME]
-            + build_ssh_cmd(target, port),
+            + build_ssh_cmd(target, port, srv["host"]),
             check=True,
         )
 
