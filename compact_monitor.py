@@ -237,6 +237,10 @@ def core_bar(pct, length):
     return f"{c}{h}{d}{Colors.RESET}"
 
 
+def _fullwidth(s):
+    return "".join(chr(ord(c) + 0xFEE0) if 0x21 <= ord(c) <= 0x7E else c for c in s)
+
+
 def _render_output(host, cols, bar_len, cpu_pct, core_lines,
                    mem_total, mem_used, mem_pct,
                    disk_total, disk_used, disk_pct,
@@ -244,9 +248,11 @@ def _render_output(host, cols, bar_len, cpu_pct, core_lines,
     num_cores = len(core_lines)
     out = []
 
+    fw_host = _fullwidth(host)
+    disp_w = sum(2 if 0x21 <= ord(c) <= 0x7E else 1 for c in host)
     out.append(
-        f"{Colors.CYAN}{Colors.BOLD}{host}{Colors.RESET}"
-        f"  {Colors.GRAY}{'─' * max(0, cols - len(host) - 6)}{Colors.RESET}"
+        f"{Colors.CYAN}{Colors.BOLD}{fw_host}{Colors.RESET}"
+        f"  {Colors.GRAY}{'─' * max(0, cols - disp_w - 6)}{Colors.RESET}"
     )
 
     if num_cores >= 2:

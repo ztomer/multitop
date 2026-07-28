@@ -494,7 +494,7 @@ class TestRenderOutput:
 
     def test_host_line(self):
         out = _render_output("h", 80, 50, 50, [], 0, 0, 0, 0, 0, 0, 0, 0, [])
-        assert any("h" in l for l in out)
+        assert any("\uff48" in l for l in out)
 
     def test_single_core_uses_aggregate_bar(self):
         out = _render_output("h", 80, 50, 42, [],
@@ -652,7 +652,8 @@ class TestIteration:
             "test", (0, 0), {}, (0, 0), 2, 80, 24,
         )
         assert len(out) > 0
-        assert any("test" in l for l in out)
+        fw_test = "\uff54\uff45\uff53\uff54"
+        assert any(fw_test in l for l in out)
         assert any("init" in l for l in out)
 
     def test_with_mem_disk_net(self, monkeypatch):

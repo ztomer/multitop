@@ -6,6 +6,13 @@ import shutil
 import sys
 import tomllib
 
+
+_SSH_BASE = [
+    "-o", "ControlMaster=auto",
+    "-o", "ControlPath=/tmp/multitop-ssh-%C",
+    "-o", "ControlPersist=30s",
+]
+
 from rich.text import Text
 
 from textual.app import App, ComposeResult
@@ -178,7 +185,7 @@ class MonitorApp(App):
         proc = None
         try:
             proc = await asyncio.create_subprocess_exec(
-                "ssh", target, "-p", str(port), cmd,
+                "ssh", *_SSH_BASE, target, "-p", str(port), cmd,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.STDOUT,
             )
@@ -246,7 +253,7 @@ class MonitorApp(App):
         proc = None
         try:
             proc = await asyncio.create_subprocess_exec(
-                "ssh", target, "-p", str(port), cmd,
+                "ssh", *_SSH_BASE, target, "-p", str(port), cmd,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.STDOUT,
             )
