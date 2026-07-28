@@ -6,7 +6,7 @@ user = ""
 [[servers]]
 host = "192.168.0.90"
 port = 22
-user = "admin"
+user = ""
 
 [[servers]]
 host = "192.168.0.158"

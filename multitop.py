@@ -11,7 +11,7 @@ from rich.text import Text
 from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.containers import Vertical
-from textual.widgets import Header, Footer, Static
+from textual.widgets import Header, Static
 
 CONFIG_PATH = os.path.expanduser("~/.config/multitop/config.toml")
 _EXAMPLE_CONFIG = os.path.join(os.path.dirname(os.path.abspath(__file__)), "config.example.toml")
@@ -82,6 +82,10 @@ def parse_toml_servers(path):
     return servers
 
 
+class KeyBar(Static):
+    pass
+
+
 class ServerPanel(Vertical):
     def __init__(self, server_cfg):
         super().__init__()
@@ -107,6 +111,12 @@ class MonitorApp(App):
     ServerPanel > Static {
         margin: 0 1;
     }
+    KeyBar {
+        background: $panel;
+        color: $text-muted;
+        height: 1;
+        dock: bottom;
+    }
     """
 
     BINDINGS = [
@@ -123,7 +133,7 @@ class MonitorApp(App):
         with Vertical():
             for srv in self.servers:
                 yield ServerPanel(srv)
-        yield Footer()
+        yield KeyBar(" ESC Quit")
 
     async def on_mount(self):
         for panel, srv in zip(self.query(ServerPanel), self.servers):
