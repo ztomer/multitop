@@ -1,3 +1,4 @@
+#![allow(deprecated)]
 //! Platform-specific sampling fallback for non-Linux hosts (e.g. macOS).
 
 use std::collections::HashMap;
