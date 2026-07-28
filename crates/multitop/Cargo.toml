@@ -13,3 +13,8 @@ tokio = { version = "1", features = ["rt-multi-thread", "macros", "process", "io
 tokio-stream = { version = "0.1.19", default-features = false }
 toml = { version = "1", default-features = false, features = ["parse", "serde"] }
 multitop-agent = { path = "../agent" }
+
+[[bench]]
+name = "client_bench"
+harness = false
+

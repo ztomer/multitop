@@ -1,6 +1,7 @@
 [workspace]
 resolver = "2"
 members = ["crates/agent", "crates/multitop"]
+exclude = ["fuzz"]
 
 [workspace.package]
 version = "0.6.0"

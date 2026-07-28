@@ -1,0 +1,27 @@
+[package]
+name = "multitop-fuzz"
+version = "0.0.0"
+publish = false
+edition = "2021"
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4"
+multitop-agent = { path = "../crates/agent" }
+multitop = { path = "../crates/multitop" }
+
+[[bin]]
+name = "fuzz_proto"
+path = "fuzz_targets/fuzz_proto.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "fuzz_client_stream"
+path = "fuzz_targets/fuzz_client_stream.rs"
+test = false
+doc = false
+bench = false

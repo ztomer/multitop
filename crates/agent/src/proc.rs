@@ -109,7 +109,7 @@ pub struct Usage {
 }
 
 impl Usage {
-    pub(crate) fn new(total: u64, used: u64) -> Self {
+    pub fn new(total: u64, used: u64) -> Self {
         let pct = if total > 0 {
             used as f64 / total as f64 * 100.0
         } else {

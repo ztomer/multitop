@@ -110,6 +110,10 @@ impl<'a> Cursor<'a> {
         Cursor { data, pos: 0 }
     }
 
+    pub fn remaining(&self) -> usize {
+        self.data.len().saturating_sub(self.pos)
+    }
+
     fn read_bytes(&mut self, n: usize) -> Option<&'a [u8]> {
         if self.pos + n <= self.data.len() {
             let res = &self.data[self.pos..self.pos + n];
@@ -178,7 +182,8 @@ fn decode_snapshot(cur: &mut Cursor) -> Option<Snapshot> {
     let cpu_pct = cur.read_f32()? as f64;
 
     let num_cores = cur.read_u16()? as usize;
-    let mut cores = Vec::with_capacity(num_cores);
+    let rem_cores = cur.remaining() / 10;
+    let mut cores = Vec::with_capacity(num_cores.min(rem_cores));
     for _ in 0..num_cores {
         let idx = cur.read_u16()? as usize;
         let cpu = cur.read_f32()? as f64;
@@ -201,7 +206,8 @@ fn decode_snapshot(cur: &mut Cursor) -> Option<Snapshot> {
     let tx_rate = cur.read_f32()? as f64;
 
     let num_procs = cur.read_u16()? as usize;
-    let mut procs = Vec::with_capacity(num_procs);
+    let rem_procs = cur.remaining() / 18;
+    let mut procs = Vec::with_capacity(num_procs.min(rem_procs));
     for _ in 0..num_procs {
         let pid = cur.read_u32()?;
         let cpu = cur.read_f32()? as f64;
@@ -231,7 +237,8 @@ fn decode_snapshot(cur: &mut Cursor) -> Option<Snapshot> {
 fn decode_docker(cur: &mut Cursor) -> Option<Payload> {
     let host = cur.read_str()?;
     let num_rows = cur.read_u16()? as usize;
-    let mut rows = Vec::with_capacity(num_rows);
+    let rem_rows = cur.remaining() / 22;
+    let mut rows = Vec::with_capacity(num_rows.min(rem_rows));
     for _ in 0..num_rows {
         let name = cur.read_str()?;
         let status = cur.read_str()?;
