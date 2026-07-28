@@ -40,7 +40,7 @@ const SSH_OPTS: &[&str] = &[
     // doesn't need them, and servers without the locale installed emit a
     // noisy "setlocale: LC_ALL: cannot change locale" warning.
     "-o",
-    "SendEnv=",
+    "SendEnv=-*",
     "-T",
 ];
 
