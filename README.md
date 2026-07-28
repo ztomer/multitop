@@ -31,7 +31,13 @@ brew install multitop
 # Monitor your local machine standalone as a top replacement (no SSH or config required):
 multitop --local-only
 
-# Or monitor remote servers via config:
+# Monitor specified remote servers directly via CLI (bypasses config.toml):
+multitop --remote 192.168.0.33,192.168.0.34
+
+# Include local machine alongside remote servers without a config file:
+multitop --local --remote 192.168.0.33
+
+# Or monitor remote servers via config file (~/.config/multitop/config.toml):
 mkdir -p ~/.config/multitop
 cp config.example.toml ~/.config/multitop/config.toml
 # edit it with your server list
@@ -39,9 +45,6 @@ cp config.example.toml ~/.config/multitop/config.toml
 # Build locally and run:
 ./build.sh
 ./multitop
-
-# Include your local machine alongside remote servers:
-./multitop --local
 ```
 
 ## How it works
@@ -61,7 +64,7 @@ When monitoring locally (`--local` or `--local-only`), `multitop` executes the l
 ## What you see
 
 - **Hostname/IP** — cyan header center-aligned dynamically on window resize
-- **CPU** — per-core bars when the panel is wide enough, otherwise one
+- **CPU** — per-core bars with real-time thermal readings when the panel is wide enough, otherwise one
   aggregate bar (green < 50 %, yellow 50–80 %, red ≥ 80 %)
 - **MEM** — used / total
 - **DSK** — root filesystem usage
@@ -74,6 +77,7 @@ When monitoring locally (`--local` or `--local-only`), `multitop` executes the l
 | Flag | Action |
 |------|--------|
 | `-c`, `--config <PATH>` | Config file path (default: `~/.config/multitop/config.toml`) |
+| `-r`, `--remote <HOSTS>` | Override config with comma-separated remote hosts/IPs |
 | `--local` | Include local machine (`localhost`) in the server list |
 | `--local-only` | Monitor local machine only as a standalone top replacement (no SSH or config needed) |
 | `-h`, `--help` | Print help information |
@@ -140,13 +144,13 @@ the result is a single self-contained executable.
 cargo test --workspace
 ```
 
-The test suite covers panel rendering across multiple terminal dimensions, docker table parsing/formatting, `/proc` parsing, and TUI app state transitions across dedicated test files in `tests/`.
+The test suite covers panel rendering across multiple terminal dimensions, window resizing, docker table parsing/formatting, `/proc` parsing, and TUI app state transitions across dedicated test files in `tests/`.
 
 ## Design notes
 
 - **Center-aligned headers.** Server headers are dynamically centered within horizontal rule borders on window resize.
 - **Adaptive layout & grid scaling.** Automatically switches between 1-column and 2-column panel grids based on terminal size and server count.
-- **Per-core CPU bars.** The renderer shows individual core utilisation when the panel is wide enough, falling back to a single aggregate bar on narrow terminals.
+- **Per-core CPU & thermal readings.** The renderer shows individual core utilisation and core thermal readings when the panel is wide enough.
 - **Instantaneous process CPU.** CPU percentage is differenced from `/proc/<pid>/stat` between samples, so a daemon that is busy *right now* reads correctly.
 - **Standalone local monitoring.** Use `--local-only` as a fast local top replacement without requiring SSH or config files.
 - **Docker stats read the daemon socket.** The agent takes two one-shot samples 250 ms apart in parallel across containers.
@@ -164,5 +168,5 @@ The test suite covers panel rendering across multiple terminal dimensions, docke
 │   │   └── tests/{docker_test,proc_test,render_layout_test,render_test}.rs
 │   └── multitop/             # local TUI dashboard
 │       ├── src/{ansi,app,config,consts,lib,main,run,ssh,tasks,ui}.rs
-│       └── tests/app_test.rs
+│       └── tests/{app_test,ui_resize_test}.rs
 ```
