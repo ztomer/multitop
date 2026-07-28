@@ -253,12 +253,13 @@ def _render_output(host, cols, bar_len, cpu_pct, core_lines,
         _sa = re.compile(r'\033\[[0-9;]*m').sub
         per_core_bar_len = min(12, bar_len // num_cores)
         show_core_bars = per_core_bar_len >= 5
+        idx_w = max(len(str(idx)) for idx, _ in core_lines)
         segs = []
         for idx, cp in core_lines:
             if show_core_bars:
-                segs.append(f"{idx}:{core_bar(cp, per_core_bar_len)}{cp:.0f}%")
+                segs.append(f"{idx:>{idx_w}}:{core_bar(cp, per_core_bar_len)}{cp:3.0f}%")
             else:
-                segs.append(f"{idx}:{cp:.0f}%")
+                segs.append(f"{idx:>{idx_w}}:{cp:3.0f}%")
         plain_segs = [_sa("", s) for s in segs]
         cell_w = max(len(s) for s in plain_segs) + 1
         num_cols = max(1, (cols - 6) // cell_w)
