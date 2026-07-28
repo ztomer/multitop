@@ -144,6 +144,24 @@ pub fn run_agent<I: IntoIterator<Item = String>>(argv: I) {
 
             let mut buf = String::with_capacity(8192);
             let mut last = Instant::now();
+
+            // Emit initial frame immediately so client connection is instant (<10ms)
+            let snap = monitor.tick(0.0, 120, 50, args.sort);
+            if is_tty {
+                buf.push_str("\x1b[H\x1b[J");
+                render::render_to_buf(&snap, args.cols, args.lines, render::bar_len_for(args.cols), pal, &mut buf);
+                let mut out = io::stdout().lock();
+                let _ = out.write_all(buf.as_bytes());
+                let _ = out.flush();
+            } else {
+                let payload = proto::Payload::Monitor(snap);
+                let bytes = proto::encode_packet(&payload);
+                let mut out = io::stdout().lock();
+                if out.write_all(&bytes).is_err() || out.flush().is_err() {
+                    return;
+                }
+            }
+
             std::thread::sleep(interval);
 
             loop {

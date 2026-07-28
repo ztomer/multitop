@@ -175,15 +175,26 @@ pub fn spawn_local_agent(mode: Mode, sort: SortBy) -> io::Result<Child> {
     let path_var = std::env::var_os("PATH").unwrap_or_default();
     let on_path = std::env::split_paths(&path_var).any(|dir| dir.join("multitop-agent").is_file());
 
-    let (mut cmd, extra_args) = if on_path {
-        (Command::new("multitop-agent"), vec![])
-    } else if let Ok(exe) = std::env::current_exe() {
-        let candidate = exe.parent().unwrap_or(Path::new("")).join("multitop-agent");
-        if candidate.is_file() {
-            (Command::new(candidate), vec![])
-        } else {
+    let (mut cmd, extra_args) = if let Ok(exe) = std::env::current_exe() {
+        let parent = exe.parent().unwrap_or(Path::new(""));
+        let grand = parent.parent().unwrap_or(Path::new(""));
+        let name = exe.file_name().and_then(|n| n.to_str()).unwrap_or("");
+
+        if parent.join("multitop-agent").is_file() {
+            (Command::new(parent.join("multitop-agent")), vec![])
+        } else if grand.join("multitop-agent").is_file() {
+            (Command::new(grand.join("multitop-agent")), vec![])
+        } else if grand.join("multitop").is_file() {
+            (Command::new(grand.join("multitop")), vec!["--agent".to_string()])
+        } else if name == "multitop" || (name.starts_with("multitop") && !name.contains("test")) {
             (Command::new(exe), vec!["--agent".to_string()])
+        } else if on_path {
+            (Command::new("multitop-agent"), vec![])
+        } else {
+            (Command::new("multitop-agent"), vec![])
         }
+    } else if on_path {
+        (Command::new("multitop-agent"), vec![])
     } else {
         (Command::new("multitop-agent"), vec![])
     };
