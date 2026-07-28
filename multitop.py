@@ -320,8 +320,9 @@ class MonitorApp(App):
                 else:
                     panel.output.update(Text.from_ansi("[yellow]waiting for data...[/]"))
             else:
+                self._next_gen(panel)
                 self._mode[panel] = "docker"
-                _debug(f"  {panel}: -> docker, ssh starting")
+                _debug(f"  {srv.get('host', '?')}: -> docker, ssh starting")
                 panel.output.update(Text.from_ansi("[yellow]→ Docker loading...[/]"))
                 asyncio.create_task(self._show_docker(panel, srv))
         _debug(f"  result modes={self._mode}")
