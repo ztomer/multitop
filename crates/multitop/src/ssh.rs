@@ -94,14 +94,14 @@ pub fn spawn_local_agent(mode: Mode, sort: SortBy) -> io::Result<Child> {
         let grand = parent.parent().unwrap_or(Path::new(""));
         let name = exe.file_name().and_then(|n| n.to_str()).unwrap_or("");
 
-        if parent.join("multitop-agent").is_file() {
+        if name == "multitop" || (name.starts_with("multitop") && !name.contains("test")) {
+            (Command::new(exe), vec!["--agent".to_string()])
+        } else if parent.join("multitop-agent").is_file() {
             (Command::new(parent.join("multitop-agent")), vec![])
         } else if grand.join("multitop-agent").is_file() {
             (Command::new(grand.join("multitop-agent")), vec![])
         } else if grand.join("multitop").is_file() {
             (Command::new(grand.join("multitop")), vec!["--agent".to_string()])
-        } else if name == "multitop" || (name.starts_with("multitop") && !name.contains("test")) {
-            (Command::new(exe), vec!["--agent".to_string()])
         } else if on_path {
             (Command::new("multitop-agent"), vec![])
         } else {

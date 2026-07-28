@@ -33,3 +33,32 @@ async fn local_agent_streams_binary_packets() {
 
     let _ = child.kill().await;
 }
+
+#[tokio::test]
+async fn connect_local_server_succeeds_and_streams_snapshots() {
+    use multitop::config::Server;
+    use multitop::run::{connect, next_packet};
+
+    let server = Server {
+        host: "localhost".into(),
+        port: 0,
+        user: String::new(),
+        upgrade_cmd: None,
+    };
+
+    let mut stream = connect(&server, Mode::Monitor, SortBy::Cpu, |_| {})
+        .await
+        .expect("connect to local server");
+
+    let mut errbuf = Vec::new();
+    let payload = next_packet(&mut stream, &mut errbuf)
+        .await
+        .expect("read packet")
+        .expect("payload present");
+
+    if let Payload::Monitor(snap) = payload {
+        assert!(!snap.host.is_empty(), "local snapshot host should not be empty");
+    } else {
+        panic!("expected Monitor payload from local server");
+    }
+}
