@@ -119,7 +119,7 @@ pub fn agent_path(hash: &str) -> String {
 /// paying an extra round trip whenever the guess is wrong.
 use multitop_agent::SortBy;
 
-pub fn bootstrap_script(mode: Mode, display_ip: &str, cols: u16, lines: u16, sort: SortBy) -> String {
+pub fn bootstrap_script(mode: Mode, display_ip: &str, sort: SortBy) -> String {
     format!(
         "LC_ALL=C; LANG=C; export LC_ALL LANG\n\
          M=$(uname -m)\n\
@@ -129,7 +129,7 @@ pub fn bootstrap_script(mode: Mode, display_ip: &str, cols: u16, lines: u16, sor
          *) A=\"\" ;;\n\
          esac\n\
          if [ -n \"$A\" ] && [ -x \"$A\" ]; then\n\
-         exec \"$A\" {mode} {ip} {cols} {lines} {sort}\n\
+         exec \"$A\" {mode} {ip} 80 24 {sort}\n\
          fi\n\
          echo \"{NEED_AGENT} $M\"\n",
         x86 = agent_path(HASH_X86_64),
@@ -171,7 +171,7 @@ pub fn is_local(server: &Server) -> bool {
     server.host == "localhost" || server.host == "127.0.0.1" || server.port == 0
 }
 
-pub fn spawn_local_agent(mode: Mode, cols: u16, lines: u16, sort: SortBy) -> io::Result<Child> {
+pub fn spawn_local_agent(mode: Mode, sort: SortBy) -> io::Result<Child> {
     let path_var = std::env::var_os("PATH").unwrap_or_default();
     let on_path = std::env::split_paths(&path_var).any(|dir| dir.join("multitop-agent").is_file());
 
@@ -192,7 +192,7 @@ pub fn spawn_local_agent(mode: Mode, cols: u16, lines: u16, sort: SortBy) -> io:
         cmd.args(extra_args);
     }
 
-    cmd.args([mode.word(), "127.0.0.1", &cols.to_string(), &lines.to_string(), sort.word()])
+    cmd.args([mode.word(), "127.0.0.1", "80", "24", sort.word()])
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -206,11 +206,11 @@ pub fn spawn_local_agent(mode: Mode, cols: u16, lines: u16, sort: SortBy) -> io:
 /// stdout carries agent frames; stderr is folded in so an SSH failure
 /// (`Permission denied`, `Host key verification failed`) lands in the panel
 /// instead of vanishing.
-pub async fn spawn_agent(server: &Server, mode: Mode, cols: u16, lines: u16, sort: SortBy) -> io::Result<Child> {
+pub async fn spawn_agent(server: &Server, mode: Mode, sort: SortBy) -> io::Result<Child> {
     if is_local(server) {
-        return spawn_local_agent(mode, cols, lines, sort);
+        return spawn_local_agent(mode, sort);
     }
-    let script = bootstrap_script(mode, &server.host, cols, lines, sort);
+    let script = bootstrap_script(mode, &server.host, sort);
     let mut cmd = ssh_command(server);
     cmd.arg("sh")
         .stdin(Stdio::piped())
@@ -368,8 +368,8 @@ mod tests {
 
     #[test]
     fn bootstrap_execs_cached_agent() {
-        let s = bootstrap_script(Mode::Monitor, "10.0.0.1", 100, 30, SortBy::Cpu);
-        assert!(s.contains("exec \"$A\" monitor '10.0.0.1' 100 30 cpu"), "{s}");
+        let s = bootstrap_script(Mode::Monitor, "10.0.0.1", SortBy::Cpu);
+        assert!(s.contains("exec \"$A\" monitor '10.0.0.1' 80 24 cpu"), "{s}");
         assert!(s.contains("[ -x \"$A\" ]"));
     }
 
@@ -377,7 +377,7 @@ mod tests {
     /// round trip on both x86 and ARM hosts.
     #[test]
     fn bootstrap_resolves_arch_remotely() {
-        let s = bootstrap_script(Mode::Monitor, "1.2.3.4", 80, 24, SortBy::Cpu);
+        let s = bootstrap_script(Mode::Monitor, "1.2.3.4", SortBy::Cpu);
         assert!(s.contains("M=$(uname -m)"));
         assert!(s.contains("x86_64|amd64)"));
         assert!(s.contains("aarch64|arm64)"));
@@ -387,18 +387,18 @@ mod tests {
 
     #[test]
     fn bootstrap_reports_arch_on_miss() {
-        let s = bootstrap_script(Mode::Monitor, "1.2.3.4", 80, 24, SortBy::Cpu);
+        let s = bootstrap_script(Mode::Monitor, "1.2.3.4", SortBy::Cpu);
         assert!(s.contains("echo \"===NEEDAGENT=== $M\""));
     }
 
     #[test]
     fn bootstrap_selects_docker_mode() {
-        assert!(bootstrap_script(Mode::Docker, "1.2.3.4", 80, 24, SortBy::Cpu).contains("\" docker "));
+        assert!(bootstrap_script(Mode::Docker, "1.2.3.4", SortBy::Cpu).contains("\" docker "));
     }
 
     #[test]
     fn bootstrap_quotes_the_display_address() {
-        let s = bootstrap_script(Mode::Monitor, "a'b", 80, 24, SortBy::Cpu);
+        let s = bootstrap_script(Mode::Monitor, "a'b", SortBy::Cpu);
         assert!(s.contains(r"'a'\''b'"), "{s}");
     }
 
@@ -406,7 +406,7 @@ mod tests {
     /// produce a clear message, not exec an empty path.
     #[test]
     fn bootstrap_handles_unknown_arch() {
-        let s = bootstrap_script(Mode::Monitor, "x", 80, 24, SortBy::Cpu);
+        let s = bootstrap_script(Mode::Monitor, "x", SortBy::Cpu);
         assert!(s.contains("*) A=\"\" ;;"));
         assert!(s.contains("[ -n \"$A\" ]"));
     }
@@ -428,7 +428,7 @@ mod tests {
     /// re-uploads the agent.
     #[test]
     fn upload_path_matches_bootstrap_path() {
-        let boot = bootstrap_script(Mode::Monitor, "x", 80, 24, SortBy::Cpu);
+        let boot = bootstrap_script(Mode::Monitor, "x", SortBy::Cpu);
         for arch in [Arch::X86_64, Arch::Aarch64] {
             let up = upload_command(arch.hash(), "tok");
             let suffix = format!("~/.cache/multitop/agent-{}", arch.hash());

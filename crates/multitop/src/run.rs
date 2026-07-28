@@ -3,7 +3,7 @@
 use std::time::Duration;
 
 use crossterm::event::{Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
-use tokio::io::{AsyncBufReadExt, BufReader, Lines};
+use tokio::io::{BufReader, Lines};
 use tokio::process::{Child, ChildStderr, ChildStdout};
 use tokio::sync::mpsc::{self, Sender};
 use tokio::task::JoinHandle;
@@ -14,9 +14,6 @@ use crate::app::{error_line, status_line, App, Command, Msg};
 use crate::config::Server;
 use crate::ssh::{self, Arch, Mode};
 use crate::ui;
-
-/// Frame delimiter the agent writes between refreshes.
-const FRAME_MARKER: &str = "===MONITOR===";
 
 /// How long to wait after the last resize event before restarting the agents
 /// at the new size. Dragging a window edge emits a burst of events.
@@ -129,14 +126,8 @@ async fn event_loop(
                 let new_dims = ui::agent_dims(terminal.size()?, n);
                 if new_dims != dims {
                     dims = new_dims;
-                    // The agent formats to a fixed width, so a resize means
-                    // restarting it rather than reflowing what it already sent.
-                    for (i, server) in servers.iter().enumerate() {
-                        if let Some(h) = tasks.monitors[i].take() {
-                            h.abort();
-                        }
-                        tasks.monitors[i] = Some(spawn_monitor(i, server.clone(), dims, app.sort, tx.clone()));
-                    }
+                    // With binary telemetry, resizes happen 100% locally in Ratatui
+                    // without restarting SSH tasks!
                 }
                 dirty = true;
             }
@@ -242,24 +233,25 @@ fn restart_all_agents(
 
 // ------------------------------------------------------------------- streams
 
-pub(crate) struct Stream {
+pub(crate) struct PacketStream {
     pub _child: Child,
-    pub stdout: Lines<BufReader<ChildStdout>>,
+    pub stdout: BufReader<ChildStdout>,
     pub stderr: Lines<BufReader<ChildStderr>>,
-    /// The line already consumed while checking for the NEEDAGENT marker.
-    pub pending: Option<String>,
+    pub pending_header: Option<[u8; 4]>,
 }
 
 /// Start the remote agent, uploading it first if the host has no cached copy.
 pub(crate) async fn connect(
     server: &Server,
     mode: Mode,
-    dims: (u16, u16),
     sort: SortBy,
     on_status: impl Fn(String),
-) -> Result<Stream, String> {
+) -> Result<PacketStream, String> {
+    use tokio::io::AsyncBufReadExt;
+    use tokio::io::AsyncReadExt;
+
     for attempt in 0..2 {
-        let mut child = ssh::spawn_agent(server, mode, dims.0, dims.1, sort)
+        let mut child = ssh::spawn_agent(server, mode, sort)
             .await
             .map_err(|e| match e.kind() {
                 std::io::ErrorKind::NotFound => "ssh command not found".to_string(),
@@ -268,13 +260,12 @@ pub(crate) async fn connect(
 
         let stdout = child.stdout.take().expect("stdout piped");
         let stderr = child.stderr.take().expect("stderr piped");
-        let mut stdout = BufReader::new(stdout).lines();
+        let mut stdout = BufReader::new(stdout);
         let mut stderr = BufReader::new(stderr).lines();
 
-        let first = stdout.next_line().await.map_err(|e| format!("read: {e}"))?;
-
-        let Some(line) = first else {
-            // No stdout at all: the failure reason is on stderr.
+        let mut first4 = [0u8; 4];
+        let n = stdout.read(&mut first4).await.unwrap_or(0);
+        if n == 0 {
             let mut detail = String::new();
             while let Ok(Some(l)) = stderr.next_line().await {
                 if !l.trim().is_empty() {
@@ -286,14 +277,28 @@ pub(crate) async fn connect(
             } else {
                 detail
             });
-        };
+        }
 
-        let Some(arch_str) = ssh::parse_need_agent(&line) else {
-            return Ok(Stream {
+        if n >= 4 && &first4 == multitop_agent::proto::MAGIC {
+            return Ok(PacketStream {
                 _child: child,
                 stdout,
                 stderr,
-                pending: Some(line),
+                pending_header: Some(first4),
+            });
+        }
+
+        let mut line_buf = String::from_utf8_lossy(&first4[..n]).to_string();
+        let mut rest_line = String::new();
+        let _ = stdout.read_line(&mut rest_line).await;
+        line_buf.push_str(&rest_line);
+
+        let Some(arch_str) = ssh::parse_need_agent(&line_buf) else {
+            return Ok(PacketStream {
+                _child: child,
+                stdout,
+                stderr,
+                pending_header: None,
             });
         };
 
@@ -320,27 +325,56 @@ pub(crate) async fn connect(
     unreachable!("loop returns on both attempts")
 }
 
-/// Read the next stdout line, remembering stderr as it arrives.
-pub(crate) async fn next_line(
-    stream: &mut Stream,
+pub(crate) async fn next_packet(
+    stream: &mut PacketStream,
     errbuf: &mut Vec<String>,
-) -> std::io::Result<Option<String>> {
-    if let Some(line) = stream.pending.take() {
-        return Ok(Some(line));
-    }
-    loop {
-        tokio::select! {
-            line = stream.stdout.next_line() => return line,
-            Ok(Some(line)) = stream.stderr.next_line() => {
-                if !line.trim().is_empty() {
-                    errbuf.push(line);
-                    if errbuf.len() > MAX_STDERR_LINES {
-                        errbuf.remove(0);
+) -> std::io::Result<Option<multitop_agent::proto::Payload>> {
+    use tokio::io::AsyncReadExt;
+    use multitop_agent::proto;
+
+    let mut header = [0u8; 8];
+    if let Some(pending4) = stream.pending_header.take() {
+        header[..4].copy_from_slice(&pending4);
+        if let Err(e) = stream.stdout.read_exact(&mut header[4..8]).await {
+            return Err(e);
+        }
+    } else {
+        loop {
+            tokio::select! {
+                res = stream.stdout.read_exact(&mut header) => {
+                    match res {
+                        Ok(_) => break,
+                        Err(e) if e.kind() == std::io::ErrorKind::UnexpectedEof => return Ok(None),
+                        Err(e) => return Err(e),
+                    }
+                }
+                Ok(Some(line)) = stream.stderr.next_line() => {
+                    if !line.trim().is_empty() {
+                        errbuf.push(line);
+                        if errbuf.len() > MAX_STDERR_LINES {
+                            errbuf.remove(0);
+                        }
                     }
                 }
             }
         }
     }
+
+    if &header[..4] != proto::MAGIC {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            "invalid magic header",
+        ));
+    }
+    let len = u16::from_le_bytes([header[6], header[7]]) as usize;
+    let mut payload_bytes = vec![0u8; len];
+    stream.stdout.read_exact(&mut payload_bytes).await?;
+
+    let mut full_packet = Vec::with_capacity(8 + len);
+    full_packet.extend_from_slice(&header);
+    full_packet.extend_from_slice(&payload_bytes);
+
+    Ok(proto::decode_packet(&full_packet))
 }
 
 // --------------------------------------------------------------------- tasks
@@ -371,23 +405,34 @@ fn spawn_monitor(
                 });
             };
 
-            match connect(&server, Mode::Monitor, dims, sort, notify).await {
+            match connect(&server, Mode::Monitor, sort, notify).await {
                 Ok(mut stream) => {
                     failures = 0;
                     let mut errbuf = Vec::new();
-                    let mut frame: Vec<String> = Vec::new();
+                    let pal = &multitop_agent::color::ANSI;
 
-                    // Ends on EOF or a read error; both fall through to the
-                    // reconnect below.
-                    while let Ok(Some(line)) = next_line(&mut stream, &mut errbuf).await {
-                        if line.trim_end() != FRAME_MARKER {
-                            frame.push(line);
-                            continue;
-                        }
-                        if frame.is_empty() {
-                            continue;
-                        }
-                        let lines = std::mem::take(&mut frame);
+                    while let Ok(Some(payload)) = next_packet(&mut stream, &mut errbuf).await {
+                        let lines = match payload {
+                            multitop_agent::proto::Payload::Monitor(snap) => {
+                                multitop_agent::render::render(
+                                    &snap,
+                                    dims.0 as usize,
+                                    dims.1 as usize,
+                                    multitop_agent::render::bar_len_for(dims.0 as usize),
+                                    pal,
+                                )
+                            }
+                            multitop_agent::proto::Payload::Docker { host, rows } => {
+                                multitop_agent::docker::render(
+                                    &host,
+                                    dims.0 as usize,
+                                    dims.1 as usize,
+                                    &rows,
+                                    pal,
+                                    sort,
+                                )
+                            }
+                        };
                         if tx.send(Msg::Frame { panel: idx, lines }).await.is_err() {
                             return;
                         }

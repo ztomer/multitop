@@ -11,6 +11,7 @@ pub mod docker;
 pub mod fmt;
 pub mod monitor;
 pub mod proc;
+pub mod proto;
 pub mod render;
 pub mod sys;
 
@@ -121,9 +122,18 @@ pub fn run_agent<I: IntoIterator<Item = String>>(argv: I) {
 
     match args.mode {
         Mode::Docker => {
-            let frame = docker::render(&host, args.cols, args.lines, &docker::collect(), pal, args.sort);
-            let mut out = io::stdout().lock();
-            let _ = writeln!(out, "{}", frame.join("\n"));
+            let rows = docker::collect();
+            if is_tty {
+                let frame = docker::render(&host, args.cols, args.lines, &rows, pal, args.sort);
+                let mut out = io::stdout().lock();
+                let _ = writeln!(out, "{}", frame.join("\n"));
+            } else {
+                let payload = proto::Payload::Docker { host, rows };
+                let bytes = proto::encode_packet(&payload);
+                let mut out = io::stdout().lock();
+                let _ = out.write_all(&bytes);
+                let _ = out.flush();
+            }
         }
         Mode::Monitor => {
             if is_tty {
@@ -140,22 +150,26 @@ pub fn run_agent<I: IntoIterator<Item = String>>(argv: I) {
                 let elapsed = last.elapsed().as_secs_f64();
                 last = Instant::now();
 
-                let snap = monitor.tick(elapsed, args.cols, args.lines, args.sort);
-
-                buf.clear();
                 if is_tty {
+                    let snap = monitor.tick(elapsed, args.cols, args.lines, args.sort);
+                    buf.clear();
                     buf.push_str("\x1b[H\x1b[J");
+                    render::render_to_buf(&snap, args.cols, args.lines, render::bar_len_for(args.cols), pal, &mut buf);
+                    let mut out = io::stdout().lock();
+                    if out.write_all(buf.as_bytes()).is_err() || out.flush().is_err() {
+                        return;
+                    }
                 } else {
-                    buf.push_str(FRAME_MARKER);
-                    buf.push('\n');
+                    // In binary stream mode (over SSH), sample up to 50 top procs.
+                    // The client dashboard will filter/render as many as fit locally.
+                    let snap = monitor.tick(elapsed, 120, 50, args.sort);
+                    let payload = proto::Payload::Monitor(snap);
+                    let bytes = proto::encode_packet(&payload);
+                    let mut out = io::stdout().lock();
+                    if out.write_all(&bytes).is_err() || out.flush().is_err() {
+                        return;
+                    }
                 }
-                render::render_to_buf(&snap, args.cols, args.lines, render::bar_len_for(args.cols), pal, &mut buf);
-
-                let mut out = io::stdout().lock();
-                if out.write_all(buf.as_bytes()).is_err() || out.flush().is_err() {
-                    return;
-                }
-                drop(out);
 
                 std::thread::sleep(interval);
             }

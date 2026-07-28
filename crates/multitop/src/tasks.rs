@@ -5,7 +5,7 @@ use tokio::task::JoinHandle;
 
 use crate::app::{error_line, header_line, status_line, Msg};
 use crate::config::Server;
-use crate::run::{connect, next_line, Stream};
+use crate::run::{connect, next_packet};
 use crate::ssh;
 
 use multitop_agent::SortBy;
@@ -29,7 +29,7 @@ pub fn spawn_docker(
             });
         };
 
-        let mut stream = match connect(&server, ssh::Mode::Docker, dims, sort, notify).await {
+        let mut stream = match connect(&server, ssh::Mode::Docker, sort, notify).await {
             Ok(s) => s,
             Err(e) => {
                 let _ = tx
@@ -51,17 +51,30 @@ pub fn spawn_docker(
             })
             .await;
         let mut errbuf = Vec::new();
-        while let Ok(Some(line)) = next_line(&mut stream, &mut errbuf).await {
-            if tx
-                .send(Msg::AuxLine {
-                    panel: idx,
-                    gen,
-                    line,
-                })
-                .await
-                .is_err()
-            {
-                return;
+        let pal = &multitop_agent::color::ANSI;
+
+        while let Ok(Some(payload)) = next_packet(&mut stream, &mut errbuf).await {
+            let lines = match payload {
+                multitop_agent::proto::Payload::Docker { host, rows } => {
+                    multitop_agent::docker::render(&host, dims.0 as usize, dims.1 as usize, &rows, pal, sort)
+                }
+                multitop_agent::proto::Payload::Monitor(snap) => {
+                    multitop_agent::render::render(&snap, dims.0 as usize, dims.1 as usize, multitop_agent::render::bar_len_for(dims.0 as usize), pal)
+                }
+            };
+
+            for line in lines {
+                if tx
+                    .send(Msg::AuxLine {
+                        panel: idx,
+                        gen,
+                        line,
+                    })
+                    .await
+                    .is_err()
+                {
+                    return;
+                }
             }
         }
         for line in errbuf {
@@ -98,12 +111,8 @@ pub fn spawn_upgrade(idx: usize, gen: u64, server: Server, tx: Sender<Msg>) -> J
         };
         let stdout = child.stdout.take().expect("stdout piped");
         let stderr = child.stderr.take().expect("stderr piped");
-        let mut stream = Stream {
-            _child: child,
-            stdout: BufReader::new(stdout).lines(),
-            stderr: BufReader::new(stderr).lines(),
-            pending: None,
-        };
+        let mut stdout_lines = BufReader::new(stdout).lines();
+        let mut stderr_lines = BufReader::new(stderr).lines();
 
         let header = header_line(format!("Upgrade on {}", server.host));
         let _ = tx
@@ -115,19 +124,26 @@ pub fn spawn_upgrade(idx: usize, gen: u64, server: Server, tx: Sender<Msg>) -> J
             .await;
 
         let mut errbuf = Vec::new();
-        while let Ok(Some(line)) = next_line(&mut stream, &mut errbuf).await {
-            if tx
-                .send(Msg::AuxLine {
-                    panel: idx,
-                    gen,
-                    line,
-                })
-                .await
-                .is_err()
-            {
-                return;
+        loop {
+            tokio::select! {
+                line = stdout_lines.next_line() => {
+                    match line {
+                        Ok(Some(line)) => {
+                            if tx.send(Msg::AuxLine { panel: idx, gen, line }).await.is_err() {
+                                return;
+                            }
+                        }
+                        _ => break,
+                    }
+                }
+                Ok(Some(line)) = stderr_lines.next_line() => {
+                    if !line.trim().is_empty() {
+                        errbuf.push(line);
+                    }
+                }
             }
         }
+
         for line in errbuf {
             let _ = tx
                 .send(Msg::AuxLine {
