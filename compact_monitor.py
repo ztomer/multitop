@@ -95,13 +95,6 @@ def get_host_info():
     return hostname
 
 
-def format_bar(pct, length):
-    filled = int(pct / 100 * length)
-    color = Colors.cpu_bar(pct)
-    bar_str = "#" * filled + "." * (length - filled)
-    return f"{color}{bar_str}{Colors.RESET}"
-
-
 def get_cpu():
     prev_total = 0
     prev_idle = 0
@@ -203,53 +196,52 @@ def main():
 
 
 def loop(interval):
-    term = shutil.get_terminal_size((80, 24))
-    bar_len = max(8, term.columns - 30)
     host = get_host_info()
-
     cpu_prev = get_cpu()
     net_prev = get_net()
     time.sleep(interval)
 
     while True:
+        term = shutil.get_terminal_size((80, 24))
+        bar_len = max(8, term.columns - 30)
+
         cpu_curr = get_cpu()
         net_curr = get_net()
         mem_total_kb, mem_used_kb, mem_pct = get_memory()
         disk_total, disk_used, disk_pct = get_disk()
-        procs = get_top_procs(5)
-        term = shutil.get_terminal_size((80, 24))
-        bar_len = max(8, term.columns - 30)
 
         out = []
-        sep = f"{Colors.CYAN}{Colors.BOLD}{host}{Colors.RESET}  {Colors.GRAY}{'─' * max(0, term.columns - len(host) - 6)}{Colors.RESET}"
-        out.append(sep)
+        out.append(
+            f"{Colors.CYAN}{Colors.BOLD}{host}{Colors.RESET}"
+            f"  {Colors.GRAY}{'─' * max(0, term.columns - len(host) - 6)}{Colors.RESET}"
+        )
 
         if isinstance(cpu_curr, tuple) and isinstance(cpu_prev, tuple):
             t = cpu_curr[0] - cpu_prev[0]
             i = cpu_curr[1] - cpu_prev[1]
             cpu_pct = ((t - i) / t * 100) if t else 0
-            bar_color = Colors.cpu_bar(cpu_pct)
+            bc = Colors.cpu_bar(cpu_pct)
             out.append(
                 f" {Colors.BOLD}CPU{Colors.RESET}"
-                f" {bar_color}[{'#' * int(cpu_pct / 100 * bar_len) + '.' * (bar_len - int(cpu_pct / 100 * bar_len))}]{Colors.RESET}"
-                f" {bar_color}{cpu_pct:.0f}%{Colors.RESET}"
+                f" {bc}[{'#' * int(cpu_pct / 100 * bar_len) + '.' * (bar_len - int(cpu_pct / 100 * bar_len))}]{Colors.RESET}"
+                f" {bc}{cpu_pct:.0f}%{Colors.RESET}"
             )
 
         if mem_total_kb:
-            bar_color = Colors.mem_bar(mem_pct)
+            bc = Colors.mem_bar(mem_pct)
             out.append(
                 f" {Colors.BOLD}MEM{Colors.RESET}"
-                f" {bar_color}[{'#' * int(mem_pct / 100 * bar_len) + '.' * (bar_len - int(mem_pct / 100 * bar_len))}]{Colors.RESET}"
-                f" {bar_color}{mem_pct:.0f}%{Colors.RESET}"
+                f" {bc}[{'#' * int(mem_pct / 100 * bar_len) + '.' * (bar_len - int(mem_pct / 100 * bar_len))}]{Colors.RESET}"
+                f" {bc}{mem_pct:.0f}%{Colors.RESET}"
                 f" {Colors.GRAY}{fmt_size(mem_used_kb)}/{fmt_size(mem_total_kb)}{Colors.RESET}"
             )
 
         if disk_total:
-            bar_color = Colors.disk_bar(disk_pct)
+            bc = Colors.disk_bar(disk_pct)
             out.append(
                 f" {Colors.BOLD}DSK{Colors.RESET}"
-                f" {bar_color}[{'#' * int(disk_pct / 100 * bar_len) + '.' * (bar_len - int(disk_pct / 100 * bar_len))}]{Colors.RESET}"
-                f" {bar_color}{disk_pct:.0f}%{Colors.RESET}"
+                f" {bc}[{'#' * int(disk_pct / 100 * bar_len) + '.' * (bar_len - int(disk_pct / 100 * bar_len))}]{Colors.RESET}"
+                f" {bc}{disk_pct:.0f}%{Colors.RESET}"
                 f" {Colors.GRAY}{fmt_size(disk_used // 1024)}/{fmt_size(disk_total // 1024)}{Colors.RESET}"
             )
 
@@ -257,12 +249,18 @@ def loop(interval):
         net_rx_prev, net_tx_prev = net_prev
         rx_rate = (net_rx - net_rx_prev) / interval
         tx_rate = (net_tx - net_tx_prev) / interval
-        if rx_rate > 1024 or tx_rate > 1024:
+        show_net = rx_rate > 1024 or tx_rate > 1024
+        if show_net:
             out.append(
                 f" {Colors.BOLD}NET{Colors.RESET}"
                 f" {Colors.GREEN}\u2191 {fmt_rate(tx_rate)}{Colors.RESET}"
                 f"  {Colors.CYAN}\u2193 {fmt_rate(rx_rate)}{Colors.RESET}"
             )
+
+        overhead = len(out) + 2
+        max_procs = max(1, term.lines - overhead - 1)
+
+        procs = get_top_procs(max_procs)
 
         out.append(f" {Colors.GRAY}{'─' * max(0, term.columns - 2)}{Colors.RESET}")
         out.append(

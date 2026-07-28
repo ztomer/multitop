@@ -57,7 +57,7 @@ hostname (10.0.0.33)  ──────────────────
 
 - **Hostname/IP** in cyan — identifies which pane is which
 - **CPU** overall usage, bar color: green < 50%, yellow 50-80%, red >= 80%
-- **Top 5 processes** sorted by CPU (yellow if >= 10%, white otherwise)
+- **Top processes** sorted by CPU — fills available vertical space (5 shown here in a ~20-row terminal, adjusts on resize)
 - **MEM** total/used, bar colors match CPU thresholds
 - **DSK** total/used, green < 70%, yellow 70-90%, red >= 90%
 - **NET** aggregate upload/download across all interfaces (2s window)
