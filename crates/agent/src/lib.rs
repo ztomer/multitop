@@ -20,6 +20,22 @@ pub const FRAME_MARKER: &str = "===MONITOR===";
 /// Default refresh interval, in seconds.
 pub const DEFAULT_INTERVAL: f64 = 2.0;
 
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum SortBy {
+    #[default]
+    Cpu,
+    Mem,
+}
+
+impl SortBy {
+    pub fn word(&self) -> &'static str {
+        match self {
+            SortBy::Cpu => "cpu",
+            SortBy::Mem => "mem",
+        }
+    }
+}
+
 /// Parsed command line.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Args {
@@ -27,6 +43,7 @@ pub struct Args {
     pub display_ip: Option<String>,
     pub cols: usize,
     pub lines: usize,
+    pub sort: SortBy,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -42,11 +59,12 @@ impl Default for Args {
             display_ip: None,
             cols: 80,
             lines: 24,
+            sort: SortBy::Cpu,
         }
     }
 }
 
-/// Parse `[monitor|docker] [ip] [cols] [lines]`.
+/// Parse `[monitor|docker] [ip] [cols] [lines] [cpu|mem]`.
 ///
 /// The mode word is optional so the binary still behaves sensibly when run by
 /// hand on a server with no arguments at all.
@@ -78,6 +96,13 @@ pub fn parse_args<I: IntoIterator<Item = String>>(argv: I) -> Args {
     if let Some(v) = positional.next().and_then(|v| v.parse().ok()) {
         args.lines = v;
     }
+    if let Some(v) = positional.next() {
+        match v.to_ascii_lowercase().as_str() {
+            "mem" | "memory" => args.sort = SortBy::Mem,
+            "cpu" => args.sort = SortBy::Cpu,
+            _ => {}
+        }
+    }
     args
 }
 
@@ -96,7 +121,7 @@ pub fn run_agent<I: IntoIterator<Item = String>>(argv: I) {
 
     match args.mode {
         Mode::Docker => {
-            let frame = docker::render(&host, args.cols, args.lines, &docker::collect(), pal);
+            let frame = docker::render(&host, args.cols, args.lines, &docker::collect(), pal, args.sort);
             let mut out = io::stdout().lock();
             let _ = writeln!(out, "{}", frame.join("\n"));
         }
@@ -115,7 +140,7 @@ pub fn run_agent<I: IntoIterator<Item = String>>(argv: I) {
                 let elapsed = last.elapsed().as_secs_f64();
                 last = Instant::now();
 
-                let snap = monitor.tick(elapsed, args.cols, args.lines);
+                let snap = monitor.tick(elapsed, args.cols, args.lines, args.sort);
                 let frame = render::render(&snap, args.cols, args.lines, render::bar_len_for(args.cols), pal);
 
                 buf.clear();

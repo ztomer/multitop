@@ -62,6 +62,8 @@ impl Tasks {
     }
 }
 
+use multitop_agent::SortBy;
+
 async fn event_loop(
     terminal: &mut ratatui::DefaultTerminal,
     servers: Vec<Server>,
@@ -74,7 +76,7 @@ async fn event_loop(
 
     let mut dims = ui::agent_dims(terminal.size()?, n);
     for (i, server) in servers.iter().enumerate() {
-        tasks.monitors[i] = Some(spawn_monitor(i, server.clone(), dims, tx.clone()));
+        tasks.monitors[i] = Some(spawn_monitor(i, server.clone(), dims, app.sort, tx.clone()));
     }
 
     let mut resize_at: Option<Instant> = None;
@@ -133,7 +135,7 @@ async fn event_loop(
                         if let Some(h) = tasks.monitors[i].take() {
                             h.abort();
                         }
-                        tasks.monitors[i] = Some(spawn_monitor(i, server.clone(), dims, tx.clone()));
+                        tasks.monitors[i] = Some(spawn_monitor(i, server.clone(), dims, app.sort, tx.clone()));
                     }
                 }
                 dirty = true;
@@ -160,12 +162,8 @@ fn handle_key(
     if key.kind != KeyEventKind::Press {
         return;
     }
-    let cmds = match key.code {
-        KeyCode::Esc => {
-            app.quit();
-            return;
-        }
-        KeyCode::Char('q') => {
+    match key.code {
+        KeyCode::Esc | KeyCode::Char('q') | KeyCode::Char('Q') => {
             app.quit();
             return;
         }
@@ -173,6 +171,26 @@ fn handle_key(
             app.quit();
             return;
         }
+        KeyCode::Char('c') | KeyCode::Char('C') => {
+            let old_sort = app.sort;
+            app.sort = SortBy::Cpu;
+            if old_sort != app.sort {
+                restart_all_agents(app, servers, dims, tx, tasks);
+            }
+            return;
+        }
+        KeyCode::Char('m') | KeyCode::Char('M') => {
+            let old_sort = app.sort;
+            app.sort = SortBy::Mem;
+            if old_sort != app.sort {
+                restart_all_agents(app, servers, dims, tx, tasks);
+            }
+            return;
+        }
+        _ => {}
+    }
+
+    let cmds = match key.code {
         KeyCode::Char('d') | KeyCode::Char('D') => app.toggle_docker(),
         KeyCode::Char('s') | KeyCode::Char('S') => app.switch_stats(),
         KeyCode::Char('u') | KeyCode::Char('U') => app.run_upgrade(),
@@ -183,7 +201,7 @@ fn handle_key(
         let (idx, handle) = match cmd {
             Command::RunDocker { panel, gen } => (
                 panel,
-                spawn_docker(panel, gen, servers[panel].clone(), dims, tx.clone()),
+                spawn_docker(panel, gen, servers[panel].clone(), dims, app.sort, tx.clone()),
             ),
             Command::RunUpgrade { panel, gen } => (
                 panel,
@@ -193,6 +211,31 @@ fn handle_key(
         // Supersede whatever that panel was running.
         if let Some(old) = tasks.aux[idx].replace(handle) {
             old.abort();
+        }
+    }
+}
+
+fn restart_all_agents(
+    app: &App,
+    servers: &[Server],
+    dims: (u16, u16),
+    tx: &Sender<Msg>,
+    tasks: &mut Tasks,
+) {
+    for (i, server) in servers.iter().enumerate() {
+        if let Some(h) = tasks.monitors[i].take() {
+            h.abort();
+        }
+        tasks.monitors[i] = Some(spawn_monitor(i, server.clone(), dims, app.sort, tx.clone()));
+    }
+    if app.in_docker() {
+        for (i, panel) in app.panels.iter().enumerate() {
+            if panel.mode == crate::app::Mode::Docker {
+                let gen = panel.gen;
+                if let Some(old) = tasks.aux[i].replace(spawn_docker(i, gen, servers[i].clone(), dims, app.sort, tx.clone())) {
+                    old.abort();
+                }
+            }
         }
     }
 }
@@ -212,10 +255,11 @@ pub(crate) async fn connect(
     server: &Server,
     mode: Mode,
     dims: (u16, u16),
+    sort: SortBy,
     on_status: impl Fn(String),
 ) -> Result<Stream, String> {
     for attempt in 0..2 {
-        let mut child = ssh::spawn_agent(server, mode, dims.0, dims.1)
+        let mut child = ssh::spawn_agent(server, mode, dims.0, dims.1, sort)
             .await
             .map_err(|e| match e.kind() {
                 std::io::ErrorKind::NotFound => "ssh command not found".to_string(),
@@ -305,7 +349,13 @@ pub(crate) async fn next_line(
 ///
 /// This task keeps running through Docker and Upgrade views, so stats stay
 /// warm and switching back is instant.
-fn spawn_monitor(idx: usize, server: Server, dims: (u16, u16), tx: Sender<Msg>) -> JoinHandle<()> {
+fn spawn_monitor(
+    idx: usize,
+    server: Server,
+    dims: (u16, u16),
+    sort: SortBy,
+    tx: Sender<Msg>,
+) -> JoinHandle<()> {
     tokio::spawn(async move {
         let mut failures = 0usize;
         loop {
@@ -321,7 +371,7 @@ fn spawn_monitor(idx: usize, server: Server, dims: (u16, u16), tx: Sender<Msg>) 
                 });
             };
 
-            match connect(&server, Mode::Monitor, dims, notify).await {
+            match connect(&server, Mode::Monitor, dims, sort, notify).await {
                 Ok(mut stream) => {
                     failures = 0;
                     let mut errbuf = Vec::new();
@@ -376,9 +426,10 @@ fn spawn_docker(
     gen: u64,
     server: Server,
     dims: (u16, u16),
+    sort: SortBy,
     tx: Sender<Msg>,
 ) -> JoinHandle<()> {
-    crate::tasks::spawn_docker(idx, gen, server, dims, tx)
+    crate::tasks::spawn_docker(idx, gen, server, dims, sort, tx)
 }
 
 fn spawn_upgrade(idx: usize, gen: u64, server: Server, tx: Sender<Msg>) -> JoinHandle<()> {

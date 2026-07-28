@@ -9,6 +9,7 @@ fn row(name: &str, status: &str, cpu: f64) -> Row {
         cpu: format!("{cpu:.1}%"),
         cpu_pct: cpu,
         mem: "1.0MiB/1.0GiB".into(),
+        mem_bytes: 1024 * 1024,
     }
 }
 
@@ -191,22 +192,24 @@ fn cli_stats_skips_short_rows() {
     assert!(parse_cli_stats("web\t1%\n").is_empty());
 }
 
+use multitop_agent::SortBy;
+
 #[test]
 fn render_empty_says_so() {
-    let out = render("h", 80, 0, &[], &ANSI);
+    let out = render("h", 80, 0, &[], &ANSI, SortBy::Cpu);
     assert_eq!(out.len(), 2);
     assert!(out[1].contains("No running containers"));
 }
 
 #[test]
 fn render_host_header_is_fullwidth() {
-    assert!(render("h", 80, 0, &[], &ANSI)[0].contains('\u{ff48}'));
+    assert!(render("h", 80, 0, &[], &ANSI, SortBy::Cpu)[0].contains('\u{ff48}'));
 }
 
 #[test]
 fn render_lists_containers() {
     let rows = vec![row("web", "Up 3 hours", 5.0), row("db", "Exited (0)", 70.0)];
-    let out = render("h", 80, 0, &rows, &ANSI);
+    let out = render("h", 80, 0, &rows, &ANSI, SortBy::Cpu);
     let all = out.join("\n");
     assert!(all.contains("web"));
     assert!(all.contains("db"));
@@ -217,7 +220,7 @@ fn render_lists_containers() {
 #[test]
 fn render_colors_by_status() {
     let rows = vec![row("up", "Up 1 hour", 1.0), row("gone", "Exited (0)", 1.0)];
-    let out = render("h", 80, 0, &rows, &ANSI);
+    let out = render("h", 80, 0, &rows, &ANSI, SortBy::Cpu);
     assert!(out
         .iter()
         .find(|l| l.contains("up "))
@@ -232,13 +235,13 @@ fn render_colors_by_status() {
 
 #[test]
 fn render_flags_busy_containers() {
-    let out = render("h", 80, 0, &[row("busy", "Up", 75.0)], &ANSI);
+    let out = render("h", 80, 0, &[row("busy", "Up", 75.0)], &ANSI, SortBy::Cpu);
     assert!(out
         .iter()
         .find(|l| l.contains("busy"))
         .unwrap()
         .contains(ANSI.yellow));
-    let out = render("h", 80, 0, &[row("calm", "Up", 5.0)], &ANSI);
+    let out = render("h", 80, 0, &[row("calm", "Up", 5.0)], &ANSI, SortBy::Cpu);
     assert!(out
         .iter()
         .find(|l| l.contains("calm"))
@@ -253,7 +256,7 @@ fn render_truncates_long_fields() {
         "Up 3 hours and counting",
         1.0,
     )];
-    let out = strip_ansi(&render("h", 80, 0, &rows, &ANSI).join("\n"));
+    let out = strip_ansi(&render("h", 80, 0, &rows, &ANSI, SortBy::Cpu).join("\n"));
     assert!(out.contains("..."));
 }
 
@@ -273,6 +276,7 @@ fn render_rows_are_aligned() {
                 mem_limit: 26_700_000_000,
             }
             .mem_string(),
+            mem_bytes: 29 * 1024 * 1024,
         },
         Row {
             name: "jellyfin".into(),
@@ -285,6 +289,7 @@ fn render_rows_are_aligned() {
                 mem_limit: 1023 * (1 << 30),
             }
             .mem_string(),
+            mem_bytes: 1023 * 1024,
         },
         Row {
             name: "no-limit".into(),
@@ -292,11 +297,12 @@ fn render_rows_are_aligned() {
             cpu: "0.0%".into(),
             cpu_pct: 0.0,
             mem: "-".into(),
+            mem_bytes: 0,
         },
     ];
 
     for cols in [80usize, 100, 118, 200] {
-        let out = render("h", cols, 0, &rows, &ANSI);
+        let out = render("h", cols, 0, &rows, &ANSI, SortBy::Cpu);
         let widths: Vec<usize> = out[1..out.len() - 1]
             .iter()
             .filter(|l| !l.contains('\u{2500}'))
@@ -335,14 +341,14 @@ fn mem_string_formats_both_sides() {
 
 #[test]
 fn render_survives_narrow_panel() {
-    let out = render("h", 4, 0, &[row("x", "Up", 1.0)], &ANSI);
+    let out = render("h", 4, 0, &[row("x", "Up", 1.0)], &ANSI, SortBy::Cpu);
     assert!(!out.is_empty());
 }
 
 #[test]
 fn render_respects_max_rows_budget() {
     let rows: Vec<_> = (0..10).map(|i| row(&format!("c{i}"), "Up", 1.0)).collect();
-    let out = render("h", 80, 6, &rows, &ANSI);
+    let out = render("h", 80, 6, &rows, &ANSI, SortBy::Cpu);
     assert_eq!(out.len(), 6);
     assert!(out.iter().any(|l| l.contains("…+9 more") || l.contains("...+9 more")));
 }

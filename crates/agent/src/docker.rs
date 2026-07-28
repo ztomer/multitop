@@ -314,7 +314,6 @@ pub fn parse_cli_stats(text: &str) -> HashMap<String, (String, String)> {
         .collect()
 }
 
-/// One container as the table will draw it, however it was collected.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Row {
     pub name: String,
@@ -322,6 +321,7 @@ pub struct Row {
     pub cpu: String,
     pub cpu_pct: f64,
     pub mem: String,
+    pub mem_bytes: u64,
 }
 
 /// Gather rows, preferring the socket and falling back to the CLI.
@@ -343,6 +343,7 @@ pub fn collect() -> Vec<Row> {
                     } else {
                         "-".into()
                     },
+                    mem_bytes: s.mem_used,
                 }
             })
             .collect();
@@ -378,6 +379,7 @@ pub fn collect() -> Vec<Row> {
                 status: c.status,
                 cpu,
                 mem,
+                mem_bytes: 0,
             }
         })
         .collect()
@@ -401,13 +403,37 @@ pub fn truncate(s: &str, width: usize) -> String {
     t
 }
 
-pub fn render(host: &str, cols: usize, max_rows: usize, rows: &[Row], pal: &Palette) -> Vec<String> {
+pub fn render(
+    host: &str,
+    cols: usize,
+    max_rows: usize,
+    rows: &[Row],
+    pal: &Palette,
+    sort_by: crate::SortBy,
+) -> Vec<String> {
     let mut out = Vec::with_capacity(rows.len() + 4);
     out.push(center_header(host, cols, pal));
 
     if rows.is_empty() {
         out.push(format!(" {}No running containers{}", pal.gray, pal.reset));
         return out;
+    }
+
+    let mut sorted_rows = rows.to_vec();
+    match sort_by {
+        crate::SortBy::Cpu => sorted_rows.sort_unstable_by(|a, b| {
+            b.cpu_pct
+                .partial_cmp(&a.cpu_pct)
+                .unwrap_or(std::cmp::Ordering::Equal)
+                .then_with(|| b.mem_bytes.cmp(&a.mem_bytes))
+                .then_with(|| a.name.cmp(&b.name))
+        }),
+        crate::SortBy::Mem => sorted_rows.sort_unstable_by(|a, b| {
+            b.mem_bytes
+                .cmp(&a.mem_bytes)
+                .then_with(|| b.cpu_pct.partial_cmp(&a.cpu_pct).unwrap_or(std::cmp::Ordering::Equal))
+                .then_with(|| a.name.cmp(&b.name))
+        }),
     }
 
     out.push(format!(
@@ -427,12 +453,12 @@ pub fn render(host: &str, cols: usize, max_rows: usize, rows: &[Row], pal: &Pale
     // show as many as fit and a summary.
     let chrome_rows = 4;
     let body_budget = max_rows.saturating_sub(chrome_rows);
-    let (visible, overflow) = if body_budget >= rows.len() || max_rows == 0 {
-        (rows, 0)
+    let (visible, overflow) = if body_budget >= sorted_rows.len() || max_rows == 0 {
+        (&sorted_rows[..], 0)
     } else {
         // Reserve one row for the "…+N more" line.
         let show = body_budget.saturating_sub(1);
-        (&rows[..show], rows.len() - show)
+        (&sorted_rows[..show], sorted_rows.len() - show)
     };
 
     for r in visible {

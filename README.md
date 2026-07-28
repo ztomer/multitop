@@ -87,7 +87,9 @@ When monitoring locally (`--local` or `--local-only`), `multitop` executes the l
 
 | Key | Action |
 |-----|--------|
-| **ESC** / **q** | Quit (terminates every SSH session) |
+| **ESC** / **Q** / **q** | Quit (terminates every SSH session) |
+| **c** | Sort processes / Docker containers by CPU load |
+| **m** | Sort processes / Docker containers by Memory usage |
 | **d** | Toggle the Docker view on all panels |
 | **s** | Back to live stats |
 | **u** | Run each server's configured `upgrade_cmd` |

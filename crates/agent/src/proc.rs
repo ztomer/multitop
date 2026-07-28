@@ -376,8 +376,8 @@ impl ProcSampler {
             .collect();
     }
 
-    /// Top `n` processes by CPU over the last `elapsed` seconds.
-    pub fn top(&mut self, elapsed: f64, n: usize) -> Vec<Proc> {
+    /// Top `n` processes over the last `elapsed` seconds, sorted by `sort_by`.
+    pub fn top(&mut self, elapsed: f64, n: usize, sort_by: crate::SortBy) -> Vec<Proc> {
         let scanned = self.scan();
         let mut procs = Vec::with_capacity(scanned.len());
         let mut next = HashMap::with_capacity(scanned.len());
@@ -406,14 +406,21 @@ impl ProcSampler {
         }
         self.prev = next;
 
-        // Descending CPU, then by pid so equal-CPU rows do not shuffle
-        // between frames.
-        procs.sort_unstable_by(|a, b| {
-            b.cpu
-                .partial_cmp(&a.cpu)
-                .unwrap_or(std::cmp::Ordering::Equal)
-                .then(a.pid.cmp(&b.pid))
-        });
+        match sort_by {
+            crate::SortBy::Cpu => procs.sort_unstable_by(|a, b| {
+                b.cpu
+                    .partial_cmp(&a.cpu)
+                    .unwrap_or(std::cmp::Ordering::Equal)
+                    .then_with(|| b.mem.cmp(&a.mem))
+                    .then_with(|| a.pid.cmp(&b.pid))
+            }),
+            crate::SortBy::Mem => procs.sort_unstable_by(|a, b| {
+                b.mem
+                    .cmp(&a.mem)
+                    .then_with(|| b.cpu.partial_cmp(&a.cpu).unwrap_or(std::cmp::Ordering::Equal))
+                    .then_with(|| a.pid.cmp(&b.pid))
+            }),
+        }
         procs.truncate(n);
         procs
     }

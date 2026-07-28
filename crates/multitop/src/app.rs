@@ -94,9 +94,12 @@ pub enum Msg {
     },
 }
 
+pub use multitop_agent::SortBy;
+
 pub struct App {
     pub panels: Vec<Panel>,
     pub should_quit: bool,
+    pub sort: SortBy,
 }
 
 impl App {
@@ -104,6 +107,7 @@ impl App {
         App {
             panels: servers.into_iter().map(Panel::new).collect(),
             should_quit: false,
+            sort: SortBy::Cpu,
         }
     }
 

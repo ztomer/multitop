@@ -153,8 +153,12 @@ fn keybar_line() -> Line<'static> {
     let key = Style::default().fg(Color::White);
     let label = Style::default().fg(Color::DarkGray);
     Line::from(vec![
-        Span::styled(" ESC", key),
+        Span::styled(" ESC / Q", key),
         Span::styled(" Quit  ", label),
+        Span::styled("C", key),
+        Span::styled(" Cpu  ", label),
+        Span::styled("M", key),
+        Span::styled(" Mem  ", label),
         Span::styled("D", key),
         Span::styled(" Docker  ", label),
         Span::styled("S", key),

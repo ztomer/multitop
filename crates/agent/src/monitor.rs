@@ -29,7 +29,7 @@ impl Monitor {
     }
 
     /// Sample everything once and return the frame to draw.
-    pub fn tick(&mut self, interval: f64, cols: usize, lines: usize) -> Snapshot {
+    pub fn tick(&mut self, interval: f64, cols: usize, lines: usize, sort_by: crate::SortBy) -> Snapshot {
         let cpu = proc::get_cpu_stat();
         let net = proc::get_net();
         let mem = proc::get_memory();
@@ -73,7 +73,7 @@ impl Monitor {
             procs: Vec::new(),
         };
         let budget = Chrome::of(&snap, cols, lines).proc_budget(lines);
-        snap.procs = self.sampler.top(interval, budget);
+        snap.procs = self.sampler.top(interval, budget, sort_by);
 
         self.prev_cpu = cpu;
         self.prev_net = net;

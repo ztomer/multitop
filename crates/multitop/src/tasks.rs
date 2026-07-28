@@ -8,12 +8,15 @@ use crate::config::Server;
 use crate::run::{connect, next_line, Stream};
 use crate::ssh;
 
+use multitop_agent::SortBy;
+
 /// One-shot: renders the Docker view for a panel.
 pub fn spawn_docker(
     idx: usize,
     gen: u64,
     server: Server,
     dims: (u16, u16),
+    sort: SortBy,
     tx: Sender<Msg>,
 ) -> JoinHandle<()> {
     tokio::spawn(async move {
@@ -26,7 +29,7 @@ pub fn spawn_docker(
             });
         };
 
-        let mut stream = match connect(&server, ssh::Mode::Docker, dims, notify).await {
+        let mut stream = match connect(&server, ssh::Mode::Docker, dims, sort, notify).await {
             Ok(s) => s,
             Err(e) => {
                 let _ = tx
