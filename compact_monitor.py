@@ -284,20 +284,25 @@ def _render_output(host, cols, bar_len, cpu_pct, core_lines,
             f" {Colors.BOLD}CPU{Colors.RESET} {make_bar(cpu_pct, bar_len, bc)} {bc}{cpu_pct:.0f}%{Colors.RESET}"
         )
 
+    _SZ_W = 19
     if mem_total:
         bc2 = Colors.mem_bar(mem_pct)
+        mem_size = f"{fmt_size(mem_used)}/{fmt_size(mem_total)}"
         out.append(
             f" {Colors.BOLD}MEM{Colors.RESET}"
-            f" {make_bar(mem_pct, bar_len, bc2)} {bc2}{mem_pct:.0f}%{Colors.RESET}"
-            f" {Colors.GRAY}{fmt_size(mem_used)}/{fmt_size(mem_total)}{Colors.RESET}"
+            f" {make_bar(mem_pct, bar_len, bc2)}"
+            f" {bc2}{mem_pct:3.0f}%{Colors.RESET}"
+            f" {Colors.GRAY}{mem_size:<{_SZ_W}}{Colors.RESET}"
         )
 
     if disk_total:
         bc3 = Colors.disk_bar(disk_pct)
+        dsk_size = f"{fmt_size(disk_used)}/{fmt_size(disk_total)}"
         out.append(
             f" {Colors.BOLD}DSK{Colors.RESET}"
-            f" {make_bar(disk_pct, bar_len, bc3)} {bc3}{disk_pct:.0f}%{Colors.RESET}"
-            f" {Colors.GRAY}{fmt_size(disk_used)}/{fmt_size(disk_total)}{Colors.RESET}"
+            f" {make_bar(disk_pct, bar_len, bc3)}"
+            f" {bc3}{disk_pct:3.0f}%{Colors.RESET}"
+            f" {Colors.GRAY}{dsk_size:<{_SZ_W}}{Colors.RESET}"
         )
 
     show_net = rx_rate > 1024 or tx_rate > 1024
@@ -308,35 +313,60 @@ def _render_output(host, cols, bar_len, cpu_pct, core_lines,
             f"  {Colors.CYAN}\u2193 {fmt_rate(rx_rate)}{Colors.RESET}"
         )
 
-    name_w = max(12, min(20, cols - 38))
-    out.append(f" {Colors.GRAY}{'─' * max(0, cols - 2)}{Colors.RESET}")
-    out.append(
-        f" {Colors.BOLD}{'PID':>7}  {'NAME':<{name_w}}  {'CPU':>5}  {'MEM':>7}{Colors.RESET}"
-    )
-    for pid, name, cpu, mem_bytes in procs:
-        name_trunc = name if len(name) < name_w else name[:name_w - 3] + "..."
-        cpu_color = Colors.YELLOW if float(cpu or 0) >= 10 else Colors.WHITE
-        out.append(
-            f" {Colors.GRAY}{pid:>7}{Colors.RESET}"
-            f"  {Colors.WHITE}{name_trunc:<{name_w}}{Colors.RESET}"
-            f"  {cpu_color}{cpu:>5}{Colors.RESET}"
-            f"  {Colors.CYAN}{fmt_size(mem_bytes):>7}{Colors.RESET}"
+    def _proc_content(pid, name, cpu, mem, nw):
+        name_trunc = name if len(name) < nw else name[:nw - 3] + "..."
+        cpu_c = Colors.YELLOW if float(cpu or 0) >= 10 else Colors.WHITE
+        return (
+            f"{Colors.GRAY}{pid:>7}{Colors.RESET}"
+            f"  {Colors.WHITE}{name_trunc:<{nw}}{Colors.RESET}"
+            f"  {cpu_c}{cpu:>5}{Colors.RESET}"
+            f"  {Colors.CYAN}{fmt_size(mem):>7}{Colors.RESET}"
         )
+
+    out.append(f" {Colors.GRAY}{'─' * max(0, cols - 2)}{Colors.RESET}")
+
+    use_two = cols >= 72 and len(procs) > 1
+    if use_two:
+        nw = max(4, (cols - 54) // 2)
+        hdr = f"{Colors.BOLD}{'PID':>7}  {'NAME':<{nw}}  {'CPU':>5}  {'MEM':>7}{Colors.RESET}"
+        sep = f" {Colors.GRAY}│{Colors.RESET} "
+        out.append(f" {hdr}{sep}{hdr}")
+        mid = (len(procs) + 1) // 2
+        for i in range(mid):
+            lp = procs[i]
+            rp = procs[i + mid] if i + mid < len(procs) else None
+            left = _proc_content(*lp, nw)
+            if rp:
+                right = _proc_content(*rp, nw)
+                out.append(f" {left}{sep}{right}")
+            else:
+                out.append(f" {left}")
+    else:
+        nw = max(12, min(20, cols - 38))
+        out.append(
+            f" {Colors.BOLD}{'PID':>7}  {'NAME':<{nw}}  {'CPU':>5}  {'MEM':>7}{Colors.RESET}"
+        )
+        for pid, name, cpu, mem_bytes in procs:
+            out.append(f" {_proc_content(pid, name, cpu, mem_bytes, nw)}")
 
     return out
 
 
-def _calc_core_rows(num_cores, cols):
+def _calc_core_rows(num_cores, cols, bar_len):
     if num_cores < 2:
         return 0
-    # Rough seg width: "0:100%" = 6, plus 1 sep space
-    seg_w = 7
+    idx_w = len(str(num_cores - 1))
+    per_core_bar_len = min(12, bar_len // num_cores)
+    if per_core_bar_len >= 5:
+        seg_w = idx_w + 1 + per_core_bar_len + 4
+    else:
+        seg_w = idx_w + 1 + 4
     per_line = max(1, (cols - 6) // seg_w)
     return (num_cores + per_line - 1) // per_line - 1
 
 
 def _iteration(host, prev_agg, prev_cores, net_prev, interval, cols, term_lines):
-    bar_len = max(8, cols - 16)
+    bar_len = max(4, cols - 32)
 
     data = read_proc("/proc/stat")
     curr_agg, curr_cores = parse_proc_stat(data)
@@ -362,7 +392,7 @@ def _iteration(host, prev_agg, prev_cores, net_prev, interval, cols, term_lines)
     tx_rate = (net_tx - net_tx_prev) / interval
 
     num_cores = len(core_lines)
-    core_rows = _calc_core_rows(num_cores, cols)
+    core_rows = _calc_core_rows(num_cores, cols, bar_len)
     base = 2 + core_rows
     if mem_total:
         base += 1

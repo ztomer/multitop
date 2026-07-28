@@ -144,6 +144,7 @@ class MonitorApp(App):
 
     async def on_mount(self):
         for panel, srv in zip(self.query(ServerPanel), self.servers):
+            self._mode[panel] = "monitor"
             self._tasks[panel] = asyncio.create_task(self._monitor_server(panel, srv))
 
     def _target(self, srv):
@@ -280,24 +281,32 @@ class MonitorApp(App):
         in_docker = any(self._mode.get(p) == "docker" for p in panels)
         for panel, srv in zip(panels, servers):
             if in_docker:
+                self._next_gen(panel)
                 self._mode[panel] = "monitor"
                 if panel in self._frames:
                     panel.output.update(Text.from_ansi("\n".join(self._frames[panel])))
+                else:
+                    panel.output.update(Text.from_ansi("[yellow]waiting for data...[/]"))
             else:
                 self._mode[panel] = "docker"
+                panel.output.update(Text.from_ansi("[yellow]→ Docker loading...[/]"))
                 asyncio.create_task(self._show_docker(panel, srv))
 
     async def action_switch_stats(self):
         panels = self.query(ServerPanel)
         for panel in panels:
+            self._next_gen(panel)
             self._mode[panel] = "monitor"
             if panel in self._frames:
                 panel.output.update(Text.from_ansi("\n".join(self._frames[panel])))
+            else:
+                panel.output.update(Text.from_ansi("[yellow]waiting for data...[/]"))
 
     async def action_run_upgrade(self):
         panels = list(self.query(ServerPanel))
         servers = self.servers
         for panel, srv in zip(panels, servers):
+            panel.output.update(Text.from_ansi("[yellow]→ Upgrade running...[/]"))
             asyncio.create_task(self._run_upgrade(panel, srv))
 
     async def action_quit(self) -> None:

@@ -6,6 +6,7 @@ import pytest
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 from compact_monitor import (
     Colors,
+    _calc_core_rows,
     _iteration,
     _render_output,
     _set_ansi,
@@ -699,7 +700,7 @@ class TestLoop:
         written = []
         monkeypatch.setattr("compact_monitor.Colors._ansi", ansi)
         monkeypatch.setattr("compact_monitor.shutil.get_terminal_size",
-                            lambda *a: type("s", (), {"columns": 80, "lines": 24})())
+                            lambda *a, **kw: os.terminal_size((80, 24)))
         monkeypatch.setattr("compact_monitor.read_proc", lambda p: "")
         monkeypatch.setattr("compact_monitor.get_net", lambda: (0, 0))
         monkeypatch.setattr("compact_monitor.get_top_procs", lambda n: [])
@@ -752,3 +753,92 @@ class TestMain:
         from compact_monitor import main
         main()
         assert not any("?25l" in w for w in writes)
+
+
+class TestFixedWidthFields:
+    def _strip_ansi(self, s):
+        import re
+        return re.compile(r'\033\[[0-9;]*m').sub("", s)
+
+    def test_mem_width_constant(self):
+        out1 = _render_output("h", 80, 48, 50, [], 2**31, 2**30, 50.0, 0, 0, 0, 0, 0, [])
+        out2 = _render_output("h", 80, 48, 50, [], 2**30, 2**20, 12.5, 0, 0, 0, 0, 0, [])
+        mem1 = self._strip_ansi([l for l in out1 if "MEM" in l][0])
+        mem2 = self._strip_ansi([l for l in out2 if "MEM" in l][0])
+        assert len(mem1) == len(mem2)
+
+    def test_dsk_width_constant(self):
+        out1 = _render_output("h", 80, 48, 50, [], 0, 0, 0, 2**40, 2**38, 80.0, 0, 0, [])
+        out2 = _render_output("h", 80, 48, 50, [], 0, 0, 0, 2**38, 2**37, 45.0, 0, 0, [])
+        dsk1 = self._strip_ansi([l for l in out1 if "DSK" in l][0])
+        dsk2 = self._strip_ansi([l for l in out2 if "DSK" in l][0])
+        assert len(dsk1) == len(dsk2)
+
+    def test_percentage_right_aligned(self):
+        out = _render_output("h", 80, 48, 50, [], 2**31, 2**30, 50.0, 0, 0, 0, 0, 0, [])
+        mem = self._strip_ansi([l for l in out if "MEM" in l][0])
+        assert "  50%" in mem or " 100%" in mem
+
+    def test_size_field_padded(self):
+        out = _render_output("h", 80, 48, 50, [], 2**31, 2**30, 50.0, 2**40, 2**38, 80.0, 0, 0, [])
+        mem = self._strip_ansi([l for l in out if "MEM" in l][0])
+        dsk = self._strip_ansi([l for l in out if "DSK" in l][0])
+        assert len(mem) == len(dsk)
+
+
+class TestTwoColumnProcs:
+    def _strip_ansi(self, s):
+        import re
+        return re.compile(r'\033\[[0-9;]*m').sub("", s)
+
+    def test_two_columns_when_wide(self):
+        procs = [("1", "proc_a", "1.0", 1000), ("2", "proc_b", "2.0", 2000),
+                 ("3", "proc_c", "3.0", 3000), ("4", "proc_d", "4.0", 4000)]
+        out = _render_output("h", 80, 48, 50, [], 2**31, 2**30, 50.0, 2**40, 2**38, 80.0, 0, 0, procs)
+        pid_count = sum(l.count("PID") for l in out)
+        assert pid_count == 2
+
+    def test_two_columns_single_proc_per_side(self):
+        procs = [("1", "left", "1.0", 1000), ("2", "right", "2.0", 2000)]
+        out = _render_output("h", 80, 48, 50, [], 2**31, 2**30, 50.0, 2**40, 2**38, 80.0, 0, 0, procs)
+        proc_lines = [self._strip_ansi(l) for l in out if "left" in l or "right" in l]
+        assert len(proc_lines) == 1
+
+    def test_two_columns_odd_procs(self):
+        procs = [("1", "a", "1.0", 1000), ("2", "b", "2.0", 2000), ("3", "c", "3.0", 3000)]
+        out = _render_output("h", 80, 48, 50, [], 2**31, 2**30, 50.0, 2**40, 2**38, 80.0, 0, 0, procs)
+        all_text = " ".join(self._strip_ansi(l) for l in out)
+        assert "a" in all_text and "b" in all_text and "c" in all_text
+
+    def test_single_column_when_narrow(self):
+        procs = [("1", "a", "1.0", 1000), ("2", "b", "2.0", 2000)]
+        out = _render_output("h", 60, 28, 50, [], 2**31, 2**30, 50.0, 2**40, 2**38, 80.0, 0, 0, procs)
+        pid_count = sum(l.count("PID") for l in out)
+        assert pid_count == 1
+
+    def test_single_column_when_one_proc(self):
+        procs = [("1", "solo", "1.0", 1000)]
+        out = _render_output("h", 80, 48, 50, [], 2**31, 2**30, 50.0, 2**40, 2**38, 80.0, 0, 0, procs)
+        pid_count = sum(l.count("PID") for l in out)
+        assert pid_count == 1
+
+
+class TestCalcCoreRows:
+    def test_single_core(self):
+        assert _calc_core_rows(1, 80, 48) == 0
+
+    def test_dual_core_fits_one_line(self):
+        assert _calc_core_rows(2, 80, 48) == 0
+
+    def test_sixteen_cores_at_80_cols(self):
+        rows = _calc_core_rows(16, 80, 48)
+        assert rows >= 1
+
+    def test_thirtytwo_cores_narrow(self):
+        rows = _calc_core_rows(32, 40, 8)
+        assert rows >= 2
+
+    def test_bar_len_affects_seg_width(self):
+        rows_long = _calc_core_rows(16, 80, 80)
+        rows_short = _calc_core_rows(16, 80, 20)
+        assert rows_long >= rows_short
