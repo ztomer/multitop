@@ -260,19 +260,16 @@ def _render_output(host, cols, bar_len, cpu_pct, core_lines,
             else:
                 segs.append(f"{idx}:{cp:.0f}%")
         plain_segs = [_sa("", s) for s in segs]
+        cell_w = max(len(s) for s in plain_segs) + 1
+        num_cols = max(1, (cols - 6) // cell_w)
         cpu_label = f" {Colors.BOLD}CPU{Colors.RESET} "
         cpu_plain = " CPU "
         indent = " " * len(cpu_plain)
-        used = 0
-        while used < num_cores:
-            label = cpu_label if used == 0 else indent
-            disp = cpu_plain if used == 0 else indent
-            for seg, ps in zip(segs[used:], plain_segs[used:]):
-                if len(disp) + len(ps) + 1 > cols:
-                    break
-                label += seg + " "
-                disp += ps + " "
-                used += 1
+        for i in range(0, num_cores, num_cols):
+            label = cpu_label if i == 0 else indent
+            for j in range(i, min(i + num_cols, num_cores)):
+                pad = cell_w + len(segs[j]) - len(plain_segs[j])
+                label += f"{segs[j]:<{pad}}"
             out.append(label.rstrip())
     else:
         bc = Colors.cpu_bar(cpu_pct)
