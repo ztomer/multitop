@@ -13,6 +13,14 @@ from textual.binding import Binding
 from textual.containers import Vertical
 from textual.widgets import Static
 
+import sys
+from datetime import datetime
+
+
+def _log(msg):
+    print(f"[{datetime.now().isoformat()}] {msg}", file=sys.stderr, flush=True)
+
+
 CONFIG_PATH = os.path.expanduser("~/.config/multitop/config.toml")
 _EXAMPLE_CONFIG = os.path.join(os.path.dirname(os.path.abspath(__file__)), "config.example.toml")
 
@@ -213,13 +221,16 @@ class MonitorApp(App):
                 del self._procs[panel]
 
     async def _show_docker(self, panel, srv):
+        host = srv["host"]
         cmd = (
             "if command -v docker >/dev/null 2>&1; then "
             "docker ps --format 'table {{.Names}}\t{{.Status}}\t{{.Image}}' 2>&1; "
             "else echo '>> no dockers'; fi"
         )
         gen = self._next_gen(panel)
+        _log(f"SHOW_DOCKER started: {host} gen={gen}")
         await self._run_ssh_cmd(panel, srv, cmd, gen, "Docker")
+        _log(f"SHOW_DOCKER finished: {host} gen={gen}")
 
     async def _run_upgrade(self, panel, srv):
         cmd = srv.get("upgrade_cmd", "")
@@ -247,6 +258,7 @@ class MonitorApp(App):
         host = srv["host"]
         port = srv.get("port", 22)
         target = self._target(srv)
+        _log(f"RUN_SSH: {host} label={label} gen={gen}")
 
         proc = None
         try:
@@ -256,6 +268,7 @@ class MonitorApp(App):
                 stderr=asyncio.subprocess.STDOUT,
             )
             self._aux_procs[panel] = proc
+            _log(f"RUN_SSH started ssh: {host} pid={proc.pid}")
 
             lines = [f"[bold]{label} on {host}[/]"]
             while True:
@@ -264,11 +277,13 @@ class MonitorApp(App):
                     break
                 lines.append(raw.decode("utf-8", errors="replace").rstrip())
             await proc.wait()
+            _log(f"RUN_SSH completed: {host} exit={proc.returncode} lines={len(lines)}")
             if self._current_gen(panel) == gen:
                 panel.output.update(Text.from_ansi("\n".join(lines)))
         except asyncio.CancelledError:
             raise
         except Exception as e:
+            _log(f"RUN_SSH error: {host} {e}")
             if self._current_gen(panel) == gen:
                 panel.output.update(Text.from_ansi(f"[red]{e}[/]"))
         finally:
@@ -279,6 +294,7 @@ class MonitorApp(App):
         panels = list(self.query(ServerPanel))
         servers = self.servers
         in_docker = any(self._mode.get(p) == "docker" for p in panels)
+        _log(f"TOGGLE_DOCKER pressed: {len(panels)} panels, in_docker={in_docker}, modes={{{', '.join(f'{k}:{self._mode.get(k)}' for k in self._mode)}}}")
         for panel, srv in zip(panels, servers):
             if in_docker:
                 self._next_gen(panel)
@@ -291,6 +307,7 @@ class MonitorApp(App):
                 self._mode[panel] = "docker"
                 panel.output.update(Text.from_ansi("[yellow]→ Docker loading...[/]"))
                 asyncio.create_task(self._show_docker(panel, srv))
+        _log(f"TOGGLE_DOCKER done: modes={{{', '.join(f'{k}:{self._mode.get(k)}' for k in self._mode)}}}")
 
     async def action_switch_stats(self):
         panels = self.query(ServerPanel)
