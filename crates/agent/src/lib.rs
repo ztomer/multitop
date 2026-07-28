@@ -12,6 +12,7 @@ pub mod fmt;
 pub mod monitor;
 pub mod proc;
 pub mod render;
+pub mod sys;
 
 /// Frame delimiter on the wire between agent and TUI.
 pub const FRAME_MARKER: &str = "===MONITOR===";

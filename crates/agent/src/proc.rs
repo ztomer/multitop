@@ -92,6 +92,15 @@ pub fn parse_proc_stat(data: &str) -> CpuStat {
     stat
 }
 
+pub fn get_cpu_stat() -> CpuStat {
+    let stat = parse_proc_stat(&read_proc("/proc/stat"));
+    if stat.cores.is_empty() && stat.aggregate.total == 0 {
+        crate::sys::get_cpu_stat_macos()
+    } else {
+        stat
+    }
+}
+
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct Usage {
     pub total: u64,
@@ -100,7 +109,7 @@ pub struct Usage {
 }
 
 impl Usage {
-    fn new(total: u64, used: u64) -> Self {
+    pub(crate) fn new(total: u64, used: u64) -> Self {
         let pct = if total > 0 {
             used as f64 / total as f64 * 100.0
         } else {
@@ -171,9 +180,7 @@ pub fn statvfs_bytes(path: &str) -> Option<(u64, u64)> {
 
 pub fn get_disk() -> Usage {
     let mountinfo = read_proc("/proc/self/mountinfo");
-    let Some(mount) = root_mount_point(&mountinfo) else {
-        return Usage::default();
-    };
+    let mount = root_mount_point(&mountinfo).unwrap_or("/");
     let Some((total, free)) = statvfs_bytes(mount) else {
         return Usage::default();
     };
@@ -181,7 +188,12 @@ pub fn get_disk() -> Usage {
 }
 
 pub fn get_memory() -> Usage {
-    parse_meminfo(&read_proc("/proc/meminfo"))
+    let usage = parse_meminfo(&read_proc("/proc/meminfo"));
+    if usage.total == 0 {
+        crate::sys::get_memory_macos()
+    } else {
+        usage
+    }
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -221,62 +233,15 @@ pub fn parse_net_dev(data: &str) -> NetTotals {
 }
 
 pub fn get_net() -> NetTotals {
-    parse_net_dev(&read_proc("/proc/net/dev"))
+    let totals = parse_net_dev(&read_proc("/proc/net/dev"));
+    if totals.rx == 0 && totals.tx == 0 {
+        crate::sys::get_net_macos()
+    } else {
+        totals
+    }
 }
 
-/// Read temperatures for CPUs/cores from sysfs.
-pub fn get_core_temps() -> HashMap<usize, f64> {
-    let mut temps = HashMap::new();
-
-    if let Ok(entries) = fs::read_dir("/sys/class/hwmon") {
-        for entry in entries.flatten() {
-            if let Ok(files) = fs::read_dir(entry.path()) {
-                for f in files.flatten() {
-                    let fname = f.file_name();
-                    let fstr = fname.to_string_lossy();
-                    if fstr.starts_with("temp") && fstr.ends_with("_input") {
-                        if let Ok(val) = read_proc(f.path()).trim().parse::<f64>() {
-                            let c = if val > 1000.0 { val / 1000.0 } else { val };
-                            if (0.0..=150.0).contains(&c) {
-                                let idx = fstr
-                                    .strip_prefix("temp")
-                                    .and_then(|s| s.strip_suffix("_input"))
-                                    .and_then(|s| s.parse::<usize>().ok())
-                                    .unwrap_or(1)
-                                    .saturating_sub(1);
-                                temps.insert(idx, c);
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    if temps.is_empty() {
-        if let Ok(entries) = fs::read_dir("/sys/class/thermal") {
-            for entry in entries.flatten() {
-                let name = entry.file_name();
-                let name_str = name.to_string_lossy();
-                if name_str.starts_with("thermal_zone") {
-                    let temp_path = entry.path().join("temp");
-                    if let Ok(val) = read_proc(&temp_path).trim().parse::<f64>() {
-                        let c = if val > 1000.0 { val / 1000.0 } else { val };
-                        if (0.0..=150.0).contains(&c) {
-                            let idx = name_str
-                                .strip_prefix("thermal_zone")
-                                .and_then(|s| s.parse::<usize>().ok())
-                                .unwrap_or(0);
-                            temps.entry(idx).or_insert(c);
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    temps
-}
+pub use crate::sys::get_core_temps;
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct Proc {
@@ -368,10 +333,9 @@ impl ProcSampler {
         }
     }
 
-    /// Read every `/proc/<pid>/stat` once.
     fn scan(&self) -> Vec<RawProcStat> {
         let Ok(entries) = fs::read_dir("/proc") else {
-            return Vec::new();
+            return crate::sys::scan_macos();
         };
         let mut out = Vec::with_capacity(256);
         for entry in entries.flatten() {
@@ -388,7 +352,11 @@ impl ProcSampler {
                 out.push(stat);
             }
         }
-        out
+        if out.is_empty() {
+            crate::sys::scan_macos()
+        } else {
+            out
+        }
     }
 
     /// Prime the baseline without producing output.

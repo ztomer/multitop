@@ -18,7 +18,7 @@ impl Monitor {
         sampler.prime();
         Monitor {
             host,
-            prev_cpu: proc::parse_proc_stat(&proc::read_proc("/proc/stat")),
+            prev_cpu: proc::get_cpu_stat(),
             prev_net: proc::get_net(),
             sampler,
         }
@@ -30,7 +30,7 @@ impl Monitor {
 
     /// Sample everything once and return the frame to draw.
     pub fn tick(&mut self, interval: f64, cols: usize, lines: usize) -> Snapshot {
-        let cpu = proc::parse_proc_stat(&proc::read_proc("/proc/stat"));
+        let cpu = proc::get_cpu_stat();
         let net = proc::get_net();
         let mem = proc::get_memory();
         let disk = proc::get_disk();
