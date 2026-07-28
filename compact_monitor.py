@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 import os
+import re
 import shutil
 import socket
 import subprocess
@@ -249,6 +250,7 @@ def _render_output(host, cols, bar_len, cpu_pct, core_lines,
     )
 
     if num_cores >= 2:
+        _sa = re.compile(r'\033\[[0-9;]*m').sub
         per_core_bar_len = min(12, bar_len // num_cores)
         show_core_bars = per_core_bar_len >= 5
         segs = []
@@ -257,16 +259,21 @@ def _render_output(host, cols, bar_len, cpu_pct, core_lines,
                 segs.append(f"{idx}:{core_bar(cp, per_core_bar_len)}{cp:.0f}%")
             else:
                 segs.append(f"{idx}:{cp:.0f}%")
-        cpu_prefix = f" {Colors.BOLD}CPU{Colors.RESET} "
+        plain_segs = [_sa("", s) for s in segs]
+        cpu_label = f" {Colors.BOLD}CPU{Colors.RESET} "
+        cpu_plain = " CPU "
+        indent = " " * len(cpu_plain)
         used = 0
         while used < num_cores:
-            line = cpu_prefix if used == 0 else " " * len(cpu_prefix)
-            for seg in segs[used:]:
-                if len(line) + len(seg) + 1 > cols:
+            label = cpu_label if used == 0 else indent
+            disp = cpu_plain if used == 0 else indent
+            for seg, ps in zip(segs[used:], plain_segs[used:]):
+                if len(disp) + len(ps) + 1 > cols:
                     break
-                line += seg + " "
+                label += seg + " "
+                disp += ps + " "
                 used += 1
-            out.append(line.rstrip())
+            out.append(label.rstrip())
     else:
         bc = Colors.cpu_bar(cpu_pct)
         out.append(
@@ -297,16 +304,17 @@ def _render_output(host, cols, bar_len, cpu_pct, core_lines,
             f"  {Colors.CYAN}\u2193 {fmt_rate(rx_rate)}{Colors.RESET}"
         )
 
+    name_w = max(12, min(20, cols - 38))
     out.append(f" {Colors.GRAY}{'─' * max(0, cols - 2)}{Colors.RESET}")
     out.append(
-        f" {Colors.BOLD}{'PID':>5}  {'NAME':<12}  {'CPU':>4}  {'MEM':>7}{Colors.RESET}"
+        f" {Colors.BOLD}{'PID':>7}  {'NAME':<{name_w}}  {'CPU':>5}  {'MEM':>7}{Colors.RESET}"
     )
     for pid, name, cpu, mem_bytes in procs:
-        name_trunc = name if len(name) < 12 else name[:9] + "..."
+        name_trunc = name if len(name) < name_w else name[:name_w - 3] + "..."
         cpu_color = Colors.YELLOW if float(cpu or 0) >= 10 else Colors.WHITE
         out.append(
-            f" {Colors.GRAY}{pid:>5}{Colors.RESET}"
-            f"  {Colors.WHITE}{name_trunc:<12}{Colors.RESET}"
+            f" {Colors.GRAY}{pid:>7}{Colors.RESET}"
+            f"  {Colors.WHITE}{name_trunc:<{name_w}}{Colors.RESET}"
             f"  {cpu_color}{cpu:>5}{Colors.RESET}"
             f"  {Colors.CYAN}{fmt_size(mem_bytes):>7}{Colors.RESET}"
         )
@@ -315,7 +323,7 @@ def _render_output(host, cols, bar_len, cpu_pct, core_lines,
 
 
 def _iteration(host, prev_agg, prev_cores, net_prev, interval, cols, term_lines):
-    bar_len = max(8, cols - 30)
+    bar_len = max(8, cols - 16)
 
     data = read_proc("/proc/stat")
     curr_agg, curr_cores = parse_proc_stat(data)
@@ -362,20 +370,18 @@ def _iteration(host, prev_agg, prev_cores, net_prev, interval, cols, term_lines)
 
 
 def main():
-    use_ansi = sys.stdout.isatty()
-    if use_ansi:
+    _set_ansi(True)
+    is_tty = sys.stdout.isatty()
+    if is_tty:
         sys.stdout.write("\033[?25l")
-        _set_ansi(True)
-    else:
-        _set_ansi(False)
     try:
-        loop(2)
+        loop(2, is_tty)
     finally:
-        if use_ansi:
+        if is_tty:
             sys.stdout.write("\033[?25h")
 
 
-def loop(interval):
+def loop(interval, is_tty=False):
     host = get_host_info()
     data = read_proc("/proc/stat")
     prev_agg, prev_cores = parse_proc_stat(data)
@@ -392,8 +398,7 @@ def loop(interval):
             host, prev_agg, prev_cores, net_prev, interval, cols, term_lines,
         )
 
-        use_ansi = Colors._ansi
-        if use_ansi:
+        if is_tty:
             sys.stdout.write("\033[H\033[J" + "\n".join(out) + "\n")
         else:
             sys.stdout.write("===MONITOR===\n" + "\n".join(out) + "\n")

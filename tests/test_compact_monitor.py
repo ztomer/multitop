@@ -592,7 +592,7 @@ class TestRenderOutput:
         assert any("PID" in l for l in out)
 
     def test_proc_name_truncation(self):
-        procs = [("1", "verylongprocessname", "1.0", 1000)]
+        procs = [("1", "verylongprocessnameishere", "1.0", 1000)]
         out = _render_output("h", 80, 50, 50, [],
                              2**31, 2**30, 50.0,
                              2**40, 2**38, 80.0,
@@ -718,7 +718,7 @@ class TestLoop:
         monkeypatch.setattr("compact_monitor.time.sleep", fake_sleep)
         from compact_monitor import loop
         try:
-            loop(0.01)
+            loop(0.01, is_tty=ansi)
         except StopIteration:
             pass
         return written
@@ -738,7 +738,7 @@ class TestMain:
     def test_calls_loop(self, monkeypatch):
         calls = []
         monkeypatch.setattr("sys.stdout.isatty", lambda: True)
-        monkeypatch.setattr("compact_monitor.loop", lambda i: calls.append(i))
+        monkeypatch.setattr("compact_monitor.loop", lambda i, is_tty=False: calls.append(i))
         from compact_monitor import main
         main()
         assert calls == [2]
@@ -746,7 +746,7 @@ class TestMain:
     def test_non_tty_no_cursor_hide(self, monkeypatch):
         writes = []
         monkeypatch.setattr("sys.stdout.isatty", lambda: False)
-        monkeypatch.setattr("compact_monitor.loop", lambda i: None)
+        monkeypatch.setattr("compact_monitor.loop", lambda i, is_tty=False: None)
         monkeypatch.setattr("sys.stdout.write", lambda s: writes.append(s))
         from compact_monitor import main
         main()

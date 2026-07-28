@@ -6,6 +6,8 @@ import shutil
 import sys
 import tomllib
 
+from rich.text import Text
+
 from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.containers import Vertical
@@ -73,6 +75,12 @@ class ServerPanel(Vertical):
 
 class MonitorApp(App):
     CSS = """
+    Screen {
+        layout: vertical;
+    }
+    Vertical {
+        height: 1fr;
+    }
     ServerPanel {
         border: solid $primary;
         height: 1fr;
@@ -127,16 +135,16 @@ class MonitorApp(App):
                 line = raw.decode("utf-8", errors="replace").rstrip()
                 if line == "===MONITOR===":
                     if buf:
-                        panel.output.update("\n".join(buf))
+                        panel.output.update(Text.from_ansi("\n".join(buf)))
                     buf = []
                 else:
                     buf.append(line)
             if buf:
-                panel.output.update("\n".join(buf))
+                panel.output.update(Text.from_ansi("\n".join(buf)))
         except FileNotFoundError:
-            panel.output.update("[red]ssh command not found[/]")
+            panel.output.update(Text.from_ansi("[red]ssh command not found[/]"))
         except Exception as e:
-            panel.output.update(f"[red]{e}[/]")
+            panel.output.update(Text.from_ansi(f"[red]{e}[/]"))
 
     async def action_quit(self) -> None:
         for proc in self._ssh_procs:
