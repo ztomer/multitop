@@ -31,7 +31,7 @@ def print_ok(message):
 APPROVED_EMOJIS_AND_SYMBOLS = set([
     ' ', '▂', '▃', '▄', '▅', '▆', '▇', '█', # Sparklines
     '→', '←', '↑', '↓', '°',                # Symbols & Degrees
-    '🚀', '🔥', '✓', '✗', '…', '–', '—',    # Approved Emojis & Punctuation
+    '✓', '✗', '…', '–', '—',                # Approved Symbols & Punctuation
     '\u2192', '\u2190', '\u2191', '\u2193',
     '\u00b0', '\u2026', '\u2013', '\u2014',
     '\u2581', '\u2582', '\u2583', '\u2584', '\u2585', '\u2586', '\u2587', '\u2588',

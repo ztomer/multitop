@@ -1,6 +1,5 @@
 //! Layout arithmetic and geometry calculations for panel rendering.
 
-use crate::proc::Usage;
 use crate::render::{bar_len_for, shows_net, Snapshot};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

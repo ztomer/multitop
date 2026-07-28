@@ -13,7 +13,6 @@
 use std::collections::HashMap;
 use std::io::{self, Read, Write};
 use std::os::unix::net::UnixStream;
-use std::process::Command;
 use std::time::Duration;
 
 use serde_json::Value;
@@ -274,14 +273,6 @@ fn collect_stats_via_socket(containers: &[Container]) -> HashMap<String, Stats> 
 }
 
 // -------------------------------------------------------------- CLI fallback
-
-fn docker_cli(args: &[&str]) -> Option<String> {
-    let out = Command::new("docker").args(args).output().ok()?;
-    if !out.status.success() {
-        return None;
-    }
-    String::from_utf8(out.stdout).ok()
-}
 
 pub fn parse_cli_ps(text: &str) -> Vec<Container> {
     text.lines()

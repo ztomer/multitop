@@ -364,7 +364,7 @@ mod tests {
     #[test]
     fn boundary_values_and_unicode_handling() {
         let snap = Snapshot {
-            host: "🚀-prod-node-üñîçødê".to_string(),
+            host: "srv-prod-node-üñîçødê".to_string(),
             cpu_pct: 99.99,
             cores: (0..128).map(|i| (i, 100.0, Some(85.5))).collect(),
             temp_unit: TempUnit::F,
@@ -374,7 +374,7 @@ mod tests {
             tx_rate: 0.0,
             procs: vec![Proc {
                 pid: u32::MAX,
-                name: "🔥-worker-process".to_string(),
+                name: "wrk-worker-process".to_string(),
                 cpu: 999.9,
                 mem: u64::MAX,
             }],
@@ -391,7 +391,7 @@ mod tests {
             assert_eq!(d_snap.mem, snap.mem);
             assert_eq!(d_snap.disk, snap.disk);
             assert_eq!(d_snap.procs[0].pid, u32::MAX);
-            assert_eq!(d_snap.procs[0].name, "🔥-worker-process");
+            assert_eq!(d_snap.procs[0].name, "wrk-worker-process");
         } else {
             panic!("expected Monitor payload");
         }

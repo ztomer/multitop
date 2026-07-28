@@ -4,7 +4,6 @@
 //! for the thin `read_proc` / `statvfs` wrappers — which keeps the whole
 //! module unit-testable on a host that has no `/proc` at all.
 
-use std::collections::HashMap;
 use std::fs;
 use std::path::Path;
 
