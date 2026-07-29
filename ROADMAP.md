@@ -80,3 +80,13 @@ This roadmap documents upcoming features, UX enhancements, and test suite expans
   - Flatlined agent memory footprint at ~1.8 MiB RSS on Linux (`.90`) with 0.00 kB leak rate verified via Valgrind on `.33`.
 - **Release Version**:
   - Bumped workspace version to `v0.20.2`.
+
+## 10. Release 0.20.3 & Further Memory Reduction
+- **Deferred Process Name Resolution**:
+  - Deferred `/proc/[pid]/comm` reading to top `N` processes in `ProcSampler::top()`, eliminating 95%+ of heap String allocations per tick.
+- **Kernel Arena Trimming**:
+  - Added `libc::malloc_trim(0)` on Linux after every tick to return unneeded heap arenas directly to OS kernel.
+- **Binary Code Size Optimization**:
+  - Enabled `opt-level = "z"` for `multitop-agent`.
+- **Release Version**:
+  - Bumped workspace version to `v0.20.3`.

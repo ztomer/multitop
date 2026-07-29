@@ -83,6 +83,12 @@ impl Monitor {
 
         self.prev_cpu = cpu;
         self.prev_net = net;
+
+        #[cfg(all(target_os = "linux", target_env = "gnu"))]
+        unsafe {
+            libc::malloc_trim(0);
+        }
+
         snap
     }
 }

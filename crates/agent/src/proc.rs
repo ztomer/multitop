@@ -10,6 +10,15 @@ use std::path::Path;
 /// Read a `/proc` file into a String with pre-allocated capacity, using an 8KB
 /// stack buffer to eliminate standard library reallocations on `st_size = 0`
 /// kernel pseudofiles.
+/// Read a pseudofile into a fixed stack byte buffer with ZERO heap allocation.
+pub fn read_proc_bytes<P: AsRef<Path>, const N: usize>(path: P, out: &mut [u8; N]) -> usize {
+    let Ok(mut file) = fs::File::open(path) else {
+        return 0;
+    };
+    use std::io::Read;
+    file.read(out).unwrap_or_default()
+}
+
 /// Read a pseudofile into a caller-supplied String without allocating new memory buffers.
 pub fn read_proc_into<P: AsRef<Path>>(path: P, out: &mut String) -> bool {
     let Ok(mut file) = fs::File::open(path) else {
@@ -347,7 +356,11 @@ impl ProcSampler {
             .into_iter()
             .map(|(i, cpu, mem)| Proc {
                 pid: scanned[i].pid,
-                name: scanned[i].comm.clone(),
+                name: if scanned[i].comm.is_empty() {
+                    crate::proc_sys::read_comm(scanned[i].pid)
+                } else {
+                    scanned[i].comm.clone()
+                },
                 cpu,
                 mem,
             })

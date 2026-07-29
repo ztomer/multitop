@@ -45,6 +45,69 @@ pub fn parse_pid_stat(data: &str) -> Option<RawProcStat> {
     })
 }
 
+/// Format `/proc/<pid>/stat` into a stack byte buffer with ZERO heap allocation.
+pub fn fmt_proc_stat_path(pid: u32, out: &mut [u8; 48]) -> &str {
+    let mut b = [0u8; 16];
+    let mut i = b.len();
+    let mut n = pid;
+    if n == 0 {
+        i -= 1;
+        b[i] = b'0';
+    } else {
+        while n > 0 {
+            i -= 1;
+            b[i] = b'0' + (n % 10) as u8;
+            n /= 10;
+        }
+    }
+    let prefix = b"/proc/";
+    let suffix = b"/stat";
+    let len = prefix.len() + (b.len() - i) + suffix.len();
+    out[..prefix.len()].copy_from_slice(prefix);
+    out[prefix.len()..prefix.len() + (b.len() - i)].copy_from_slice(&b[i..]);
+    out[prefix.len() + (b.len() - i)..len].copy_from_slice(suffix);
+    std::str::from_utf8(&out[..len]).unwrap_or("")
+}
+
+/// Format `/proc/<pid>/comm` into a stack byte buffer with ZERO heap allocation.
+pub fn fmt_proc_comm_path(pid: u32, out: &mut [u8; 48]) -> &str {
+    let mut b = [0u8; 16];
+    let mut i = b.len();
+    let mut n = pid;
+    if n == 0 {
+        i -= 1;
+        b[i] = b'0';
+    } else {
+        while n > 0 {
+            i -= 1;
+            b[i] = b'0' + (n % 10) as u8;
+            n /= 10;
+        }
+    }
+    let prefix = b"/proc/";
+    let suffix = b"/comm";
+    let len = prefix.len() + (b.len() - i) + suffix.len();
+    out[..prefix.len()].copy_from_slice(prefix);
+    out[prefix.len()..prefix.len() + (b.len() - i)].copy_from_slice(&b[i..]);
+    out[prefix.len() + (b.len() - i)..len].copy_from_slice(suffix);
+    std::str::from_utf8(&out[..len]).unwrap_or("")
+}
+
+pub fn read_comm(pid: u32) -> String {
+    let mut path_buf = [0u8; 48];
+    let path = fmt_proc_comm_path(pid, &mut path_buf);
+    let mut comm_buf = [0u8; 64];
+    let n = crate::proc::read_proc_bytes(path, &mut comm_buf);
+    if n > 0 {
+        std::str::from_utf8(&comm_buf[..n])
+            .unwrap_or("unknown")
+            .trim()
+            .to_string()
+    } else {
+        "unknown".to_string()
+    }
+}
+
 pub struct ProcSampler {
     pub prev: HashMap<u32, PidSample>,
     pub clk_tck: f64,
@@ -76,9 +139,9 @@ impl ProcSampler {
         let Ok(entries) = fs::read_dir("/proc") else {
             return crate::sys::scan_macos();
         };
-        let mut out = Vec::with_capacity(256);
-        let mut path_buf = String::with_capacity(64);
-        let mut file_buf = String::with_capacity(512);
+        let mut out = Vec::with_capacity(64);
+        let mut path_buf = [0u8; 48];
+        let mut file_buf = [0u8; 512];
 
         for entry in entries.flatten() {
             let name = entry.file_name();
@@ -86,15 +149,15 @@ impl ProcSampler {
             if !name.as_bytes().first().is_some_and(u8::is_ascii_digit) {
                 continue;
             }
-            path_buf.clear();
-            path_buf.push_str("/proc/");
-            path_buf.push_str(name);
-            path_buf.push_str("/stat");
-
-            file_buf.clear();
-            if crate::proc::read_proc_into(&path_buf, &mut file_buf) {
-                if let Some(st) = parse_pid_stat(&file_buf) {
-                    out.push(st);
+            let Ok(pid) = name.parse::<u32>() else { continue };
+            let path = fmt_proc_stat_path(pid, &mut path_buf);
+            let n = crate::proc::read_proc_bytes(path, &mut file_buf);
+            if n > 0 {
+                if let Ok(data) = std::str::from_utf8(&file_buf[..n]) {
+                    if let Some(mut st) = parse_pid_stat(data) {
+                        st.comm = String::new();
+                        out.push(st);
+                    }
                 }
             }
         }
