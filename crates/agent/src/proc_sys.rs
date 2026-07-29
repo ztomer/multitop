@@ -34,7 +34,7 @@ pub fn parse_pid_stat(data: &str) -> Option<RawProcStat> {
     let utime: u64 = f[11].parse().ok()?;
     let stime: u64 = f[12].parse().ok()?;
     let starttime: u64 = f[19].parse().ok()?;
-    let rss_pages: u64 = f[21].parse().unwrap_or(0);
+    let rss_pages: u64 = f[21].parse::<i64>().unwrap_or(0).max(0) as u64;
 
     Some(RawProcStat {
         pid,
@@ -80,7 +80,7 @@ impl ProcSampler {
         for entry in entries.flatten() {
             let name = entry.file_name();
             let Some(name) = name.to_str() else { continue };
-            if !name.as_bytes()[0].is_ascii_digit() {
+            if !name.as_bytes().first().is_some_and(u8::is_ascii_digit) {
                 continue;
             }
             let Ok(data) = fs::read_to_string(entry.path().join("stat")) else {
