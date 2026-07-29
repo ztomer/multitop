@@ -211,10 +211,10 @@ pub fn render_fetch(
                     logo_part,
                     pal.reset,
                     "",
-                    pal.bold,
+                    pal.primary(),
                     label,
                     pal.reset,
-                    pal.white,
+                    pal.text(),
                     val,
                     pal.reset,
                     logo_width = logo_width,
@@ -244,11 +244,12 @@ pub fn render_fetch(
                 break;
             }
             out.push(format!(
-                "   {}{:<7}{} : {}{}{}",
+                "   {}{}{:<7}{} : {}{}{}",
+                pal.primary(),
                 pal.bold,
                 label,
                 pal.reset,
-                pal.white,
+                pal.text(),
                 val,
                 pal.reset
             ));

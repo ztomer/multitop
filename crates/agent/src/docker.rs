@@ -410,7 +410,7 @@ pub fn render(
     out.push(center_header(host, cols, pal));
 
     if rows.is_empty() {
-        out.push(format!(" {}No running containers{}", pal.gray, pal.reset));
+        out.push(format!(" {}No running containers{}", pal.muted(), pal.reset));
         return out;
     }
 
@@ -432,12 +432,12 @@ pub fn render(
     }
 
     out.push(format!(
-        " {}{:<NAME_W$}  {:<STATUS_W$}  {:<CPU_W$}  {:<MEM_W$}{}",
-        pal.bold, "NAME", "STATUS", "CPU", "MEM", pal.reset,
+        " {}{}{:<NAME_W$}  {:<STATUS_W$}  {:<CPU_W$}  {:<MEM_W$}{}",
+        pal.secondary(), pal.bold, "NAME", "STATUS", "CPU", "MEM", pal.reset,
     ));
     let rule = format!(
         " {}{}{}",
-        pal.gray,
+        pal.primary(),
         "\u{2500}".repeat(cols.saturating_sub(2)),
         pal.reset
     );
@@ -457,14 +457,17 @@ pub fn render(
     };
 
     for r in visible {
-        let cpu_c = if r.cpu_pct >= 50.0 {
-            pal.yellow
+        let cpu_c = if r.cpu_pct >= 80.0 {
+            pal.meter_high()
+        } else if r.cpu_pct >= 20.0 {
+            pal.meter_mid()
         } else {
-            pal.green
+            pal.meter_low()
         };
         out.push(format!(
-            " {}{:<NAME_W$}{}  {}{:<STATUS_W$}{}  {}{:<CPU_W$}{}  {}{:<MEM_W$}{}",
-            pal.white,
+            " {}{}{:<NAME_W$}{}  {}{:<STATUS_W$}{}  {}{:<CPU_W$}{}  {}{:<MEM_W$}{}",
+            pal.bold,
+            pal.text(),
             truncate(&r.name, NAME_W),
             pal.reset,
             pal.status_color(&r.status),
@@ -473,7 +476,7 @@ pub fn render(
             cpu_c,
             r.cpu,
             pal.reset,
-            pal.cyan,
+            pal.primary(),
             r.mem,
             pal.reset,
         ));
@@ -482,7 +485,7 @@ pub fn render(
     if overflow > 0 {
         out.push(format!(
             " {}\u{2026}+{} more{}",
-            pal.gray, overflow, pal.reset
+            pal.muted(), overflow, pal.reset
         ));
     }
 

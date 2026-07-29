@@ -145,8 +145,8 @@ async fn event_loop(
                 if new_dims != dims {
                     dims = new_dims;
                     let _ = dims_tx.send(new_dims);
-                    // Re-render fetch panels at the new size so logos adapt.
-                    app.rerender_fetch(new_dims);
+                    // Re-render panels at the new size so logos and stats adapt.
+                    app.rerender_all(new_dims);
                 }
                 dirty = true;
             }
@@ -203,7 +203,7 @@ fn handle_key(
             if let Some(ref path) = app.config_path {
                 crate::config::save_theme(path, app.current_theme().name);
             }
-            app.rerender_fetch(dims);
+            app.rerender_all(dims);
             return;
         }
         _ => {}
@@ -291,12 +291,9 @@ fn spawn_monitor(
                 Ok(mut stream) => {
                     failures = 0;
                     let mut errbuf = Vec::new();
-                    let pal = &multitop_agent::color::ANSI;
-
                     while let Ok(Some(payload)) = stream::next_packet(&mut stream, &mut errbuf).await {
                         let dims = *dims_rx.borrow();
-                        let lines = render_payload(&payload, dims, sort, pal);
-                        if tx.send(Msg::Frame { panel: idx, lines }).await.is_err() {
+                        if tx.send(Msg::Packet { panel: idx, gen: 0, payload, dims }).await.is_err() {
                             return;
                         }
                     }

@@ -32,14 +32,10 @@ pub enum Mode {
 pub struct Panel {
     pub server: Server,
     pub mode: Mode,
-    /// Bumped on every mode switch; late results from a superseded request
-    /// carry an old generation and are dropped.
     pub gen: u64,
-    /// Most recent monitor frame, kept across mode switches so returning to
-    /// stats is instant instead of showing "connecting..." again.
     pub last_frame: Option<Vec<String>>,
-    /// Raw fetch snapshot, kept so the fetch view can be re-rendered on resize.
     pub last_fetch: Option<FetchSnapshot>,
+    pub last_payload: Option<multitop_agent::proto::Payload>,
     pub view: Vec<String>,
 }
 
@@ -51,6 +47,7 @@ impl Panel {
             gen: 0,
             last_frame: None,
             last_fetch: None,
+            last_payload: None,
             view: vec![format!("{GRAY}connecting...{RESET}")],
         }
     }
@@ -74,6 +71,12 @@ pub enum Command {
 /// Messages produced by the background tasks.
 #[derive(Clone, Debug, PartialEq)]
 pub enum Msg {
+    Packet {
+        panel: usize,
+        gen: u64,
+        payload: multitop_agent::proto::Payload,
+        dims: (u16, u16),
+    },
     /// A monitor frame. Never generation-gated: the monitor stream keeps
     /// running through mode switches so its data stays warm.
     Frame { panel: usize, lines: Vec<String> },
@@ -246,6 +249,22 @@ impl App {
 
     pub fn apply(&mut self, msg: Msg) {
         match msg {
+            Msg::Packet { panel, gen, payload, dims } => {
+                let pal = self.current_theme();
+                let sort = self.sort;
+                let accepts = self.accepts(panel, gen);
+                let Some(p) = self.panels.get_mut(panel) else { return; };
+                p.last_payload = Some(payload.clone());
+                let lines = crate::run::render_payload(&payload, dims, sort, pal);
+                if let multitop_agent::proto::Payload::Monitor(_) = payload {
+                    p.last_frame = Some(lines.clone());
+                    if p.mode == Mode::Monitor {
+                        p.view = lines;
+                    }
+                } else if accepts {
+                    p.view = lines;
+                }
+            }
             Msg::Frame { panel, lines } => {
                 let Some(p) = self.panels.get_mut(panel) else {
                     return;
@@ -298,11 +317,14 @@ impl App {
         &multitop_agent::color::THEMES[self.theme_idx]
     }
 
-    /// Re-render all fetch-mode panels at the given dimensions.
-    pub fn rerender_fetch(&mut self, dims: (u16, u16)) {
+    /// Re-render all panels (Stats, Docker, Fetch) at the given dimensions using active theme.
+    pub fn rerender_all(&mut self, dims: (u16, u16)) {
         let pal = self.current_theme();
+        let sort = self.sort;
         for panel in &mut self.panels {
-            if panel.mode == Mode::Fetch {
+            if let Some(payload) = &panel.last_payload {
+                panel.view = crate::run::render_payload(payload, dims, sort, pal);
+            } else if panel.mode == Mode::Fetch {
                 if let Some(snap) = &panel.last_fetch {
                     panel.view = crate::fetch_render::render_fetch(
                         snap,

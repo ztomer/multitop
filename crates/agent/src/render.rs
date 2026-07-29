@@ -108,6 +108,9 @@ impl Chrome {
         if self.tier < Tier::Compact {
             return 0;
         }
+        if lines == 0 {
+            return usize::MAX;
+        }
         let available = lines.saturating_sub(self.height());
         // Two rows go to the rule and header before any process fits.
         let Some(body) = available.checked_sub(2).filter(|n| *n > 0) else {
@@ -151,21 +154,25 @@ pub fn truncate_name(name: &str, width: usize) -> String {
 }
 
 fn proc_cell(p: &Proc, name_w: usize, pal: &Palette) -> String {
-    let cpu_c = if p.cpu >= 10.0 { pal.yellow } else { pal.white };
+    let cpu_c = if p.cpu >= 10.0 {
+        pal.meter_mid()
+    } else {
+        pal.text()
+    };
     let mut s = String::with_capacity(96);
     let _ = write!(
         s,
         "{}{:>PID_W$}{}  {}{:<name_w$}{}  {}{:>CPU_W$.1}{}  {}{:>MEM_W$}{}",
-        pal.gray,
+        pal.muted(),
         p.pid,
         pal.reset,
-        pal.white,
+        pal.text(),
         truncate_name(&p.name, name_w),
         pal.reset,
         cpu_c,
         p.cpu,
         pal.reset,
-        pal.cyan,
+        pal.primary(),
         fmt_size(p.mem),
         pal.reset,
     );
@@ -174,8 +181,8 @@ fn proc_cell(p: &Proc, name_w: usize, pal: &Palette) -> String {
 
 fn proc_header(name_w: usize, pal: &Palette) -> String {
     format!(
-        "{}{:>PID_W$}  {:<name_w$}  {:>CPU_W$}  {:>MEM_W$}{}",
-        pal.bold, "PID", "NAME", "CPU", "MEM", pal.reset,
+        "{}{}{:>PID_W$}  {:<name_w$}  {:>CPU_W$}  {:>MEM_W$}{}",
+        pal.primary(), pal.bold, "PID", "NAME", "CPU", "MEM", pal.reset,
     )
 }
 
@@ -195,10 +202,19 @@ fn push_core_rows(
         .iter()
         .map(|&(idx, cp, temp)| {
             let temp_str = match temp {
-                Some(c) => match unit {
-                    TempUnit::F => format!(" {:.0}°F", c * 1.8 + 32.0),
-                    TempUnit::C => format!(" {:.0}°C", c),
-                },
+                Some(c) => {
+                    let tc = if c >= 75.0 {
+                        pal.meter_high()
+                    } else if c >= 55.0 {
+                        pal.meter_mid()
+                    } else {
+                        pal.meter_low()
+                    };
+                    match unit {
+                        TempUnit::F => format!(" {}{:.0}°F{}", tc, c * 1.8 + 32.0, pal.reset),
+                        TempUnit::C => format!(" {}{:.0}°C{}", tc, c, pal.reset),
+                    }
+                }
                 None => String::new(),
             };
             if grid.show_bars {
@@ -220,7 +236,7 @@ fn push_core_rows(
     let mut i = 0;
     while i < cores.len() {
         let mut row = if i == 0 {
-            format!(" {}CPU{} ", pal.bold, pal.reset)
+            format!(" {}{}CPU{} ", pal.primary(), pal.bold, pal.reset)
         } else {
             " ".repeat(LABEL_W)
         };
@@ -240,7 +256,7 @@ fn push_proc_table(out: &mut Vec<String>, procs: &[Proc], cols: usize, pal: &Pal
     }
     out.push(format!(
         " {}{}{}",
-        pal.gray,
+        pal.secondary(),
         horizontal_rule(cols.saturating_sub(2)),
         pal.reset
     ));
@@ -250,7 +266,7 @@ fn push_proc_table(out: &mut Vec<String>, procs: &[Proc], cols: usize, pal: &Pal
     let hdr = proc_header(name_w, pal);
 
     if two_column {
-        let sep = format!(" {}\u{2502}{} ", pal.gray, pal.reset);
+        let sep = format!(" {}\u{2502}{} ", pal.secondary(), pal.reset);
         out.push(format!(" {hdr}{sep}{hdr}"));
 
         let mid = procs.len().div_ceil(2);
@@ -271,7 +287,8 @@ fn push_proc_table(out: &mut Vec<String>, procs: &[Proc], cols: usize, pal: &Pal
 
 /// Render one frame.
 pub fn render(snap: &Snapshot, cols: usize, lines: usize, bar_len: usize, pal: &Palette) -> Vec<String> {
-    let tier = Tier::for_lines(lines);
+    let chrome = Chrome::of(snap, cols, lines);
+    let tier = chrome.tier;
     let mut out: Vec<String> = Vec::with_capacity(16);
 
     out.push(center_header(&snap.host, cols, pal));
@@ -279,7 +296,7 @@ pub fn render(snap: &Snapshot, cols: usize, lines: usize, bar_len: usize, pal: &
     match tier {
         Tier::TooSmall => {
             if lines > 1 {
-                out.push(format!(" {}too small{}", pal.gray, pal.reset));
+                out.push(format!(" {}too small{}", pal.muted(), pal.reset));
             }
         }
         Tier::Micro => {
@@ -291,7 +308,7 @@ pub fn render(snap: &Snapshot, cols: usize, lines: usize, bar_len: usize, pal: &
             if snap.disk.total > 0 {
                 summary.push(format!("DSK {:.0}%", snap.disk.pct));
             }
-            out.push(format!(" {}{}{}", pal.gray, summary.join("  "), pal.reset));
+            out.push(format!(" {}{}{}", pal.muted(), summary.join("  "), pal.reset));
         }
         Tier::Minimal | Tier::Compact | Tier::Full => {
             if tier == Tier::Full && snap.cores.len() >= 2 {
@@ -299,7 +316,8 @@ pub fn render(snap: &Snapshot, cols: usize, lines: usize, bar_len: usize, pal: &
             } else {
                 let bc = pal.cpu_bar(snap.cpu_pct);
                 out.push(format!(
-                    " {}CPU{} {} {}{:.0}%{}",
+                    " {}{}CPU{} {} {}{:.0}%{}",
+                    pal.primary(),
                     pal.bold,
                     pal.reset,
                     make_bar(snap.cpu_pct, bar_len, bc, pal.reset),
@@ -309,16 +327,17 @@ pub fn render(snap: &Snapshot, cols: usize, lines: usize, bar_len: usize, pal: &
                 ));
             }
 
-            for (label, usage, color) in [
-                ("MEM", snap.mem, pal.mem_bar(snap.mem.pct)),
-                ("DSK", snap.disk, pal.disk_bar(snap.disk.pct)),
+            for (label, usage, color, label_color) in [
+                ("MEM", snap.mem, pal.mem_bar(snap.mem.pct), pal.primary()),
+                ("DSK", snap.disk, pal.disk_bar(snap.disk.pct), pal.secondary()),
             ] {
                 if usage.total == 0 {
                     continue;
                 }
                 let size = format!("{}/{}", fmt_size(usage.used), fmt_size(usage.total));
                 out.push(format!(
-                    " {}{}{} {} {}{:3.0}%{} {}{:<w$}{}",
+                    " {}{}{}{} {} {}{:3.0}%{} {}{:<w$}{}",
+                    label_color,
                     pal.bold,
                     label,
                     pal.reset,
@@ -326,7 +345,7 @@ pub fn render(snap: &Snapshot, cols: usize, lines: usize, bar_len: usize, pal: &
                     color,
                     usage.pct,
                     pal.reset,
-                    pal.gray,
+                    pal.muted(),
                     size,
                     pal.reset,
                     w = SIZE_FIELD_W,
@@ -335,26 +354,25 @@ pub fn render(snap: &Snapshot, cols: usize, lines: usize, bar_len: usize, pal: &
 
             if tier == Tier::Full && shows_net(snap.rx_rate, snap.tx_rate) {
                 out.push(format!(
-                    " {}NET{} {}\u{2191} {}{}  {}\u{2193} {}{}",
+                    " {}{}NET{} {}\u{2191} {}{}  {}\u{2193} {}{}",
+                    pal.secondary(),
                     pal.bold,
                     pal.reset,
-                    pal.green,
+                    pal.primary(),
                     fmt_rate(snap.tx_rate),
                     pal.reset,
-                    pal.cyan,
+                    pal.meter_low(),
                     fmt_rate(snap.rx_rate),
                     pal.reset,
                 ));
             }
 
             if tier >= Tier::Compact {
-                let budget = Chrome::of(snap, cols, lines).proc_budget(lines);
-                let procs = if snap.procs.len() > budget && budget > 0 {
-                    &snap.procs[..budget]
-                } else {
-                    &snap.procs[..]
-                };
-                push_proc_table(&mut out, procs, cols, pal);
+                let budget = chrome.proc_budget(lines);
+                if budget > 0 && !snap.procs.is_empty() {
+                    let show = budget.min(snap.procs.len());
+                    push_proc_table(&mut out, &snap.procs[..show], cols, pal);
+                }
             }
         }
     }

@@ -5,7 +5,6 @@ use tokio::task::JoinHandle;
 
 use crate::app::{error_line, header_line, status_line, Msg};
 use crate::config::Server;
-use crate::run::render_payload;
 use crate::stream::{connect, next_packet};
 use crate::ssh;
 
@@ -47,36 +46,17 @@ pub fn spawn_fetch(
         let mut errbuf = Vec::new();
 
         while let Ok(Some(payload)) = next_packet(&mut stream, &mut errbuf).await {
-            if let multitop_agent::proto::Payload::Fetch(snap) = payload {
-                let lines = crate::fetch_render::render_fetch(
-                    &snap,
-                    dims.0 as usize,
-                    dims.1 as usize,
-                    &multitop_agent::color::ANSI,
-                );
-                let _ = tx
-                    .send(Msg::FetchData {
-                        panel: idx,
-                        gen,
-                        snap,
-                        lines,
-                    })
-                    .await;
-            } else {
-                let lines = render_payload(&payload, dims, sort, &multitop_agent::color::ANSI);
-                for line in lines {
-                    if tx
-                        .send(Msg::AuxLine {
-                            panel: idx,
-                            gen,
-                            line,
-                        })
-                        .await
-                        .is_err()
-                    {
-                        return;
-                    }
-                }
+            if tx
+                .send(Msg::Packet {
+                    panel: idx,
+                    gen,
+                    payload,
+                    dims,
+                })
+                .await
+                .is_err()
+            {
+                return;
             }
         }
         for line in errbuf {
@@ -134,20 +114,17 @@ pub fn spawn_docker(
         let mut errbuf = Vec::new();
 
         while let Ok(Some(payload)) = next_packet(&mut stream, &mut errbuf).await {
-            let lines = render_payload(&payload, dims, sort, &multitop_agent::color::ANSI);
-
-            for line in lines {
-                if tx
-                    .send(Msg::AuxLine {
-                        panel: idx,
-                        gen,
-                        line,
-                    })
-                    .await
-                    .is_err()
-                {
-                    return;
-                }
+            if tx
+                .send(Msg::Packet {
+                    panel: idx,
+                    gen,
+                    payload,
+                    dims,
+                })
+                .await
+                .is_err()
+            {
+                return;
             }
         }
         for line in errbuf {

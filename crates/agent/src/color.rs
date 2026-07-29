@@ -207,44 +207,79 @@ pub const PLAIN: Palette = Palette {
 };
 
 impl Palette {
+    /// Primary accent color for headers, main metrics, and titles.
+    pub fn primary(&self) -> &'static str {
+        self.cyan
+    }
+
+    /// Secondary accent color for rule dividers, subtitles, and secondary metrics.
+    pub fn secondary(&self) -> &'static str {
+        self.purple
+    }
+
+    /// Muted color for PIDs, total limits, indents, and secondary text.
+    pub fn muted(&self) -> &'static str {
+        self.gray
+    }
+
+    /// Text color for process names, container names, and primary values.
+    pub fn text(&self) -> &'static str {
+        self.white
+    }
+
+    /// Meter color for low resource usage (0-50% CPU, normal temps).
+    pub fn meter_low(&self) -> &'static str {
+        self.green
+    }
+
+    /// Meter color for medium resource usage (50-80% CPU, warm temps).
+    pub fn meter_mid(&self) -> &'static str {
+        self.yellow
+    }
+
+    /// Meter color for high/critical resource usage (>80% CPU, hot temps).
+    pub fn meter_high(&self) -> &'static str {
+        self.red
+    }
+
     pub fn cpu_bar(&self, pct: f64) -> &'static str {
         if pct >= 80.0 {
-            self.red
+            self.meter_high()
         } else if pct >= 50.0 {
-            self.yellow
+            self.meter_mid()
         } else {
-            self.green
+            self.meter_low()
         }
     }
 
     pub fn mem_bar(&self, pct: f64) -> &'static str {
-        if pct >= 80.0 {
-            self.red
+        if pct >= 85.0 {
+            self.meter_high()
         } else if pct >= 50.0 {
-            self.yellow
+            self.meter_mid()
         } else {
-            self.cyan
+            self.primary()
         }
     }
 
     pub fn disk_bar(&self, pct: f64) -> &'static str {
         if pct >= 90.0 {
-            self.red
+            self.meter_high()
         } else if pct >= 70.0 {
-            self.yellow
+            self.meter_mid()
         } else {
-            self.green
+            self.meter_low()
         }
     }
 
     /// Green while running, yellow once exited, red for anything else.
     pub fn status_color(&self, status: &str) -> &'static str {
-        if status.contains("Up") {
-            self.green
-        } else if status.contains("Exit") {
-            self.yellow
+        if status.starts_with("Up") || status == "running" {
+            self.meter_low()
+        } else if status.contains("Exited (0)") || status.contains("paused") {
+            self.meter_mid()
         } else {
-            self.red
+            self.meter_high()
         }
     }
 }

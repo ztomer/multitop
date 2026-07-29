@@ -137,25 +137,25 @@ pub fn center_header(host: &str, cols: usize, pal: &Palette) -> String {
     let fw = fullwidth(host);
     let disp_w = fullwidth_display_width(host);
     if cols <= disp_w {
-        return format!("{}{}{}{}", pal.cyan, pal.bold, fw, pal.reset);
+        return format!("{}{}{}{}", pal.primary(), pal.bold, fw, pal.reset);
     }
     let space_needed = disp_w + 2;
     if cols < space_needed {
-        return format!("{}{}{}{}", pal.cyan, pal.bold, fw, pal.reset);
+        return format!("{}{}{}{}", pal.primary(), pal.bold, fw, pal.reset);
     }
     let rem = cols - space_needed;
     let left_len = rem / 2;
     let right_len = rem - left_len;
     format!(
         "{}{}{}{}{}{} {}{}{}{}",
-        pal.gray,
+        pal.secondary(),
         "\u{2500}".repeat(left_len),
         pal.reset,
-        pal.cyan,
+        pal.primary(),
         pal.bold,
         fw,
         pal.reset,
-        pal.gray,
+        pal.secondary(),
         "\u{2500}".repeat(right_len),
         pal.reset
     )
