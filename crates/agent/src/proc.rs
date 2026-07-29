@@ -7,11 +7,30 @@
 use std::fs;
 use std::path::Path;
 
-/// Read a `/proc` file, collapsing every failure to an empty string. `/proc`
-/// entries vanish mid-read routinely (a process exits between readdir and
-/// open); there is nothing useful to report for a single missing sample.
+/// Read a `/proc` file into a String with pre-allocated capacity, using an 8KB
+/// stack buffer to eliminate standard library reallocations on `st_size = 0`
+/// kernel pseudofiles.
 pub fn read_proc<P: AsRef<Path>>(path: P) -> String {
-    fs::read_to_string(path).unwrap_or_default()
+    let Ok(mut file) = fs::File::open(path) else {
+        return String::new();
+    };
+    use std::io::Read;
+    let mut buf = [0u8; 8192];
+    let mut out = String::with_capacity(4096);
+    loop {
+        match file.read(&mut buf) {
+            Ok(0) => break,
+            Ok(n) => {
+                if let Ok(s) = std::str::from_utf8(&buf[..n]) {
+                    out.push_str(s);
+                } else {
+                    out.push_str(&String::from_utf8_lossy(&buf[..n]));
+                }
+            }
+            Err(_) => break,
+        }
+    }
+    out
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
