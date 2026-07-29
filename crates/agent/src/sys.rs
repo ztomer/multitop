@@ -12,6 +12,29 @@ extern "C" {
 }
 
 #[cfg(target_os = "macos")]
+struct MachCpuInfoGuard {
+    host_port: libc::mach_port_t,
+    cpu_info: libc::processor_info_array_t,
+    msg_type: libc::mach_msg_type_number_t,
+}
+
+#[cfg(target_os = "macos")]
+impl Drop for MachCpuInfoGuard {
+    fn drop(&mut self) {
+        unsafe {
+            if !self.cpu_info.is_null() {
+                let vm_map = libc::mach_task_self();
+                let size = self.msg_type as usize * std::mem::size_of::<libc::integer_t>();
+                libc::vm_deallocate(vm_map, self.cpu_info as libc::vm_address_t, size as libc::vm_size_t);
+            }
+            if self.host_port != 0 {
+                mach_port_deallocate(libc::mach_task_self(), self.host_port);
+            }
+        }
+    }
+}
+
+#[cfg(target_os = "macos")]
 pub fn get_cpu_stat_macos() -> CpuStat {
     let mut stat = CpuStat::default();
     let mut num_cpus: libc::natural_t = 0;
@@ -27,6 +50,12 @@ pub fn get_cpu_stat_macos() -> CpuStat {
             &mut cpu_info,
             &mut msg_type,
         )
+    };
+
+    let _guard = MachCpuInfoGuard {
+        host_port,
+        cpu_info,
+        msg_type,
     };
 
     if ret == libc::KERN_SUCCESS && !cpu_info.is_null() {
@@ -48,20 +77,11 @@ pub fn get_cpu_stat_macos() -> CpuStat {
             stat.cores.push((i, CpuTimes { total, idle }));
         }
 
-        unsafe {
-            let vm_map = libc::mach_task_self();
-            let size = msg_type as usize * std::mem::size_of::<libc::integer_t>();
-            libc::vm_deallocate(vm_map, cpu_info as libc::vm_address_t, size as libc::vm_size_t);
-        }
-
         stat.aggregate = CpuTimes {
             total: agg_total,
             idle: agg_idle,
         };
         stat.cores.sort_unstable_by_key(|(i, _)| *i);
-    }
-    unsafe {
-        mach_port_deallocate(libc::mach_task_self(), host_port);
     }
     stat
 }
