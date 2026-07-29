@@ -202,12 +202,26 @@ pub fn spawn_upgrade(idx: usize, gen: u64, server: Server, tx: Sender<Msg>) -> J
             }
         }
 
+        let mut sudo_help = false;
         for line in errbuf {
+            let lower = line.to_lowercase();
+            if lower.contains("sudo") && (lower.contains("terminal") || lower.contains("password") || lower.contains("pre-authorized") || lower.contains("tty")) {
+                sudo_help = true;
+            }
             let _ = tx
                 .send(Msg::AuxLine {
                     panel: idx,
                     gen,
                     line: error_line(line),
+                })
+                .await;
+        }
+        if sudo_help {
+            let _ = tx
+                .send(Msg::AuxLine {
+                    panel: idx,
+                    gen,
+                    line: "\x1b[33m\u{2192} Tip: Add '<user> ALL=(ALL) NOPASSWD: ALL' to /etc/sudoers for passwordless sudo\x1b[0m".to_string(),
                 })
                 .await;
         }

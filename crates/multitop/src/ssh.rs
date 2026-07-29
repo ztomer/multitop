@@ -165,6 +165,7 @@ pub fn spawn_command(server: &Server, command: &str) -> io::Result<Child> {
         "if command -v zsh >/dev/null 2>&1; then zsh -c 'setopt expand_aliases 2>/dev/null; source ~/.zshrc 2>/dev/null; source ~/.zprofile 2>/dev/null; eval {quoted}'; elif command -v bash >/dev/null 2>&1; then bash -c 'shopt -s expand_aliases 2>/dev/null; source ~/.bashrc 2>/dev/null; eval {quoted}'; else sh -c {quoted}; fi"
     );
     ssh_command(server)
+        .arg("-tt")
         .arg(remote_cmd)
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
