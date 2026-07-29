@@ -67,18 +67,18 @@ fn filled_cells(pct: f64, length: usize) -> usize {
     n.min(length)
 }
 
+static HASH_BAR: &str = "################################################################################################################################################################################################################################";
+static DOT_BAR: &str = "................................................................................................................................................................................................................................";
+
 /// Bracketed bar: `[####....]`, used for the aggregate CPU/MEM/DSK rows.
 pub fn make_bar(pct: f64, length: usize, color: &str, reset: &str) -> String {
-    let filled = filled_cells(pct, length);
+    let filled = filled_cells(pct, length).min(HASH_BAR.len());
+    let unfilled = length.saturating_sub(filled).min(DOT_BAR.len());
     let mut s = String::with_capacity(color.len() + length + reset.len() + 2);
     s.push_str(color);
     s.push('[');
-    for _ in 0..filled {
-        s.push('#');
-    }
-    for _ in 0..length - filled {
-        s.push('.');
-    }
+    s.push_str(&HASH_BAR[..filled]);
+    s.push_str(&DOT_BAR[..unfilled]);
     s.push(']');
     s.push_str(reset);
     s
@@ -86,16 +86,13 @@ pub fn make_bar(pct: f64, length: usize, color: &str, reset: &str) -> String {
 
 /// Unbracketed bar used inside a per-core cell, colored by its own load.
 pub fn core_bar(pct: f64, length: usize, p: &crate::color::Palette) -> String {
-    let filled = filled_cells(pct, length);
+    let filled = filled_cells(pct, length).min(HASH_BAR.len());
+    let unfilled = length.saturating_sub(filled).min(DOT_BAR.len());
     let color = p.cpu_bar(pct);
     let mut s = String::with_capacity(color.len() + length + p.reset.len());
     s.push_str(color);
-    for _ in 0..filled {
-        s.push('#');
-    }
-    for _ in 0..length - filled {
-        s.push('.');
-    }
+    s.push_str(&HASH_BAR[..filled]);
+    s.push_str(&DOT_BAR[..unfilled]);
     s.push_str(p.reset);
     s
 }

@@ -209,6 +209,9 @@ pub fn spawn_upgrade(
                             if lower.contains("sudo") && (lower.contains("terminal") || lower.contains("password") || lower.contains("pre-authorized") || lower.contains("tty") || lower.contains("prompt on")) {
                                 sudo_help = true;
                             }
+                            if errbuf.len() >= 100 {
+                                errbuf.remove(0);
+                            }
                             errbuf.push(clean.to_string());
                         }
                     }
