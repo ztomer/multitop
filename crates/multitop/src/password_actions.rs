@@ -64,21 +64,18 @@ pub fn apply(
         PasswordAction::Save {
             panel,
             password,
-            store,
             resume_upgrade,
         } => {
             app.panels[panel].sudo_password = Some(password.clone());
-            let result =
-                store.then(|| crate::password_store::save(&app.panels[panel].server, &password));
-            app.panels[panel].password_saved = result.as_ref().is_some_and(Result::is_ok);
+            let result = crate::password_store::save(&app.panels[panel].server, &password);
+            app.panels[panel].password_saved = result.is_ok();
             if let Some(manager) = app.password_manager.as_mut() {
                 manager.resume_upgrade = false;
                 manager.notice = Some(match result {
-                    Some(Ok(())) => "Password saved in the system credential store.".to_string(),
-                    Some(Err(error)) => {
+                    Ok(()) => "Password saved securely in system credential store.".to_string(),
+                    Err(error) => {
                         format!("Password kept for this session; save failed: {error}")
                     }
-                    None => "Password kept for this session only.".to_string(),
                 });
             }
             let should_resume = resume_upgrade || app.panels[panel].mode == crate::app::Mode::Upgrade;

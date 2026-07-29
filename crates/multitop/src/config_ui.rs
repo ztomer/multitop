@@ -104,10 +104,8 @@ pub fn draw(f: &mut Frame, app: &App) {
             } else {
                 &panel.server.user
             };
-            let (state, state_color) = if panel.password_saved {
+            let (state, state_color) = if panel.password_saved || panel.sudo_password.is_some() {
                 ("\u{1f512} Stored", Color::Green)
-            } else if panel.sudo_password.is_some() {
-                ("\u{1f511} Session", Color::Yellow)
             } else {
                 ("\u{26aa} Unset", Color::DarkGray)
             };
@@ -131,13 +129,8 @@ pub fn draw(f: &mut Frame, app: &App) {
         lines.push(Line::from(""));
         if manager.editing {
             let server = &app.panels[manager.selected].server;
-            let persistence = if manager.store_on_save {
-                "yes (system credential store)"
-            } else {
-                "no (this session only)"
-            };
             lines.push(Line::from(format!(
-                "Editing {}@{}",
+                "Editing password for {}@{}",
                 server.user, server.host
             )));
             lines.push(Line::from(vec![
@@ -147,14 +140,13 @@ pub fn draw(f: &mut Frame, app: &App) {
                     Style::default().fg(accent),
                 ),
             ]));
-            lines.push(Line::from(format!("Store on save: {persistence}")));
             lines.push(Line::from(Span::styled(
-                "[Enter] Save  [Esc] Cancel",
+                "[Enter] Save to OS credential store  [Esc] Cancel",
                 Style::default().fg(Color::DarkGray),
             )));
         } else {
             lines.push(Line::from(Span::styled(
-                "[A] Add Server  [Enter] Edit Password  [S] Toggle secure storage  [D] Delete Server  [Esc/E] Return",
+                "[A] Add Server  [Enter] Edit Password  [D] Delete Server  [Esc/E] Return",
                 Style::default().fg(Color::DarkGray),
             )));
         }

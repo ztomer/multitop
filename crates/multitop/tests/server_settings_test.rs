@@ -106,7 +106,6 @@ async fn test_save_password_in_upgrade_mode_triggers_upgrade_resume() {
         PasswordAction::Save {
             panel: 0,
             password: "mypassword".to_string(),
-            store: false,
             resume_upgrade: false,
         },
         &mut app,

@@ -72,7 +72,6 @@ pub struct PasswordManager {
     pub selected: usize,
     pub editing: bool,
     pub input: String,
-    pub store_on_save: bool,
     pub resume_upgrade: bool,
     pub draft: Option<ServerDraft>,
     pub notice: Option<String>,
@@ -85,7 +84,6 @@ impl PasswordManager {
             selected,
             editing: false,
             input: String::new(),
-            store_on_save: false,
             resume_upgrade,
             draft: None,
             notice: None,
@@ -99,7 +97,6 @@ pub enum PasswordAction {
     Save {
         panel: usize,
         password: String,
-        store: bool,
         resume_upgrade: bool,
     },
     Delete {
@@ -155,7 +152,6 @@ fn password_key(app: &mut App, key: KeyCode) -> PasswordAction {
                     return PasswordAction::Save {
                         panel: manager.selected,
                         password,
-                        store: manager.store_on_save,
                         resume_upgrade: manager.resume_upgrade,
                     };
                 }
@@ -179,14 +175,12 @@ fn password_key(app: &mut App, key: KeyCode) -> PasswordAction {
         KeyCode::Enter => {
             manager.editing = true;
             manager.input.clear();
-            manager.store_on_save = app.panels[manager.selected].password_saved;
             manager.notice = None;
         }
         KeyCode::Char('a' | 'A') => {
             manager.draft = Some(ServerDraft::new(None, None, None));
             manager.section = ConfigSection::Servers;
         }
-        KeyCode::Char('s' | 'S') => manager.store_on_save = !manager.store_on_save,
         KeyCode::Char('d' | 'D') => {
             if app.panels.len() > 1 {
                 let mut servers: Vec<Server> = app
@@ -238,7 +232,6 @@ fn server_key(app: &mut App, key: KeyCode) -> PasswordAction {
                             return PasswordAction::Save {
                                 panel: target_idx,
                                 password: pass_input,
-                                store: true,
                                 resume_upgrade: false,
                             };
                         }
