@@ -216,30 +216,47 @@ fn handle_key(
     if let Some(idx) = app.panels.iter().position(|p| p.prompt_sudo) {
         match key.code {
             KeyCode::Esc => {
-                app.panels[idx].prompt_sudo = false;
-                app.panels[idx].password_input.clear();
+                // Cancel all pending prompts
+                for p in app.panels.iter_mut() {
+                    p.prompt_sudo = false;
+                    p.password_input.clear();
+                }
             }
             KeyCode::Enter => {
                 let pass = app.panels[idx].password_input.clone();
-                app.panels[idx].prompt_sudo = false;
-                app.panels[idx].password_input.clear();
+                // Clear all prompts
+                for p in app.panels.iter_mut() {
+                    p.prompt_sudo = false;
+                    p.password_input.clear();
+                }
                 if !pass.trim().is_empty() {
-                    app.panels[idx].sudo_password = Some(pass.clone());
                     if let Some(ref path) = app.config_path {
                         crate::config::save_sudo_password(path, &app.panels[idx].server.host, &pass);
                     }
-                    let gen = app.bump(idx);
-                    app.panels[idx].mode = crate::app::Mode::Upgrade;
-                    app.panels[idx].view = vec![format!("{}\u{2192} Upgrade running...{}", app.current_theme().meter_mid(), app.current_theme().reset)];
-                    let handle = spawn_upgrade(
-                        idx,
-                        gen,
-                        servers[idx].clone(),
-                        Some(pass),
-                        tx.clone(),
-                    );
-                    if let Some(old) = tasks.aux[idx].replace(handle) {
-                        old.abort();
+                    // Apply the password and re-run upgrade for all panels
+                    // that are in Upgrade mode and don't yet have a sudo password.
+                    #[allow(clippy::needless_range_loop)]
+                    for i in 0..app.panels.len() {
+                        if app.panels[i].mode != crate::app::Mode::Upgrade {
+                            continue;
+                        }
+                        if servers[i].upgrade_cmd.is_none() {
+                            continue;
+                        }
+                        app.panels[i].sudo_password = Some(pass.clone());
+                        let gen = app.bump(i);
+                        let pal = app.current_theme();
+                        app.panels[i].view = vec![format!("{}\u{2192} Upgrade running...{}", pal.meter_mid(), pal.reset)];
+                        let handle = crate::tasks::spawn_upgrade(
+                            i,
+                            gen,
+                            servers[i].clone(),
+                            Some(pass.clone()),
+                            tx.clone(),
+                        );
+                        if let Some(old) = tasks.aux[i].replace(handle) {
+                            old.abort();
+                        }
                     }
                 }
             }
@@ -338,15 +355,15 @@ fn handle_key(
         let (idx, handle) = match cmd {
             Command::RunFetch { panel, gen } => (
                 panel,
-                spawn_fetch(panel, gen, servers[panel].clone(), dims, app.sort, tx.clone()),
+                crate::tasks::spawn_fetch(panel, gen, servers[panel].clone(), dims, app.sort, tx.clone()),
             ),
             Command::RunDocker { panel, gen } => (
                 panel,
-                spawn_docker(panel, gen, servers[panel].clone(), dims, app.sort, tx.clone()),
+                crate::tasks::spawn_docker(panel, gen, servers[panel].clone(), dims, app.sort, tx.clone()),
             ),
             Command::RunUpgrade { panel, gen } => (
                 panel,
-                spawn_upgrade(
+                crate::tasks::spawn_upgrade(
                     panel,
                     gen,
                     servers[panel].clone(),
@@ -380,7 +397,7 @@ fn restart_all_agents(
         for (i, panel) in app.panels.iter().enumerate() {
             if panel.mode == crate::app::Mode::Docker {
                 let gen = panel.gen;
-                if let Some(old) = tasks.aux[i].replace(spawn_docker(i, gen, servers[i].clone(), dims, app.sort, tx.clone())) {
+                if let Some(old) = tasks.aux[i].replace(crate::tasks::spawn_docker(i, gen, servers[i].clone(), dims, app.sort, tx.clone())) {
                     old.abort();
                 }
             }
@@ -449,36 +466,6 @@ fn spawn_monitor(
     })
 }
 
-fn spawn_docker(
-    idx: usize,
-    gen: u64,
-    server: Server,
-    dims: (u16, u16),
-    sort: SortBy,
-    tx: Sender<Msg>,
-) -> JoinHandle<()> {
-    crate::tasks::spawn_docker(idx, gen, server, dims, sort, tx)
-}
 
-fn spawn_fetch(
-    idx: usize,
-    gen: u64,
-    server: Server,
-    dims: (u16, u16),
-    sort: SortBy,
-    tx: Sender<Msg>,
-) -> JoinHandle<()> {
-    crate::tasks::spawn_fetch(idx, gen, server, dims, sort, tx)
-}
-
-fn spawn_upgrade(
-    idx: usize,
-    gen: u64,
-    server: Server,
-    pass: Option<String>,
-    tx: Sender<Msg>,
-) -> JoinHandle<()> {
-    crate::tasks::spawn_upgrade(idx, gen, server, pass, tx)
-}
 
 pub use crate::render_payload::render_payload;

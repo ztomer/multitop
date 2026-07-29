@@ -149,61 +149,51 @@ pub fn spawn_command(server: &Server, command: &str, password: Option<&str>) -> 
     let quoted = sh_quote(command);
     if is_local(server) {
         let shell = std::env::var("SHELL").unwrap_or_else(|_| "zsh".to_string());
+        // When a password is provided, first validate sudo credentials with
+        // `sudo -S -v` (reads password from stdin, caches credentials for the
+        // default timeout). Then run the actual command which reuses cached
+        // credentials — this works even for multi-sudo commands like `us;ud`.
         let wrapped = match password {
-            Some(_) => format!(
-                "alias sudo='sudo -S -k 2>/dev/null'; setopt expand_aliases 2>/dev/null; shopt -s expand_aliases 2>/dev/null; source ~/.zshrc 2>/dev/null; source ~/.zprofile 2>/dev/null; source ~/.bashrc 2>/dev/null; eval {quoted}"
+            Some(pass) => format!(
+                "echo {} | sudo -S -v 2>/dev/null; setopt expand_aliases 2>/dev/null; shopt -s expand_aliases 2>/dev/null; source ~/.zshrc 2>/dev/null; source ~/.zprofile 2>/dev/null; source ~/.bashrc 2>/dev/null; eval {quoted}",
+                sh_quote(pass),
             ),
             None => format!(
                 "setopt expand_aliases 2>/dev/null; shopt -s expand_aliases 2>/dev/null; source ~/.zshrc 2>/dev/null; source ~/.zprofile 2>/dev/null; source ~/.bashrc 2>/dev/null; eval {quoted}"
             ),
         };
-        let mut child = Command::new(&shell)
+        let child = Command::new(&shell)
             .arg("-c")
             .arg(wrapped)
-            .stdin(if password.is_some() { Stdio::piped() } else { Stdio::null() })
+            .stdin(Stdio::null())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
             .kill_on_drop(true)
             .spawn()?;
 
-        if let Some(pass) = password {
-            if let Some(mut stdin) = child.stdin.take() {
-                let payload = format!("{pass}\n");
-                tokio::spawn(async move {
-                    use tokio::io::AsyncWriteExt;
-                    let _ = stdin.write_all(payload.as_bytes()).await;
-                });
-            }
-        }
         return Ok(child);
     }
 
     let remote_cmd = match password {
-        Some(_) => format!(
-            "if command -v zsh >/dev/null 2>&1; then zsh -c 'alias sudo=\"sudo -S -k 2>/dev/null\"; setopt expand_aliases 2>/dev/null; source ~/.zshrc 2>/dev/null; source ~/.zprofile 2>/dev/null; eval {quoted}'; elif command -v bash >/dev/null 2>&1; then bash -c 'alias sudo=\"sudo -S -k 2>/dev/null\"; shopt -s expand_aliases 2>/dev/null; source ~/.bashrc 2>/dev/null; eval {quoted}'; else sh -c {quoted}; fi"
-        ),
+        Some(pass) => {
+            let pass_q = sh_quote(pass);
+            format!(
+                "echo {pass_q} | sudo -S -v 2>/dev/null; if command -v zsh >/dev/null 2>&1; then zsh -c 'setopt expand_aliases 2>/dev/null; source ~/.zshrc 2>/dev/null; source ~/.zprofile 2>/dev/null; eval {quoted}'; elif command -v bash >/dev/null 2>&1; then bash -c 'shopt -s expand_aliases 2>/dev/null; source ~/.bashrc 2>/dev/null; eval {quoted}'; else sh -c {quoted}; fi"
+            )
+        }
         None => format!(
             "if command -v zsh >/dev/null 2>&1; then zsh -c 'setopt expand_aliases 2>/dev/null; source ~/.zshrc 2>/dev/null; source ~/.zprofile 2>/dev/null; eval {quoted}'; elif command -v bash >/dev/null 2>&1; then bash -c 'shopt -s expand_aliases 2>/dev/null; source ~/.bashrc 2>/dev/null; eval {quoted}'; else sh -c {quoted}; fi"
         ),
     };
 
-    let mut child = ssh_command(server)
+    let child = ssh_command(server)
         .arg(remote_cmd)
-        .stdin(if password.is_some() { Stdio::piped() } else { Stdio::null() })
+        .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .kill_on_drop(true)
         .spawn()?;
 
-    if let Some(pass) = password {
-        if let Some(mut stdin) = child.stdin.take() {
-            let payload = format!("{pass}\n");
-            tokio::spawn(async move {
-                use tokio::io::AsyncWriteExt;
-                let _ = stdin.write_all(payload.as_bytes()).await;
-            });
-        }
-    }
     Ok(child)
 }
 
