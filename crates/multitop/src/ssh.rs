@@ -147,7 +147,9 @@ pub async fn spawn_agent(server: &Server, mode: Mode, sort: SortBy) -> io::Resul
 /// Run an arbitrary command on the server (used for `upgrade_cmd`).
 pub fn spawn_command(server: &Server, command: &str) -> io::Result<Child> {
     if is_local(server) {
-        return Command::new("sh")
+        let shell = std::env::var("SHELL").unwrap_or_else(|_| "zsh".to_string());
+        return Command::new(&shell)
+            .arg("-i")
             .arg("-c")
             .arg(command)
             .stdin(Stdio::null())
@@ -156,8 +158,12 @@ pub fn spawn_command(server: &Server, command: &str) -> io::Result<Child> {
             .kill_on_drop(true)
             .spawn();
     }
+    let quoted = sh_quote(command);
+    let remote_cmd = format!(
+        "if command -v zsh >/dev/null 2>&1; then zsh -i -c {quoted}; elif command -v bash >/dev/null 2>&1; then bash -i -c {quoted}; else sh -c {quoted}; fi"
+    );
     ssh_command(server)
-        .arg(command)
+        .arg(remote_cmd)
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())

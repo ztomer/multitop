@@ -124,14 +124,22 @@ pub fn refit_line(line: &str, target_cols: usize) -> String {
 
 /// Show the tail when there is more content than room, optionally pinning
 /// the header (line 0) so the server name stays visible.
-fn visible(lines: &[String], height: usize, _pin_header: bool, target_cols: usize) -> Vec<String> {
-    if lines.is_empty() {
+fn visible(lines: &[String], height: usize, pin_header: bool, target_cols: usize) -> Vec<String> {
+    if lines.is_empty() || height == 0 {
         return Vec::new();
     }
     let mut out = if lines.len() <= height {
         lines.to_vec()
+    } else if pin_header && lines.len() > 1 {
+        let body_budget = height.saturating_sub(1);
+        let tail_start = lines.len().saturating_sub(body_budget).max(1);
+        let mut v = Vec::with_capacity(height);
+        v.push(lines[0].clone());
+        v.extend_from_slice(&lines[tail_start..]);
+        v
     } else {
-        lines[..height].to_vec()
+        let tail_start = lines.len().saturating_sub(height);
+        lines[tail_start..].to_vec()
     };
 
     if !out.is_empty() && target_cols > 0 {
@@ -306,7 +314,7 @@ mod tests {
     }
 
     #[test]
-    fn visible_preserves_header_and_top_metrics() {
+    fn visible_preserves_header_and_tail_logs() {
         let lines: Vec<String> = vec![
             "HEADER".into(),
             "CPU 50%".into(),
@@ -323,11 +331,8 @@ mod tests {
         let shown = visible(&lines, 6, true, 0);
         assert_eq!(shown.len(), 6);
         assert_eq!(shown[0], "HEADER");
-        assert_eq!(shown[1], "CPU 50%");
-        assert_eq!(shown[2], "MEM 40%");
-        assert_eq!(shown[3], "DSK 30%");
-        assert_eq!(shown[4], "RULE");
-        assert_eq!(shown[5], "PROC HDR");
+        assert_eq!(shown[1], "p1");
+        assert_eq!(shown[5], "p5");
     }
 
     #[test]
