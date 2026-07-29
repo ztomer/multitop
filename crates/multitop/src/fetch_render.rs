@@ -64,9 +64,7 @@ fn parse_db(bytes: &[u8]) -> LogoDb {
         for _ in 0..num_lines {
             let llen = bytes[pos] as usize;
             pos += 1;
-            lines.push(strip_color_markers(
-                &String::from_utf8_lossy(&bytes[pos..pos + llen]),
-            ));
+            lines.push(strip_color_markers(&bytes[pos..pos + llen]));
             pos += llen;
         }
 
@@ -95,24 +93,25 @@ fn color_for(ci: u8, pal: &Palette) -> &'static str {
     }
 }
 
-fn strip_color_markers(s: &str) -> String {
+fn strip_color_markers(bytes: &[u8]) -> String {
+    let s = String::from_utf8_lossy(bytes);
     let mut result = String::with_capacity(s.len());
-    let bytes = s.as_bytes();
+    let s_bytes = s.as_bytes();
     let mut last = 0;
     let mut i = 0;
-    while i < bytes.len() {
-        if bytes[i] == b'$'
-            && i + 3 < bytes.len()
-            && bytes[i + 1] == b'{'
-            && bytes[i + 2] == b'c'
-            && bytes[i + 3].is_ascii_digit()
+    while i < s_bytes.len() {
+        if s_bytes[i] == b'$'
+            && i + 3 < s_bytes.len()
+            && s_bytes[i + 1] == b'{'
+            && s_bytes[i + 2] == b'c'
+            && s_bytes[i + 3].is_ascii_digit()
         {
             result.push_str(&s[last..i]);
             i += 3;
-            while i < bytes.len() && bytes[i].is_ascii_digit() {
+            while i < s_bytes.len() && s_bytes[i].is_ascii_digit() {
                 i += 1;
             }
-            if i < bytes.len() && bytes[i] == b'}' {
+            if i < s_bytes.len() && s_bytes[i] == b'}' {
                 i += 1;
                 last = i;
                 continue;

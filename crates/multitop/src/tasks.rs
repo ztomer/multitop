@@ -48,10 +48,10 @@ pub fn spawn_fetch(
 
         while let Ok(Some(payload)) = next_packet(&mut stream, &mut errbuf).await {
             if let multitop_agent::proto::Payload::Fetch(snap) = payload {
-                let lines = render_payload(
-                    &multitop_agent::proto::Payload::Fetch(snap.clone()),
-                    dims,
-                    sort,
+                let lines = crate::fetch_render::render_fetch(
+                    &snap,
+                    dims.0 as usize,
+                    dims.1 as usize,
                     &multitop_agent::color::ANSI,
                 );
                 let _ = tx

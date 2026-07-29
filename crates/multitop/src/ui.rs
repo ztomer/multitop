@@ -150,21 +150,7 @@ fn keybar_line(sort: multitop_agent::SortBy, keybar_width: u16) -> Line<'static>
     let inactive = Style::default().fg(Color::DarkGray);
     let sort_label = Style::default().fg(Color::Yellow);
 
-    // Fixed left part: " ESC / Q Quit  F Fetch  D Docker  S Stats  U Upgrade"
-    let left_width: u16 = " ESC / Q Quit  F Fetch  D Docker  S Stats  U Upgrade".len() as u16;
-    // Sort badge: "[Sort by: Mem/ Cpu]"
-    let badge_width: u16 = "[Sort by: Mem/ Cpu]".len() as u16;
-    let pad = (keybar_width as usize)
-        .saturating_sub(left_width as usize)
-        .saturating_sub(badge_width as usize);
-    let pad_str = " ".repeat(pad);
-
-    let (mem_style, cpu_style) = match sort {
-        multitop_agent::SortBy::Mem => (active, inactive),
-        multitop_agent::SortBy::Cpu => (inactive, active),
-    };
-
-    Line::from(vec![
+    let left_spans = [
         Span::styled(" ESC / Q", key),
         Span::styled(" Quit  ", label),
         Span::styled("F", key),
@@ -175,13 +161,36 @@ fn keybar_line(sort: multitop_agent::SortBy, keybar_width: u16) -> Line<'static>
         Span::styled(" Stats  ", label),
         Span::styled("U", key),
         Span::styled(" Upgrade", label),
-        Span::styled(pad_str, label),
+    ];
+    let left_width: usize = left_spans.iter().map(|s| s.content.len()).sum();
+
+    let (mem_style, cpu_style) = match sort {
+        multitop_agent::SortBy::Mem => (active, inactive),
+        multitop_agent::SortBy::Cpu => (inactive, active),
+    };
+
+    let badge_spans = [
         Span::styled("[Sort by: ", sort_label),
         Span::styled("Mem", mem_style),
         Span::styled("/ ", sort_label),
         Span::styled("Cpu", cpu_style),
         Span::styled("]", sort_label),
-    ])
+    ];
+    let badge_width: usize = badge_spans.iter().map(|s| s.content.len()).sum();
+
+    let pad = (keybar_width as usize).saturating_sub(left_width + badge_width);
+    const SPACES: &str = "                                                                                                                                                                                                                                                                ";
+    let pad_str = if pad <= SPACES.len() {
+        &SPACES[..pad]
+    } else {
+        SPACES
+    };
+
+    let mut spans = Vec::with_capacity(left_spans.len() + 1 + badge_spans.len());
+    spans.extend(left_spans);
+    spans.push(Span::styled(pad_str, label));
+    spans.extend(badge_spans);
+    Line::from(spans)
 }
 
 pub fn draw(f: &mut Frame, app: &App) {
