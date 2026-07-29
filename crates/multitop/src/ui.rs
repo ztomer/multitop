@@ -252,6 +252,12 @@ pub fn draw(f: &mut Frame, app: &App) {
             panel.scroll_offset,
         );
         if !lines.is_empty() {
+            let mode_str = match panel.mode {
+                crate::app::Mode::Monitor => "[Stats]",
+                crate::app::Mode::Docker => "[Docker]",
+                crate::app::Mode::Fetch => "[Fetch]",
+                crate::app::Mode::Upgrade => "[Upgrade]",
+            };
             let mode_tag = match panel.mode {
                 crate::app::Mode::Monitor => "\x1b[34;1m[Stats]\x1b[0m",
                 crate::app::Mode::Docker => "\x1b[35;1m[Docker]\x1b[0m",
@@ -269,7 +275,18 @@ pub fn draw(f: &mut Frame, app: &App) {
                 ""
             };
             let tags = format!(" {mode_tag}{active_tag}{live_tag}");
-            let tag_len = 9 + if idx == app.selected_panel && app.panels.len() > 1 { 10 } else { 0 } + if panel.scroll_offset == 0 && panel.view.len() > inner.height as usize { 8 } else { 0 };
+            let tag_len = 1
+                + mode_str.chars().count()
+                + if idx == app.selected_panel && app.panels.len() > 1 {
+                    10
+                } else {
+                    0
+                }
+                + if panel.scroll_offset == 0 && panel.view.len() > inner.height as usize {
+                    8
+                } else {
+                    0
+                };
             let target_w = (inner.width as usize).saturating_sub(tag_len);
             let refitted = refit_line(&lines[0], target_w);
             lines[0] = format!("{refitted}{tags}");

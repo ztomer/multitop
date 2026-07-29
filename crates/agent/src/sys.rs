@@ -102,15 +102,16 @@ pub fn get_cpu_stat_macos() -> CpuStat {
 pub fn get_memory_macos() -> Usage {
     let mut total: u64 = 0;
     let mut size = std::mem::size_of::<u64>();
-    unsafe {
-        let name = std::ffi::CString::new("hw.memsize").unwrap();
-        libc::sysctlbyname(
-            name.as_ptr(),
-            &mut total as *mut _ as *mut _,
-            &mut size,
-            std::ptr::null_mut(),
-            0,
-        );
+    if let Ok(name) = std::ffi::CString::new("hw.memsize") {
+        unsafe {
+            libc::sysctlbyname(
+                name.as_ptr(),
+                &mut total as *mut _ as *mut _,
+                &mut size,
+                std::ptr::null_mut(),
+                0,
+            );
+        }
     }
     if total == 0 {
         return Usage::default();
@@ -362,15 +363,16 @@ pub fn get_core_temps() -> HashMap<usize, f64> {
 fn macos_num_cpus() -> usize {
     let mut count: u32 = 0;
     let mut size = std::mem::size_of::<u32>();
-    unsafe {
-        let name = std::ffi::CString::new("hw.ncpu").unwrap();
-        libc::sysctlbyname(
-            name.as_ptr(),
-            &mut count as *mut _ as *mut _,
-            &mut size,
-            std::ptr::null_mut(),
-            0,
-        );
+    if let Ok(name) = std::ffi::CString::new("hw.ncpu") {
+        unsafe {
+            libc::sysctlbyname(
+                name.as_ptr(),
+                &mut count as *mut _ as *mut _,
+                &mut size,
+                std::ptr::null_mut(),
+                0,
+            );
+        }
     }
     if count > 0 {
         count as usize

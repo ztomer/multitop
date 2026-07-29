@@ -14,7 +14,7 @@ static MOCK_STORE: RwLock<Option<HashMap<String, String>>> = RwLock::new(None);
 
 /// Enable in-memory mock store explicitly.
 pub fn enable_mock_store() {
-    let mut store = MOCK_STORE.write().unwrap();
+    let mut store = MOCK_STORE.write().unwrap_or_else(|e| e.into_inner());
     if store.is_none() {
         *store = Some(HashMap::new());
     }
@@ -22,13 +22,13 @@ pub fn enable_mock_store() {
 
 /// Disable in-memory mock store explicitly.
 pub fn disable_mock_store() {
-    let mut store = MOCK_STORE.write().unwrap();
+    let mut store = MOCK_STORE.write().unwrap_or_else(|e| e.into_inner());
     *store = None;
 }
 
 /// Clear in-memory mock store contents.
 pub fn clear_mock_store() {
-    let mut store = MOCK_STORE.write().unwrap();
+    let mut store = MOCK_STORE.write().unwrap_or_else(|e| e.into_inner());
     if let Some(map) = store.as_mut() {
         map.clear();
     }
@@ -42,7 +42,7 @@ pub fn is_mock_enabled() -> bool {
     {
         return true;
     }
-    MOCK_STORE.read().map(|s| s.is_some()).unwrap_or(false)
+    MOCK_STORE.read().unwrap_or_else(|e| e.into_inner()).is_some()
 }
 
 fn account(server: &Server) -> String {
@@ -62,7 +62,7 @@ fn entry(server: &Server) -> Result<Entry, String> {
 pub fn load(server: &Server) -> Result<Option<String>, String> {
     if is_mock_enabled() {
         enable_mock_store();
-        let store = MOCK_STORE.read().unwrap();
+        let store = MOCK_STORE.read().unwrap_or_else(|e| e.into_inner());
         let key = account(server);
         return Ok(store.as_ref().and_then(|map| map.get(&key).cloned()));
     }
@@ -81,7 +81,7 @@ pub fn load(server: &Server) -> Result<Option<String>, String> {
 pub fn save(server: &Server, password: &str) -> Result<(), String> {
     if is_mock_enabled() {
         enable_mock_store();
-        let mut store = MOCK_STORE.write().unwrap();
+        let mut store = MOCK_STORE.write().unwrap_or_else(|e| e.into_inner());
         if let Some(map) = store.as_mut() {
             map.insert(account(server), password.to_string());
         }
@@ -96,7 +96,7 @@ pub fn save(server: &Server, password: &str) -> Result<(), String> {
 pub fn delete(server: &Server) -> Result<(), String> {
     if is_mock_enabled() {
         enable_mock_store();
-        let mut store = MOCK_STORE.write().unwrap();
+        let mut store = MOCK_STORE.write().unwrap_or_else(|e| e.into_inner());
         if let Some(map) = store.as_mut() {
             map.remove(&account(server));
         }

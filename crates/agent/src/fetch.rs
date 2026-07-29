@@ -95,19 +95,20 @@ pub fn sample_os() -> String {
     {
         let mut os_rev = [0u8; 256];
         let mut size = os_rev.len();
-        let name = std::ffi::CString::new("kern.osproductversion").unwrap();
-        let res = unsafe {
-            libc::sysctlbyname(
-                name.as_ptr(),
-                os_rev.as_mut_ptr() as *mut _,
-                &mut size,
-                std::ptr::null_mut(),
-                0,
-            )
-        };
-        if res == 0 && size > 0 {
-            let ver = String::from_utf8_lossy(&os_rev[..size.saturating_sub(1)]).to_string();
-            return format!("macOS {ver}");
+        if let Ok(name) = std::ffi::CString::new("kern.osproductversion") {
+            let res = unsafe {
+                libc::sysctlbyname(
+                    name.as_ptr(),
+                    os_rev.as_mut_ptr() as *mut _,
+                    &mut size,
+                    std::ptr::null_mut(),
+                    0,
+                )
+            };
+            if res == 0 && size > 0 {
+                let ver = String::from_utf8_lossy(&os_rev[..size.saturating_sub(1)]).to_string();
+                return format!("macOS {ver}");
+            }
         }
         "macOS".to_string()
     }
@@ -128,19 +129,20 @@ pub fn sample_kernel() -> String {
     {
         let mut k_ver = [0u8; 256];
         let mut size = k_ver.len();
-        let name = std::ffi::CString::new("kern.osrelease").unwrap();
-        let res = unsafe {
-            libc::sysctlbyname(
-                name.as_ptr(),
-                k_ver.as_mut_ptr() as *mut _,
-                &mut size,
-                std::ptr::null_mut(),
-                0,
-            )
-        };
-        if res == 0 && size > 0 {
-            let ver = String::from_utf8_lossy(&k_ver[..size.saturating_sub(1)]).to_string();
-            return format!("Darwin {ver}");
+        if let Ok(name) = std::ffi::CString::new("kern.osrelease") {
+            let res = unsafe {
+                libc::sysctlbyname(
+                    name.as_ptr(),
+                    k_ver.as_mut_ptr() as *mut _,
+                    &mut size,
+                    std::ptr::null_mut(),
+                    0,
+                )
+            };
+            if res == 0 && size > 0 {
+                let ver = String::from_utf8_lossy(&k_ver[..size.saturating_sub(1)]).to_string();
+                return format!("Darwin {ver}");
+            }
         }
     }
 
@@ -172,18 +174,19 @@ pub fn sample_host_model() -> String {
     {
         let mut model_buf = [0u8; 256];
         let mut size = model_buf.len();
-        let name = std::ffi::CString::new("hw.model").unwrap();
-        let res = unsafe {
-            libc::sysctlbyname(
-                name.as_ptr(),
-                model_buf.as_mut_ptr() as *mut _,
-                &mut size,
-                std::ptr::null_mut(),
-                0,
-            )
-        };
-        if res == 0 && size > 0 {
-            return String::from_utf8_lossy(&model_buf[..size.saturating_sub(1)]).to_string();
+        if let Ok(name) = std::ffi::CString::new("hw.model") {
+            let res = unsafe {
+                libc::sysctlbyname(
+                    name.as_ptr(),
+                    model_buf.as_mut_ptr() as *mut _,
+                    &mut size,
+                    std::ptr::null_mut(),
+                    0,
+                )
+            };
+            if res == 0 && size > 0 {
+                return String::from_utf8_lossy(&model_buf[..size.saturating_sub(1)]).to_string();
+            }
         }
     }
 
@@ -215,34 +218,34 @@ pub fn sample_cpu_model() -> String {
     {
         let mut cpu_buf = [0u8; 256];
         let mut size = cpu_buf.len();
-        let name = std::ffi::CString::new("machdep.cpu.brand_string").unwrap();
-        let res = unsafe {
-            libc::sysctlbyname(
-                name.as_ptr(),
-                cpu_buf.as_mut_ptr() as *mut _,
-                &mut size,
-                std::ptr::null_mut(),
-                0,
-            )
-        };
-        let mut num_cores: libc::natural_t = 0;
-        let mut c_size = std::mem::size_of::<libc::natural_t>();
-        let c_name = std::ffi::CString::new("hw.logicalcpu").unwrap();
-        let _ = unsafe {
-            libc::sysctlbyname(
-                c_name.as_ptr(),
-                &mut num_cores as *mut _ as *mut _,
-                &mut c_size,
-                std::ptr::null_mut(),
-                0,
-            )
-        };
-        let c_str = if num_cores > 0 { num_cores } else { 1 };
-        if res == 0 && size > 0 {
-            let brand = String::from_utf8_lossy(&cpu_buf[..size.saturating_sub(1)]).to_string();
-            return format!("{brand} ({c_str})");
+        if let Ok(name) = std::ffi::CString::new("machdep.cpu.brand_string") {
+            let _res = unsafe {
+                libc::sysctlbyname(
+                    name.as_ptr(),
+                    cpu_buf.as_mut_ptr() as *mut _,
+                    &mut size,
+                    std::ptr::null_mut(),
+                    0,
+                )
+            };
+            let mut num_cores: libc::natural_t = 0;
+            let mut c_size = std::mem::size_of::<libc::natural_t>();
+            if let Ok(c_name) = std::ffi::CString::new("hw.logicalcpu") {
+                let _ = unsafe {
+                    libc::sysctlbyname(
+                        c_name.as_ptr(),
+                        &mut num_cores as *mut _ as *mut _,
+                        &mut c_size,
+                        std::ptr::null_mut(),
+                        0,
+                    )
+                };
+            }
+            let c_str = if num_cores > 0 { num_cores } else { 1 };
+            format!("Apple Silicon ({c_str})")
+        } else {
+            "Apple Silicon".to_string()
         }
-        format!("Apple Silicon ({c_str})")
     }
 
     #[cfg(not(target_os = "macos"))]
