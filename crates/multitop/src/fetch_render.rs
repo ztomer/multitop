@@ -180,7 +180,12 @@ pub fn render_fetch(
 
     let db = load_db();
 
-    let details: [(&str, &str); 7] = [
+    let colors_row = format!(
+        "\x1b[40m  \x1b[41m  \x1b[42m  \x1b[43m  \x1b[44m  \x1b[45m  \x1b[46m  \x1b[47m  {}",
+        pal.reset
+    );
+
+    let details: [(&str, &str); 8] = [
         ("OS", &snap.os),
         ("Kernel", &snap.kernel),
         ("Uptime", &snap.uptime),
@@ -188,9 +193,10 @@ pub fn render_fetch(
         ("CPU", &snap.cpu_model),
         ("Memory", &snap.memory_str),
         ("Disk", &snap.disk_str),
+        ("Palette", &colors_row),
     ];
 
-    let max_val_len = details
+    let max_val_len = details[..7]
         .iter()
         .map(|(_, v)| v.chars().count())
         .max()
@@ -199,11 +205,6 @@ pub fn render_fetch(
     let detail_overhead = 12 + max_val_len;
     let max_logo_width = cols.saturating_sub(detail_overhead);
     let logo = find_logo(db, &snap.os, &snap.kernel, max_logo_width);
-
-    let colors_row = format!(
-        "\x1b[40m  \x1b[41m  \x1b[42m  \x1b[43m  \x1b[44m  \x1b[45m  \x1b[46m  \x1b[47m  {}",
-        pal.reset
-    );
 
     let max_body = max_rows.saturating_sub(1);
 
@@ -246,13 +247,8 @@ pub fn render_fetch(
                 ));
             }
         }
-
-        if total_rows < max_body {
-            out.push(format!("   {}", colors_row));
-        }
     } else {
-        let mut row_idx = 0;
-        for (label, val) in &details {
+        for (row_idx, (label, val)) in details.iter().enumerate() {
             if row_idx >= max_body {
                 break;
             }
@@ -266,10 +262,6 @@ pub fn render_fetch(
                 val,
                 pal.reset
             ));
-            row_idx += 1;
-        }
-        if row_idx < max_body {
-            out.push(format!("   {}", colors_row));
         }
     }
 

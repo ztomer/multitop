@@ -15,3 +15,6 @@ host = "192.168.0.158"
 port = 22
 user = ""
 # upgrade_cmd = "apt update && apt upgrade -y"
+
+# show_sparklines = false  # Experimental memory/CPU sparklines in panel header
+

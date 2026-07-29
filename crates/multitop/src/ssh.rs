@@ -162,14 +162,29 @@ pub async fn spawn_agent(server: &Server, mode: Mode, sort: SortBy) -> io::Resul
 }
 
 /// Run an arbitrary command on the server (used for `upgrade_cmd`).
+///
+/// When a password is provided, `sudo -v` validates and caches the credential
+/// for the default timeout (~15 min). The command then runs in a separate
+/// shell that reuses the cached credential, so any `sudo` calls within the
+/// command (e.g. aliases like `ud` = `sudo apt update && sudo apt upgrade`)
+/// do not re-prompt.
+///
+/// For alias resolution, we use login+interactive shells (`zsh -l -i` / `bash -i`)
+/// which source the user's full profile, ensuring aliases defined in `.zshrc`
+/// / `.bashrc` are available before `eval` expands the command.
+///
+/// The command is embedded in a single-quoted zsh/bash `-c` argument, so
+/// single quotes within the command are escaped via the `'\''` idiom to
+/// prevent premature termination of the outer quote.
 pub fn spawn_command(server: &Server, command: &str, password: Option<&str>) -> io::Result<Child> {
     let quoted = sh_quote(command);
+    // Escape single quotes in `quoted` for embedding inside a single-quoted
+    // shell argument (e.g. zsh -c '...eval QUOTED...').
+    // sh_quote produces 'us;ud', and we need to embed it in 'eval 'us;ud''
+    // which breaks. By escaping, we get 'eval '\''us;ud'\'''
+    let quoted_escaped = quoted.replace('\'', r"'\''");
     if is_local(server) {
         let shell = std::env::var("SHELL").unwrap_or_else(|_| "zsh".to_string());
-        // When a password is provided, first validate sudo credentials with
-        // `sudo -S -p '' -v` (reads password from stdin, caches credentials for the
-        // default timeout). Then run the actual command which reuses cached
-        // credentials — this works even for multi-sudo commands like `us;ud`.
         let wrapped = match password {
             Some(_pass) if crate::password_store::is_mock_enabled() => format!(
                 "setopt expand_aliases 2>/dev/null; shopt -s expand_aliases 2>/dev/null; source ~/.zshrc 2>/dev/null; source ~/.zprofile 2>/dev/null; source ~/.bashrc 2>/dev/null; eval {quoted}"
@@ -196,16 +211,16 @@ pub fn spawn_command(server: &Server, command: &str, password: Option<&str>) -> 
 
     let remote_cmd = match password {
         Some(_pass) if crate::password_store::is_mock_enabled() => format!(
-            "if command -v zsh >/dev/null 2>&1; then zsh -i -c 'setopt expand_aliases 2>/dev/null; source ~/.zshrc 2>/dev/null; source ~/.zprofile 2>/dev/null; eval {quoted}'; elif command -v bash >/dev/null 2>&1; then bash -i -c 'shopt -s expand_aliases 2>/dev/null; source ~/.bashrc 2>/dev/null; source ~/.bash_profile 2>/dev/null; eval {quoted}'; else sh -c {quoted}; fi"
+            "if command -v zsh >/dev/null 2>&1; then zsh -l -i -c 'setopt expand_aliases 2>/dev/null; source ~/.zshrc 2>/dev/null; source ~/.zprofile 2>/dev/null; eval {quoted_escaped}'; elif command -v bash >/dev/null 2>&1; then bash -i -c 'shopt -s expand_aliases 2>/dev/null; source ~/.bashrc 2>/dev/null; source ~/.bash_profile 2>/dev/null; eval {quoted_escaped}'; else sh -c {quoted}; fi"
         ),
         Some(pass) => {
             let pass_q = sh_quote(pass);
             format!(
-                "echo {pass_q} | sudo -S -p '' -v 2>/dev/null && if command -v zsh >/dev/null 2>&1; then zsh -i -c 'setopt expand_aliases 2>/dev/null; source ~/.zshrc 2>/dev/null; source ~/.zprofile 2>/dev/null; eval {quoted}'; elif command -v bash >/dev/null 2>&1; then bash -i -c 'shopt -s expand_aliases 2>/dev/null; source ~/.bashrc 2>/dev/null; source ~/.bash_profile 2>/dev/null; eval {quoted}'; else sh -c {quoted}; fi"
+                "echo {pass_q} | sudo -S -p '' -v 2>/dev/null && if command -v zsh >/dev/null 2>&1; then zsh -l -i -c 'setopt expand_aliases 2>/dev/null; source ~/.zshrc 2>/dev/null; source ~/.zprofile 2>/dev/null; eval {quoted_escaped}'; elif command -v bash >/dev/null 2>&1; then bash -i -c 'shopt -s expand_aliases 2>/dev/null; source ~/.bashrc 2>/dev/null; source ~/.bash_profile 2>/dev/null; eval {quoted_escaped}'; else sh -c {quoted}; fi"
             )
         }
         None => format!(
-            "if command -v zsh >/dev/null 2>&1; then zsh -i -c 'setopt expand_aliases 2>/dev/null; source ~/.zshrc 2>/dev/null; source ~/.zprofile 2>/dev/null; eval {quoted}'; elif command -v bash >/dev/null 2>&1; then bash -i -c 'shopt -s expand_aliases 2>/dev/null; source ~/.bashrc 2>/dev/null; source ~/.bash_profile 2>/dev/null; eval {quoted}'; else sh -c {quoted}; fi"
+            "if command -v zsh >/dev/null 2>&1; then zsh -l -i -c 'setopt expand_aliases 2>/dev/null; source ~/.zshrc 2>/dev/null; source ~/.zprofile 2>/dev/null; eval {quoted_escaped}'; elif command -v bash >/dev/null 2>&1; then bash -i -c 'shopt -s expand_aliases 2>/dev/null; source ~/.bashrc 2>/dev/null; source ~/.bash_profile 2>/dev/null; eval {quoted_escaped}'; else sh -c {quoted}; fi"
         ),
     };
 

@@ -9,69 +9,7 @@ use multitop_agent::fetch::FetchSnapshot;
 
 use crate::config::Server;
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Mode {
-    Monitor,
-    Docker,
-    Fetch,
-    Upgrade,
-}
-
-#[derive(Clone, Debug)]
-pub struct Panel {
-    pub server: Server,
-    pub mode: Mode,
-    pub gen: u64,
-    pub last_frame: Option<Vec<String>>,
-    pub last_fetch: Option<FetchSnapshot>,
-    pub last_monitor: Option<multitop_agent::proto::Payload>,
-    pub last_docker: Option<multitop_agent::proto::Payload>,
-    pub view: Vec<String>,
-    pub scroll_offset: usize,
-    pub sudo_password: Option<String>,
-    pub password_saved: bool,
-}
-
-impl Panel {
-    pub fn new(server: Server) -> Self {
-        let pal = &multitop_agent::color::ANSI;
-        Panel {
-            server,
-            mode: Mode::Monitor,
-            gen: 0,
-            last_frame: None,
-            last_fetch: None,
-            last_monitor: None,
-            last_docker: None,
-            view: vec![format!("{}connecting...{}", pal.muted(), pal.reset)],
-            scroll_offset: 0,
-            sudo_password: None,
-            password_saved: false,
-        }
-    }
-
-    pub fn ensure_sudo_password(&mut self) -> Option<String> {
-        if self.sudo_password.is_none() {
-            if let Ok(Some(pass)) = crate::password_store::load(&self.server) {
-                self.sudo_password = Some(pass);
-                self.password_saved = true;
-            }
-        }
-        self.sudo_password.clone()
-    }
-
-    fn show_last_frame(&mut self) {
-        let pal = &multitop_agent::color::ANSI;
-        self.view = match &self.last_frame {
-            Some(f) => f.clone(),
-            None => vec![format!(
-                "{}waiting for data...{}",
-                pal.meter_mid(),
-                pal.reset
-            )],
-        };
-    }
-}
+pub use crate::panel::{Mode, Panel};
 
 /// Work the runtime should start as a result of a state transition.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -136,8 +74,13 @@ pub struct App {
     pub filter_query: String,
     pub is_filtering: bool,
     pub sparklines: Vec<crate::sparkline::SparklineHistory>,
+    pub sparklines_mem: Vec<crate::sparkline::SparklineHistory>,
+    pub sparklines_cpu: Vec<crate::sparkline::SparklineHistory>,
     pub upgrade_history_lines: usize,
     pub password_manager: Option<crate::passwords::PasswordManager>,
+    pub show_upgrade_modal: bool,
+    pub last_update: Option<String>,
+    pub show_sparklines: bool,
 }
 
 impl App {
@@ -155,8 +98,17 @@ impl App {
             sparklines: (0..count)
                 .map(|_| crate::sparkline::SparklineHistory::new(30))
                 .collect(),
+            sparklines_mem: (0..count)
+                .map(|_| crate::sparkline::SparklineHistory::new(30))
+                .collect(),
+            sparklines_cpu: (0..count)
+                .map(|_| crate::sparkline::SparklineHistory::new(30))
+                .collect(),
             upgrade_history_lines: crate::config::DEFAULT_UPGRADE_HISTORY_LINES,
             password_manager: None,
+            show_upgrade_modal: false,
+            last_update: None,
+            show_sparklines: false,
         }
     }
 
@@ -191,11 +143,11 @@ impl App {
         self.panels.iter().any(|p| p.mode == Mode::Fetch)
     }
 
-    /// `f`: all panels into the Fastfetch view, or all back to stats.
+    /// `f`: all panels into the Fastfetch view.
     pub fn toggle_fetch(&mut self) -> Vec<Command> {
         self.reset_scroll();
         if self.in_fetch() {
-            return self.switch_stats();
+            return Vec::new();
         }
         let pal = self.current_theme();
         let mut cmds = Vec::with_capacity(self.panels.len());
@@ -213,14 +165,11 @@ impl App {
         cmds
     }
 
-    /// `d`: all panels into the Docker view, or all back to stats.
-    ///
-    /// The toggle is global rather than per-panel so the screen never shows a
-    /// mix of two different views.
+    /// `d`: all panels into the Docker view.
     pub fn toggle_docker(&mut self) -> Vec<Command> {
         self.reset_scroll();
         if self.in_docker() {
-            return self.switch_stats();
+            return Vec::new();
         }
         let pal = self.current_theme();
         let mut cmds = Vec::with_capacity(self.panels.len());
@@ -262,11 +211,18 @@ impl App {
             p.ensure_sudo_password();
             match p.server.upgrade_cmd.is_some() {
                 true => {
-                    p.view = vec![format!(
-                        "{}\u{2192} Upgrade running...{}",
-                        pal.meter_mid(),
-                        pal.reset
-                    )];
+                    p.view = vec![
+                        format!(
+                            "{}\u{2192} Upgrade running...{}",
+                            pal.meter_mid(),
+                            pal.reset
+                        ),
+                        format!(
+                            "{}\u{2192} Do not exit (Q) until upgrade completes{}",
+                            pal.meter_mid(),
+                            pal.reset
+                        ),
+                    ];
                     cmds.push(Command::RunUpgrade { panel: i, gen });
                 }
                 false => {
@@ -279,6 +235,20 @@ impl App {
             }
         }
         cmds
+    }
+
+    /// Confirm upgrade from modal and execute `run_upgrade`.
+    pub fn confirm_upgrade(&mut self) -> Vec<Command> {
+        self.show_upgrade_modal = false;
+        let ts = current_timestamp_str();
+        self.last_update = Some(ts.clone());
+        if let Some(ref path) = self.config_path {
+            let state = crate::state::AppState {
+                last_update: Some(ts),
+            };
+            let _ = crate::state::save_state(path, &state);
+        }
+        self.run_upgrade()
     }
 
     pub fn quit(&mut self) {
@@ -306,9 +276,18 @@ impl App {
                 };
 
                 match &payload {
-                    multitop_agent::proto::Payload::Monitor(_) => {
+                    multitop_agent::proto::Payload::Monitor(snap) => {
                         p.last_monitor = Some(payload.clone());
-                        let lines = crate::run::render_payload(&payload, dims, sort, pal);
+                        if panel < self.sparklines_cpu.len() {
+                            self.sparklines_cpu[panel].push(snap.cpu_pct as f32);
+                            let mem_pct = if snap.mem.total > 0 {
+                                (snap.mem.used as f32 / snap.mem.total as f32) * 100.0
+                            } else {
+                                0.0
+                            };
+                            self.sparklines_mem[panel].push(mem_pct);
+                        }
+                        let lines = crate::render_payload::render_payload(&payload, dims, sort, pal);
                         p.last_frame = Some(lines.clone());
                         if p.mode == Mode::Monitor {
                             p.view = lines;
@@ -317,7 +296,7 @@ impl App {
                     multitop_agent::proto::Payload::Docker { .. } => {
                         p.last_docker = Some(payload.clone());
                         if p.mode == Mode::Docker && accepts {
-                            let lines = crate::run::render_payload(&payload, dims, sort, pal);
+                            let lines = crate::render_payload::render_payload(&payload, dims, sort, pal);
                             p.view = lines;
                         }
                     }
@@ -444,12 +423,12 @@ impl App {
             match panel.mode {
                 Mode::Monitor => {
                     if let Some(payload) = &panel.last_monitor {
-                        panel.view = crate::run::render_payload(payload, dims, sort, pal);
+                        panel.view = crate::render_payload::render_payload(payload, dims, sort, pal);
                     }
                 }
                 Mode::Docker => {
                     if let Some(payload) = &panel.last_docker {
-                        panel.view = crate::run::render_payload(payload, dims, sort, pal);
+                        panel.view = crate::render_payload::render_payload(payload, dims, sort, pal);
                     }
                 }
                 Mode::Fetch => {
@@ -483,3 +462,31 @@ pub fn header_line(text: impl std::fmt::Display) -> String {
     let pal = &multitop_agent::color::ANSI;
     format!("{}{}{text}{}", pal.primary(), pal.bold, pal.reset)
 }
+
+pub fn current_timestamp_str() -> String {
+    use std::time::SystemTime;
+    let secs = SystemTime::now()
+        .duration_since(SystemTime::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs();
+
+    let days = secs / 86400;
+    let rem_secs = secs % 86400;
+    let hours = rem_secs / 3600;
+    let minutes = (rem_secs % 3600) / 60;
+    let seconds = rem_secs % 60;
+
+    let z = days + 719468;
+    let era = z / 146097;
+    let doe = z - era * 146097;
+    let yoe = (doe - doe / 1460 + doe / 36524 - doe / 146096) / 365;
+    let y = yoe + era * 400;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let d = doy - (153 * mp + 2) / 5 + 1;
+    let m = if mp < 10 { mp + 3 } else { mp - 9 };
+    let y = if m <= 2 { y + 1 } else { y };
+
+    format!("{y:04}-{m:02}-{d:02} {hours:02}:{minutes:02}:{seconds:02} UTC")
+}
+

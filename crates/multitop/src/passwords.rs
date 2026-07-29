@@ -71,6 +71,7 @@ pub struct PasswordManager {
     pub section: ConfigSection,
     pub selected: usize,
     pub editing: bool,
+    pub is_sso: bool,
     pub input: String,
     pub resume_upgrade: bool,
     pub draft: Option<ServerDraft>,
@@ -83,6 +84,7 @@ impl PasswordManager {
             section: ConfigSection::Passwords,
             selected,
             editing: false,
+            is_sso: false,
             input: String::new(),
             resume_upgrade,
             draft: None,
@@ -102,6 +104,11 @@ pub enum PasswordAction {
     Delete {
         panel: usize,
     },
+    SaveSso {
+        password: String,
+    },
+    DeleteSso,
+    ToggleSparklines,
     ApplyServers(Vec<Server>),
     SaveServerWithPassword {
         servers: Vec<Server>,
@@ -148,13 +155,18 @@ fn password_key(app: &mut App, key: KeyCode) -> PasswordAction {
         match key {
             KeyCode::Esc => {
                 manager.editing = false;
+                manager.is_sso = false;
                 manager.input.clear();
             }
             KeyCode::Enter => {
                 let password = std::mem::take(&mut manager.input);
+                let is_sso = manager.is_sso;
                 manager.editing = false;
+                manager.is_sso = false;
                 if password.is_empty() {
                     manager.notice = Some("Password was not changed.".to_string());
+                } else if is_sso {
+                    return PasswordAction::SaveSso { password };
                 } else {
                     return PasswordAction::Save {
                         panel: manager.selected,
@@ -179,11 +191,22 @@ fn password_key(app: &mut App, key: KeyCode) -> PasswordAction {
         KeyCode::Down | KeyCode::Char('j' | 'J') => {
             manager.selected = (manager.selected + 1).min(app.panels.len().saturating_sub(1))
         }
-        KeyCode::Enter => {
+        KeyCode::Char('s' | 'S') | KeyCode::Enter => {
             manager.editing = true;
+            manager.is_sso = true;
             manager.input.clear();
-            manager.notice = None;
+            manager.notice = Some("Enter Single Sign-On (SSO) password for all servers:".to_string());
         }
+        KeyCode::Char('o' | 'O') => {
+            manager.editing = true;
+            manager.is_sso = false;
+            manager.input.clear();
+            manager.notice = Some(format!(
+                "Enter server password override for {}:",
+                app.panels[manager.selected].server.target()
+            ));
+        }
+        KeyCode::Char('p' | 'P') => return PasswordAction::ToggleSparklines,
         KeyCode::Char('a' | 'A') => {
             manager.draft = Some(ServerDraft::new(None, None, None));
             manager.section = ConfigSection::Servers;

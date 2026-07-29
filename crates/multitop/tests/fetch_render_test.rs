@@ -276,7 +276,7 @@ fn alignment_label_column_is_fixed_width() {
         // Before the colon, we have: <optional logo chars> <label>
         // The label (OS, Kernel, etc.) should be right before the " : "
         assert!(
-            ["OS", "Kernel", "Uptime", "Host", "CPU", "Memory", "Disk"]
+            ["OS", "Kernel", "Uptime", "Host", "CPU", "Memory", "Disk", "Palette"]
                 .iter()
                 .any(|l| before_colon.ends_with(l)),
             "before ' : ' should end with a label, got {before_colon:?}"
@@ -403,7 +403,7 @@ fn sizing_logo_lines_pad_when_logo_is_short() {
         .iter()
         .filter(|l| l.contains(" : "))
         .count();
-    assert_eq!(detail_count, 7, "Alpine should show all 7 details");
+    assert_eq!(detail_count, 8, "Alpine should show all 8 details");
     // The logo should be centered vertically (empty lines above and below)
     let first = logo_line(&out, 1);
     let last = logo_line(&out, detail_count);

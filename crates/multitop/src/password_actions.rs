@@ -81,6 +81,44 @@ pub fn apply(
                 });
             }
         }
+        PasswordAction::SaveSso { password } => {
+            let result = crate::password_store::save_sso(&password);
+            for panel in &mut app.panels {
+                if panel.sudo_password.is_none() {
+                    panel.sudo_password = Some(password.clone());
+                    panel.password_saved = result.is_ok();
+                }
+            }
+            if let Some(manager) = app.password_manager.as_mut() {
+                manager.notice = Some(match result {
+                    Ok(()) => "Single Sign-On (SSO) master password saved.".to_string(),
+                    Err(error) => format!("Could not save SSO password: {error}"),
+                });
+            }
+        }
+        PasswordAction::DeleteSso => {
+            let result = crate::password_store::delete_sso();
+            if let Some(manager) = app.password_manager.as_mut() {
+                manager.notice = Some(match result {
+                    Ok(()) => "Single Sign-On (SSO) master password removed.".to_string(),
+                    Err(error) => format!("Could not remove SSO password: {error}"),
+                });
+            }
+        }
+        PasswordAction::ToggleSparklines => {
+            app.show_sparklines = !app.show_sparklines;
+            if let Some(path) = &app.config_path {
+                crate::config::save_show_sparklines(path, app.show_sparklines);
+            }
+            if let Some(manager) = app.password_manager.as_mut() {
+                let status = if app.show_sparklines {
+                    "Enabled"
+                } else {
+                    "Disabled"
+                };
+                manager.notice = Some(format!("Sparklines (Experimental): {status}"));
+            }
+        }
         PasswordAction::Save {
             panel,
             password,
@@ -115,6 +153,7 @@ pub fn apply(
                     Some(password),
                     tx.clone(),
                 );
+                tasks.aux_is_upgrade[panel] = true;
                 if let Some(old) = tasks.aux[panel].replace(handle) {
                     old.abort();
                 }

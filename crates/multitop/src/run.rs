@@ -17,11 +17,7 @@ use crate::stream;
 use crate::ui;
 use ratatui::layout::Rect;
 
-/// How long to wait after the last resize event before restarting the agents
-/// at the new size. Dragging a window edge emits a burst of events.
 const RESIZE_DEBOUNCE: Duration = Duration::from_millis(30);
-
-/// Backoff between reconnection attempts after a dropped SSH session.
 const RECONNECT_BACKOFF: [u64; 4] = [2, 5, 10, 20];
 
 use std::path::PathBuf;
@@ -40,6 +36,10 @@ pub async fn run(
 pub struct Tasks {
     monitors: Vec<Option<JoinHandle<()>>>,
     pub aux: Vec<Option<JoinHandle<()>>>,
+    /// Tracks whether each aux task is an upgrade task. Upgrade tasks are not
+    /// aborted when switching views, so long-running upgrades continue in the
+    /// background until they complete.
+    pub aux_is_upgrade: Vec<bool>,
 }
 
 impl Tasks {
@@ -47,6 +47,7 @@ impl Tasks {
         Tasks {
             monitors: (0..n).map(|_| None).collect(),
             aux: (0..n).map(|_| None).collect(),
+            aux_is_upgrade: (0..n).map(|_| false).collect(),
         }
     }
 
@@ -75,15 +76,15 @@ async fn event_loop(
     let n = servers.len();
     let mut app = App::new(servers.clone());
     app.config_path = Some(config_path.clone());
-    for panel in &mut app.panels {
-        if let Ok(Some(password)) = crate::password_store::load(&panel.server) {
-            panel.sudo_password = Some(password);
-            panel.password_saved = true;
-        }
-    }
+    // Passwords are loaded on-demand via Panel::ensure_sudo_password() when
+    // the user initiates an upgrade, not at startup. This avoids triggering
+    // OS keychain access dialogs on every app launch.
     if let Ok(cfg) = crate::config::load(&config_path) {
         app.upgrade_history_lines = cfg.upgrade_history_lines;
+        app.show_sparklines = cfg.show_sparklines;
     }
+    let state = crate::state::load_state(&config_path);
+    app.last_update = state.last_update;
     if let Some(ref tname) = initial_theme {
         if let Some(idx) = multitop_agent::color::THEMES
             .iter()
@@ -221,6 +222,20 @@ fn handle_key(
         return;
     }
 
+    if app.show_upgrade_modal {
+        match key.code {
+            KeyCode::Char('u') | KeyCode::Char('U') | KeyCode::Char('y') | KeyCode::Char('Y') | KeyCode::Enter => {
+                let cmds = app.confirm_upgrade();
+                execute_cmds(cmds, app, servers, dims, tx, tasks);
+            }
+            KeyCode::Esc | KeyCode::Char('q') | KeyCode::Char('Q') | KeyCode::Char('n') | KeyCode::Char('N') => {
+                app.show_upgrade_modal = false;
+            }
+            _ => {}
+        }
+        return;
+    }
+
     if app.password_manager.is_some() {
         let action = crate::passwords::handle_key(app, key.code);
         crate::password_actions::apply(action, app, servers, tx, tasks);
@@ -300,10 +315,24 @@ fn handle_key(
         KeyCode::Char('f') | KeyCode::Char('F') => app.toggle_fetch(),
         KeyCode::Char('d') | KeyCode::Char('D') => app.toggle_docker(),
         KeyCode::Char('s') | KeyCode::Char('S') => app.switch_stats(),
-        KeyCode::Char('u') | KeyCode::Char('U') => app.run_upgrade(),
+        KeyCode::Char('u') | KeyCode::Char('U') => {
+            app.show_upgrade_modal = true;
+            Vec::new()
+        }
         _ => return,
     };
 
+    execute_cmds(cmds, app, servers, dims, tx, tasks);
+}
+
+fn execute_cmds(
+    cmds: Vec<Command>,
+    app: &App,
+    servers: &[Server],
+    dims: (u16, u16),
+    tx: &Sender<Msg>,
+    tasks: &mut Tasks,
+) {
     for cmd in cmds {
         let (idx, handle) = match cmd {
             Command::RunFetch { panel, gen } => (
@@ -339,9 +368,17 @@ fn handle_key(
                 ),
             ),
         };
-        // Supersede whatever that panel was running.
+        // Supersede whatever that panel was running, except for upgrade tasks
+        // which should continue running in the background until they complete.
+        // This prevents interrupting long-running upgrades when the user switches
+        // views (e.g., pressing 's' or 'd' while an upgrade is in progress).
+        let is_upgrade = matches!(cmd, Command::RunUpgrade { .. });
+        let was_upgrade = tasks.aux_is_upgrade[idx];
+        tasks.aux_is_upgrade[idx] = is_upgrade;
         if let Some(old) = tasks.aux[idx].replace(handle) {
-            old.abort();
+            if !was_upgrade {
+                old.abort();
+            }
         }
     }
 }
@@ -370,6 +407,8 @@ fn restart_all_agents(
         for (i, panel) in app.panels.iter().enumerate() {
             if panel.mode == crate::app::Mode::Docker {
                 let gen = panel.gen;
+                let was_upgrade = tasks.aux_is_upgrade[i];
+                tasks.aux_is_upgrade[i] = false;
                 if let Some(old) = tasks.aux[i].replace(crate::tasks::spawn_docker(
                     i,
                     gen,
@@ -378,7 +417,9 @@ fn restart_all_agents(
                     app.sort,
                     tx.clone(),
                 )) {
-                    old.abort();
+                    if !was_upgrade {
+                        old.abort();
+                    }
                 }
             }
         }
@@ -386,9 +427,6 @@ fn restart_all_agents(
 }
 
 /// Long-lived: streams monitor frames and reconnects on failure.
-///
-/// This task keeps running through Docker and Upgrade views, so stats stay
-/// warm and switching back is instant.
 fn spawn_monitor(
     idx: usize,
     server: Server,
@@ -457,4 +495,3 @@ fn spawn_monitor(
     })
 }
 
-pub use crate::render_payload::render_payload;

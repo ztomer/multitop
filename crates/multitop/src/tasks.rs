@@ -204,10 +204,14 @@ pub fn spawn_upgrade(
                 Ok(Some(line)) = stderr_lines.next_line() => {
                     for part in line.split('\r') {
                         let clean = part.trim_end_matches('\r');
-                        if !clean.trim().is_empty() {
-                            let lower = clean.to_lowercase();
+                        let trimmed = clean.trim();
+                        if !trimmed.is_empty() {
+                            let lower = trimmed.to_lowercase();
                             if lower.contains("sudo") && (lower.contains("terminal") || lower.contains("password") || lower.contains("pre-authorized") || lower.contains("tty") || lower.contains("prompt on")) {
                                 sudo_help = true;
+                            }
+                            if lower.contains("shared connection to") || (lower.contains("connection to") && lower.contains("closed")) {
+                                continue;
                             }
                             if errbuf.len() >= 100 {
                                 errbuf.remove(0);

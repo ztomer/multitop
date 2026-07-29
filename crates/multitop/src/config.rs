@@ -114,6 +114,7 @@ pub struct Config {
     pub servers: Vec<Server>,
     pub theme: Option<String>,
     pub upgrade_history_lines: usize,
+    pub show_sparklines: bool,
 }
 
 /// Read and validate the server list and config settings.
@@ -200,10 +201,16 @@ pub fn parse(text: &str) -> Result<Config, ConfigError> {
         .map(|v| v as usize)
         .unwrap_or(DEFAULT_UPGRADE_HISTORY_LINES);
 
+    let show_sparklines = value
+        .get("show_sparklines")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
+
     Ok(Config {
         servers: out,
         theme,
         upgrade_history_lines,
+        show_sparklines,
     })
 }
 
@@ -218,6 +225,24 @@ pub fn save_theme(path: &Path, theme_name: &str) {
     doc.insert(
         "theme".to_string(),
         toml::Value::String(theme_name.to_string()),
+    );
+    let Ok(new_content) = toml::to_string(&doc) else {
+        return;
+    };
+    let _ = std::fs::write(path, new_content);
+}
+
+/// Save show_sparklines preference back to the TOML configuration file.
+pub fn save_show_sparklines(path: &Path, show: bool) {
+    let Ok(content) = std::fs::read_to_string(path) else {
+        return;
+    };
+    let Ok(mut doc) = content.parse::<toml::Table>() else {
+        return;
+    };
+    doc.insert(
+        "show_sparklines".to_string(),
+        toml::Value::Boolean(show),
     );
     let Ok(new_content) = toml::to_string(&doc) else {
         return;

@@ -1,0 +1,66 @@
+use multitop_agent::fetch::FetchSnapshot;
+use crate::config::Server;
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Mode {
+    Monitor,
+    Docker,
+    Fetch,
+    Upgrade,
+}
+
+#[derive(Clone, Debug)]
+pub struct Panel {
+    pub server: Server,
+    pub mode: Mode,
+    pub gen: u64,
+    pub last_frame: Option<Vec<String>>,
+    pub last_fetch: Option<FetchSnapshot>,
+    pub last_monitor: Option<multitop_agent::proto::Payload>,
+    pub last_docker: Option<multitop_agent::proto::Payload>,
+    pub view: Vec<String>,
+    pub scroll_offset: usize,
+    pub sudo_password: Option<String>,
+    pub password_saved: bool,
+}
+
+impl Panel {
+    pub fn new(server: Server) -> Self {
+        let pal = &multitop_agent::color::ANSI;
+        Panel {
+            server,
+            mode: Mode::Monitor,
+            gen: 0,
+            last_frame: None,
+            last_fetch: None,
+            last_monitor: None,
+            last_docker: None,
+            view: vec![format!("{}connecting...{}", pal.muted(), pal.reset)],
+            scroll_offset: 0,
+            sudo_password: None,
+            password_saved: false,
+        }
+    }
+
+    pub fn ensure_sudo_password(&mut self) -> Option<String> {
+        if self.sudo_password.is_none() {
+            if let Ok(Some(pass)) = crate::password_store::load(&self.server) {
+                self.sudo_password = Some(pass);
+                self.password_saved = true;
+            }
+        }
+        self.sudo_password.clone()
+    }
+
+    pub fn show_last_frame(&mut self) {
+        let pal = &multitop_agent::color::ANSI;
+        self.view = match &self.last_frame {
+            Some(f) => f.clone(),
+            None => vec![format!(
+                "{}waiting for data...{}",
+                pal.meter_mid(),
+                pal.reset
+            )],
+        };
+    }
+}

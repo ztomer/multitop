@@ -88,18 +88,18 @@ fn toggle_docker_switches_every_panel_at_once() {
 }
 
 #[test]
-fn toggle_docker_returns_every_panel_to_monitor() {
+fn toggle_docker_twice_stays_in_docker_mode() {
     let mut a = app(3);
     a.toggle_docker();
     let cmds = a.toggle_docker();
     assert!(cmds.is_empty());
     for p in &a.panels {
-        assert_eq!(p.mode, Mode::Monitor);
+        assert_eq!(p.mode, Mode::Docker);
     }
 }
 
 #[test]
-fn toggling_back_restores_the_last_frame() {
+fn switch_stats_restores_the_last_frame() {
     let mut a = app(3);
     for i in 0..3 {
         a.apply(Msg::Frame {
@@ -108,17 +108,17 @@ fn toggling_back_restores_the_last_frame() {
         });
     }
     a.toggle_docker();
-    a.toggle_docker();
+    a.switch_stats();
     for (i, p) in a.panels.iter().enumerate() {
         assert_eq!(text(p), format!("data{i}"), "panel {i}");
     }
 }
 
 #[test]
-fn toggling_back_without_data_says_waiting() {
+fn switch_stats_without_data_says_waiting() {
     let mut a = app(1);
     a.toggle_docker();
-    a.toggle_docker();
+    a.switch_stats();
     assert!(text(&a.panels[0]).contains("waiting for data"));
 }
 

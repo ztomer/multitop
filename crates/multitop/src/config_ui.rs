@@ -127,12 +127,31 @@ pub fn draw(f: &mut Frame, app: &App) {
             ]));
         }
         lines.push(Line::from(""));
+        let spark_status = if app.show_sparklines {
+            "Enabled"
+        } else {
+            "Disabled"
+        };
+        let spark_color = if app.show_sparklines {
+            Color::Green
+        } else {
+            Color::DarkGray
+        };
+        lines.push(Line::from(vec![
+            Span::raw("Sparklines (Experimental): "),
+            Span::styled(spark_status, Style::default().fg(spark_color)),
+        ]));
+        lines.push(Line::from(""));
         if manager.editing {
-            let server = &app.panels[manager.selected].server;
-            lines.push(Line::from(format!(
-                "Editing password for {}@{}",
-                server.user, server.host
-            )));
+            let target_desc = if manager.is_sso {
+                "Editing Single Sign-On (SSO) password (applies to all servers)".to_string()
+            } else {
+                format!(
+                    "Editing password override for {}",
+                    app.panels[manager.selected].server.target()
+                )
+            };
+            lines.push(Line::from(target_desc));
             lines.push(Line::from(vec![
                 Span::raw("Password: "),
                 Span::styled(
@@ -146,7 +165,7 @@ pub fn draw(f: &mut Frame, app: &App) {
             )));
         } else {
             lines.push(Line::from(Span::styled(
-                "[A] Add Server  [Enter] Edit Password  [D] Delete Server  [Esc/E] Return",
+                "[P] Toggle Sparklines (Experimental)  [Enter/S] SSO Password  [O] Override  [A] Add  [D] Delete",
                 Style::default().fg(Color::DarkGray),
             )));
         }

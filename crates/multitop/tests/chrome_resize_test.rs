@@ -12,7 +12,7 @@ use tokio::sync::mpsc;
 use tokio::sync::watch;
 
 use multitop::app::Msg;
-use multitop::run::render_payload;
+use multitop::render_payload::render_payload;
 use multitop_agent::color;
 use multitop_agent::proc::{Proc, Usage};
 use multitop_agent::proto::Payload;

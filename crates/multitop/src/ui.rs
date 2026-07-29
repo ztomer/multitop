@@ -10,15 +10,15 @@ use crate::ansi;
 use crate::app::App;
 
 /// Rows reserved at the bottom for the key hints.
-const KEYBAR_H: u16 = 1;
+pub const KEYBAR_H: u16 = 1;
 /// One blank column either side of a panel's contents.
 const SIDE_MARGIN: u16 = 1;
 
 /// Minimum panel width the agent is asked to render into. Below this the
 /// layout stops being readable anyway, and a too-small width makes the
 /// agent's own column arithmetic degenerate.
-const MIN_AGENT_COLS: u16 = 40;
-const MIN_AGENT_ROWS: u16 = 4;
+pub const MIN_AGENT_COLS: u16 = 40;
+pub const MIN_AGENT_ROWS: u16 = 4;
 
 /// Split the screen into one region per panel plus the key bar.
 pub fn regions(area: Rect, panels: usize) -> (Vec<Rect>, Rect) {
@@ -78,7 +78,7 @@ pub use crate::refit::{refit_header, refit_line};
 
 /// Show the tail when there is more content than room, optionally pinning
 /// the header (line 0) so the server name stays visible. Supports scrolling via `scroll_offset`.
-fn visible(
+pub fn visible(
     lines: &[String],
     height: usize,
     pin_header: bool,
@@ -137,10 +137,11 @@ fn visible(
     out
 }
 
-fn keybar_line(
+pub fn keybar_line(
     sort: multitop_agent::SortBy,
     theme: &multitop_agent::color::Palette,
     keybar_width: u16,
+    active_mode: crate::app::Mode,
 ) -> Line<'static> {
     let label = Style::default().fg(Color::DarkGray);
     let active = Style::default().fg(Color::White);
@@ -155,24 +156,42 @@ fn keybar_line(
         theme.ratatui_accent.1,
         theme.ratatui_accent.2,
     );
+    let active_mode_style = Style::default()
+        .bg(accent_color)
+        .fg(Color::Black)
+        .add_modifier(ratatui::style::Modifier::BOLD);
     let sort_label = Style::default().fg(border_color);
     let theme_val_style = Style::default().fg(accent_color);
 
     let key_hi = Style::default()
         .fg(Color::White)
         .add_modifier(ratatui::style::Modifier::BOLD);
+
+    let f_hi = if active_mode == crate::app::Mode::Fetch { active_mode_style } else { key_hi };
+    let f_lbl = if active_mode == crate::app::Mode::Fetch { active_mode_style } else { label };
+    let d_hi = if active_mode == crate::app::Mode::Docker { active_mode_style } else { key_hi };
+    let d_lbl = if active_mode == crate::app::Mode::Docker { active_mode_style } else { label };
+    let s_hi = if active_mode == crate::app::Mode::Monitor { active_mode_style } else { key_hi };
+    let s_lbl = if active_mode == crate::app::Mode::Monitor { active_mode_style } else { label };
+    let u_hi = if active_mode == crate::app::Mode::Upgrade { active_mode_style } else { key_hi };
+    let u_lbl = if active_mode == crate::app::Mode::Upgrade { active_mode_style } else { label };
+
     let left_spans = [
         Span::styled("ESC / ", label),
         Span::styled("Q", key_hi),
         Span::styled("uit  ", label),
-        Span::styled("F", key_hi),
-        Span::styled("etch  ", label),
-        Span::styled("D", key_hi),
-        Span::styled("ocker  ", label),
-        Span::styled("S", key_hi),
-        Span::styled("tats  ", label),
-        Span::styled("U", key_hi),
-        Span::styled("pgrade  ", label),
+        Span::styled("F", f_hi),
+        Span::styled("etch", f_lbl),
+        Span::styled("  ", label),
+        Span::styled("D", d_hi),
+        Span::styled("ocker", d_lbl),
+        Span::styled("  ", label),
+        Span::styled("S", s_hi),
+        Span::styled("tats", s_lbl),
+        Span::styled("  ", label),
+        Span::styled("U", u_hi),
+        Span::styled("pgrade", u_lbl),
+        Span::styled("  ", label),
     ];
     let left_width: usize = left_spans.iter().map(|s| s.content.len()).sum();
 
@@ -252,219 +271,185 @@ pub fn draw(f: &mut Frame, app: &App) {
             panel.scroll_offset,
         );
         if !lines.is_empty() {
-            let mode_str = match panel.mode {
-                crate::app::Mode::Monitor => "[Stats]",
-                crate::app::Mode::Docker => "[Docker]",
-                crate::app::Mode::Fetch => "[Fetch]",
-                crate::app::Mode::Upgrade => "[Upgrade]",
-            };
-            let mode_tag = match panel.mode {
-                crate::app::Mode::Monitor => "\x1b[34;1m[Stats]\x1b[0m",
-                crate::app::Mode::Docker => "\x1b[35;1m[Docker]\x1b[0m",
-                crate::app::Mode::Fetch => "\x1b[32;1m[Fetch]\x1b[0m",
-                crate::app::Mode::Upgrade => "\x1b[33;1m[Upgrade]\x1b[0m",
-            };
-            let active_tag = if idx == app.selected_panel && app.panels.len() > 1 {
-                " \x1b[36;1m[\u{25cf} Active]\x1b[0m"
+            let host_name = panel
+                .last_monitor
+                .as_ref()
+                .and_then(|p| match p {
+                    multitop_agent::proto::Payload::Monitor(snap) => Some(snap.host.clone()),
+                    _ => None,
+                })
+                .unwrap_or_else(|| panel.server.host.clone());
+
+            let server_target = if !panel.server.user.is_empty()
+                && !panel.server.user.eq_ignore_ascii_case("default")
+            {
+                format!("{}@{}", panel.server.user, host_name)
             } else {
-                ""
+                host_name
             };
-            let live_tag = if panel.scroll_offset == 0 && panel.view.len() > inner.height as usize {
-                " \x1b[32;1m[\u{2193} Live]\x1b[0m"
-            } else {
-                ""
-            };
-            let tags = format!(" {mode_tag}{active_tag}{live_tag}");
-            let tag_len = 1
-                + mode_str.chars().count()
-                + if idx == app.selected_panel && app.panels.len() > 1 {
-                    10
+            let total_w = inner.width as usize;
+            let disp_w = multitop_agent::fmt::fullwidth_display_width(&server_target);
+            let space_needed = disp_w + 2;
+
+            if total_w >= space_needed {
+                let rem = total_w - space_needed;
+                let left_rule_len = rem / 2;
+                let right_rule_len = rem - left_rule_len;
+
+                let mem_bar = app
+                    .sparklines_mem
+                    .get(idx)
+                    .map(|s| s.render_bar())
+                    .unwrap_or_default();
+                let cpu_bar = app
+                    .sparklines_cpu
+                    .get(idx)
+                    .map(|s| s.render_bar())
+                    .unwrap_or_default();
+
+                let (left_str, mem_used_len) = if app.show_sparklines && !mem_bar.is_empty() && left_rule_len >= 3 {
+                    let text = format!("M:{mem_bar}");
+                    let len = text.chars().count();
+                    if len <= left_rule_len {
+                        (format!("\x1b[36;1m{text}\x1b[0m"), len)
+                    } else {
+                        (String::new(), 0)
+                    }
                 } else {
-                    0
-                }
-                + if panel.scroll_offset == 0 && panel.view.len() > inner.height as usize {
-                    8
-                } else {
-                    0
+                    (String::new(), 0)
                 };
-            let target_w = (inner.width as usize).saturating_sub(tag_len);
-            let refitted = refit_line(&lines[0], target_w);
-            lines[0] = format!("{refitted}{tags}");
+
+                let (right_str, cpu_used_len) = if app.show_sparklines && !cpu_bar.is_empty() && right_rule_len >= 3 {
+                    let text = format!("C:{cpu_bar}");
+                    let len = text.chars().count();
+                    if len <= right_rule_len {
+                        (format!("\x1b[33;1m{text}\x1b[0m"), len)
+                    } else {
+                        (String::new(), 0)
+                    }
+                } else {
+                    (String::new(), 0)
+                };
+
+                let left_rule_rem = left_rule_len.saturating_sub(mem_used_len);
+                let right_rule_rem = right_rule_len.saturating_sub(cpu_used_len);
+                let fw = multitop_agent::fmt::fullwidth(&server_target);
+
+                lines[0] = format!(
+                    "{left_str}{}{}{}{}{}{} {}{}{}{}{right_str}",
+                    theme.secondary(),
+                    "\u{2500}".repeat(left_rule_rem),
+                    theme.reset,
+                    theme.primary(),
+                    theme.bold,
+                    fw,
+                    theme.reset,
+                    theme.secondary(),
+                    "\u{2500}".repeat(right_rule_rem),
+                    theme.reset,
+                );
+            } else {
+                lines[0] = multitop_agent::fmt::center_header(&server_target, total_w, theme);
+            }
         }
         f.render_widget(Paragraph::new(ansi::to_text(&lines)), inner);
     }
+    let active_mode = app
+        .panels
+        .get(app.selected_panel)
+        .or_else(|| app.panels.first())
+        .map(|p| p.mode)
+        .unwrap_or(crate::app::Mode::Monitor);
 
     f.render_widget(
-        Paragraph::new(keybar_line(app.sort, theme, keybar.width))
+        Paragraph::new(keybar_line(app.sort, theme, keybar.width, active_mode))
             .style(Style::default().bg(bg_color)),
         keybar,
     );
+
+    if app.show_upgrade_modal {
+        draw_upgrade_modal(f, app);
+    }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
+fn draw_upgrade_modal(f: &mut Frame, app: &App) {
+    let area = f.area();
+    let popup_width = (64u16).min(area.width.saturating_sub(2));
+    let popup_height = (10u16).min(area.height.saturating_sub(2));
 
-    fn size(w: u16, h: u16) -> Size {
-        Size {
-            width: w,
-            height: h,
-        }
-    }
+    let x = (area.width.saturating_sub(popup_width)) / 2;
+    let y = (area.height.saturating_sub(popup_height)) / 2;
 
-    #[test]
-    fn agent_dims_leave_room_for_margins_and_keybar() {
-        let (cols, rows) = agent_dims(size(100, 31), 3);
-        assert_eq!(cols, 48, "half width minus margins for 2-column grid");
-        assert_eq!(rows, 15, "30 body rows over 2 grid rows");
-    }
+    let popup_rect = Rect::new(x, y, popup_width, popup_height);
 
-    #[test]
-    fn agent_dims_have_floors() {
-        let (cols, rows) = agent_dims(size(10, 3), 4);
-        assert_eq!(cols, MIN_AGENT_COLS);
-        assert_eq!(rows, MIN_AGENT_ROWS);
-    }
+    let theme = app.current_theme();
+    let border_color = Color::Rgb(
+        theme.ratatui_border.0,
+        theme.ratatui_border.1,
+        theme.ratatui_border.2,
+    );
+    let accent_color = Color::Rgb(
+        theme.ratatui_accent.0,
+        theme.ratatui_accent.1,
+        theme.ratatui_accent.2,
+    );
 
-    #[test]
-    fn agent_dims_handle_no_panels() {
-        let (cols, rows) = agent_dims(size(100, 30), 0);
-        assert_eq!((cols, rows), (MIN_AGENT_COLS, MIN_AGENT_ROWS));
-    }
+    let block = ratatui::widgets::Block::default()
+        .title(" Confirm System Update ")
+        .title_style(
+            Style::default()
+                .fg(accent_color)
+                .add_modifier(ratatui::style::Modifier::BOLD),
+        )
+        .borders(ratatui::widgets::Borders::ALL)
+        .border_style(Style::default().fg(border_color));
 
-    #[test]
-    fn agent_dims_single_panel_gets_the_body() {
-        let (_, rows) = agent_dims(size(80, 25), 1);
-        assert_eq!(rows, 24);
-    }
+    f.render_widget(ratatui::widgets::Clear, popup_rect);
 
-    #[test]
-    fn regions_reserve_one_row_for_the_keybar() {
-        let (panels, keybar) = regions(Rect::new(0, 0, 80, 24), 2);
-        assert_eq!(keybar.height, KEYBAR_H);
-        assert_eq!(keybar.y, 23);
-        assert_eq!(panels.len(), 2);
-        assert_eq!(panels.iter().map(|r| r.height).sum::<u16>(), 23);
-    }
+    let last_up = app.last_update.as_deref().unwrap_or("Never");
 
-    #[test]
-    fn regions_grid_layout_for_three_panels() {
-        let (panels, keybar) = regions(Rect::new(0, 0, 80, 30), 3);
-        assert_eq!(panels.len(), 3);
-        assert_eq!(keybar.y, 29);
-        // Panels 0 and 1 are in top row, panel 2 is in bottom row
-        assert_eq!(panels[0].y, 0);
-        assert_eq!(panels[1].y, 0);
-        assert_eq!(panels[2].y, 15);
-        assert_eq!(panels[0].width, 40);
-        assert_eq!(panels[1].width, 40);
-    }
+    let text = vec![
+        Line::from(""),
+        Line::from(vec![Span::styled(
+            "  Updates can be slow and potentially destructive.",
+            Style::default().fg(Color::Yellow),
+        )]),
+        Line::from(vec![Span::styled(
+            "  Are you sure you want to run updates on all servers?",
+            Style::default().fg(Color::White),
+        )]),
+        Line::from(""),
+        Line::from(vec![
+            Span::styled("  Last update: ", Style::default().fg(Color::DarkGray)),
+            Span::styled(last_up, Style::default().fg(Color::Cyan)),
+        ]),
+        Line::from(""),
+        Line::from(vec![
+            Span::styled("  Press ", Style::default().fg(Color::DarkGray)),
+            Span::styled(
+                "U",
+                Style::default()
+                    .fg(Color::White)
+                    .add_modifier(ratatui::style::Modifier::BOLD),
+            ),
+            Span::styled(" or ", Style::default().fg(Color::DarkGray)),
+            Span::styled(
+                "Enter",
+                Style::default()
+                    .fg(Color::White)
+                    .add_modifier(ratatui::style::Modifier::BOLD),
+            ),
+            Span::styled(" to confirm, ", Style::default().fg(Color::DarkGray)),
+            Span::styled(
+                "Esc",
+                Style::default()
+                    .fg(Color::White)
+                    .add_modifier(ratatui::style::Modifier::BOLD),
+            ),
+            Span::styled(" to cancel", Style::default().fg(Color::DarkGray)),
+        ]),
+    ];
 
-    #[test]
-    fn regions_with_no_panels_still_yield_a_keybar() {
-        let (panels, keybar) = regions(Rect::new(0, 0, 80, 24), 0);
-        assert!(panels.is_empty());
-        assert_eq!(keybar.height, KEYBAR_H);
-    }
-
-    #[test]
-    fn visible_shows_everything_when_it_fits() {
-        let lines: Vec<String> = (0..3).map(|i| i.to_string()).collect();
-        assert_eq!(visible(&lines, 10, false, 0, 0).len(), 3);
-        assert_eq!(visible(&lines, 3, false, 0, 0).len(), 3);
-    }
-
-    #[test]
-    fn visible_preserves_header_and_tail_logs() {
-        let lines: Vec<String> = vec![
-            "HEADER".into(),
-            "CPU 50%".into(),
-            "MEM 40%".into(),
-            "DSK 30%".into(),
-            "RULE".into(),
-            "PROC HDR".into(),
-            "p1".into(),
-            "p2".into(),
-            "p3".into(),
-            "p4".into(),
-            "p5".into(),
-        ];
-        let shown = visible(&lines, 6, true, 0, 0);
-        assert_eq!(shown.len(), 6);
-        assert_eq!(shown[0], "HEADER");
-        assert_eq!(shown[1], "p1");
-        assert_eq!(shown[5], "p5");
-    }
-
-    #[test]
-    fn visible_handles_zero_height() {
-        let lines: Vec<String> = (0..3).map(|i| i.to_string()).collect();
-        assert!(visible(&lines, 0, false, 0, 0).is_empty());
-    }
-
-    #[test]
-    fn visible_scrolls_backwards_into_history() {
-        let lines: Vec<String> = vec![
-            "HEADER".into(),
-            "line 1".into(),
-            "line 2".into(),
-            "line 3".into(),
-            "line 4".into(),
-            "line 5".into(),
-            "line 6".into(),
-            "line 7".into(),
-            "line 8".into(),
-            "line 9".into(),
-            "line 10".into(),
-        ];
-        let tail = visible(&lines, 4, true, 0, 0);
-        assert_eq!(tail[0], "HEADER");
-        assert_eq!(tail[1], "line 8");
-        assert_eq!(tail[3], "line 10");
-
-        let scrolled = visible(&lines, 4, true, 0, 3);
-        assert_eq!(scrolled[0], "HEADER");
-        assert_eq!(scrolled[1], "line 5");
-        assert_eq!(scrolled[3], "line 7");
-    }
-
-    #[test]
-    fn keybar_lists_every_binding() {
-        let theme = &multitop_agent::color::KARE;
-        let text: String = keybar_line(multitop_agent::SortBy::Cpu, theme, 120)
-            .spans
-            .iter()
-            .map(|s| s.content.as_ref())
-            .collect();
-        for hint in [
-            "ESC", "Quit", "F", "Fetch", "D", "Docker", "S", "Stats", "U", "Upgrade", "T", "Theme",
-        ] {
-            assert!(text.contains(hint), "missing {hint} in {text:?}");
-        }
-    }
-
-    #[test]
-    fn keybar_shows_sort_by_cpu_and_theme() {
-        let theme = &multitop_agent::color::KARE;
-        let text: String = keybar_line(multitop_agent::SortBy::Cpu, theme, 120)
-            .spans
-            .iter()
-            .map(|s| s.content.as_ref())
-            .collect();
-        assert!(text.contains("heme: Kare"), "theme indicator missing");
-        assert!(text.contains("[Sort:"), "sort indicator missing");
-        assert!(text.contains("Cpu"), "CPU sort key missing from keybar");
-    }
-
-    #[test]
-    fn keybar_shows_sort_by_mem() {
-        let theme = &multitop_agent::color::KARE;
-        let text: String = keybar_line(multitop_agent::SortBy::Mem, theme, 120)
-            .spans
-            .iter()
-            .map(|s| s.content.as_ref())
-            .collect();
-        assert!(text.contains("[Sort:"), "sort indicator missing");
-        assert!(text.contains("Mem"), "Memory sort key missing from keybar");
-    }
+    let paragraph = Paragraph::new(text).block(block);
+    f.render_widget(paragraph, popup_rect);
 }
