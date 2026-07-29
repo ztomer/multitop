@@ -157,6 +157,9 @@ pub fn spawn_command(server: &Server, command: &str, password: Option<&str>) -> 
         // default timeout). Then run the actual command which reuses cached
         // credentials — this works even for multi-sudo commands like `us;ud`.
         let wrapped = match password {
+            Some(_pass) if crate::password_store::is_mock_enabled() => format!(
+                "setopt expand_aliases 2>/dev/null; shopt -s expand_aliases 2>/dev/null; source ~/.zshrc 2>/dev/null; source ~/.zprofile 2>/dev/null; source ~/.bashrc 2>/dev/null; eval {quoted}"
+            ),
             Some(pass) => format!(
                 "echo {} | sudo -S -v 2>/dev/null; setopt expand_aliases 2>/dev/null; shopt -s expand_aliases 2>/dev/null; source ~/.zshrc 2>/dev/null; source ~/.zprofile 2>/dev/null; source ~/.bashrc 2>/dev/null; eval {quoted}",
                 sh_quote(pass),
@@ -178,6 +181,9 @@ pub fn spawn_command(server: &Server, command: &str, password: Option<&str>) -> 
     }
 
     let remote_cmd = match password {
+        Some(_pass) if crate::password_store::is_mock_enabled() => format!(
+            "if command -v zsh >/dev/null 2>&1; then zsh -c 'setopt expand_aliases 2>/dev/null; source ~/.zshrc 2>/dev/null; source ~/.zprofile 2>/dev/null; eval {quoted}'; elif command -v bash >/dev/null 2>&1; then bash -c 'shopt -s expand_aliases 2>/dev/null; source ~/.bashrc 2>/dev/null; eval {quoted}'; else sh -c {quoted}; fi"
+        ),
         Some(pass) => {
             let pass_q = sh_quote(pass);
             format!(

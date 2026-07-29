@@ -34,7 +34,7 @@ pub fn clear_mock_store() {
     }
 }
 
-fn is_mock_enabled() -> bool {
+pub fn is_mock_enabled() -> bool {
     if cfg!(test)
         || std::env::var("MULTITOP_MOCK_KEYCHAIN").is_ok()
         || std::env::var("CI").is_ok()
