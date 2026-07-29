@@ -38,11 +38,11 @@ pub struct Server {
 
 impl Server {
     /// SSH destination, `user@host` when a user is configured.
-    pub fn target(&self) -> String {
+    pub fn target(&self) -> std::borrow::Cow<'_, str> {
         if self.user.is_empty() {
-            self.host.clone()
+            std::borrow::Cow::Borrowed(&self.host)
         } else {
-            format!("{}@{}", self.user, self.host)
+            std::borrow::Cow::Owned(format!("{}@{}", self.user, self.host))
         }
     }
 }

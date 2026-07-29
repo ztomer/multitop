@@ -52,14 +52,29 @@ pub fn line_to_spans(input: &str) -> Line<'static> {
         }
         chars.next();
 
-        let mut params = String::new();
         let mut final_byte = None;
+        let mut sgr_code: u16 = 0;
+        let mut has_digits = false;
+        let mut reset_bare = true;
+
         for c in chars.by_ref() {
-            if c.is_ascii_alphabetic() {
+            if c.is_ascii_digit() {
+                sgr_code = sgr_code.saturating_mul(10).saturating_add((c as u8 - b'0') as u16);
+                has_digits = true;
+                reset_bare = false;
+            } else if c == ';' {
+                if has_digits {
+                    style = apply_sgr(style, sgr_code);
+                    sgr_code = 0;
+                    has_digits = false;
+                } else {
+                    style = apply_sgr(style, 0);
+                }
+                reset_bare = false;
+            } else if c.is_ascii_alphabetic() {
                 final_byte = Some(c);
                 break;
             }
-            params.push(c);
         }
 
         // Only SGR changes styling; cursor moves and erases are meaningless
@@ -70,16 +85,10 @@ pub fn line_to_spans(input: &str) -> Line<'static> {
         if !text.is_empty() {
             spans.push(Span::styled(std::mem::take(&mut text), style));
         }
-        if params.is_empty() {
-            style = Style::default();
-        }
-        for part in params.split(';') {
-            match part.parse::<u16>() {
-                Ok(code) => style = apply_sgr(style, code),
-                // "\x1b[m" is a bare reset; a junk parameter is ignored.
-                Err(_) if part.is_empty() => style = apply_sgr(style, 0),
-                Err(_) => {}
-            }
+        if reset_bare {
+            style = apply_sgr(style, 0);
+        } else if has_digits {
+            style = apply_sgr(style, sgr_code);
         }
     }
 

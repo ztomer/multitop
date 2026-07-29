@@ -77,7 +77,7 @@ fn ssh_command(server: &Server) -> Command {
     cmd.env("LC_ALL", "C").env("LANG", "C");
     cmd.args(SSH_OPTS);
     cmd.arg("-p").arg(server.port.to_string());
-    cmd.arg(server.target());
+    cmd.arg(server.target().as_ref());
     cmd
 }
 
