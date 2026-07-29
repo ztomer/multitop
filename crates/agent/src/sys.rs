@@ -383,50 +383,63 @@ fn macos_num_cpus() -> usize {
 
 /// Read temperatures for CPUs/cores from sysfs.
 #[cfg(not(target_os = "macos"))]
-pub fn get_core_temps() -> HashMap<usize, f64> {
-    let mut temps = HashMap::new();
+pub fn get_core_temps() -> std::collections::HashMap<usize, f64> {
+    use std::sync::Mutex;
+    use std::path::PathBuf;
 
-    if let Ok(entries) = std::fs::read_dir("/sys/class/hwmon") {
-        for entry in entries.flatten() {
-            if let Ok(files) = std::fs::read_dir(entry.path()) {
-                for f in files.flatten() {
-                    let fname = f.file_name();
-                    let fstr = fname.to_string_lossy();
-                    if fstr.starts_with("temp") && fstr.ends_with("_input") {
-                        if let Ok(val) = crate::proc::read_proc(f.path()).trim().parse::<f64>() {
-                            let c = if val > 1000.0 { val / 1000.0 } else { val };
-                            if (0.0..=150.0).contains(&c) {
-                                let idx = fstr
-                                    .strip_prefix("temp")
-                                    .and_then(|s| s.strip_suffix("_input"))
-                                    .and_then(|s| s.parse::<usize>().ok())
-                                    .unwrap_or(1)
-                                    .saturating_sub(1);
-                                temps.insert(idx, c);
-                            }
+    static SENSOR_CACHE: Mutex<Option<Vec<(usize, PathBuf)>>> = Mutex::new(None);
+
+    let mut guard = SENSOR_CACHE.lock().unwrap_or_else(|e| e.into_inner());
+
+    if guard.is_none() {
+        let mut sensors = Vec::new();
+        if let Ok(entries) = std::fs::read_dir("/sys/class/hwmon") {
+            for entry in entries.flatten() {
+                if let Ok(files) = std::fs::read_dir(entry.path()) {
+                    for f in files.flatten() {
+                        let fname = f.file_name();
+                        let fstr = fname.to_string_lossy();
+                        if fstr.starts_with("temp") && fstr.ends_with("_input") {
+                            let idx = fstr
+                                .strip_prefix("temp")
+                                .and_then(|s| s.strip_suffix("_input"))
+                                .and_then(|s| s.parse::<usize>().ok())
+                                .unwrap_or(1)
+                                .saturating_sub(1);
+                            sensors.push((idx, f.path()));
                         }
                     }
                 }
             }
         }
+        if sensors.is_empty() {
+            if let Ok(entries) = std::fs::read_dir("/sys/class/thermal") {
+                for entry in entries.flatten() {
+                    let name = entry.file_name();
+                    let name_str = name.to_string_lossy();
+                    if name_str.starts_with("thermal_zone") {
+                        let idx = name_str
+                            .strip_prefix("thermal_zone")
+                            .and_then(|s| s.parse::<usize>().ok())
+                            .unwrap_or(0);
+                        sensors.push((idx, entry.path().join("temp")));
+                    }
+                }
+            }
+        }
+        *guard = Some(sensors);
     }
 
-    if temps.is_empty() {
-        if let Ok(entries) = std::fs::read_dir("/sys/class/thermal") {
-            for entry in entries.flatten() {
-                let name = entry.file_name();
-                let name_str = name.to_string_lossy();
-                if name_str.starts_with("thermal_zone") {
-                    let temp_path = entry.path().join("temp");
-                    if let Ok(val) = crate::proc::read_proc(&temp_path).trim().parse::<f64>() {
-                        let c = if val > 1000.0 { val / 1000.0 } else { val };
-                        if (0.0..=150.0).contains(&c) {
-                            let idx = name_str
-                                .strip_prefix("thermal_zone")
-                                .and_then(|s| s.parse::<usize>().ok())
-                                .unwrap_or(0);
-                            temps.entry(idx).or_insert(c);
-                        }
+    let mut temps = std::collections::HashMap::new();
+    if let Some(sensors) = guard.as_ref() {
+        let mut buf = String::with_capacity(32);
+        for (idx, path) in sensors {
+            buf.clear();
+            if crate::proc::read_proc_into(path, &mut buf) {
+                if let Ok(val) = buf.trim().parse::<f64>() {
+                    let c = if val > 1000.0 { val / 1000.0 } else { val };
+                    if (0.0..=150.0).contains(&c) {
+                        temps.entry(*idx).or_insert(c);
                     }
                 }
             }

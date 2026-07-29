@@ -68,3 +68,15 @@ This roadmap documents upcoming features, UX enhancements, and test suite expans
   - Pressing active selection keys stays in current view without re-triggering network fetches.
 - **Release Version**:
   - Bumped workspace version to `v0.20.1`.
+
+## 9. Release 0.20.2 & Agent Memory Leak Resolution
+- **Thermal Sensor Path Caching**:
+  - Cached Linux sysfs thermal sensor file paths (`/sys/class/hwmon` & `/sys/class/thermal`) to eliminate recursive directory scans on every tick.
+- **Zero-Allocation Pseudofile Buffering**:
+  - Added `read_proc_into` and reusable string buffers in `ProcSampler::scan()` to eliminate per-PID heap string allocations.
+- **In-Place PID HashMap Retention**:
+  - Replaced per-tick HashMap replacement with `self.prev.retain(...)` to prevent hash table capacity creep.
+- **Empirical Memory Stability**:
+  - Flatlined agent memory footprint at ~1.8 MiB RSS on Linux (`.90`) with 0.00 kB leak rate verified via Valgrind on `.33`.
+- **Release Version**:
+  - Bumped workspace version to `v0.20.2`.

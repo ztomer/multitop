@@ -10,13 +10,13 @@ use std::path::Path;
 /// Read a `/proc` file into a String with pre-allocated capacity, using an 8KB
 /// stack buffer to eliminate standard library reallocations on `st_size = 0`
 /// kernel pseudofiles.
-pub fn read_proc<P: AsRef<Path>>(path: P) -> String {
+/// Read a pseudofile into a caller-supplied String without allocating new memory buffers.
+pub fn read_proc_into<P: AsRef<Path>>(path: P, out: &mut String) -> bool {
     let Ok(mut file) = fs::File::open(path) else {
-        return String::new();
+        return false;
     };
     use std::io::Read;
-    let mut buf = [0u8; 8192];
-    let mut out = String::with_capacity(4096);
+    let mut buf = [0u8; 1024];
     loop {
         match file.read(&mut buf) {
             Ok(0) => break,
@@ -27,9 +27,15 @@ pub fn read_proc<P: AsRef<Path>>(path: P) -> String {
                     out.push_str(&String::from_utf8_lossy(&buf[..n]));
                 }
             }
-            Err(_) => break,
+            Err(_) => return false,
         }
     }
+    !out.is_empty()
+}
+
+pub fn read_proc<P: AsRef<Path>>(path: P) -> String {
+    let mut out = String::with_capacity(512);
+    read_proc_into(path, &mut out);
     out
 }
 
@@ -293,21 +299,14 @@ impl ProcSampler {
     pub fn top(&mut self, elapsed: f64, n: usize, sort_by: crate::SortBy) -> Vec<Proc> {
         let scanned = self.scan();
         let mut temp_procs: Vec<(usize, f64, u64)> = Vec::with_capacity(scanned.len());
-        let mut next = std::mem::take(&mut self.prev);
-        next.clear();
-        if next.capacity() < scanned.len() {
-            next.reserve(scanned.len() - next.capacity());
-        }
-
         for (i, s) in scanned.iter().enumerate() {
-            // starttime guards against PID reuse handing us a bogus delta.
             let cpu = match self.prev.get(&s.pid) {
                 Some(p) if p.starttime == s.starttime && elapsed > 0.0 => {
                     s.ticks.saturating_sub(p.ticks) as f64 / self.clk_tck / elapsed * 100.0
                 }
                 _ => 0.0,
             };
-            next.insert(
+            self.prev.insert(
                 s.pid,
                 PidSample {
                     ticks: s.ticks,
@@ -316,7 +315,7 @@ impl ProcSampler {
             );
             temp_procs.push((i, cpu, s.rss_pages * self.page_size));
         }
-        self.prev = next;
+        self.prev.retain(|pid, _| scanned.iter().any(|s| s.pid == *pid));
 
         match sort_by {
             crate::SortBy::Cpu => {

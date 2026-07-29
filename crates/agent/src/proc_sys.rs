@@ -77,17 +77,25 @@ impl ProcSampler {
             return crate::sys::scan_macos();
         };
         let mut out = Vec::with_capacity(256);
+        let mut path_buf = String::with_capacity(64);
+        let mut file_buf = String::with_capacity(512);
+
         for entry in entries.flatten() {
             let name = entry.file_name();
             let Some(name) = name.to_str() else { continue };
             if !name.as_bytes().first().is_some_and(u8::is_ascii_digit) {
                 continue;
             }
-            let Ok(data) = fs::read_to_string(entry.path().join("stat")) else {
-                continue;
-            };
-            if let Some(st) = parse_pid_stat(&data) {
-                out.push(st);
+            path_buf.clear();
+            path_buf.push_str("/proc/");
+            path_buf.push_str(name);
+            path_buf.push_str("/stat");
+
+            file_buf.clear();
+            if crate::proc::read_proc_into(&path_buf, &mut file_buf) {
+                if let Some(st) = parse_pid_stat(&file_buf) {
+                    out.push(st);
+                }
             }
         }
         out
