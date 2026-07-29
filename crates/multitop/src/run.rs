@@ -3,7 +3,10 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use crossterm::event::{Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
+use crossterm::event::{
+    DisableMouseCapture, EnableMouseCapture, Event, KeyCode, KeyEvent, KeyEventKind,
+    KeyModifiers, MouseEventKind,
+};
 use tokio::sync::mpsc::{self, Sender};
 use tokio::sync::watch;
 use tokio::task::JoinHandle;
@@ -32,7 +35,9 @@ pub async fn run(
     initial_theme: Option<String>,
 ) -> std::io::Result<()> {
     let mut terminal = ratatui::init();
+    let _ = crossterm::execute!(std::io::stdout(), EnableMouseCapture);
     let result = event_loop(&mut terminal, servers, config_path, initial_theme).await;
+    let _ = crossterm::execute!(std::io::stdout(), DisableMouseCapture);
     ratatui::restore();
     result
 }
@@ -121,6 +126,19 @@ async fn event_loop(
                     Some(Ok(Event::Key(key))) => {
                         handle_key(key, &mut app, &servers, dims, dims_rx.clone(), &tx, &mut tasks);
                         dirty = true;
+                    }
+                    Some(Ok(Event::Mouse(mouse))) => {
+                        match mouse.kind {
+                            MouseEventKind::ScrollUp => {
+                                app.scroll_up(3);
+                                dirty = true;
+                            }
+                            MouseEventKind::ScrollDown => {
+                                app.scroll_down(3);
+                                dirty = true;
+                            }
+                            _ => {}
+                        }
                     }
                     Some(Ok(Event::Resize(..))) => {
                         resize_at = Some(Instant::now() + RESIZE_DEBOUNCE);
