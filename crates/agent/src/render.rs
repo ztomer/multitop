@@ -348,7 +348,13 @@ pub fn render(snap: &Snapshot, cols: usize, lines: usize, bar_len: usize, pal: &
             }
 
             if tier >= Tier::Compact {
-                push_proc_table(&mut out, &snap.procs, cols, pal);
+                let budget = Chrome::of(snap, cols, lines).proc_budget(lines);
+                let procs = if snap.procs.len() > budget && budget > 0 {
+                    &snap.procs[..budget]
+                } else {
+                    &snap.procs[..]
+                };
+                push_proc_table(&mut out, procs, cols, pal);
             }
         }
     }

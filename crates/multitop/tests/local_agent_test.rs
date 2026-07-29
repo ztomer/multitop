@@ -58,6 +58,16 @@ async fn connect_local_server_succeeds_and_streams_snapshots() {
 
     if let Payload::Monitor(snap) = payload {
         assert!(!snap.host.is_empty(), "local snapshot host should not be empty");
+        let rendered = multitop_agent::render::render(
+            &snap,
+            80,
+            24,
+            multitop_agent::render::bar_len_for(80),
+            &multitop_agent::color::ANSI,
+        );
+        assert!(rendered.iter().any(|l| l.contains("CPU")), "frame should contain CPU metric header");
+        assert!(rendered.iter().any(|l| l.contains("MEM")), "frame should contain MEM metric header");
+        assert!(rendered.iter().any(|l| l.contains("DSK")), "frame should contain DSK metric header");
     } else {
         panic!("expected Monitor payload from local server");
     }

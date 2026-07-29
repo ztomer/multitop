@@ -124,20 +124,14 @@ pub fn refit_line(line: &str, target_cols: usize) -> String {
 
 /// Show the tail when there is more content than room, optionally pinning
 /// the header (line 0) so the server name stays visible.
-fn visible(lines: &[String], height: usize, pin_header: bool, target_cols: usize) -> Vec<String> {
+fn visible(lines: &[String], height: usize, _pin_header: bool, target_cols: usize) -> Vec<String> {
     if lines.is_empty() {
         return Vec::new();
     }
     let mut out = if lines.len() <= height {
         lines.to_vec()
-    } else if pin_header && height > 1 {
-        let mut v = Vec::with_capacity(height);
-        v.push(lines[0].clone());
-        let tail_count = height - 1;
-        v.extend_from_slice(&lines[lines.len() - tail_count..]);
-        v
     } else {
-        lines[lines.len() - height..].to_vec()
+        lines[..height].to_vec()
     };
 
     if !out.is_empty() && target_cols > 0 {
@@ -267,25 +261,29 @@ mod tests {
         assert_eq!(visible(&lines, 3, false, 0).len(), 3);
     }
 
-    /// Overflowing output keeps its tail when pin_header is false.
     #[test]
-    fn visible_keeps_the_tail() {
-        let lines: Vec<String> = (0..100).map(|i| i.to_string()).collect();
-        let shown = visible(&lines, 5, false, 0);
-        assert_eq!(shown.len(), 5);
-        assert_eq!(shown[0], "95");
-        assert_eq!(shown[4], "99");
-    }
-
-    /// When pin_header is true, line 0 (header) is kept at position 0, followed by the tail.
-    #[test]
-    fn visible_pins_header() {
-        let lines: Vec<String> = (0..100).map(|i| format!("line_{i}")).collect();
-        let shown = visible(&lines, 5, true, 0);
-        assert_eq!(shown.len(), 5);
-        assert_eq!(shown[0], "line_0");
-        assert_eq!(shown[1], "line_96");
-        assert_eq!(shown[4], "line_99");
+    fn visible_preserves_header_and_top_metrics() {
+        let lines: Vec<String> = vec![
+            "HEADER".into(),
+            "CPU 50%".into(),
+            "MEM 40%".into(),
+            "DSK 30%".into(),
+            "RULE".into(),
+            "PROC HDR".into(),
+            "p1".into(),
+            "p2".into(),
+            "p3".into(),
+            "p4".into(),
+            "p5".into(),
+        ];
+        let shown = visible(&lines, 6, true, 0);
+        assert_eq!(shown.len(), 6);
+        assert_eq!(shown[0], "HEADER");
+        assert_eq!(shown[1], "CPU 50%");
+        assert_eq!(shown[2], "MEM 40%");
+        assert_eq!(shown[3], "DSK 30%");
+        assert_eq!(shown[4], "RULE");
+        assert_eq!(shown[5], "PROC HDR");
     }
 
     #[test]
