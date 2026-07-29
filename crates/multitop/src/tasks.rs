@@ -179,16 +179,24 @@ pub fn spawn_upgrade(idx: usize, gen: u64, server: Server, tx: Sender<Msg>) -> J
                 line = stdout_lines.next_line() => {
                     match line {
                         Ok(Some(line)) => {
-                            if tx.send(Msg::AuxLine { panel: idx, gen, line }).await.is_err() {
-                                return;
+                            for part in line.split('\r') {
+                                let clean = part.trim_end_matches('\r');
+                                if !clean.is_empty()
+                                    && tx.send(Msg::AuxLine { panel: idx, gen, line: clean.to_string() }).await.is_err()
+                                {
+                                    return;
+                                }
                             }
                         }
                         _ => break,
                     }
                 }
                 Ok(Some(line)) = stderr_lines.next_line() => {
-                    if !line.trim().is_empty() {
-                        errbuf.push(line);
+                    for part in line.split('\r') {
+                        let clean = part.trim_end_matches('\r');
+                        if !clean.trim().is_empty() {
+                            errbuf.push(clean.to_string());
+                        }
                     }
                 }
             }

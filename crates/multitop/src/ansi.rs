@@ -57,10 +57,32 @@ pub fn line_to_spans(input: &str) -> Line<'static> {
     let mut chars = input.chars().peekable();
 
     while let Some(c) = chars.next() {
+        if c == '\r' || c == '\x07' || c == '\x08' || (c < ' ' && c != '\t' && c != '\n' && c != '\x1b') {
+            // Drop control characters (carriage return, backspace, bell, etc.)
+            // so they don't corrupt Ratatui's terminal cursor/layout.
+            continue;
+        }
+
         if c != '\x1b' {
             text.push(c);
             continue;
         }
+
+        // Check for OSC escape sequences (e.g. \x1b]0;title\x07 or \x1b]...\x1b\)
+        if chars.peek() == Some(&']') {
+            chars.next();
+            while let Some(nc) = chars.next() {
+                if nc == '\x07' {
+                    break;
+                }
+                if nc == '\x1b' && chars.peek() == Some(&'\\') {
+                    chars.next();
+                    break;
+                }
+            }
+            continue;
+        }
+
         if chars.peek() != Some(&'[') {
             // Not a CSI sequence; drop the ESC rather than rendering it.
             continue;
@@ -250,5 +272,11 @@ mod tests {
             plain(&line_to_spans(raw)),
             " MEM [####....]  50% 1.0GiB/2.0GiB      "
         );
+    }
+
+    #[test]
+    fn osc_escapes_and_control_chars_are_dropped() {
+        let raw = "hello\x1b]0;title\x07world\r\x08!";
+        assert_eq!(plain(&line_to_spans(raw)), "helloworld!");
     }
 }

@@ -237,6 +237,31 @@ fn upgrade_without_command_explains_itself() {
 }
 
 #[test]
+fn upgrade_command_large_output_and_carriage_return_cleanliness() {
+    let raw_lines = vec![
+        "ls -l /usr/bin".to_string(),
+        "Downloading 10%\rDownloading 50%\rDownloading 100%".to_string(),
+        "total 12345".to_string(),
+        "drwxr-xr-x 1 root root \x1b]0;title\x074096 Jan 1\x08 00:00 bin".to_string(),
+    ];
+    let mut clean = Vec::new();
+    for line in raw_lines {
+        for part in line.split('\r') {
+            let trimmed = part.trim_end_matches('\r');
+            if !trimmed.is_empty() {
+                clean.push(trimmed.to_string());
+            }
+        }
+    }
+    assert_eq!(clean[1], "Downloading 10%");
+    assert_eq!(clean[2], "Downloading 50%");
+    assert_eq!(clean[3], "Downloading 100%");
+    let parsed = multitop::ansi::line_to_spans(&clean[4]);
+    let plain: String = parsed.spans.iter().map(|s| s.content.as_ref()).collect();
+    assert!(!plain.contains('\r') && !plain.contains('\x08') && !plain.contains("title"));
+}
+
+#[test]
 fn upgrade_with_command_is_scheduled() {
     let mut servers = servers(2);
     servers[0].upgrade_cmd = Some("apt upgrade -y".into());

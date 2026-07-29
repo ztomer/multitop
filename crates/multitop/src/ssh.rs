@@ -148,10 +148,10 @@ pub async fn spawn_agent(server: &Server, mode: Mode, sort: SortBy) -> io::Resul
 pub fn spawn_command(server: &Server, command: &str) -> io::Result<Child> {
     if is_local(server) {
         let shell = std::env::var("SHELL").unwrap_or_else(|_| "zsh".to_string());
+        let wrapped = format!("source ~/.zshrc 2>/dev/null; source ~/.zprofile 2>/dev/null; source ~/.bashrc 2>/dev/null; {command}");
         return Command::new(&shell)
-            .arg("-i")
             .arg("-c")
-            .arg(command)
+            .arg(wrapped)
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
@@ -160,7 +160,7 @@ pub fn spawn_command(server: &Server, command: &str) -> io::Result<Child> {
     }
     let quoted = sh_quote(command);
     let remote_cmd = format!(
-        "if command -v zsh >/dev/null 2>&1; then zsh -i -c {quoted}; elif command -v bash >/dev/null 2>&1; then bash -i -c {quoted}; else sh -c {quoted}; fi"
+        "if command -v zsh >/dev/null 2>&1; then zsh -c 'source ~/.zshrc 2>/dev/null; {quoted}'; elif command -v bash >/dev/null 2>&1; then bash -c 'source ~/.bashrc 2>/dev/null; {quoted}'; else sh -c {quoted}; fi"
     );
     ssh_command(server)
         .arg(remote_cmd)
