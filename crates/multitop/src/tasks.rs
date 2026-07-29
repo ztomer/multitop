@@ -179,6 +179,7 @@ pub fn spawn_upgrade(
             })
             .await;
 
+        let mut sudo_help = false;
         let mut errbuf = Vec::new();
         loop {
             tokio::select! {
@@ -187,10 +188,14 @@ pub fn spawn_upgrade(
                         Ok(Some(line)) => {
                             for part in line.split('\r') {
                                 let clean = part.trim_end_matches('\r');
-                                if !clean.is_empty()
-                                    && tx.send(Msg::AuxLine { panel: idx, gen, line: clean.to_string() }).await.is_err()
-                                {
-                                    return;
+                                if !clean.is_empty() {
+                                    let lower = clean.to_lowercase();
+                                    if lower.contains("sudo") && (lower.contains("terminal") || lower.contains("password") || lower.contains("pre-authorized") || lower.contains("tty") || lower.contains("prompt on")) {
+                                        sudo_help = true;
+                                    }
+                                    if tx.send(Msg::AuxLine { panel: idx, gen, line: clean.to_string() }).await.is_err() {
+                                        return;
+                                    }
                                 }
                             }
                         }
@@ -201,6 +206,10 @@ pub fn spawn_upgrade(
                     for part in line.split('\r') {
                         let clean = part.trim_end_matches('\r');
                         if !clean.trim().is_empty() {
+                            let lower = clean.to_lowercase();
+                            if lower.contains("sudo") && (lower.contains("terminal") || lower.contains("password") || lower.contains("pre-authorized") || lower.contains("tty") || lower.contains("prompt on")) {
+                                sudo_help = true;
+                            }
                             errbuf.push(clean.to_string());
                         }
                     }
@@ -208,12 +217,7 @@ pub fn spawn_upgrade(
             }
         }
 
-        let mut sudo_help = false;
         for line in errbuf {
-            let lower = line.to_lowercase();
-            if lower.contains("sudo") && (lower.contains("terminal") || lower.contains("password") || lower.contains("pre-authorized") || lower.contains("tty")) {
-                sudo_help = true;
-            }
             let _ = tx
                 .send(Msg::AuxLine {
                     panel: idx,

@@ -171,7 +171,7 @@ impl App {
         }
     }
 
-    fn bump(&mut self, idx: usize) -> u64 {
+    pub fn bump(&mut self, idx: usize) -> u64 {
         let p = &mut self.panels[idx];
         p.gen += 1;
         p.gen

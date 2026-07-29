@@ -4,8 +4,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use crossterm::event::{
-    DisableMouseCapture, EnableMouseCapture, Event, KeyCode, KeyEvent, KeyEventKind,
-    KeyModifiers, MouseEventKind,
+    Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers, MouseEventKind,
 };
 use tokio::sync::mpsc::{self, Sender};
 use tokio::sync::watch;
@@ -36,9 +35,7 @@ pub async fn run(
     initial_theme: Option<String>,
 ) -> std::io::Result<()> {
     let mut terminal = ratatui::init();
-    let _ = crossterm::execute!(std::io::stdout(), EnableMouseCapture);
     let result = event_loop(&mut terminal, servers, config_path, initial_theme).await;
-    let _ = crossterm::execute!(std::io::stdout(), DisableMouseCapture);
     ratatui::restore();
     result
 }
@@ -231,20 +228,18 @@ fn handle_key(
                     if let Some(ref path) = app.config_path {
                         crate::config::save_sudo_password(path, &app.panels[idx].server.host, &pass);
                     }
-                    let cmds = app.run_upgrade();
-                    for cmd in cmds {
-                        if let Command::RunUpgrade { panel, gen } = cmd {
-                            let handle = spawn_upgrade(
-                                panel,
-                                gen,
-                                servers[panel].clone(),
-                                app.panels[panel].sudo_password.clone(),
-                                tx.clone(),
-                            );
-                            if let Some(old) = tasks.aux[panel].replace(handle) {
-                                old.abort();
-                            }
-                        }
+                    let gen = app.bump(idx);
+                    app.panels[idx].mode = crate::app::Mode::Upgrade;
+                    app.panels[idx].view = vec![format!("{}\u{2192} Upgrade running...{}", app.current_theme().meter_mid(), app.current_theme().reset)];
+                    let handle = spawn_upgrade(
+                        idx,
+                        gen,
+                        servers[idx].clone(),
+                        Some(pass),
+                        tx.clone(),
+                    );
+                    if let Some(old) = tasks.aux[idx].replace(handle) {
+                        old.abort();
                     }
                 }
             }
