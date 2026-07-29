@@ -98,7 +98,10 @@ pub fn spawn_local_agent(mode: Mode, sort: SortBy) -> io::Result<Child> {
         } else if grand.join("multitop-agent").is_file() {
             (Command::new(grand.join("multitop-agent")), vec![])
         } else if grand.join("multitop").is_file() {
-            (Command::new(grand.join("multitop")), vec!["--agent".to_string()])
+            (
+                Command::new(grand.join("multitop")),
+                vec!["--agent".to_string()],
+            )
         } else {
             (Command::new("multitop-agent"), vec![])
         }

@@ -60,9 +60,11 @@ impl DockerEndpoint {
     pub fn from_env() -> Self {
         match std::env::var("DOCKER_HOST") {
             Ok(h) if h.starts_with("tcp://") => DockerEndpoint::Tcp(h),
-            Ok(h) if h.starts_with("unix://") => {
-                DockerEndpoint::Unix(h.strip_prefix("unix://").unwrap_or("/var/run/docker.sock").to_string())
-            }
+            Ok(h) if h.starts_with("unix://") => DockerEndpoint::Unix(
+                h.strip_prefix("unix://")
+                    .unwrap_or("/var/run/docker.sock")
+                    .to_string(),
+            ),
             Ok(h) if !h.trim().is_empty() => DockerEndpoint::Unix(h),
             _ => DockerEndpoint::Unix("/var/run/docker.sock".to_string()),
         }

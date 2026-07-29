@@ -57,7 +57,11 @@ pub fn line_to_spans(input: &str) -> Line<'static> {
     let mut chars = input.chars().peekable();
 
     while let Some(c) = chars.next() {
-        if c == '\r' || c == '\x07' || c == '\x08' || (c < ' ' && c != '\t' && c != '\n' && c != '\x1b') {
+        if c == '\r'
+            || c == '\x07'
+            || c == '\x08'
+            || (c < ' ' && c != '\t' && c != '\n' && c != '\x1b')
+        {
             // Drop control characters (carriage return, backspace, bell, etc.)
             // so they don't corrupt Ratatui's terminal cursor/layout.
             continue;
@@ -98,7 +102,9 @@ pub fn line_to_spans(input: &str) -> Line<'static> {
 
         for c in chars.by_ref() {
             if c.is_ascii_digit() {
-                sgr_code = sgr_code.saturating_mul(10).saturating_add((c as u8 - b'0') as u16);
+                sgr_code = sgr_code
+                    .saturating_mul(10)
+                    .saturating_add((c as u8 - b'0') as u16);
                 has_digits = true;
                 reset_bare = false;
             } else if c == ';' {

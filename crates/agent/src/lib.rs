@@ -154,10 +154,17 @@ pub fn run_agent<I: IntoIterator<Item = String>>(argv: I) {
                     ("Disk", &snap.disk_str),
                 ];
                 let mut out = io::stdout().lock();
-                let _ = writeln!(out, "{}", crate::fmt::center_header(&snap.user_host, args.cols, pal));
+                let _ = writeln!(
+                    out,
+                    "{}",
+                    crate::fmt::center_header(&snap.user_host, args.cols, pal)
+                );
                 for (label, val) in &details {
-                    let _ = writeln!(out, "  {}{:<7}{}: {}{}{}",
-                        pal.bold, label, pal.reset, pal.white, val, pal.reset);
+                    let _ = writeln!(
+                        out,
+                        "  {}{:<7}{}: {}{}{}",
+                        pal.bold, label, pal.reset, pal.white, val, pal.reset
+                    );
                 }
             } else {
                 let payload = proto::Payload::Fetch(snap);
@@ -195,7 +202,14 @@ pub fn run_agent<I: IntoIterator<Item = String>>(argv: I) {
             let snap = monitor.tick(0.0, 120, 50, args.sort);
             if is_tty {
                 buf.push_str("\x1b[H\x1b[J");
-                render::render_to_buf(&snap, args.cols, args.lines, render::bar_len_for(args.cols), pal, &mut buf);
+                render::render_to_buf(
+                    &snap,
+                    args.cols,
+                    args.lines,
+                    render::bar_len_for(args.cols),
+                    pal,
+                    &mut buf,
+                );
                 let mut out = io::stdout().lock();
                 let _ = out.write_all(buf.as_bytes());
                 let _ = out.flush();
@@ -218,7 +232,14 @@ pub fn run_agent<I: IntoIterator<Item = String>>(argv: I) {
                     let snap = monitor.tick(elapsed, args.cols, args.lines, args.sort);
                     buf.clear();
                     buf.push_str("\x1b[H\x1b[J");
-                    render::render_to_buf(&snap, args.cols, args.lines, render::bar_len_for(args.cols), pal, &mut buf);
+                    render::render_to_buf(
+                        &snap,
+                        args.cols,
+                        args.lines,
+                        render::bar_len_for(args.cols),
+                        pal,
+                        &mut buf,
+                    );
                     let mut out = io::stdout().lock();
                     if out.write_all(buf.as_bytes()).is_err() || out.flush().is_err() {
                         return;

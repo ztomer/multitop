@@ -13,7 +13,13 @@ pub struct CoreGrid {
 }
 
 impl CoreGrid {
-    pub fn new(max_idx: usize, num_cores: usize, cols: usize, bar_len: usize, has_temps: bool) -> Self {
+    pub fn new(
+        max_idx: usize,
+        num_cores: usize,
+        cols: usize,
+        bar_len: usize,
+        has_temps: bool,
+    ) -> Self {
         let idx_w = max_idx.to_string().len();
         let per_core = (bar_len / num_cores.max(1)).min(12);
         let show_bars = per_core >= 5;
@@ -68,11 +74,27 @@ pub struct Chrome {
 impl Chrome {
     pub fn of(snap: &Snapshot, cols: usize, lines: usize) -> Self {
         let tier = Tier::for_lines(lines);
-        let num_cores = if tier <= Tier::Compact { 1 } else { snap.cores.len() };
+        let num_cores = if tier <= Tier::Compact {
+            1
+        } else {
+            snap.cores.len()
+        };
         let has_temps = snap.cores.iter().any(|(_, _, t)| t.is_some());
-        let has_net = if tier < Tier::Full { false } else { shows_net(snap.rx_rate, snap.tx_rate) };
-        let has_disk = if tier <= Tier::Micro { false } else { snap.disk.total > 0 };
-        let has_mem = if tier <= Tier::Micro { false } else { snap.mem.total > 0 };
+        let has_net = if tier < Tier::Full {
+            false
+        } else {
+            shows_net(snap.rx_rate, snap.tx_rate)
+        };
+        let has_disk = if tier <= Tier::Micro {
+            false
+        } else {
+            snap.disk.total > 0
+        };
+        let has_mem = if tier <= Tier::Micro {
+            false
+        } else {
+            snap.mem.total > 0
+        };
         Chrome {
             num_cores,
             has_temps,

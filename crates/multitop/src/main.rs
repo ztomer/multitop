@@ -112,7 +112,6 @@ fn main() -> ExitCode {
         port: 0,
         user: String::new(),
         upgrade_cmd: None,
-        sudo_password: None,
     };
 
     let config_path = opts
@@ -132,7 +131,6 @@ fn main() -> ExitCode {
                 port: 22,
                 user: String::new(),
                 upgrade_cmd: None,
-                sudo_password: None,
             })
             .collect();
         if opts.local && !list.iter().any(ssh::is_local) {

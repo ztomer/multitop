@@ -117,7 +117,9 @@ pub fn sample_os() -> String {
 }
 
 pub fn sample_kernel() -> String {
-    let ver = proc::read_proc("/proc/sys/kernel/osrelease").trim().to_string();
+    let ver = proc::read_proc("/proc/sys/kernel/osrelease")
+        .trim()
+        .to_string();
     if !ver.is_empty() {
         return ver;
     }
@@ -146,15 +148,22 @@ pub fn sample_kernel() -> String {
 }
 
 pub fn sample_host_model() -> String {
-    let sys_vendor = proc::read_proc("/sys/class/dmi/id/sys_vendor").trim().to_string();
-    let product_name = proc::read_proc("/sys/class/dmi/id/product_name").trim().to_string();
+    let sys_vendor = proc::read_proc("/sys/class/dmi/id/sys_vendor")
+        .trim()
+        .to_string();
+    let product_name = proc::read_proc("/sys/class/dmi/id/product_name")
+        .trim()
+        .to_string();
     if !product_name.is_empty() {
         if !sys_vendor.is_empty() && !product_name.starts_with(&sys_vendor) {
             return format!("{sys_vendor} {product_name}");
         }
         return product_name;
     }
-    let dt_model = proc::read_proc("/sys/firmware/devicetree/base/model").trim_matches('\0').trim().to_string();
+    let dt_model = proc::read_proc("/sys/firmware/devicetree/base/model")
+        .trim_matches('\0')
+        .trim()
+        .to_string();
     if !dt_model.is_empty() {
         return dt_model;
     }
@@ -246,14 +255,24 @@ pub fn sample_fetch(host: &str) -> FetchSnapshot {
 
     let mem = proc::get_memory();
     let mem_str = if mem.total > 0 {
-        format!("{}/{} ({:.0}%)", fmt_size(mem.used), fmt_size(mem.total), mem.pct)
+        format!(
+            "{}/{} ({:.0}%)",
+            fmt_size(mem.used),
+            fmt_size(mem.total),
+            mem.pct
+        )
     } else {
         "-".into()
     };
 
     let disk = proc::get_disk();
     let disk_str = if disk.total > 0 {
-        format!("{}/{} ({:.0}%)", fmt_size(disk.used), fmt_size(disk.total), disk.pct)
+        format!(
+            "{}/{} ({:.0}%)",
+            fmt_size(disk.used),
+            fmt_size(disk.total),
+            disk.pct
+        )
     } else {
         "-".into()
     };

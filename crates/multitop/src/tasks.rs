@@ -5,11 +5,10 @@ use tokio::task::JoinHandle;
 
 use crate::app::{error_line, header_line, status_line, Msg};
 use crate::config::Server;
-use crate::stream::{connect, next_packet};
 use crate::ssh;
+use crate::stream::{connect, next_packet};
 
 use multitop_agent::SortBy;
-
 
 pub fn spawn_fetch(
     idx: usize,
@@ -231,12 +230,16 @@ pub fn spawn_upgrade(
                 .send(Msg::AuxLine {
                     panel: idx,
                     gen,
+                    line: "\x1b[33m\u{2192} Tip: Set password in settings ('e') to allow upgrades\x1b[0m".to_string(),
+                })
+                .await;
+            let _ = tx
+                .send(Msg::AuxLine {
+                    panel: idx,
+                    gen,
                     line: "\x1b[33m\u{2192} Tip: Add '<user> ALL=(ALL) NOPASSWD: ALL' to /etc/sudoers for passwordless sudo\x1b[0m".to_string(),
                 })
                 .await;
-            if pass.is_none() {
-                let _ = tx.send(Msg::PromptSudo { panel: idx, gen }).await;
-            }
         }
         let _ = tx
             .send(Msg::AuxDone {

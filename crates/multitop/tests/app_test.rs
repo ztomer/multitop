@@ -8,7 +8,6 @@ fn servers(n: usize) -> Vec<Server> {
             port: 22,
             user: String::new(),
             upgrade_cmd: None,
-            sudo_password: None,
         })
         .collect()
 }
@@ -365,16 +364,38 @@ fn local_server_deduplication() {
     use multitop::config::Server;
     use multitop::ssh::is_local;
 
-    let s1 = Server { host: "127.0.0.1".into(), port: 0, user: "".into(), upgrade_cmd: None, sudo_password: None };
-    let s2 = Server { host: "localhost".into(), port: 22, user: "".into(), upgrade_cmd: None, sudo_password: None };
-    let s3 = Server { host: "192.168.0.33".into(), port: 22, user: "".into(), upgrade_cmd: None, sudo_password: None };
+    let s1 = Server {
+        host: "127.0.0.1".into(),
+        port: 0,
+        user: "".into(),
+        upgrade_cmd: None,
+    };
+    let s2 = Server {
+        host: "localhost".into(),
+        port: 22,
+        user: "".into(),
+        upgrade_cmd: None,
+    };
+    let s3 = Server {
+        host: "192.168.0.33".into(),
+        port: 22,
+        user: "".into(),
+        upgrade_cmd: None,
+    };
 
     let mut servers = vec![s1, s2, s3];
     let mut seen_local = false;
     servers.retain(|s| {
         if is_local(s) {
-            if seen_local { false } else { seen_local = true; true }
-        } else { true }
+            if seen_local {
+                false
+            } else {
+                seen_local = true;
+                true
+            }
+        } else {
+            true
+        }
     });
 
     assert_eq!(servers.len(), 2);
@@ -383,25 +404,23 @@ fn local_server_deduplication() {
 }
 
 #[test]
-fn sudo_password_config_parsing_and_persistence_test() {
+fn server_configuration_persists_without_password_fields() {
     let toml = r#"
     [[servers]]
     host = "192.168.0.33"
     upgrade_cmd = "us;ud"
-    sudo_password = "secret_pass_123"
     "#;
-
-    let cfg = multitop::config::parse(toml).unwrap();
-    assert_eq!(cfg.servers[0].sudo_password.as_deref(), Some("secret_pass_123"));
 
     let dir = std::env::temp_dir().join(format!("multitop_test_{}", std::process::id()));
     let file = dir.join("config.toml");
     let _ = std::fs::create_dir_all(&dir);
     std::fs::write(&file, toml).unwrap();
 
-    multitop::config::save_sudo_password(&file, "192.168.0.33", "new_secret_456");
+    let servers = multitop::config::parse(toml).unwrap().servers;
+    multitop::config::save_servers(&file, &servers).unwrap();
     let updated = std::fs::read_to_string(&file).unwrap();
     let cfg2 = multitop::config::parse(&updated).unwrap();
-    assert_eq!(cfg2.servers[0].sudo_password.as_deref(), Some("new_secret_456"));
+    assert_eq!(cfg2.servers[0].host, "192.168.0.33");
+    assert!(!updated.contains("sudo_password"));
     let _ = std::fs::remove_dir_all(&dir);
 }

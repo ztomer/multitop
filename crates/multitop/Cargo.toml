@@ -8,6 +8,7 @@ description = "Multi-server TUI dashboard over SSH"
 
 [dependencies]
 crossterm = { version = "0.29", features = ["event-stream"] }
+keyring = { version = "3", features = ["apple-native", "sync-secret-service"] }
 ratatui = { version = "0.30", default-features = false, features = ["crossterm"] }
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "process", "io-util", "sync", "time"] }
 tokio-stream = { version = "0.1.19", default-features = false }
@@ -22,4 +23,3 @@ harness = false
 [[bench]]
 name = "remote_ssh_bench"
 harness = false
-

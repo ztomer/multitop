@@ -15,7 +15,13 @@ pub fn refit_header(line: &str, target_cols: usize) -> Option<String> {
     }
     let disp_w: usize = fw_trimmed
         .chars()
-        .map(|c| if (0xFF01..=0xFF5E).contains(&(c as u32)) { 2 } else { 1 })
+        .map(|c| {
+            if (0xFF01..=0xFF5E).contains(&(c as u32)) {
+                2
+            } else {
+                1
+            }
+        })
         .sum();
 
     if target_cols <= disp_w {

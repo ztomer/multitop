@@ -245,7 +245,11 @@ fn decode_snapshot(cur: &mut Cursor) -> Option<Snapshot> {
         let idx = cur.read_u16()? as usize;
         let cpu = cur.read_f32()? as f64;
         let temp_raw = cur.read_f32()?;
-        let temp = if temp_raw < 0.0 { None } else { Some(temp_raw as f64) };
+        let temp = if temp_raw < 0.0 {
+            None
+        } else {
+            Some(temp_raw as f64)
+        };
         cores.push((idx, cpu, temp));
     }
 
@@ -314,4 +318,3 @@ fn decode_docker(cur: &mut Cursor) -> Option<Payload> {
     }
     Some(Payload::Docker { host, rows })
 }
-

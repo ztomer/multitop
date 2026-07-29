@@ -61,7 +61,11 @@ fn sample_docker() -> Payload {
         rows: (0..20)
             .map(|i| multitop_agent::docker::Row {
                 name: format!("container-{i}"),
-                status: if i % 3 == 2 { "Exited (0)".into() } else { "Up 3 hours".into() },
+                status: if i % 3 == 2 {
+                    "Exited (0)".into()
+                } else {
+                    "Up 3 hours".into()
+                },
                 cpu: format!("{:.1}%", i as f64 * 0.5),
                 cpu_pct: i as f64 * 0.5,
                 mem: format!("{}MiB / {}MiB", 64 + i * 8, 256 + i * 16),

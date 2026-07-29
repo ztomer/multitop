@@ -1,6 +1,6 @@
 use multitop::config::Server;
-use multitop::stream::{connect, next_packet};
 use multitop::ssh::Mode;
+use multitop::stream::{connect, next_packet};
 use multitop_agent::proto::Payload;
 use multitop_agent::SortBy;
 use std::env;
@@ -14,16 +14,18 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .and_then(|v| v.parse().ok())
         .unwrap_or(300); // 5 minutes default (300s)
 
-    let remote_host = env::var("BENCH_REMOTE_HOST")
-        .unwrap_or_else(|_| "192.168.0.33".to_string());
-    let remote_user = env::var("BENCH_REMOTE_USER")
-        .unwrap_or_else(|_| "ztomer".to_string());
+    let remote_host = env::var("BENCH_REMOTE_HOST").unwrap_or_else(|_| "192.168.0.33".to_string());
+    let remote_user = env::var("BENCH_REMOTE_USER").unwrap_or_else(|_| "ztomer".to_string());
 
     println!("============================================================");
     println!("   multitop Remote SSH Telemetry Stream Benchmark           ");
     println!("============================================================");
     println!("Target Remote Server: {}@{}", remote_user, remote_host);
-    println!("Duration:            {} seconds ({} minutes)", duration_secs, duration_secs / 60);
+    println!(
+        "Duration:            {} seconds ({} minutes)",
+        duration_secs,
+        duration_secs / 60
+    );
     println!("Protocol:            b\"MTOP\" Binary Telemetry Stream over SSH");
     println!("============================================================\n");
 
@@ -32,7 +34,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         port: 22,
         user: remote_user,
         upgrade_cmd: None,
-        sudo_password: None,
     };
 
     println!("[1/3] Establishing SSH connection & bootstrapping remote agent...");
@@ -47,7 +48,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     };
     let conn_elapsed = conn_start.elapsed();
-    println!("   [Ok] SSH session established in {:.2} ms\n", conn_elapsed.as_secs_f64() * 1000.0);
+    println!(
+        "   [Ok] SSH session established in {:.2} ms\n",
+        conn_elapsed.as_secs_f64() * 1000.0
+    );
 
     println!("[2/3] Streaming live telemetry packets over SSH pipe...");
     println!("--------------------------------------------------------------------------------------------------");
@@ -70,7 +74,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut last_report = Instant::now();
 
     while start_time.elapsed() < benchmark_duration {
-        match tokio::time::timeout(Duration::from_secs(5), next_packet(&mut stream, &mut errbuf)).await {
+        match tokio::time::timeout(
+            Duration::from_secs(5),
+            next_packet(&mut stream, &mut errbuf),
+        )
+        .await
+        {
             Ok(Ok(Some(payload))) => {
                 let now = Instant::now();
                 total_packets += 1;
@@ -80,15 +89,27 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     Payload::Monitor(snap) => {
                         // approximate binary packet size
                         let cores_bytes = snap.cores.len() * 10;
-                        let procs_bytes = snap.procs.iter().map(|p| 18 + p.name.len()).sum::<usize>();
+                        let procs_bytes =
+                            snap.procs.iter().map(|p| 18 + p.name.len()).sum::<usize>();
                         8 + snap.host.len() + 2 + cores_bytes + 1 + 32 + 2 + procs_bytes
                     }
                     Payload::Docker { host, rows } => {
-                        let rows_bytes = rows.iter().map(|r| r.name.len() + r.status.len() + r.cpu.len() + r.mem.len() + 16).sum::<usize>();
+                        let rows_bytes = rows
+                            .iter()
+                            .map(|r| r.name.len() + r.status.len() + r.cpu.len() + r.mem.len() + 16)
+                            .sum::<usize>();
                         8 + host.len() + 2 + rows_bytes
                     }
                     Payload::Fetch(snap) => {
-                        8 + snap.user_host.len() + snap.os.len() + snap.kernel.len() + snap.uptime.len() + snap.host_model.len() + snap.cpu_model.len() + snap.memory_str.len() + snap.disk_str.len() + 32
+                        8 + snap.user_host.len()
+                            + snap.os.len()
+                            + snap.kernel.len()
+                            + snap.uptime.len()
+                            + snap.host_model.len()
+                            + snap.cpu_model.len()
+                            + snap.memory_str.len()
+                            + snap.disk_str.len()
+                            + 32
                     }
                 };
 
@@ -106,7 +127,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     let elapsed_sec = start_time.elapsed().as_secs_f64();
                     let bw_kib = (total_bytes as f64 / 1024.0) / elapsed_sec;
                     let avg_pkt = total_bytes.checked_div(total_packets).unwrap_or(0);
-                    let avg_delay = if !delays_ms.is_empty() { delays_ms.iter().sum::<f64>() / delays_ms.len() as f64 } else { 0.0 };
+                    let avg_delay = if !delays_ms.is_empty() {
+                        delays_ms.iter().sum::<f64>() / delays_ms.len() as f64
+                    } else {
+                        0.0
+                    };
 
                     let client_rss_mib = get_client_rss_mib();
 
@@ -145,20 +170,47 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let elapsed_total = start_time.elapsed().as_secs_f64();
     let avg_bw_kib = (total_bytes as f64 / 1024.0) / elapsed_total;
     let avg_pkt_size = total_bytes.checked_div(total_packets).unwrap_or(0);
-    let avg_delay = if !delays_ms.is_empty() { delays_ms.iter().sum::<f64>() / delays_ms.len() as f64 } else { 0.0 };
+    let avg_delay = if !delays_ms.is_empty() {
+        delays_ms.iter().sum::<f64>() / delays_ms.len() as f64
+    } else {
+        0.0
+    };
 
     println!("--------------------------------------------------------------------------------------------------");
     println!("\n[3/3] Final Sustained Benchmark Summary:");
     println!("============================================================");
     println!("Total Test Duration:       {:.2} seconds", elapsed_total);
-    println!("SSH Connection Time:       {:.2} ms", conn_elapsed.as_secs_f64() * 1000.0);
+    println!(
+        "SSH Connection Time:       {:.2} ms",
+        conn_elapsed.as_secs_f64() * 1000.0
+    );
     println!("Total Packets Received:    {}", total_packets);
-    println!("Packets Decoded Cleanly:   {} (100.0% success rate)", decoded_packets);
-    println!("Total Telemetry Data:      {} KiB ({:.2} MiB)", total_bytes / 1024, total_bytes as f64 / (1024.0 * 1024.0));
-    println!("Average Network Bandwidth: {:.3} KiB/sec ({:.2} Kbps)", avg_bw_kib, avg_bw_kib * 8.0);
-    println!("Packet Size Range:         min {} B, avg {} B, max {} B", min_pkt_size, avg_pkt_size, max_pkt_size);
-    println!("Average Inter-Packet Delay: {:.2} ms (sampling interval ~2.0s)", avg_delay);
-    println!("Final Client Memory (RSS): {:.2} MiB (zero memory growth)", get_client_rss_mib());
+    println!(
+        "Packets Decoded Cleanly:   {} (100.0% success rate)",
+        decoded_packets
+    );
+    println!(
+        "Total Telemetry Data:      {} KiB ({:.2} MiB)",
+        total_bytes / 1024,
+        total_bytes as f64 / (1024.0 * 1024.0)
+    );
+    println!(
+        "Average Network Bandwidth: {:.3} KiB/sec ({:.2} Kbps)",
+        avg_bw_kib,
+        avg_bw_kib * 8.0
+    );
+    println!(
+        "Packet Size Range:         min {} B, avg {} B, max {} B",
+        min_pkt_size, avg_pkt_size, max_pkt_size
+    );
+    println!(
+        "Average Inter-Packet Delay: {:.2} ms (sampling interval ~2.0s)",
+        avg_delay
+    );
+    println!(
+        "Final Client Memory (RSS): {:.2} MiB (zero memory growth)",
+        get_client_rss_mib()
+    );
     println!("============================================================");
 
     Ok(())

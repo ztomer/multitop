@@ -64,7 +64,11 @@ impl ProcSampler {
         ProcSampler {
             prev: HashMap::new(),
             clk_tck: if clk_tck > 0 { clk_tck as f64 } else { 100.0 },
-            page_size: if page_size > 0 { page_size as u64 } else { 4096 },
+            page_size: if page_size > 0 {
+                page_size as u64
+            } else {
+                4096
+            },
         }
     }
 

@@ -120,6 +120,8 @@ Sustained 5-minute (300-second) test streaming live binary telemetry over a real
 | **d** | Toggle the Docker view on all panels |
 | **s** | Back to live stats |
 | **u** | Run each server's configured `upgrade_cmd` |
+| **p** | Open Configuration: manage passwords and servers |
+| **t** | Cycle the active theme |
 
 The stats stream keeps running underneath the Docker and upgrade views, so
 returning with **s** is instant rather than reconnecting.
@@ -137,6 +139,15 @@ user = ""            # optional
 ```
 
 Pass a different path with `--config`.
+
+## Configuration and passwords
+
+Press **p** for the full-screen Configuration screen. **Tab** switches between
+Passwords and Servers. Server changes are written to the config file and take
+effect after restarting multitop. Passwords can be retained for the current
+session or saved with **S** in the OS credential store: macOS Keychain or the
+Linux desktop Secret Service. Password values are never displayed or written
+to `config.toml`.
 
 ## Requirements
 

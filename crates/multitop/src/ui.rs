@@ -3,7 +3,7 @@
 use ratatui::layout::{Constraint, Layout, Rect, Size};
 use ratatui::style::{Color, Style};
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, Borders, Clear, Paragraph};
+use ratatui::widgets::Paragraph;
 use ratatui::Frame;
 
 use crate::ansi;
@@ -38,10 +38,15 @@ pub fn regions(area: Rect, panels: usize) -> (Vec<Rect>, Rect) {
     // For panels >= 3, use a 2-column grid layout
     let grid_cols: u32 = 2;
     let grid_rows: u32 = (panels as u32).div_ceil(2);
-    let v_chunks = Layout::vertical(vec![Constraint::Ratio(1, grid_rows); grid_rows as usize]).split(body);
+    let v_chunks =
+        Layout::vertical(vec![Constraint::Ratio(1, grid_rows); grid_rows as usize]).split(body);
     let mut rects = Vec::with_capacity(panels);
     for (r_idx, row_rect) in v_chunks.iter().enumerate() {
-        let h_chunks = Layout::horizontal([Constraint::Ratio(1, grid_cols), Constraint::Ratio(1, grid_cols)]).split(*row_rect);
+        let h_chunks = Layout::horizontal([
+            Constraint::Ratio(1, grid_cols),
+            Constraint::Ratio(1, grid_cols),
+        ])
+        .split(*row_rect);
         for (c_idx, col_rect) in h_chunks.iter().enumerate() {
             if r_idx * 2 + c_idx < panels {
                 rects.push(*col_rect);
@@ -132,31 +137,42 @@ fn visible(
     out
 }
 
-fn keybar_line(sort: multitop_agent::SortBy, theme: &multitop_agent::color::Palette, keybar_width: u16) -> Line<'static> {
-    let key = Style::default().fg(Color::White);
+fn keybar_line(
+    sort: multitop_agent::SortBy,
+    theme: &multitop_agent::color::Palette,
+    keybar_width: u16,
+) -> Line<'static> {
     let label = Style::default().fg(Color::DarkGray);
     let active = Style::default().fg(Color::White);
     let inactive = Style::default().fg(Color::DarkGray);
-    let border_color = Color::Rgb(theme.ratatui_border.0, theme.ratatui_border.1, theme.ratatui_border.2);
-    let accent_color = Color::Rgb(theme.ratatui_accent.0, theme.ratatui_accent.1, theme.ratatui_accent.2);
+    let border_color = Color::Rgb(
+        theme.ratatui_border.0,
+        theme.ratatui_border.1,
+        theme.ratatui_border.2,
+    );
+    let accent_color = Color::Rgb(
+        theme.ratatui_accent.0,
+        theme.ratatui_accent.1,
+        theme.ratatui_accent.2,
+    );
     let sort_label = Style::default().fg(border_color);
     let theme_val_style = Style::default().fg(accent_color);
 
+    let key_hi = Style::default()
+        .fg(Color::White)
+        .add_modifier(ratatui::style::Modifier::BOLD);
     let left_spans = [
-        Span::styled(" ESC / Q", key),
-        Span::styled(" Quit  ", label),
-        Span::styled("F", key),
-        Span::styled(" Fetch  ", label),
-        Span::styled("D", key),
-        Span::styled(" Docker  ", label),
-        Span::styled("S", key),
-        Span::styled(" Stats  ", label),
-        Span::styled("U", key),
-        Span::styled(" Upgrade  ", label),
-        Span::styled("P", key),
-        Span::styled(" Password  ", label),
-        Span::styled("T", key),
-        Span::styled(" Theme", label),
+        Span::styled("ESC / ", label),
+        Span::styled("Q", key_hi),
+        Span::styled("uit  ", label),
+        Span::styled("F", key_hi),
+        Span::styled("etch  ", label),
+        Span::styled("D", key_hi),
+        Span::styled("ocker  ", label),
+        Span::styled("S", key_hi),
+        Span::styled("tats  ", label),
+        Span::styled("U", key_hi),
+        Span::styled("pgrade  ", label),
     ];
     let left_width: usize = left_spans.iter().map(|s| s.content.len()).sum();
 
@@ -168,7 +184,16 @@ fn keybar_line(sort: multitop_agent::SortBy, theme: &multitop_agent::color::Pale
     let theme_name_padded = format!("{:<11}", theme.name);
     let badge_spans = [
         Span::styled("[", sort_label),
-        Span::styled("T", key),
+        Span::styled("E", key_hi),
+        Span::styled(" Settings", label),
+        Span::styled("]  ", sort_label),
+        Span::styled("[", sort_label),
+        Span::styled(
+            "T",
+            Style::default()
+                .fg(accent_color)
+                .add_modifier(ratatui::style::Modifier::BOLD),
+        ),
         Span::styled("heme: ", sort_label),
         Span::styled(theme_name_padded, theme_val_style),
         Span::styled("]  ", sort_label),
@@ -187,16 +212,24 @@ fn keybar_line(sort: multitop_agent::SortBy, theme: &multitop_agent::color::Pale
     } else {
         SPACES
     };
-        let mut spans = Vec::with_capacity(left_spans.len() + 1 + badge_spans.len());
+    let mut spans = Vec::with_capacity(left_spans.len() + 1 + badge_spans.len());
     spans.extend(left_spans);
     spans.push(Span::styled(pad_str, label));
     spans.extend(badge_spans);
     Line::from(spans)
 }
 pub fn draw(f: &mut Frame, app: &App) {
+    if app.password_manager.is_some() {
+        crate::config_ui::draw(f, app);
+        return;
+    }
     let (panel_areas, keybar) = regions(f.area(), app.panels.len());
     let theme = app.current_theme();
-    let bg_color = Color::Rgb(theme.ratatui_keybar_bg.0, theme.ratatui_keybar_bg.1, theme.ratatui_keybar_bg.2);
+    let bg_color = Color::Rgb(
+        theme.ratatui_keybar_bg.0,
+        theme.ratatui_keybar_bg.1,
+        theme.ratatui_keybar_bg.2,
+    );
 
     for ((idx, panel), area) in app.panels.iter().enumerate().zip(&panel_areas) {
         let inner = Rect {
@@ -208,7 +241,13 @@ pub fn draw(f: &mut Frame, app: &App) {
         if inner.width == 0 || inner.height == 0 {
             continue;
         }
-        let mut lines = visible(&panel.view, inner.height as usize, true, inner.width as usize, panel.scroll_offset);
+        let mut lines = visible(
+            &panel.view,
+            inner.height as usize,
+            true,
+            inner.width as usize,
+            panel.scroll_offset,
+        );
         if idx == app.selected_panel && app.panels.len() > 1 && !lines.is_empty() {
             let tag = " \x1b[36;1m[\u{25cf} Active]\x1b[0m";
             let target_w = (inner.width as usize).saturating_sub(10);
@@ -216,65 +255,11 @@ pub fn draw(f: &mut Frame, app: &App) {
             lines[0] = format!("{refitted}{tag}");
         }
         f.render_widget(Paragraph::new(ansi::to_text(&lines)), inner);
-
-        // Per-panel sudo password dialog
-        if panel.prompt_sudo && inner.height >= 7 && inner.width >= 30 {
-            let dialog_w = 50.min(inner.width.saturating_sub(2));
-            let dialog_h = 7.min(inner.height.saturating_sub(2));
-            let dialog_x = inner.x + (inner.width.saturating_sub(dialog_w)) / 2;
-            let dialog_y = inner.y + (inner.height.saturating_sub(dialog_h)) / 2;
-            let dialog_area = Rect::new(dialog_x, dialog_y, dialog_w, dialog_h);
-
-            f.render_widget(Clear, dialog_area);
-
-            let is_active = idx == app.selected_panel;
-            let border_color = if is_active {
-                Color::Rgb(theme.ratatui_accent.0, theme.ratatui_accent.1, theme.ratatui_accent.2)
-            } else {
-                Color::Rgb(theme.ratatui_border.0, theme.ratatui_border.1, theme.ratatui_border.2)
-            };
-            let accent_color = Color::Rgb(theme.ratatui_accent.0, theme.ratatui_accent.1, theme.ratatui_accent.2);
-
-            let masked = "*".repeat(panel.password_input.len());
-            let max_pw = (dialog_w as usize).saturating_sub(22).min(28);
-            let content = vec![
-                Line::from(vec![Span::styled(
-                    format!(" Password for {}", panel.server.host),
-                    Style::default().fg(Color::Yellow).add_modifier(ratatui::style::Modifier::BOLD),
-                )]),
-                Line::from(""),
-                Line::from(vec![
-                    Span::raw(" [ "),
-                    Span::styled(format!("{:<max_pw$}", masked), Style::default().fg(accent_color)),
-                    Span::raw(" ]"),
-                ]),
-                Line::from(if is_active {
-                    vec![
-                        Span::styled(" [Enter]", Style::default().fg(Color::White)),
-                        Span::styled(" Save  ", Style::default().fg(Color::DarkGray)),
-                        Span::styled("[Esc]", Style::default().fg(Color::White)),
-                        Span::styled(" Cancel", Style::default().fg(Color::DarkGray)),
-                    ]
-                } else {
-                    vec![Span::styled(
-                        format!(" Press {} to select", idx + 1),
-                        Style::default().fg(Color::DarkGray),
-                    )]
-                }),
-            ];
-
-            let block = Block::default()
-                .title(" Sudo Password ")
-                .borders(Borders::ALL)
-                .border_style(Style::default().fg(border_color))
-                .style(Style::default().bg(bg_color));
-
-            f.render_widget(Paragraph::new(content).block(block), dialog_area);
-        }
     }
 
     f.render_widget(
-        Paragraph::new(keybar_line(app.sort, theme, keybar.width)).style(Style::default().bg(bg_color)),
+        Paragraph::new(keybar_line(app.sort, theme, keybar.width))
+            .style(Style::default().bg(bg_color)),
         keybar,
     );
 }
@@ -414,7 +399,9 @@ mod tests {
             .iter()
             .map(|s| s.content.as_ref())
             .collect();
-        for hint in ["ESC", "Quit", "F", "Fetch", "D", "Docker", "S", "Stats", "U", "Upgrade", "T", "Theme"] {
+        for hint in [
+            "ESC", "Quit", "F", "Fetch", "D", "Docker", "S", "Stats", "U", "Upgrade", "T", "Theme",
+        ] {
             assert!(text.contains(hint), "missing {hint} in {text:?}");
         }
     }

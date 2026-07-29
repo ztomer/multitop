@@ -107,8 +107,8 @@ pub async fn next_packet(
     stream: &mut PacketStream,
     errbuf: &mut Vec<String>,
 ) -> std::io::Result<Option<multitop_agent::proto::Payload>> {
-    use tokio::io::AsyncReadExt;
     use multitop_agent::proto;
+    use tokio::io::AsyncReadExt;
 
     let mut header = [0u8; 8];
     if let Some(pending4) = stream.pending_header.take() {

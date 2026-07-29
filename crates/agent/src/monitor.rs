@@ -29,7 +29,13 @@ impl Monitor {
     }
 
     /// Sample everything once and return the frame to draw.
-    pub fn tick(&mut self, interval: f64, cols: usize, lines: usize, sort_by: crate::SortBy) -> Snapshot {
+    pub fn tick(
+        &mut self,
+        interval: f64,
+        cols: usize,
+        lines: usize,
+        sort_by: crate::SortBy,
+    ) -> Snapshot {
         let cpu = proc::get_cpu_stat();
         let net = proc::get_net();
         let mem = proc::get_memory();
@@ -133,7 +139,10 @@ mod tests {
                         height <= limit,
                         "cols={cols} lines={lines} cores={cores}: {height} > {limit}"
                     );
-                    assert_eq!(height, render(&s, cols, lines, bar_len_for(cols), &ANSI).len());
+                    assert_eq!(
+                        height,
+                        render(&s, cols, lines, bar_len_for(cols), &ANSI).len()
+                    );
                 }
             }
         }

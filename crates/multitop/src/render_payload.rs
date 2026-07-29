@@ -17,13 +17,7 @@ pub fn render_payload(
     let (cols, height) = dims;
     let bar_len = bar_len_for(cols as usize);
     match payload {
-        Payload::Monitor(snap) => render(
-            snap,
-            cols as usize,
-            height as usize,
-            bar_len,
-            pal,
-        ),
+        Payload::Monitor(snap) => render(snap, cols as usize, height as usize, bar_len, pal),
         Payload::Docker { host, rows } => {
             multitop_agent::docker::render(host, cols as usize, height as usize, rows, pal, sort)
         }

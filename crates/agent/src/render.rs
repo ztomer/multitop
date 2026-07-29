@@ -11,9 +11,7 @@
 use std::fmt::Write as _;
 
 use crate::color::{strip_ansi, Palette};
-use crate::fmt::{
-    center_header, core_bar, fmt_rate, fmt_size, make_bar, SIZE_PAIR_W, SIZE_W,
-};
+use crate::fmt::{center_header, core_bar, fmt_rate, fmt_size, make_bar, SIZE_PAIR_W, SIZE_W};
 use crate::proc::{Proc, Usage};
 
 /// Width of the `used/total` field on the MEM and DSK rows.
@@ -182,7 +180,13 @@ fn proc_cell(p: &Proc, name_w: usize, pal: &Palette) -> String {
 fn proc_header(name_w: usize, pal: &Palette) -> String {
     format!(
         "{}{}{:>PID_W$}  {:<name_w$}  {:>CPU_W$}  {:>MEM_W$}{}",
-        pal.primary(), pal.bold, "PID", "NAME", "CPU", "MEM", pal.reset,
+        pal.primary(),
+        pal.bold,
+        "PID",
+        "NAME",
+        "CPU",
+        "MEM",
+        pal.reset,
     )
 }
 
@@ -286,7 +290,13 @@ fn push_proc_table(out: &mut Vec<String>, procs: &[Proc], cols: usize, pal: &Pal
 }
 
 /// Render one frame.
-pub fn render(snap: &Snapshot, cols: usize, lines: usize, bar_len: usize, pal: &Palette) -> Vec<String> {
+pub fn render(
+    snap: &Snapshot,
+    cols: usize,
+    lines: usize,
+    bar_len: usize,
+    pal: &Palette,
+) -> Vec<String> {
     let chrome = Chrome::of(snap, cols, lines);
     let tier = chrome.tier;
     let mut out: Vec<String> = Vec::with_capacity(16);
@@ -308,7 +318,12 @@ pub fn render(snap: &Snapshot, cols: usize, lines: usize, bar_len: usize, pal: &
             if snap.disk.total > 0 {
                 summary.push(format!("DSK {:.0}%", snap.disk.pct));
             }
-            out.push(format!(" {}{}{}", pal.muted(), summary.join("  "), pal.reset));
+            out.push(format!(
+                " {}{}{}",
+                pal.muted(),
+                summary.join("  "),
+                pal.reset
+            ));
         }
         Tier::Minimal | Tier::Compact | Tier::Full => {
             if tier == Tier::Full && snap.cores.len() >= 2 {
@@ -329,7 +344,12 @@ pub fn render(snap: &Snapshot, cols: usize, lines: usize, bar_len: usize, pal: &
 
             for (label, usage, color, label_color) in [
                 ("MEM", snap.mem, pal.mem_bar(snap.mem.pct), pal.primary()),
-                ("DSK", snap.disk, pal.disk_bar(snap.disk.pct), pal.secondary()),
+                (
+                    "DSK",
+                    snap.disk,
+                    pal.disk_bar(snap.disk.pct),
+                    pal.secondary(),
+                ),
             ] {
                 if usage.total == 0 {
                     continue;
@@ -381,7 +401,14 @@ pub fn render(snap: &Snapshot, cols: usize, lines: usize, bar_len: usize, pal: &
 }
 
 /// Render one frame directly into a string buffer.
-pub fn render_to_buf(snap: &Snapshot, cols: usize, lines: usize, bar_len: usize, pal: &Palette, buf: &mut String) {
+pub fn render_to_buf(
+    snap: &Snapshot,
+    cols: usize,
+    lines: usize,
+    bar_len: usize,
+    pal: &Palette,
+    buf: &mut String,
+) {
     let frame = render(snap, cols, lines, bar_len, pal);
     for line in &frame {
         buf.push_str(line);

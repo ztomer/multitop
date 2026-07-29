@@ -18,7 +18,10 @@ async fn local_agent_streams_binary_packets() {
     assert!(payload_len > 0);
 
     let mut payload_bytes = vec![0u8; payload_len];
-    reader.read_exact(&mut payload_bytes).await.expect("read payload");
+    reader
+        .read_exact(&mut payload_bytes)
+        .await
+        .expect("read payload");
 
     let mut full = Vec::new();
     full.extend_from_slice(&header);
@@ -44,7 +47,6 @@ async fn connect_local_server_succeeds_and_streams_snapshots() {
         port: 0,
         user: String::new(),
         upgrade_cmd: None,
-        sudo_password: None,
     };
 
     let mut stream = connect(&server, Mode::Monitor, SortBy::Cpu, |_| {})
@@ -58,7 +60,10 @@ async fn connect_local_server_succeeds_and_streams_snapshots() {
         .expect("payload present");
 
     if let Payload::Monitor(snap) = payload {
-        assert!(!snap.host.is_empty(), "local snapshot host should not be empty");
+        assert!(
+            !snap.host.is_empty(),
+            "local snapshot host should not be empty"
+        );
         let rendered = multitop_agent::render::render(
             &snap,
             80,
@@ -66,9 +71,18 @@ async fn connect_local_server_succeeds_and_streams_snapshots() {
             multitop_agent::render::bar_len_for(80),
             &multitop_agent::color::ANSI,
         );
-        assert!(rendered.iter().any(|l| l.contains("CPU")), "frame should contain CPU metric header");
-        assert!(rendered.iter().any(|l| l.contains("MEM")), "frame should contain MEM metric header");
-        assert!(rendered.iter().any(|l| l.contains("DSK")), "frame should contain DSK metric header");
+        assert!(
+            rendered.iter().any(|l| l.contains("CPU")),
+            "frame should contain CPU metric header"
+        );
+        assert!(
+            rendered.iter().any(|l| l.contains("MEM")),
+            "frame should contain MEM metric header"
+        );
+        assert!(
+            rendered.iter().any(|l| l.contains("DSK")),
+            "frame should contain DSK metric header"
+        );
     } else {
         panic!("expected Monitor payload from local server");
     }

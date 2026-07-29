@@ -14,7 +14,11 @@ pub fn render(
     out.push(center_header(host, cols, pal));
 
     if rows.is_empty() {
-        out.push(format!(" {}No running containers{}", pal.muted(), pal.reset));
+        out.push(format!(
+            " {}No running containers{}",
+            pal.muted(),
+            pal.reset
+        ));
         return out;
     }
 
@@ -30,14 +34,24 @@ pub fn render(
         crate::SortBy::Mem => sorted_rows.sort_unstable_by(|a, b| {
             b.mem_bytes
                 .cmp(&a.mem_bytes)
-                .then_with(|| b.cpu_pct.partial_cmp(&a.cpu_pct).unwrap_or(std::cmp::Ordering::Equal))
+                .then_with(|| {
+                    b.cpu_pct
+                        .partial_cmp(&a.cpu_pct)
+                        .unwrap_or(std::cmp::Ordering::Equal)
+                })
                 .then_with(|| a.name.cmp(&b.name))
         }),
     }
 
     out.push(format!(
         " {}{}{:<NAME_W$}  {:<STATUS_W$}  {:<CPU_W$}  {:<MEM_W$}{}",
-        pal.secondary(), pal.bold, "NAME", "STATUS", "CPU", "MEM", pal.reset,
+        pal.secondary(),
+        pal.bold,
+        "NAME",
+        "STATUS",
+        "CPU",
+        "MEM",
+        pal.reset,
     ));
     let rule = format!(
         " {}{}{}",
@@ -85,7 +99,9 @@ pub fn render(
     if overflow > 0 {
         out.push(format!(
             " {}\u{2026}+{} more{}",
-            pal.muted(), overflow, pal.reset
+            pal.muted(),
+            overflow,
+            pal.reset
         ));
     }
 

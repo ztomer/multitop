@@ -9,10 +9,6 @@ use multitop_agent::fetch::FetchSnapshot;
 
 use crate::config::Server;
 
-
-
-
-
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Mode {
     Monitor,
@@ -33,14 +29,12 @@ pub struct Panel {
     pub view: Vec<String>,
     pub scroll_offset: usize,
     pub sudo_password: Option<String>,
-    pub prompt_sudo: bool,
-    pub password_input: String,
+    pub password_saved: bool,
 }
 
 impl Panel {
-    fn new(server: Server) -> Self {
+    pub fn new(server: Server) -> Self {
         let pal = &multitop_agent::color::ANSI;
-        let pass = server.sudo_password.clone();
         Panel {
             server,
             mode: Mode::Monitor,
@@ -51,9 +45,8 @@ impl Panel {
             last_docker: None,
             view: vec![format!("{}connecting...{}", pal.muted(), pal.reset)],
             scroll_offset: 0,
-            sudo_password: pass,
-            prompt_sudo: false,
-            password_input: String::new(),
+            sudo_password: None,
+            password_saved: false,
         }
     }
 
@@ -61,7 +54,11 @@ impl Panel {
         let pal = &multitop_agent::color::ANSI;
         self.view = match &self.last_frame {
             Some(f) => f.clone(),
-            None => vec![format!("{}waiting for data...{}", pal.meter_mid(), pal.reset)],
+            None => vec![format!(
+                "{}waiting for data...{}",
+                pal.meter_mid(),
+                pal.reset
+            )],
         };
     }
 }
@@ -115,11 +112,6 @@ pub enum Msg {
         gen: u64,
         note: Option<String>,
     },
-    /// Request the user for a sudo password via a Modal Dialog.
-    PromptSudo {
-        panel: usize,
-        gen: u64,
-    },
 }
 
 pub use multitop_agent::SortBy;
@@ -135,6 +127,7 @@ pub struct App {
     pub is_filtering: bool,
     pub sparklines: Vec<crate::sparkline::SparklineHistory>,
     pub upgrade_history_lines: usize,
+    pub password_manager: Option<crate::passwords::PasswordManager>,
 }
 
 impl App {
@@ -149,8 +142,11 @@ impl App {
             config_path: None,
             filter_query: String::new(),
             is_filtering: false,
-            sparklines: (0..count).map(|_| crate::sparkline::SparklineHistory::new(30)).collect(),
+            sparklines: (0..count)
+                .map(|_| crate::sparkline::SparklineHistory::new(30))
+                .collect(),
             upgrade_history_lines: crate::config::DEFAULT_UPGRADE_HISTORY_LINES,
+            password_manager: None,
         }
     }
 
@@ -197,7 +193,11 @@ impl App {
             let gen = self.bump(i);
             let p = &mut self.panels[i];
             p.mode = Mode::Fetch;
-            p.view = vec![format!("{}\u{2192} Fetching system info...{}", pal.meter_mid(), pal.reset)];
+            p.view = vec![format!(
+                "{}\u{2192} Fetching system info...{}",
+                pal.meter_mid(),
+                pal.reset
+            )];
             cmds.push(Command::RunFetch { panel: i, gen });
         }
         cmds
@@ -218,7 +218,11 @@ impl App {
             let gen = self.bump(i);
             let p = &mut self.panels[i];
             p.mode = Mode::Docker;
-            p.view = vec![format!("{}\u{2192} Docker loading...{}", pal.meter_mid(), pal.reset)];
+            p.view = vec![format!(
+                "{}\u{2192} Docker loading...{}",
+                pal.meter_mid(),
+                pal.reset
+            )];
             cmds.push(Command::RunDocker { panel: i, gen });
         }
         cmds
@@ -247,7 +251,11 @@ impl App {
             p.mode = Mode::Upgrade;
             match p.server.upgrade_cmd.is_some() {
                 true => {
-                    p.view = vec![format!("{}\u{2192} Upgrade running...{}", pal.meter_mid(), pal.reset)];
+                    p.view = vec![format!(
+                        "{}\u{2192} Upgrade running...{}",
+                        pal.meter_mid(),
+                        pal.reset
+                    )];
                     cmds.push(Command::RunUpgrade { panel: i, gen });
                 }
                 false => {
@@ -273,11 +281,18 @@ impl App {
 
     pub fn apply(&mut self, msg: Msg) {
         match msg {
-            Msg::Packet { panel, gen, payload, dims } => {
+            Msg::Packet {
+                panel,
+                gen,
+                payload,
+                dims,
+            } => {
                 let pal = self.current_theme();
                 let sort = self.sort;
                 let accepts = self.accepts(panel, gen);
-                let Some(p) = self.panels.get_mut(panel) else { return; };
+                let Some(p) = self.panels.get_mut(panel) else {
+                    return;
+                };
 
                 match &payload {
                     multitop_agent::proto::Payload::Monitor(_) => {
@@ -298,7 +313,12 @@ impl App {
                     multitop_agent::proto::Payload::Fetch(snap) => {
                         p.last_fetch = Some(snap.clone());
                         if p.mode == Mode::Fetch && accepts {
-                            let lines = crate::fetch_render::render_fetch(snap, dims.0 as usize, dims.1 as usize, pal);
+                            let lines = crate::fetch_render::render_fetch(
+                                snap,
+                                dims.0 as usize,
+                                dims.1 as usize,
+                                pal,
+                            );
                             p.view = lines;
                         }
                     }
@@ -319,7 +339,12 @@ impl App {
                     self.panels[panel].view = vec![text];
                 }
             }
-            Msg::FetchData { panel, gen, snap, lines } => {
+            Msg::FetchData {
+                panel,
+                gen,
+                snap,
+                lines,
+            } => {
                 if self.accepts(panel, gen) {
                     self.panels[panel].last_fetch = Some(snap);
                     self.panels[panel].view = lines;
@@ -344,12 +369,6 @@ impl App {
             Msg::AuxDone { panel, gen, note } => {
                 if let (true, Some(note)) = (self.accepts(panel, gen), note) {
                     self.panels[panel].view.push(note);
-                }
-            }
-            Msg::PromptSudo { panel, gen } => {
-                if self.accepts(panel, gen) && self.panels[panel].sudo_password.is_none() {
-                    self.panels[panel].prompt_sudo = true;
-                    self.panels[panel].password_input.clear();
                 }
             }
         }

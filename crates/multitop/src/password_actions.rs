@@ -1,0 +1,107 @@
+//! Runtime effects requested by the password portion of Configuration.
+
+use tokio::sync::mpsc::Sender;
+
+use crate::app::{App, Msg};
+use crate::config::Server;
+use crate::passwords::PasswordAction;
+use crate::run::Tasks;
+
+pub fn apply(
+    action: PasswordAction,
+    app: &mut App,
+    servers: &[Server],
+    tx: &Sender<Msg>,
+    tasks: &mut Tasks,
+) {
+    match action {
+        PasswordAction::None => {}
+        PasswordAction::ApplyServers(new_servers) => {
+            let result = app
+                .config_path
+                .as_deref()
+                .ok_or_else(|| "No configuration file is active.".to_string())
+                .and_then(|path| crate::config::save_servers(path, &new_servers));
+            if result.is_ok() {
+                // Update app.panels to match the new server list while preserving existing passwords.
+                let mut new_panels = Vec::with_capacity(new_servers.len());
+                for server in new_servers {
+                    let mut panel = crate::app::Panel::new(server.clone());
+                    if let Some(old_panel) = app.panels.iter().find(|p| p.server.host == server.host) {
+                        panel.sudo_password = old_panel.sudo_password.clone();
+                        panel.password_saved = old_panel.password_saved;
+                    }
+                    new_panels.push(panel);
+                }
+                app.panels = new_panels;
+                if app.panels.is_empty() {
+                    app.selected_panel = 0;
+                } else {
+                    app.selected_panel = app.selected_panel.min(app.panels.len() - 1);
+                }
+            }
+            if let Some(manager) = app.password_manager.as_mut() {
+                if !app.panels.is_empty() {
+                    manager.selected = manager.selected.min(app.panels.len() - 1);
+                }
+                manager.notice = Some(match result {
+                    Ok(()) => "Server configuration saved.".to_string(),
+                    Err(error) => format!("Could not save server configuration: {error}"),
+                });
+            }
+        }
+        PasswordAction::Delete { panel } => {
+            let result = crate::password_store::delete(&app.panels[panel].server);
+            app.panels[panel].sudo_password = None;
+            app.panels[panel].password_saved = false;
+            if let Some(manager) = app.password_manager.as_mut() {
+                manager.notice = Some(match result {
+                    Ok(()) => "Saved password removed.".to_string(),
+                    Err(error) => format!("Could not remove saved password: {error}"),
+                });
+            }
+        }
+        PasswordAction::Save {
+            panel,
+            password,
+            store,
+            resume_upgrade,
+        } => {
+            app.panels[panel].sudo_password = Some(password.clone());
+            let result =
+                store.then(|| crate::password_store::save(&app.panels[panel].server, &password));
+            app.panels[panel].password_saved = result.as_ref().is_some_and(Result::is_ok);
+            if let Some(manager) = app.password_manager.as_mut() {
+                manager.resume_upgrade = false;
+                manager.notice = Some(match result {
+                    Some(Ok(())) => "Password saved in the system credential store.".to_string(),
+                    Some(Err(error)) => {
+                        format!("Password kept for this session; save failed: {error}")
+                    }
+                    None => "Password kept for this session only.".to_string(),
+                });
+            }
+            let should_resume = resume_upgrade || app.panels[panel].mode == crate::app::Mode::Upgrade;
+            if should_resume && servers.get(panel).and_then(|s| s.upgrade_cmd.as_ref()).is_some() {
+                let gen = app.bump(panel);
+                let palette = app.current_theme();
+                app.panels[panel].mode = crate::app::Mode::Upgrade;
+                app.panels[panel].view = vec![format!(
+                    "{}\u{2192} Upgrade running...{}",
+                    palette.meter_mid(),
+                    palette.reset
+                )];
+                let handle = crate::tasks::spawn_upgrade(
+                    panel,
+                    gen,
+                    servers[panel].clone(),
+                    Some(password),
+                    tx.clone(),
+                );
+                if let Some(old) = tasks.aux[panel].replace(handle) {
+                    old.abort();
+                }
+            }
+        }
+    }
+}

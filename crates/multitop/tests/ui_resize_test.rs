@@ -12,14 +12,14 @@ fn sample_servers(count: usize) -> Vec<Server> {
             port: 22,
             user: "root".into(),
             upgrade_cmd: None,
-            sudo_password: None,
         })
         .collect()
 }
 
 #[test]
 fn refit_header_expands_and_shrinks_dynamically() {
-    let raw_header = "\x1b[90m──────────\x1b[0m\x1b[36;1m ｂｅｅｌｉｎｋ \x1b[0m\x1b[90m──────────\x1b[0m";
+    let raw_header =
+        "\x1b[90m──────────\x1b[0m\x1b[36;1m ｂｅｅｌｉｎｋ \x1b[0m\x1b[90m──────────\x1b[0m";
 
     // 1. Expand width to 60 cols
     let refitted_wide = refit_header(raw_header, 60).expect("should refit wide");

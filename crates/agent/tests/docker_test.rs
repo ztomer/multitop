@@ -350,5 +350,7 @@ fn render_respects_max_rows_budget() {
     let rows: Vec<_> = (0..10).map(|i| row(&format!("c{i}"), "Up", 1.0)).collect();
     let out = render("h", 80, 6, &rows, &ANSI, SortBy::Cpu);
     assert_eq!(out.len(), 6);
-    assert!(out.iter().any(|l| l.contains("…+9 more") || l.contains("...+9 more")));
+    assert!(out
+        .iter()
+        .any(|l| l.contains("…+9 more") || l.contains("...+9 more")));
 }

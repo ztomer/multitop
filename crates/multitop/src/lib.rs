@@ -1,8 +1,12 @@
 pub mod ansi;
 pub mod app;
 pub mod config;
+pub mod config_ui;
 pub mod consts;
 pub mod fetch_render;
+pub mod password_actions;
+pub mod password_store;
+pub mod passwords;
 pub mod refit;
 pub mod render_payload;
 pub mod run;

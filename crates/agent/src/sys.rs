@@ -8,7 +8,10 @@ use crate::proc::{CpuStat, CpuTimes, NetTotals, RawProcStat, Usage};
 
 #[cfg(target_os = "macos")]
 extern "C" {
-    fn mach_port_deallocate(target_task: libc::mach_port_t, name: libc::mach_port_t) -> libc::kern_return_t;
+    fn mach_port_deallocate(
+        target_task: libc::mach_port_t,
+        name: libc::mach_port_t,
+    ) -> libc::kern_return_t;
 }
 
 #[cfg(target_os = "macos")]
@@ -25,7 +28,11 @@ impl Drop for MachCpuInfoGuard {
             if !self.cpu_info.is_null() {
                 let vm_map = libc::mach_task_self();
                 let size = self.msg_type as usize * std::mem::size_of::<libc::integer_t>();
-                libc::vm_deallocate(vm_map, self.cpu_info as libc::vm_address_t, size as libc::vm_size_t);
+                libc::vm_deallocate(
+                    vm_map,
+                    self.cpu_info as libc::vm_address_t,
+                    size as libc::vm_size_t,
+                );
             }
             if self.host_port != 0 {
                 mach_port_deallocate(libc::mach_task_self(), self.host_port);
@@ -97,14 +104,22 @@ pub fn get_memory_macos() -> Usage {
     let mut size = std::mem::size_of::<u64>();
     unsafe {
         let name = std::ffi::CString::new("hw.memsize").unwrap();
-        libc::sysctlbyname(name.as_ptr(), &mut total as *mut _ as *mut _, &mut size, std::ptr::null_mut(), 0);
+        libc::sysctlbyname(
+            name.as_ptr(),
+            &mut total as *mut _ as *mut _,
+            &mut size,
+            std::ptr::null_mut(),
+            0,
+        );
     }
     if total == 0 {
         return Usage::default();
     }
 
     let mut vm_info: libc::vm_statistics64 = unsafe { std::mem::zeroed() };
-    let mut count = (std::mem::size_of::<libc::vm_statistics64>() / std::mem::size_of::<libc::integer_t>()) as libc::mach_msg_type_number_t;
+    let mut count = (std::mem::size_of::<libc::vm_statistics64>()
+        / std::mem::size_of::<libc::integer_t>())
+        as libc::mach_msg_type_number_t;
     let host_port = unsafe { libc::mach_host_self() };
     let ret = unsafe {
         libc::host_statistics64(
@@ -209,9 +224,8 @@ pub fn scan_macos() -> Vec<RawProcStat> {
         }
 
         let mut name_buf = [0u8; 256];
-        let name_res = unsafe {
-            libc::proc_name(pid, name_buf.as_mut_ptr() as *mut _, name_buf.len() as u32)
-        };
+        let name_res =
+            unsafe { libc::proc_name(pid, name_buf.as_mut_ptr() as *mut _, name_buf.len() as u32) };
         let comm = if name_res > 0 {
             String::from_utf8_lossy(&name_buf[..name_res as usize]).to_string()
         } else {
@@ -247,13 +261,33 @@ extern "C" {}
 extern "C" {
     fn IOHIDEventSystemClientCreate(allocator: *const std::ffi::c_void) -> *mut std::ffi::c_void;
     fn IOHIDEventSystemClientCopyServices(client: *mut std::ffi::c_void) -> *mut std::ffi::c_void;
-    fn IOHIDServiceClientCopyProperty(service: *mut std::ffi::c_void, key: *const std::ffi::c_void) -> *const std::ffi::c_void;
-    fn IOHIDServiceClientCopyEvent(service: *mut std::ffi::c_void, event_type: i64, v0: u32, v1: u64) -> *mut std::ffi::c_void;
+    fn IOHIDServiceClientCopyProperty(
+        service: *mut std::ffi::c_void,
+        key: *const std::ffi::c_void,
+    ) -> *const std::ffi::c_void;
+    fn IOHIDServiceClientCopyEvent(
+        service: *mut std::ffi::c_void,
+        event_type: i64,
+        v0: u32,
+        v1: u64,
+    ) -> *mut std::ffi::c_void;
     fn IOHIDEventGetFloatValue(event: *mut std::ffi::c_void, field: u32) -> f64;
     fn CFArrayGetCount(array: *const std::ffi::c_void) -> isize;
-    fn CFArrayGetValueAtIndex(array: *const std::ffi::c_void, index: isize) -> *const std::ffi::c_void;
-    fn CFStringGetCString(cf: *const std::ffi::c_void, buffer: *mut u8, buffer_size: isize, encoding: u32) -> bool;
-    fn CFStringCreateWithCString(allocator: *const std::ffi::c_void, c_str: *const std::ffi::c_char, encoding: u32) -> *const std::ffi::c_void;
+    fn CFArrayGetValueAtIndex(
+        array: *const std::ffi::c_void,
+        index: isize,
+    ) -> *const std::ffi::c_void;
+    fn CFStringGetCString(
+        cf: *const std::ffi::c_void,
+        buffer: *mut u8,
+        buffer_size: isize,
+        encoding: u32,
+    ) -> bool;
+    fn CFStringCreateWithCString(
+        allocator: *const std::ffi::c_void,
+        c_str: *const std::ffi::c_char,
+        encoding: u32,
+    ) -> *const std::ffi::c_void;
     fn CFRelease(cf: *const std::ffi::c_void);
 }
 
@@ -330,9 +364,19 @@ fn macos_num_cpus() -> usize {
     let mut size = std::mem::size_of::<u32>();
     unsafe {
         let name = std::ffi::CString::new("hw.ncpu").unwrap();
-        libc::sysctlbyname(name.as_ptr(), &mut count as *mut _ as *mut _, &mut size, std::ptr::null_mut(), 0);
+        libc::sysctlbyname(
+            name.as_ptr(),
+            &mut count as *mut _ as *mut _,
+            &mut size,
+            std::ptr::null_mut(),
+            0,
+        );
     }
-    if count > 0 { count as usize } else { 1 }
+    if count > 0 {
+        count as usize
+    } else {
+        1
+    }
 }
 
 /// Read temperatures for CPUs/cores from sysfs.

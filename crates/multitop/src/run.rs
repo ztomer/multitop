@@ -3,9 +3,7 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use crossterm::event::{
-    Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers, MouseEventKind,
-};
+use crossterm::event::{Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers, MouseEventKind};
 use tokio::sync::mpsc::{self, Sender};
 use tokio::sync::watch;
 use tokio::task::JoinHandle;
@@ -26,7 +24,6 @@ const RESIZE_DEBOUNCE: Duration = Duration::from_millis(30);
 /// Backoff between reconnection attempts after a dropped SSH session.
 const RECONNECT_BACKOFF: [u64; 4] = [2, 5, 10, 20];
 
-
 use std::path::PathBuf;
 
 pub async fn run(
@@ -40,13 +37,13 @@ pub async fn run(
     result
 }
 
-struct Tasks {
+pub struct Tasks {
     monitors: Vec<Option<JoinHandle<()>>>,
-    aux: Vec<Option<JoinHandle<()>>>,
+    pub aux: Vec<Option<JoinHandle<()>>>,
 }
 
 impl Tasks {
-    fn new(n: usize) -> Self {
+    pub fn new(n: usize) -> Self {
         Tasks {
             monitors: (0..n).map(|_| None).collect(),
             aux: (0..n).map(|_| None).collect(),
@@ -78,6 +75,12 @@ async fn event_loop(
     let n = servers.len();
     let mut app = App::new(servers.clone());
     app.config_path = Some(config_path.clone());
+    for panel in &mut app.panels {
+        if let Ok(Some(password)) = crate::password_store::load(&panel.server) {
+            panel.sudo_password = Some(password);
+            panel.password_saved = true;
+        }
+    }
     if let Ok(cfg) = crate::config::load(&config_path) {
         app.upgrade_history_lines = cfg.upgrade_history_lines;
     }
@@ -97,7 +100,13 @@ async fn event_loop(
     let (dims_tx, dims_rx) = watch::channel(dims);
     let dims_rx = Arc::new(dims_rx);
     for (i, server) in servers.iter().enumerate() {
-        tasks.monitors[i] = Some(spawn_monitor(i, server.clone(), dims_rx.clone(), app.sort, tx.clone()));
+        tasks.monitors[i] = Some(spawn_monitor(
+            i,
+            server.clone(),
+            dims_rx.clone(),
+            app.sort,
+            tx.clone(),
+        ));
     }
 
     let mut resize_at: Option<Instant> = None;
@@ -213,51 +222,9 @@ fn handle_key(
         return;
     }
 
-    // Any panel prompting for sudo intercepts keys, but only the selected
-    // panel receives typed characters.  Number keys switch the active panel.
-    if app.panels.iter().any(|p| p.prompt_sudo) {
-        let sel = app.selected_panel;
-        match key.code {
-            KeyCode::Char(c @ '1'..='9') => {
-                let target = (c as usize) - ('1' as usize);
-                if target < app.panels.len() {
-                    app.selected_panel = target;
-                }
-            }
-            KeyCode::Esc => {
-                app.panels[sel].prompt_sudo = false;
-                app.panels[sel].password_input.clear();
-            }
-            KeyCode::Enter if app.panels[sel].prompt_sudo => {
-                let pass = app.panels[sel].password_input.clone();
-                app.panels[sel].prompt_sudo = false;
-                app.panels[sel].password_input.clear();
-                if !pass.trim().is_empty() {
-                    app.panels[sel].sudo_password = Some(pass.clone());
-                    if let Some(ref path) = app.config_path {
-                        crate::config::save_sudo_password(path, &app.panels[sel].server.host, &pass);
-                    }
-                    if servers[sel].upgrade_cmd.is_some() {
-                        let gen = app.bump(sel);
-                        let pal = app.current_theme();
-                        app.panels[sel].view = vec![format!("{}\u{2192} Upgrade running...{}", pal.meter_mid(), pal.reset)];
-                        let handle = crate::tasks::spawn_upgrade(
-                            sel, gen, servers[sel].clone(), Some(pass), tx.clone(),
-                        );
-                        if let Some(old) = tasks.aux[sel].replace(handle) {
-                            old.abort();
-                        }
-                    }
-                }
-            }
-            KeyCode::Backspace if app.panels[sel].prompt_sudo => {
-                app.panels[sel].password_input.pop();
-            }
-            KeyCode::Char(c) if app.panels[sel].prompt_sudo => {
-                app.panels[sel].password_input.push(c);
-            }
-            _ => {}
-        }
+    if app.password_manager.is_some() {
+        let action = crate::passwords::handle_key(app, key.code);
+        crate::password_actions::apply(action, app, servers, tx, tasks);
         return;
     }
 
@@ -270,11 +237,8 @@ fn handle_key(
             app.quit();
             return;
         }
-        KeyCode::Char('p') | KeyCode::Char('P') => {
-            if app.selected_panel < app.panels.len() {
-                app.panels[app.selected_panel].prompt_sudo = true;
-                app.panels[app.selected_panel].password_input.clear();
-            }
+        KeyCode::Char('e') | KeyCode::Char('E') => {
+            crate::passwords::open(app, app.selected_panel, false);
             return;
         }
         KeyCode::Char(c @ '1'..='9') => {
@@ -345,11 +309,25 @@ fn handle_key(
         let (idx, handle) = match cmd {
             Command::RunFetch { panel, gen } => (
                 panel,
-                crate::tasks::spawn_fetch(panel, gen, servers[panel].clone(), dims, app.sort, tx.clone()),
+                crate::tasks::spawn_fetch(
+                    panel,
+                    gen,
+                    servers[panel].clone(),
+                    dims,
+                    app.sort,
+                    tx.clone(),
+                ),
             ),
             Command::RunDocker { panel, gen } => (
                 panel,
-                crate::tasks::spawn_docker(panel, gen, servers[panel].clone(), dims, app.sort, tx.clone()),
+                crate::tasks::spawn_docker(
+                    panel,
+                    gen,
+                    servers[panel].clone(),
+                    dims,
+                    app.sort,
+                    tx.clone(),
+                ),
             ),
             Command::RunUpgrade { panel, gen } => (
                 panel,
@@ -380,14 +358,27 @@ fn restart_all_agents(
         if let Some(h) = tasks.monitors[i].take() {
             h.abort();
         }
-        tasks.monitors[i] = Some(spawn_monitor(i, server.clone(), dims_rx.clone(), app.sort, tx.clone()));
+        tasks.monitors[i] = Some(spawn_monitor(
+            i,
+            server.clone(),
+            dims_rx.clone(),
+            app.sort,
+            tx.clone(),
+        ));
     }
     if app.in_docker() {
         let dims = *dims_rx.borrow();
         for (i, panel) in app.panels.iter().enumerate() {
             if panel.mode == crate::app::Mode::Docker {
                 let gen = panel.gen;
-                if let Some(old) = tasks.aux[i].replace(crate::tasks::spawn_docker(i, gen, servers[i].clone(), dims, app.sort, tx.clone())) {
+                if let Some(old) = tasks.aux[i].replace(crate::tasks::spawn_docker(
+                    i,
+                    gen,
+                    servers[i].clone(),
+                    dims,
+                    app.sort,
+                    tx.clone(),
+                )) {
                     old.abort();
                 }
             }
@@ -421,9 +412,20 @@ fn spawn_monitor(
                 Ok(mut stream) => {
                     failures = 0;
                     let mut errbuf = Vec::new();
-                    while let Ok(Some(payload)) = stream::next_packet(&mut stream, &mut errbuf).await {
+                    while let Ok(Some(payload)) =
+                        stream::next_packet(&mut stream, &mut errbuf).await
+                    {
                         let dims = *dims_rx.borrow();
-                        if tx.send(Msg::Packet { panel: idx, gen: 0, payload, dims }).await.is_err() {
+                        if tx
+                            .send(Msg::Packet {
+                                panel: idx,
+                                gen: 0,
+                                payload,
+                                dims,
+                            })
+                            .await
+                            .is_err()
+                        {
                             return;
                         }
                     }
@@ -455,7 +457,5 @@ fn spawn_monitor(
         }
     })
 }
-
-
 
 pub use crate::render_payload::render_payload;

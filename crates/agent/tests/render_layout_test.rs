@@ -307,5 +307,9 @@ fn tier_adapts_to_lines() {
     let s = full(4, 10, 80);
     assert_eq!(render(&s, 80, 2, 48, &ANSI).len(), 2, "TooSmall");
     assert_eq!(render(&s, 80, 4, 48, &ANSI).len(), 2, "Micro");
-    assert_eq!(render(&s, 80, 6, 48, &ANSI).len(), 4, "Minimal (Header, CPU, MEM, DSK)");
+    assert_eq!(
+        render(&s, 80, 6, 48, &ANSI).len(),
+        4,
+        "Minimal (Header, CPU, MEM, DSK)"
+    );
 }

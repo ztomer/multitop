@@ -34,7 +34,6 @@ pub struct Server {
     pub port: u16,
     pub user: String,
     pub upgrade_cmd: Option<String>,
-    pub sudo_password: Option<String>,
 }
 
 impl Server {
@@ -140,7 +139,10 @@ pub fn parse(text: &str) -> Result<Config, ConfigError> {
         Err(e) => return err(format!("Could not parse configuration: {e}")),
     };
 
-    let theme = value.get("theme").and_then(|v| v.as_str()).map(String::from);
+    let theme = value
+        .get("theme")
+        .and_then(|v| v.as_str())
+        .map(String::from);
 
     let servers = match value.get("servers") {
         None => return err("No 'servers' entries found in configuration"),
@@ -183,19 +185,11 @@ pub fn parse(text: &str) -> Result<Config, ConfigError> {
             .map(str::to_string)
             .filter(|s| !s.trim().is_empty());
 
-        let sudo_password = table
-            .get("sudo_password")
-            .or_else(|| table.get("sudo_pass"))
-            .and_then(|v| v.as_str())
-            .map(str::to_string)
-            .filter(|s| !s.trim().is_empty());
-
         out.push(Server {
             host,
             port,
             user,
             upgrade_cmd,
-            sudo_password,
         });
     }
 
@@ -215,28 +209,51 @@ pub fn parse(text: &str) -> Result<Config, ConfigError> {
 
 /// Save theme selection back to the TOML configuration file.
 pub fn save_theme(path: &Path, theme_name: &str) {
-    let Ok(content) = std::fs::read_to_string(path) else { return; };
-    let Ok(mut doc) = content.parse::<toml::Table>() else { return; };
-    doc.insert("theme".to_string(), toml::Value::String(theme_name.to_string()));
-    let Ok(new_content) = toml::to_string(&doc) else { return; };
+    let Ok(content) = std::fs::read_to_string(path) else {
+        return;
+    };
+    let Ok(mut doc) = content.parse::<toml::Table>() else {
+        return;
+    };
+    doc.insert(
+        "theme".to_string(),
+        toml::Value::String(theme_name.to_string()),
+    );
+    let Ok(new_content) = toml::to_string(&doc) else {
+        return;
+    };
     let _ = std::fs::write(path, new_content);
 }
 
-/// Save sudo password for a server host back to the TOML configuration file.
-pub fn save_sudo_password(path: &Path, host: &str, password: &str) {
-    let Ok(content) = std::fs::read_to_string(path) else { return; };
-    let Ok(mut doc) = content.parse::<toml::Table>() else { return; };
-    if let Some(toml::Value::Array(servers)) = doc.get_mut("servers") {
-        for server in servers.iter_mut() {
-            if let Some(table) = server.as_table_mut() {
-                if table.get("host").and_then(|h| h.as_str()) == Some(host) {
-                    table.insert("sudo_password".to_string(), toml::Value::String(password.to_string()));
-                }
-            }
-        }
+/// Replace the server list while preserving other top-level configuration.
+pub fn save_servers(path: &Path, servers: &[Server]) -> Result<(), String> {
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent).map_err(|error| error.to_string())?;
     }
-    let Ok(new_content) = toml::to_string(&doc) else { return; };
-    let _ = std::fs::write(path, new_content);
+    let content = std::fs::read_to_string(path).unwrap_or_default();
+    let mut doc = if content.trim().is_empty() {
+        toml::Table::new()
+    } else {
+        content
+            .parse::<toml::Table>()
+            .map_err(|error| error.to_string())?
+    };
+    let entries = servers
+        .iter()
+        .map(|server| {
+            let mut table = toml::Table::new();
+            table.insert("host".into(), toml::Value::String(server.host.clone()));
+            table.insert("port".into(), toml::Value::Integer(server.port.into()));
+            table.insert("user".into(), toml::Value::String(server.user.clone()));
+            if let Some(command) = &server.upgrade_cmd {
+                table.insert("upgrade_cmd".into(), toml::Value::String(command.clone()));
+            }
+            toml::Value::Table(table)
+        })
+        .collect();
+    doc.insert("servers".into(), toml::Value::Array(entries));
+    let output = toml::to_string(&doc).map_err(|error| error.to_string())?;
+    std::fs::write(path, output).map_err(|error| error.to_string())
 }
 
 /// Parse standard SSH config file (~/.ssh/config) for Host blocks.
@@ -265,7 +282,6 @@ pub fn parse_ssh_config(text: &str) -> Vec<Server> {
                         port: current_port,
                         user: current_user.clone(),
                         upgrade_cmd: None,
-                        sudo_password: None,
                     });
                 }
                 if val.contains('*') || val.contains('?') {
@@ -302,11 +318,8 @@ pub fn parse_ssh_config(text: &str) -> Vec<Server> {
             port: current_port,
             user: current_user,
             upgrade_cmd: None,
-            sudo_password: None,
         });
     }
 
     servers
 }
-
-

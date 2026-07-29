@@ -319,19 +319,27 @@ impl ProcSampler {
         self.prev = next;
 
         match sort_by {
-            crate::SortBy::Cpu => temp_procs.sort_unstable_by(|&(i_a, cpu_a, mem_a), &(i_b, cpu_b, mem_b)| {
-                cpu_b
-                    .partial_cmp(&cpu_a)
-                    .unwrap_or(std::cmp::Ordering::Equal)
-                    .then_with(|| mem_b.cmp(&mem_a))
-                    .then_with(|| scanned[i_a].pid.cmp(&scanned[i_b].pid))
-            }),
-            crate::SortBy::Mem => temp_procs.sort_unstable_by(|&(i_a, cpu_a, mem_a), &(i_b, cpu_b, mem_b)| {
-                mem_b
-                    .cmp(&mem_a)
-                    .then_with(|| cpu_b.partial_cmp(&cpu_a).unwrap_or(std::cmp::Ordering::Equal))
-                    .then_with(|| scanned[i_a].pid.cmp(&scanned[i_b].pid))
-            }),
+            crate::SortBy::Cpu => {
+                temp_procs.sort_unstable_by(|&(i_a, cpu_a, mem_a), &(i_b, cpu_b, mem_b)| {
+                    cpu_b
+                        .partial_cmp(&cpu_a)
+                        .unwrap_or(std::cmp::Ordering::Equal)
+                        .then_with(|| mem_b.cmp(&mem_a))
+                        .then_with(|| scanned[i_a].pid.cmp(&scanned[i_b].pid))
+                })
+            }
+            crate::SortBy::Mem => {
+                temp_procs.sort_unstable_by(|&(i_a, cpu_a, mem_a), &(i_b, cpu_b, mem_b)| {
+                    mem_b
+                        .cmp(&mem_a)
+                        .then_with(|| {
+                            cpu_b
+                                .partial_cmp(&cpu_a)
+                                .unwrap_or(std::cmp::Ordering::Equal)
+                        })
+                        .then_with(|| scanned[i_a].pid.cmp(&scanned[i_b].pid))
+                })
+            }
         }
 
         temp_procs.truncate(n);
