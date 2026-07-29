@@ -35,6 +35,8 @@ pub struct Panel {
 impl Panel {
     pub fn new(server: Server) -> Self {
         let pal = &multitop_agent::color::ANSI;
+        let stored_pass = crate::password_store::load(&server).ok().flatten();
+        let password_saved = stored_pass.is_some();
         Panel {
             server,
             mode: Mode::Monitor,
@@ -45,8 +47,8 @@ impl Panel {
             last_docker: None,
             view: vec![format!("{}connecting...{}", pal.muted(), pal.reset)],
             scroll_offset: 0,
-            sudo_password: None,
-            password_saved: false,
+            sudo_password: stored_pass,
+            password_saved,
         }
     }
 
