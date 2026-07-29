@@ -103,6 +103,11 @@ pub enum PasswordAction {
         panel: usize,
     },
     ApplyServers(Vec<Server>),
+    SaveServerWithPassword {
+        servers: Vec<Server>,
+        target_idx: usize,
+        password: String,
+    },
 }
 
 pub fn open(app: &mut App, selected: usize, resume_upgrade: bool) {
@@ -229,10 +234,10 @@ fn server_key(app: &mut App, key: KeyCode) -> PasswordAction {
                             servers.len() - 1
                         };
                         if !pass_input.trim().is_empty() {
-                            return PasswordAction::Save {
-                                panel: target_idx,
+                            return PasswordAction::SaveServerWithPassword {
+                                servers,
+                                target_idx,
                                 password: pass_input,
-                                resume_upgrade: false,
                             };
                         }
                         return PasswordAction::ApplyServers(servers);

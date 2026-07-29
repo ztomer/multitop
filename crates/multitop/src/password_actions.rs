@@ -50,6 +50,26 @@ pub fn apply(
                 });
             }
         }
+        PasswordAction::SaveServerWithPassword {
+            servers: new_servers,
+            target_idx,
+            password,
+        } => {
+            apply(PasswordAction::ApplyServers(new_servers), app, servers, tx, tasks);
+            if target_idx < app.panels.len() {
+                apply(
+                    PasswordAction::Save {
+                        panel: target_idx,
+                        password,
+                        resume_upgrade: false,
+                    },
+                    app,
+                    servers,
+                    tx,
+                    tasks,
+                );
+            }
+        }
         PasswordAction::Delete { panel } => {
             let result = crate::password_store::delete(&app.panels[panel].server);
             app.panels[panel].sudo_password = None;

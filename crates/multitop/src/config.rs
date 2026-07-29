@@ -272,7 +272,7 @@ pub fn parse_ssh_config(text: &str) -> Vec<Server> {
 
         let mut parts = line.split_whitespace();
         let Some(key) = parts.next() else { continue };
-        let val = parts.collect::<Vec<_>>().join(" ");
+        let val = parts.clone().collect::<Vec<_>>().join(" ");
 
         match key.to_lowercase().as_str() {
             "host" => {
@@ -284,10 +284,11 @@ pub fn parse_ssh_config(text: &str) -> Vec<Server> {
                         upgrade_cmd: None,
                     });
                 }
-                if val.contains('*') || val.contains('?') {
+                let first_host = parts.next().unwrap_or("");
+                if first_host.contains('*') || first_host.contains('?') || first_host.is_empty() {
                     current_host = None;
                 } else {
-                    current_host = Some(val);
+                    current_host = Some(first_host.to_string());
                     current_user.clear();
                     current_port = DEFAULT_PORT;
                     real_hostname = None;

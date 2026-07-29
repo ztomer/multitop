@@ -210,7 +210,10 @@ pub fn decode_packet(data: &[u8]) -> Option<Payload> {
     }
     let _version = data[4];
     let mode = data[5];
-    let _payload_len = u16::from_le_bytes([data[6], data[7]]);
+    let payload_len = u16::from_le_bytes([data[6], data[7]]) as usize;
+    if data.len() < 8 + payload_len {
+        return None;
+    }
 
     let mut cur = Cursor::new(&data[8..]);
     match mode {

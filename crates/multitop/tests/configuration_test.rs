@@ -64,3 +64,51 @@ fn server_editor_creates_a_configured_server() {
     assert_eq!(servers[1].user, "deploy");
     assert_eq!(servers[1].port, 2222);
 }
+
+#[test]
+fn test_parse_ssh_config_multi_alias() {
+    let ssh_config = r#"
+Host web db app
+    HostName 192.168.1.100
+    User admin
+    Port 2222
+"#;
+    let servers = multitop::config::parse_ssh_config(ssh_config);
+    assert_eq!(servers.len(), 1);
+    assert_eq!(servers[0].host, "192.168.1.100");
+    assert_eq!(servers[0].user, "admin");
+    assert_eq!(servers[0].port, 2222);
+}
+
+#[test]
+fn test_save_new_server_with_password() {
+    let mut app = App::new(vec![server("one")]);
+    passwords::open(&mut app, 0, false);
+    let _ = passwords::handle_key(&mut app, KeyCode::Tab);
+    let _ = passwords::handle_key(&mut app, KeyCode::Char('a'));
+    for character in "new-server".chars() {
+        let _ = passwords::handle_key(&mut app, KeyCode::Char(character));
+    }
+    // Tab to user
+    let _ = passwords::handle_key(&mut app, KeyCode::Tab);
+    for character in "root".chars() {
+        let _ = passwords::handle_key(&mut app, KeyCode::Char(character));
+    }
+    // Tab to port
+    let _ = passwords::handle_key(&mut app, KeyCode::Tab);
+    // Tab to upgrade_cmd
+    let _ = passwords::handle_key(&mut app, KeyCode::Tab);
+    // Tab to password
+    let _ = passwords::handle_key(&mut app, KeyCode::Tab);
+    for character in "secret123".chars() {
+        let _ = passwords::handle_key(&mut app, KeyCode::Char(character));
+    }
+    let action = passwords::handle_key(&mut app, KeyCode::Enter);
+    let PasswordAction::SaveServerWithPassword { servers, target_idx, password } = action else {
+        panic!("expected SaveServerWithPassword action");
+    };
+    assert_eq!(servers.len(), 2);
+    assert_eq!(target_idx, 1);
+    assert_eq!(password, "secret123");
+}
+

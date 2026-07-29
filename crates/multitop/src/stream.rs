@@ -113,7 +113,11 @@ pub async fn next_packet(
     let mut header = [0u8; 8];
     if let Some(pending4) = stream.pending_header.take() {
         header[..4].copy_from_slice(&pending4);
-        stream.stdout.read_exact(&mut header[4..8]).await?;
+        match stream.stdout.read_exact(&mut header[4..8]).await {
+            Ok(_) => {}
+            Err(e) if e.kind() == std::io::ErrorKind::UnexpectedEof => return Ok(None),
+            Err(e) => return Err(e),
+        }
     } else {
         loop {
             tokio::select! {
