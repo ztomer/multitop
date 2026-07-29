@@ -238,7 +238,105 @@ pub fn scan_macos() -> Vec<RawProcStat> {
     Vec::new()
 }
 
+#[cfg(target_os = "macos")]
+#[link(name = "IOKit", kind = "framework")]
+extern "C" {}
+
+#[cfg(target_os = "macos")]
+#[link(name = "CoreFoundation", kind = "framework")]
+extern "C" {
+    fn IOHIDEventSystemClientCreate(allocator: *const std::ffi::c_void) -> *mut std::ffi::c_void;
+    fn IOHIDEventSystemClientCopyServices(client: *mut std::ffi::c_void) -> *mut std::ffi::c_void;
+    fn IOHIDServiceClientCopyProperty(service: *mut std::ffi::c_void, key: *const std::ffi::c_void) -> *const std::ffi::c_void;
+    fn IOHIDServiceClientCopyEvent(service: *mut std::ffi::c_void, event_type: i64, v0: u32, v1: u64) -> *mut std::ffi::c_void;
+    fn IOHIDEventGetFloatValue(event: *mut std::ffi::c_void, field: u32) -> f64;
+    fn CFArrayGetCount(array: *const std::ffi::c_void) -> isize;
+    fn CFArrayGetValueAtIndex(array: *const std::ffi::c_void, index: isize) -> *const std::ffi::c_void;
+    fn CFStringGetCString(cf: *const std::ffi::c_void, buffer: *mut u8, buffer_size: isize, encoding: u32) -> bool;
+    fn CFStringCreateWithCString(allocator: *const std::ffi::c_void, c_str: *const std::ffi::c_char, encoding: u32) -> *const std::ffi::c_void;
+    fn CFRelease(cf: *const std::ffi::c_void);
+}
+
+#[cfg(target_os = "macos")]
+pub fn get_core_temps() -> HashMap<usize, f64> {
+    let mut temps = HashMap::new();
+    let mut die_temps: HashMap<usize, f64> = HashMap::new();
+    let mut all_tdie = Vec::new();
+
+    unsafe {
+        let client = IOHIDEventSystemClientCreate(std::ptr::null());
+        if client.is_null() {
+            return temps;
+        }
+        let p_key = CFStringCreateWithCString(std::ptr::null(), c"Product".as_ptr(), 0x08000100);
+        let services = IOHIDEventSystemClientCopyServices(client);
+        if !services.is_null() {
+            let count = CFArrayGetCount(services);
+            for i in 0..count {
+                let service = CFArrayGetValueAtIndex(services, i);
+                let event = IOHIDServiceClientCopyEvent(service as *mut _, 15, 0, 0);
+                if !event.is_null() {
+                    let temp = IOHIDEventGetFloatValue(event, 15 << 16);
+                    if (10.0..=120.0).contains(&temp) {
+                        let prop = IOHIDServiceClientCopyProperty(service as *mut _, p_key);
+                        if !prop.is_null() {
+                            let mut buf = [0u8; 128];
+                            if CFStringGetCString(prop, buf.as_mut_ptr(), 128, 0x08000100) {
+                                let len = buf.iter().position(|&b| b == 0).unwrap_or(buf.len());
+                                let name = String::from_utf8_lossy(&buf[..len]);
+                                if name.contains("tdie") {
+                                    all_tdie.push(temp);
+                                    if let Some(idx_str) = name.strip_prefix("PMU tdie") {
+                                        if let Ok(idx) = idx_str.parse::<usize>() {
+                                            die_temps.insert(idx.saturating_sub(1), temp);
+                                        }
+                                    }
+                                }
+                            }
+                            CFRelease(prop);
+                        }
+                    }
+                    CFRelease(event);
+                }
+            }
+            CFRelease(services);
+        }
+        if !p_key.is_null() {
+            CFRelease(p_key);
+        }
+        CFRelease(client);
+    }
+
+    let avg_temp = if !all_tdie.is_empty() {
+        all_tdie.iter().sum::<f64>() / all_tdie.len() as f64
+    } else {
+        0.0
+    };
+
+    if avg_temp > 0.0 {
+        let num_cpus = macos_num_cpus();
+        for i in 0..num_cpus {
+            let t = die_temps.get(&i).copied().unwrap_or(avg_temp);
+            temps.insert(i, t);
+        }
+    }
+
+    temps
+}
+
+#[cfg(target_os = "macos")]
+fn macos_num_cpus() -> usize {
+    let mut count: u32 = 0;
+    let mut size = std::mem::size_of::<u32>();
+    unsafe {
+        let name = std::ffi::CString::new("hw.ncpu").unwrap();
+        libc::sysctlbyname(name.as_ptr(), &mut count as *mut _ as *mut _, &mut size, std::ptr::null_mut(), 0);
+    }
+    if count > 0 { count as usize } else { 1 }
+}
+
 /// Read temperatures for CPUs/cores from sysfs.
+#[cfg(not(target_os = "macos"))]
 pub fn get_core_temps() -> HashMap<usize, f64> {
     let mut temps = HashMap::new();
 
