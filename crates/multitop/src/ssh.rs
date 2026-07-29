@@ -146,9 +146,12 @@ pub async fn spawn_agent(server: &Server, mode: Mode, sort: SortBy) -> io::Resul
 
 /// Run an arbitrary command on the server (used for `upgrade_cmd`).
 pub fn spawn_command(server: &Server, command: &str) -> io::Result<Child> {
+    let quoted = sh_quote(command);
     if is_local(server) {
         let shell = std::env::var("SHELL").unwrap_or_else(|_| "zsh".to_string());
-        let wrapped = format!("source ~/.zshrc 2>/dev/null; source ~/.zprofile 2>/dev/null; source ~/.bashrc 2>/dev/null; {command}");
+        let wrapped = format!(
+            "setopt expand_aliases 2>/dev/null; shopt -s expand_aliases 2>/dev/null; source ~/.zshrc 2>/dev/null; source ~/.zprofile 2>/dev/null; source ~/.bashrc 2>/dev/null; eval {quoted}"
+        );
         return Command::new(&shell)
             .arg("-c")
             .arg(wrapped)
@@ -158,9 +161,8 @@ pub fn spawn_command(server: &Server, command: &str) -> io::Result<Child> {
             .kill_on_drop(true)
             .spawn();
     }
-    let quoted = sh_quote(command);
     let remote_cmd = format!(
-        "if command -v zsh >/dev/null 2>&1; then zsh -c 'source ~/.zshrc 2>/dev/null; {quoted}'; elif command -v bash >/dev/null 2>&1; then bash -c 'source ~/.bashrc 2>/dev/null; {quoted}'; else sh -c {quoted}; fi"
+        "if command -v zsh >/dev/null 2>&1; then zsh -c 'setopt expand_aliases 2>/dev/null; source ~/.zshrc 2>/dev/null; source ~/.zprofile 2>/dev/null; eval {quoted}'; elif command -v bash >/dev/null 2>&1; then bash -c 'shopt -s expand_aliases 2>/dev/null; source ~/.bashrc 2>/dev/null; eval {quoted}'; else sh -c {quoted}; fi"
     );
     ssh_command(server)
         .arg(remote_cmd)
