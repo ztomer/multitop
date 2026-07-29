@@ -149,7 +149,7 @@ pub fn draw(f: &mut Frame, app: &App) {
             )));
         } else {
             lines.push(Line::from(Span::styled(
-                "[Enter/E] Edit  [S] Toggle secure storage  [D] Delete  [Esc/E] Return",
+                "[A] Add Server  [Enter] Edit Password  [S] Toggle secure storage  [D] Delete Server  [Esc/E] Return",
                 Style::default().fg(Color::DarkGray),
             )));
         }

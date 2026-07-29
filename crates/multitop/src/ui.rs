@@ -184,8 +184,9 @@ fn keybar_line(
     let theme_name_padded = format!("{:<11}", theme.name);
     let badge_spans = [
         Span::styled("[", sort_label),
+        Span::styled("S", label),
         Span::styled("E", key_hi),
-        Span::styled(" Settings", label),
+        Span::styled("ttings", label),
         Span::styled("]  ", sort_label),
         Span::styled("[", sort_label),
         Span::styled(

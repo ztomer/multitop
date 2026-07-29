@@ -118,3 +118,27 @@ async fn test_save_password_in_upgrade_mode_triggers_upgrade_resume() {
     assert_eq!(app.panels[0].sudo_password.as_deref(), Some("mypassword"));
     assert_eq!(app.panels[0].mode, Mode::Upgrade);
 }
+
+#[test]
+fn test_add_and_delete_server_from_passwords_section() {
+    let mut app = App::new(vec![test_server("host1"), test_server("host2")]);
+    passwords::open(&mut app, 0, false);
+
+    // Press 'a' in Passwords section -> opens draft
+    let action = passwords::handle_key(&mut app, KeyCode::Char('a'));
+    assert_eq!(action, PasswordAction::None);
+    let manager = app.password_manager.as_ref().unwrap();
+    assert!(manager.draft.is_some());
+
+    // Cancel draft
+    let _ = passwords::handle_key(&mut app, KeyCode::Esc);
+    assert!(app.password_manager.as_ref().unwrap().draft.is_none());
+
+    // Press 'd' in Passwords section -> returns ApplyServers with host1 removed
+    let action_del = passwords::handle_key(&mut app, KeyCode::Char('d'));
+    let PasswordAction::ApplyServers(remaining) = action_del else {
+        panic!("expected ApplyServers action");
+    };
+    assert_eq!(remaining.len(), 1);
+    assert_eq!(remaining[0].host, "host2");
+}

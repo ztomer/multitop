@@ -118,7 +118,10 @@ pub fn handle_key(app: &mut App, key: KeyCode) -> PasswordAction {
     let Some(manager) = app.password_manager.as_mut() else {
         return PasswordAction::None;
     };
-    if key == KeyCode::Tab && !manager.editing && manager.draft.is_none() {
+    if manager.draft.is_some() {
+        return server_key(app, key);
+    }
+    if key == KeyCode::Tab && !manager.editing {
         manager.section = match manager.section {
             ConfigSection::Passwords => ConfigSection::Servers,
             ConfigSection::Servers => ConfigSection::Passwords,
@@ -176,10 +179,22 @@ fn password_key(app: &mut App, key: KeyCode) -> PasswordAction {
             manager.store_on_save = app.panels[manager.selected].password_saved;
             manager.notice = None;
         }
+        KeyCode::Char('a' | 'A') => {
+            manager.draft = Some(ServerDraft::new(None, None));
+            manager.section = ConfigSection::Servers;
+        }
         KeyCode::Char('s' | 'S') => manager.store_on_save = !manager.store_on_save,
         KeyCode::Char('d' | 'D') => {
-            return PasswordAction::Delete {
-                panel: manager.selected,
+            if app.panels.len() > 1 {
+                let mut servers: Vec<Server> = app
+                    .panels
+                    .iter()
+                    .map(|panel| panel.server.clone())
+                    .collect();
+                servers.remove(manager.selected);
+                return PasswordAction::ApplyServers(servers);
+            } else {
+                manager.notice = Some("Cannot remove the last remaining server.".to_string());
             }
         }
         _ => {}
