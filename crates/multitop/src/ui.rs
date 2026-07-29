@@ -143,12 +143,13 @@ fn visible(lines: &[String], height: usize, _pin_header: bool, target_cols: usiz
     out
 }
 
-fn keybar_line(sort: multitop_agent::SortBy, keybar_width: u16) -> Line<'static> {
+fn keybar_line(sort: multitop_agent::SortBy, theme: &multitop_agent::color::Palette, keybar_width: u16) -> Line<'static> {
     let key = Style::default().fg(Color::White);
     let label = Style::default().fg(Color::DarkGray);
     let active = Style::default().fg(Color::White);
     let inactive = Style::default().fg(Color::DarkGray);
     let sort_label = Style::default().fg(Color::Yellow);
+    let theme_val_style = Style::default().fg(Color::Cyan);
 
     let left_spans = [
         Span::styled(" ESC / Q", key),
@@ -160,7 +161,9 @@ fn keybar_line(sort: multitop_agent::SortBy, keybar_width: u16) -> Line<'static>
         Span::styled("S", key),
         Span::styled(" Stats  ", label),
         Span::styled("U", key),
-        Span::styled(" Upgrade", label),
+        Span::styled(" Upgrade  ", label),
+        Span::styled("T", key),
+        Span::styled(" Theme", label),
     ];
     let left_width: usize = left_spans.iter().map(|s| s.content.len()).sum();
 
@@ -170,6 +173,9 @@ fn keybar_line(sort: multitop_agent::SortBy, keybar_width: u16) -> Line<'static>
     };
 
     let badge_spans = [
+        Span::styled("[Theme: ", sort_label),
+        Span::styled(theme.name, theme_val_style),
+        Span::styled("]  ", sort_label),
         Span::styled("[Sort by: ", sort_label),
         Span::styled("Mem", mem_style),
         Span::styled("/ ", sort_label),
@@ -214,7 +220,7 @@ pub fn draw(f: &mut Frame, app: &App) {
     }
 
     f.render_widget(
-        Paragraph::new(keybar_line(app.sort, keybar.width)).style(Style::default().bg(Color::Indexed(236))),
+        Paragraph::new(keybar_line(app.sort, app.current_theme(), keybar.width)).style(Style::default().bg(Color::Indexed(236))),
         keybar,
     );
 }
@@ -325,30 +331,34 @@ mod tests {
 
     #[test]
     fn keybar_lists_every_binding() {
-        let text: String = keybar_line(multitop_agent::SortBy::Cpu, 80)
+        let theme = &multitop_agent::color::KARE;
+        let text: String = keybar_line(multitop_agent::SortBy::Cpu, theme, 120)
             .spans
             .iter()
             .map(|s| s.content.as_ref())
             .collect();
-        for hint in ["ESC", "Quit", "F", "Fetch", "D", "Docker", "S", "Stats", "U", "Upgrade"] {
+        for hint in ["ESC", "Quit", "F", "Fetch", "D", "Docker", "S", "Stats", "U", "Upgrade", "T", "Theme"] {
             assert!(text.contains(hint), "missing {hint} in {text:?}");
         }
     }
 
     #[test]
-    fn keybar_shows_sort_by_cpu() {
-        let text: String = keybar_line(multitop_agent::SortBy::Cpu, 80)
+    fn keybar_shows_sort_by_cpu_and_theme() {
+        let theme = &multitop_agent::color::KARE;
+        let text: String = keybar_line(multitop_agent::SortBy::Cpu, theme, 120)
             .spans
             .iter()
             .map(|s| s.content.as_ref())
             .collect();
+        assert!(text.contains("[Theme: Kare]"), "theme indicator missing");
         assert!(text.contains("[Sort by:"), "sort indicator missing");
         assert!(text.contains("Cpu"), "CPU sort key missing from keybar");
     }
 
     #[test]
     fn keybar_shows_sort_by_mem() {
-        let text: String = keybar_line(multitop_agent::SortBy::Mem, 80)
+        let theme = &multitop_agent::color::KARE;
+        let text: String = keybar_line(multitop_agent::SortBy::Mem, theme, 120)
             .spans
             .iter()
             .map(|s| s.content.as_ref())

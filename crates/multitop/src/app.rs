@@ -114,6 +114,7 @@ pub struct App {
     pub panels: Vec<Panel>,
     pub should_quit: bool,
     pub sort: SortBy,
+    pub theme_idx: usize,
     pub filter_query: String,
     pub is_filtering: bool,
     pub sparklines: Vec<crate::sparkline::SparklineHistory>,
@@ -126,6 +127,7 @@ impl App {
             panels: servers.into_iter().map(Panel::new).collect(),
             should_quit: false,
             sort: SortBy::Cpu,
+            theme_idx: 0,
             filter_query: String::new(),
             is_filtering: false,
             sparklines: (0..count).map(|_| crate::sparkline::SparklineHistory::new(30)).collect(),
@@ -286,9 +288,17 @@ impl App {
         }
     }
 
+    pub fn cycle_theme(&mut self) {
+        self.theme_idx = (self.theme_idx + 1) % multitop_agent::color::THEMES.len();
+    }
+
+    pub fn current_theme(&self) -> &'static multitop_agent::color::Palette {
+        &multitop_agent::color::THEMES[self.theme_idx]
+    }
+
     /// Re-render all fetch-mode panels at the given dimensions.
     pub fn rerender_fetch(&mut self, dims: (u16, u16)) {
-        let pal = &multitop_agent::color::ANSI;
+        let pal = self.current_theme();
         for panel in &mut self.panels {
             if panel.mode == Mode::Fetch {
                 if let Some(snap) = &panel.last_fetch {

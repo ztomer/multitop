@@ -181,6 +181,11 @@ fn handle_key(
             }
             return;
         }
+        KeyCode::Char('t') | KeyCode::Char('T') => {
+            app.cycle_theme();
+            app.rerender_fetch(dims);
+            return;
+        }
         _ => {}
     }
 
