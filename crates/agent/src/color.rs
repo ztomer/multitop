@@ -18,6 +18,9 @@ pub struct Palette {
     pub white: &'static str,
     pub gray: &'static str,
     pub purple: &'static str,
+    pub ratatui_keybar_bg: (u8, u8, u8),
+    pub ratatui_border: (u8, u8, u8),
+    pub ratatui_accent: (u8, u8, u8),
 }
 
 // 1. Kare (Default theme)
@@ -34,6 +37,9 @@ pub const KARE: Palette = Palette {
     white: "\x1b[38;2;248;248;242m",
     gray: "\x1b[38;2;98;114;164m",
     purple: "\x1b[38;2;189;147;249m",
+    ratatui_keybar_bg: (24, 26, 36),
+    ratatui_border: (139, 233, 253),
+    ratatui_accent: (80, 250, 123),
 };
 
 // 2. Dracula
@@ -50,6 +56,9 @@ pub const DRACULA: Palette = Palette {
     white: "\x1b[38;2;248;248;242m",
     gray: "\x1b[38;2;98;114;164m",
     purple: "\x1b[38;2;255;121;198m",
+    ratatui_keybar_bg: (40, 42, 54),
+    ratatui_border: (189, 147, 249),
+    ratatui_accent: (255, 121, 198),
 };
 
 // 3. Nord
@@ -66,6 +75,9 @@ pub const NORD: Palette = Palette {
     white: "\x1b[38;2;236;239;244m",
     gray: "\x1b[38;2;76;86;106m",
     purple: "\x1b[38;2;180;142;173m",
+    ratatui_keybar_bg: (46, 52, 64),
+    ratatui_border: (136, 192, 208),
+    ratatui_accent: (163, 190, 140),
 };
 
 // 4. Gruvbox
@@ -82,6 +94,9 @@ pub const GRUVBOX: Palette = Palette {
     white: "\x1b[38;2;235;219;178m",
     gray: "\x1b[38;2;146;131;116m",
     purple: "\x1b[38;2;211;134;155m",
+    ratatui_keybar_bg: (40, 40, 40),
+    ratatui_border: (250, 189, 47),
+    ratatui_accent: (254, 128, 25),
 };
 
 // 5. Catppuccin
@@ -98,6 +113,9 @@ pub const CATPPUCCIN: Palette = Palette {
     white: "\x1b[38;2;205;214;244m",
     gray: "\x1b[38;2;108;112;134m",
     purple: "\x1b[38;2;203;166;247m",
+    ratatui_keybar_bg: (30, 30, 46),
+    ratatui_border: (203, 166, 247),
+    ratatui_accent: (148, 226, 213),
 };
 
 // 6. Tokyo Night
@@ -114,6 +132,9 @@ pub const TOKYO_NIGHT: Palette = Palette {
     white: "\x1b[38;2;192;202;245m",
     gray: "\x1b[38;2;86;95;137m",
     purple: "\x1b[38;2;187;154;247m",
+    ratatui_keybar_bg: (26, 27, 38),
+    ratatui_border: (122, 162, 247),
+    ratatui_accent: (125, 207, 255),
 };
 
 // 7. Monokai
@@ -130,6 +151,9 @@ pub const MONOKAI: Palette = Palette {
     white: "\x1b[38;2;248;248;242m",
     gray: "\x1b[38;2;117;113;94m",
     purple: "\x1b[38;2;174;129;255m",
+    ratatui_keybar_bg: (39, 40, 34),
+    ratatui_border: (249, 38, 114),
+    ratatui_accent: (166, 226, 46),
 };
 
 // 8. Cyberpunk
@@ -146,6 +170,9 @@ pub const CYBERPUNK: Palette = Palette {
     white: "\x1b[38;2;255;255;255m",
     gray: "\x1b[38;2;80;80;100m",
     purple: "\x1b[38;2;255;0;255m",
+    ratatui_keybar_bg: (15, 15, 30),
+    ratatui_border: (0, 240, 255),
+    ratatui_accent: (255, 0, 85),
 };
 
 pub const THEMES: &[Palette] = &[
@@ -174,6 +201,9 @@ pub const PLAIN: Palette = Palette {
     white: "",
     gray: "",
     purple: "",
+    ratatui_keybar_bg: (0, 0, 0),
+    ratatui_border: (0, 0, 0),
+    ratatui_accent: (0, 0, 0),
 };
 
 impl Palette {

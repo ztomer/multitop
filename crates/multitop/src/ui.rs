@@ -148,8 +148,10 @@ fn keybar_line(sort: multitop_agent::SortBy, theme: &multitop_agent::color::Pale
     let label = Style::default().fg(Color::DarkGray);
     let active = Style::default().fg(Color::White);
     let inactive = Style::default().fg(Color::DarkGray);
-    let sort_label = Style::default().fg(Color::Yellow);
-    let theme_val_style = Style::default().fg(Color::Cyan);
+    let border_color = Color::Rgb(theme.ratatui_border.0, theme.ratatui_border.1, theme.ratatui_border.2);
+    let accent_color = Color::Rgb(theme.ratatui_accent.0, theme.ratatui_accent.1, theme.ratatui_accent.2);
+    let sort_label = Style::default().fg(border_color);
+    let theme_val_style = Style::default().fg(accent_color);
 
     let left_spans = [
         Span::styled(" ESC / Q", key),
@@ -172,9 +174,12 @@ fn keybar_line(sort: multitop_agent::SortBy, theme: &multitop_agent::color::Pale
         multitop_agent::SortBy::Cpu => (inactive, active),
     };
 
+    let theme_name_padded = format!("{:<11}", theme.name);
     let badge_spans = [
-        Span::styled("[Theme: ", sort_label),
-        Span::styled(theme.name, theme_val_style),
+        Span::styled("[", sort_label),
+        Span::styled("T", key),
+        Span::styled("heme: ", sort_label),
+        Span::styled(theme_name_padded, theme_val_style),
         Span::styled("]  ", sort_label),
         Span::styled("[Sort by: ", sort_label),
         Span::styled("Mem", mem_style),
@@ -201,6 +206,8 @@ fn keybar_line(sort: multitop_agent::SortBy, theme: &multitop_agent::color::Pale
 
 pub fn draw(f: &mut Frame, app: &App) {
     let (panel_areas, keybar) = regions(f.area(), app.panels.len());
+    let theme = app.current_theme();
+    let bg_color = Color::Rgb(theme.ratatui_keybar_bg.0, theme.ratatui_keybar_bg.1, theme.ratatui_keybar_bg.2);
 
     for (panel, area) in app.panels.iter().zip(panel_areas) {
         let inner = Rect {
@@ -220,7 +227,7 @@ pub fn draw(f: &mut Frame, app: &App) {
     }
 
     f.render_widget(
-        Paragraph::new(keybar_line(app.sort, app.current_theme(), keybar.width)).style(Style::default().bg(Color::Indexed(236))),
+        Paragraph::new(keybar_line(app.sort, theme, keybar.width)).style(Style::default().bg(bg_color)),
         keybar,
     );
 }
@@ -350,7 +357,7 @@ mod tests {
             .iter()
             .map(|s| s.content.as_ref())
             .collect();
-        assert!(text.contains("[Theme: Kare]"), "theme indicator missing");
+        assert!(text.contains("heme: Kare"), "theme indicator missing");
         assert!(text.contains("[Sort by:"), "sort indicator missing");
         assert!(text.contains("Cpu"), "CPU sort key missing from keybar");
     }

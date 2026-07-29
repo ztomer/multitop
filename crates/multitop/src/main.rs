@@ -114,6 +114,12 @@ fn main() -> ExitCode {
         upgrade_cmd: None,
     };
 
+    let config_path = opts
+        .config_path
+        .clone()
+        .unwrap_or_else(config::default_config_path);
+    let mut initial_theme: Option<String> = None;
+
     let servers = if opts.local_only {
         vec![local_server]
     } else if !opts.remote_hosts.is_empty() {
@@ -132,24 +138,22 @@ fn main() -> ExitCode {
         }
         list
     } else {
-        let path = opts
-            .config_path
-            .unwrap_or_else(config::default_config_path);
-        let mut list = match config::load(&path).map_err(|e| e.0) {
-            Ok(s) => s,
+        let mut cfg = match config::load(&config_path).map_err(|e| e.0) {
+            Ok(c) => c,
             Err(e) => {
                 if opts.local {
-                    Vec::new()
+                    config::Config { servers: Vec::new(), theme: None }
                 } else {
                     eprintln!("[Error] {e}");
                     return ExitCode::FAILURE;
                 }
             }
         };
+        initial_theme = cfg.theme;
         if opts.local {
-            list.insert(0, local_server);
+            cfg.servers.insert(0, local_server);
         }
-        list
+        cfg.servers
     };
 
     if servers.is_empty() {
@@ -183,7 +187,7 @@ fn main() -> ExitCode {
         }
     };
 
-    match runtime.block_on(run::run(servers)) {
+    match runtime.block_on(run::run(servers, config_path, initial_theme)) {
         Ok(()) => ExitCode::SUCCESS,
         Err(e) => {
             eprintln!("[Error] {e}");

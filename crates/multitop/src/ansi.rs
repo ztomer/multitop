@@ -7,31 +7,46 @@
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span, Text};
 
-fn apply_sgr(style: Style, code: u16) -> Style {
-    match code {
-        0 => Style::default(),
-        1 => style.add_modifier(Modifier::BOLD),
-        2 => style.add_modifier(Modifier::DIM),
-        22 => style.remove_modifier(Modifier::BOLD | Modifier::DIM),
-        30 => style.fg(Color::Black),
-        31 => style.fg(Color::Red),
-        32 => style.fg(Color::Green),
-        33 => style.fg(Color::Yellow),
-        34 => style.fg(Color::Blue),
-        35 => style.fg(Color::Magenta),
-        36 => style.fg(Color::Cyan),
-        37 => style.fg(Color::Gray),
-        39 => Style { fg: None, ..style },
-        90 => style.fg(Color::DarkGray),
-        91 => style.fg(Color::LightRed),
-        92 => style.fg(Color::LightGreen),
-        93 => style.fg(Color::LightYellow),
-        94 => style.fg(Color::LightBlue),
-        95 => style.fg(Color::LightMagenta),
-        96 => style.fg(Color::LightCyan),
-        97 => style.fg(Color::White),
-        _ => style,
+fn apply_sgr_params(mut style: Style, params: &[u16]) -> Style {
+    if params.is_empty() {
+        return Style::default();
     }
+    let mut i = 0;
+    while i < params.len() {
+        match params[i] {
+            0 => style = Style::default(),
+            1 => style = style.add_modifier(Modifier::BOLD),
+            2 => style = style.add_modifier(Modifier::DIM),
+            22 => style = style.remove_modifier(Modifier::BOLD | Modifier::DIM),
+            30 => style = style.fg(Color::Black),
+            31 => style = style.fg(Color::Red),
+            32 => style = style.fg(Color::Green),
+            33 => style = style.fg(Color::Yellow),
+            34 => style = style.fg(Color::Blue),
+            35 => style = style.fg(Color::Magenta),
+            36 => style = style.fg(Color::Cyan),
+            37 => style = style.fg(Color::Gray),
+            39 => style.fg = None,
+            90 => style = style.fg(Color::DarkGray),
+            91 => style = style.fg(Color::LightRed),
+            92 => style = style.fg(Color::LightGreen),
+            93 => style = style.fg(Color::LightYellow),
+            94 => style = style.fg(Color::LightBlue),
+            95 => style = style.fg(Color::LightMagenta),
+            96 => style = style.fg(Color::LightCyan),
+            97 => style = style.fg(Color::White),
+            38 if i + 4 < params.len() && params[i + 1] == 2 => {
+                let r = params[i + 2] as u8;
+                let g = params[i + 3] as u8;
+                let b = params[i + 4] as u8;
+                style = style.fg(Color::Rgb(r, g, b));
+                i += 4;
+            }
+            _ => {}
+        }
+        i += 1;
+    }
+    style
 }
 
 /// Parse one line of ANSI-coloured text into styled spans.
@@ -53,6 +68,8 @@ pub fn line_to_spans(input: &str) -> Line<'static> {
         chars.next();
 
         let mut final_byte = None;
+        let mut params = [0u16; 8];
+        let mut num_params = 0;
         let mut sgr_code: u16 = 0;
         let mut has_digits = false;
         let mut reset_bare = true;
@@ -63,15 +80,21 @@ pub fn line_to_spans(input: &str) -> Line<'static> {
                 has_digits = true;
                 reset_bare = false;
             } else if c == ';' {
-                if has_digits {
-                    style = apply_sgr(style, sgr_code);
+                if has_digits && num_params < 8 {
+                    params[num_params] = sgr_code;
+                    num_params += 1;
                     sgr_code = 0;
                     has_digits = false;
-                } else {
-                    style = apply_sgr(style, 0);
+                } else if num_params < 8 {
+                    params[num_params] = 0;
+                    num_params += 1;
                 }
                 reset_bare = false;
             } else if c.is_ascii_alphabetic() {
+                if has_digits && num_params < 8 {
+                    params[num_params] = sgr_code;
+                    num_params += 1;
+                }
                 final_byte = Some(c);
                 break;
             }
@@ -86,9 +109,9 @@ pub fn line_to_spans(input: &str) -> Line<'static> {
             spans.push(Span::styled(std::mem::take(&mut text), style));
         }
         if reset_bare {
-            style = apply_sgr(style, 0);
-        } else if has_digits {
-            style = apply_sgr(style, sgr_code);
+            style = Style::default();
+        } else {
+            style = apply_sgr_params(style, &params[..num_params]);
         }
     }
 

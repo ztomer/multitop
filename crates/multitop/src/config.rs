@@ -107,8 +107,14 @@ fn missing_config_message(path: &Path, legacy: Option<&Path>) -> ConfigError {
     ))
 }
 
-/// Read and validate the server list.
-pub fn load(path: &Path) -> Result<Vec<Server>, ConfigError> {
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Config {
+    pub servers: Vec<Server>,
+    pub theme: Option<String>,
+}
+
+/// Read and validate the server list and config settings.
+pub fn load(path: &Path) -> Result<Config, ConfigError> {
     let legacy = legacy_config_path();
     let text = match std::fs::read_to_string(path) {
         Ok(t) => t,
@@ -122,13 +128,15 @@ pub fn load(path: &Path) -> Result<Vec<Server>, ConfigError> {
 
 /// Parse config text. Split from [`load`] so the validation rules are
 /// testable without touching the filesystem.
-pub fn parse(text: &str) -> Result<Vec<Server>, ConfigError> {
+pub fn parse(text: &str) -> Result<Config, ConfigError> {
     // `Value::from_str` parses a bare value; a whole document needs the
     // deserializer entry point.
     let value: toml::Value = match toml::from_str(text) {
         Ok(v) => v,
         Err(e) => return err(format!("Could not parse configuration: {e}")),
     };
+
+    let theme = value.get("theme").and_then(|v| v.as_str()).map(String::from);
 
     let servers = match value.get("servers") {
         None => return err("No 'servers' entries found in configuration"),
@@ -178,7 +186,16 @@ pub fn parse(text: &str) -> Result<Vec<Server>, ConfigError> {
             upgrade_cmd,
         });
     }
-    Ok(out)
+    Ok(Config { servers: out, theme })
+}
+
+/// Save theme selection back to the TOML configuration file.
+pub fn save_theme(path: &Path, theme_name: &str) {
+    let Ok(content) = std::fs::read_to_string(path) else { return; };
+    let Ok(mut doc) = content.parse::<toml::Table>() else { return; };
+    doc.insert("theme".to_string(), toml::Value::String(theme_name.to_string()));
+    let Ok(new_content) = toml::to_string(&doc) else { return; };
+    let _ = std::fs::write(path, new_content);
 }
 
 /// Parse standard SSH config file (~/.ssh/config) for Host blocks.
@@ -201,24 +218,34 @@ pub fn parse_ssh_config(text: &str) -> Vec<Server> {
 
         match key.to_lowercase().as_str() {
             "host" => {
-                if let Some(host_alias) = current_host.take() {
-                    if host_alias != "*" && !host_alias.contains('*') && !host_alias.contains('?') {
-                        servers.push(Server {
-                            host: real_hostname.unwrap_or(host_alias),
-                            port: current_port,
-                            user: current_user.clone(),
-                            upgrade_cmd: None,
-                        });
-                    }
+                if let Some(host) = current_host.take() {
+                    servers.push(Server {
+                        host: real_hostname.take().unwrap_or(host),
+                        port: current_port,
+                        user: current_user.clone(),
+                        upgrade_cmd: None,
+                    });
                 }
-                current_host = Some(val.clone());
-                current_user.clear();
-                current_port = DEFAULT_PORT;
-                real_hostname = None;
+                if val.contains('*') || val.contains('?') {
+                    current_host = None;
+                } else {
+                    current_host = Some(val);
+                    current_user.clear();
+                    current_port = DEFAULT_PORT;
+                    real_hostname = None;
+                }
             }
-            "hostname" => real_hostname = Some(val),
-            "user" => current_user = val,
-            "port" => {
+            "hostname" => {
+                if current_host.is_some() {
+                    real_hostname = Some(val);
+                }
+            }
+            "user" => {
+                if current_host.is_some() {
+                    current_user = val;
+                }
+            }
+            "port" if current_host.is_some() => {
                 if let Ok(p) = val.parse::<u16>() {
                     current_port = p;
                 }
@@ -227,15 +254,13 @@ pub fn parse_ssh_config(text: &str) -> Vec<Server> {
         }
     }
 
-    if let Some(host_alias) = current_host {
-        if host_alias != "*" && !host_alias.contains('*') && !host_alias.contains('?') {
-            servers.push(Server {
-                host: real_hostname.unwrap_or(host_alias),
-                port: current_port,
-                user: current_user,
-                upgrade_cmd: None,
-            });
-        }
+    if let Some(host) = current_host {
+        servers.push(Server {
+            host: real_hostname.take().unwrap_or(host),
+            port: current_port,
+            user: current_user,
+            upgrade_cmd: None,
+        });
     }
 
     servers
@@ -252,11 +277,11 @@ mod tests {
     #[test]
     fn valid_single_server() {
         let s = parse("[[servers]]\nhost = \"192.168.0.33\"\nport = 22\nuser = \"\"\n").unwrap();
-        assert_eq!(s.len(), 1);
-        assert_eq!(s[0].host, "192.168.0.33");
-        assert_eq!(s[0].port, 22);
-        assert_eq!(s[0].user, "");
-        assert_eq!(s[0].upgrade_cmd, None);
+        assert_eq!(s.servers.len(), 1);
+        assert_eq!(s.servers[0].host, "192.168.0.33");
+        assert_eq!(s.servers[0].port, 22);
+        assert_eq!(s.servers[0].user, "");
+        assert_eq!(s.servers[0].upgrade_cmd, None);
     }
 
     #[test]
@@ -265,14 +290,14 @@ mod tests {
             "[[servers]]\nhost = \"192.168.0.33\"\n\n[[servers]]\nhost = \"192.168.0.90\"\nuser = \"admin\"\n",
         )
         .unwrap();
-        assert_eq!(s.len(), 2);
-        assert_eq!(s[1].user, "admin");
+        assert_eq!(s.servers.len(), 2);
+        assert_eq!(s.servers[1].user, "admin");
     }
 
     #[test]
     fn port_defaults_to_22() {
         assert_eq!(
-            parse("[[servers]]\nhost = \"a\"\n").unwrap()[0].port,
+            parse("[[servers]]\nhost = \"a\"\n").unwrap().servers[0].port,
             DEFAULT_PORT
         );
     }
@@ -280,13 +305,13 @@ mod tests {
     #[test]
     fn upgrade_cmd_read() {
         let s = parse("[[servers]]\nhost = \"a\"\nupgrade_cmd = \"apt upgrade -y\"\n").unwrap();
-        assert_eq!(s[0].upgrade_cmd.as_deref(), Some("apt upgrade -y"));
+        assert_eq!(s.servers[0].upgrade_cmd.as_deref(), Some("apt upgrade -y"));
     }
 
     #[test]
     fn blank_upgrade_cmd_is_none() {
         let s = parse("[[servers]]\nhost = \"a\"\nupgrade_cmd = \"   \"\n").unwrap();
-        assert_eq!(s[0].upgrade_cmd, None);
+        assert_eq!(s.servers[0].upgrade_cmd, None);
     }
 
     #[test]
@@ -400,8 +425,8 @@ mod tests {
     /// The bundled example must itself be a config the parser accepts.
     #[test]
     fn bundled_example_is_valid() {
-        let servers = parse(EXAMPLE_CONFIG).expect("example config must parse");
-        assert!(!servers.is_empty());
+        let cfg = parse(EXAMPLE_CONFIG).expect("example config must parse");
+        assert!(!cfg.servers.is_empty());
     }
 
     #[test]
@@ -420,5 +445,22 @@ mod tests {
         assert_eq!(servers[0].host, "192.168.0.33");
         assert_eq!(servers[0].user, "ztomer");
         assert_eq!(servers[0].port, 2222);
+    }
+
+    #[test]
+    fn theme_parsing_and_persistence() {
+        let text = "theme = \"Dracula\"\n[[servers]]\nhost = \"localhost\"\n";
+        let cfg = parse(text).unwrap();
+        assert_eq!(cfg.theme.as_deref(), Some("Dracula"));
+
+        let dir = std::env::temp_dir().join("multitop_test_theme");
+        let _ = std::fs::create_dir_all(&dir);
+        let path = dir.join("config.toml");
+        std::fs::write(&path, text).unwrap();
+
+        save_theme(&path, "Cyberpunk");
+        let updated = load(&path).unwrap();
+        assert_eq!(updated.theme.as_deref(), Some("Cyberpunk"));
+        let _ = std::fs::remove_dir_all(dir);
     }
 }

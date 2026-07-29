@@ -24,9 +24,15 @@ const RESIZE_DEBOUNCE: Duration = Duration::from_millis(30);
 const RECONNECT_BACKOFF: [u64; 4] = [2, 5, 10, 20];
 
 
-pub async fn run(servers: Vec<Server>) -> std::io::Result<()> {
+use std::path::PathBuf;
+
+pub async fn run(
+    servers: Vec<Server>,
+    config_path: PathBuf,
+    initial_theme: Option<String>,
+) -> std::io::Result<()> {
     let mut terminal = ratatui::init();
-    let result = event_loop(&mut terminal, servers).await;
+    let result = event_loop(&mut terminal, servers, config_path, initial_theme).await;
     ratatui::restore();
     result
 }
@@ -63,9 +69,20 @@ use multitop_agent::SortBy;
 async fn event_loop(
     terminal: &mut ratatui::DefaultTerminal,
     servers: Vec<Server>,
+    config_path: PathBuf,
+    initial_theme: Option<String>,
 ) -> std::io::Result<()> {
     let n = servers.len();
     let mut app = App::new(servers.clone());
+    app.config_path = Some(config_path);
+    if let Some(ref tname) = initial_theme {
+        if let Some(idx) = multitop_agent::color::THEMES
+            .iter()
+            .position(|t| t.name.eq_ignore_ascii_case(tname))
+        {
+            app.theme_idx = idx;
+        }
+    }
     let (tx, mut rx) = mpsc::channel::<Msg>(512);
     let mut tasks = Tasks::new(n);
     let mut events = crossterm::event::EventStream::new();
@@ -183,6 +200,9 @@ fn handle_key(
         }
         KeyCode::Char('t') | KeyCode::Char('T') => {
             app.cycle_theme();
+            if let Some(ref path) = app.config_path {
+                crate::config::save_theme(path, app.current_theme().name);
+            }
             app.rerender_fetch(dims);
             return;
         }
