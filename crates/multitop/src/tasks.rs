@@ -44,29 +44,38 @@ pub fn spawn_fetch(
             }
         };
 
-        let _ = tx
-            .send(Msg::AuxBegin {
-                panel: idx,
-                gen,
-                header: None,
-            })
-            .await;
         let mut errbuf = Vec::new();
 
         while let Ok(Some(payload)) = next_packet(&mut stream, &mut errbuf).await {
-            let lines = render_payload(&payload, dims, sort, &multitop_agent::color::ANSI);
-
-            for line in lines {
-                if tx
-                    .send(Msg::AuxLine {
+            if let multitop_agent::proto::Payload::Fetch(snap) = payload {
+                let lines = render_payload(
+                    &multitop_agent::proto::Payload::Fetch(snap.clone()),
+                    dims,
+                    sort,
+                    &multitop_agent::color::ANSI,
+                );
+                let _ = tx
+                    .send(Msg::FetchData {
                         panel: idx,
                         gen,
-                        line,
+                        snap,
+                        lines,
                     })
-                    .await
-                    .is_err()
-                {
-                    return;
+                    .await;
+            } else {
+                let lines = render_payload(&payload, dims, sort, &multitop_agent::color::ANSI);
+                for line in lines {
+                    if tx
+                        .send(Msg::AuxLine {
+                            panel: idx,
+                            gen,
+                            line,
+                        })
+                        .await
+                        .is_err()
+                    {
+                        return;
+                    }
                 }
             }
         }

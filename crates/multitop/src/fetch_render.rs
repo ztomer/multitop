@@ -64,7 +64,9 @@ fn parse_db(bytes: &[u8]) -> LogoDb {
         for _ in 0..num_lines {
             let llen = bytes[pos] as usize;
             pos += 1;
-            lines.push(String::from_utf8_lossy(&bytes[pos..pos + llen]).to_string());
+            lines.push(strip_color_markers(
+                &String::from_utf8_lossy(&bytes[pos..pos + llen]),
+            ));
             pos += llen;
         }
 
@@ -93,47 +95,72 @@ fn color_for(ci: u8, pal: &Palette) -> &'static str {
     }
 }
 
-fn find_logo<'a>(db: &'a LogoDb, os: &str, kernel: &str) -> Option<&'a Logo> {
+fn strip_color_markers(s: &str) -> String {
+    let mut result = String::with_capacity(s.len());
+    let bytes = s.as_bytes();
+    let mut last = 0;
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i] == b'$'
+            && i + 3 < bytes.len()
+            && bytes[i + 1] == b'{'
+            && bytes[i + 2] == b'c'
+            && bytes[i + 3].is_ascii_digit()
+        {
+            result.push_str(&s[last..i]);
+            i += 3;
+            while i < bytes.len() && bytes[i].is_ascii_digit() {
+                i += 1;
+            }
+            if i < bytes.len() && bytes[i] == b'}' {
+                i += 1;
+                last = i;
+                continue;
+            }
+        } else {
+            i += 1;
+        }
+    }
+    result.push_str(&s[last..]);
+    result
+}
+
+fn find_logo<'a>(db: &'a LogoDb, os: &str, kernel: &str, max_logo_width: usize) -> Option<&'a Logo> {
     let o = os.to_ascii_lowercase();
     let k = kernel.to_ascii_lowercase();
+
+    let mut best_fit: Option<&'a Logo> = None;
+    let mut best_fit_width: usize = 0;
 
     for logo in &db.logos {
         for pat in &logo.patterns {
             let pl = pat.as_str();
             if !pl.is_empty() && (o.starts_with(pl) || k.starts_with(pl)) {
-                return Some(logo);
+                let logo_width = logo.lines.iter().map(|l| l.chars().count()).max().unwrap_or(0);
+                if logo_width <= max_logo_width && logo_width > best_fit_width {
+                    best_fit = Some(logo);
+                    best_fit_width = logo_width;
+                }
+                break;
             }
         }
     }
-    None
+    best_fit
 }
 
-/// Pick the best N lines from a logo to fit available height.
-///
-/// If the logo has ≤ `target` lines, pad with empty lines (centered).
-/// If it has more, take the center `target` lines so the most recognizable
-/// part of the art is shown.
+/// Crop the center `target` lines of a logo when we don't have room for all of it.
 fn pick_lines(logo: &Logo, target: usize) -> Vec<&str> {
-    if logo.lines.is_empty() {
-        return vec![""; target];
-    }
     if logo.lines.len() <= target {
-        let out: Vec<&str> = logo.lines.iter().map(|s| s.as_str()).collect();
-        let pad_top = (target - out.len()) / 2;
-        let pad_bot = target - out.len() - pad_top;
-        let mut result = Vec::with_capacity(target);
-        result.extend(std::iter::repeat_n("", pad_top));
-        result.extend(out);
-        result.extend(std::iter::repeat_n("", pad_bot));
-        return result;
+        return logo.lines.iter().map(|s| s.as_str()).collect();
     }
-    // Logo is taller than target: crop center portion
     let start = (logo.lines.len() - target) / 2;
     logo.lines[start..start + target]
         .iter()
         .map(|s| s.as_str())
         .collect()
 }
+
+
 
 pub fn render_fetch(
     snap: &FetchSnapshot,
@@ -145,7 +172,6 @@ pub fn render_fetch(
     out.push(center_header(&snap.user_host, cols, pal));
 
     let db = load_db();
-    let logo = find_logo(db, &snap.os, &snap.kernel);
 
     let details: [(&str, &str); 7] = [
         ("OS", &snap.os),
@@ -157,40 +183,63 @@ pub fn render_fetch(
         ("Disk", &snap.disk_str),
     ];
 
+    let max_val_len = details.iter().map(|(_, v)| v.chars().count()).max().unwrap_or(0);
+    // Overhead = 1 (space before logo) + 1 (space after logo) + 7 (label) + 3 (" : ") + max_val_len
+    let detail_overhead = 12 + max_val_len;
+    let max_logo_width = cols.saturating_sub(detail_overhead);
+    let logo = find_logo(db, &snap.os, &snap.kernel, max_logo_width);
+
     let colors_row = format!(
         "\x1b[40m  \x1b[41m  \x1b[42m  \x1b[43m  \x1b[44m  \x1b[45m  \x1b[46m  \x1b[47m  {}",
         pal.reset
     );
 
     let max_body = max_rows.saturating_sub(1);
-    let mut row_idx = 0;
 
     if let Some(lg) = logo {
         let accent = color_for(lg.colors.first().copied().unwrap_or(7), pal);
-        let n = details.len().min(max_body);
-        let logo_lines = pick_lines(lg, n);
-        let logo_width = logo_lines.iter().map(|l| l.len()).max().unwrap_or(0);
+        let logo_lines = pick_lines(lg, max_body);
+        let logo_width = logo_lines.iter().map(|l| l.chars().count()).max().unwrap_or(0);
+        let total_rows = logo_lines.len().max(details.len()).min(max_body);
 
-        for (i, &(label, val)) in details.iter().enumerate().take(n) {
+        for i in 0..total_rows {
             let logo_part = logo_lines.get(i).copied().unwrap_or("");
+            if i < details.len() {
+                let (label, val) = &details[i];
+                out.push(format!(
+                    " {}{:logo_width$}{}{} {}{:<7}{} : {}{}{}",
+                    accent,
+                    logo_part,
+                    pal.reset,
+                    "",
+                    pal.bold,
+                    label,
+                    pal.reset,
+                    pal.white,
+                    val,
+                    pal.reset,
+                    logo_width = logo_width,
+                ));
+            } else {
+                out.push(format!(
+                    " {}{:logo_width$}{}{}",
+                    accent,
+                    logo_part,
+                    pal.reset,
+                    "",
+                    logo_width = logo_width,
+                ));
+            }
+        }
+
+        if total_rows < max_body {
             out.push(format!(
-                " {}{:logo_width$}{}{} {}{:<7}{} : {}{}{}",
-                accent,
-                logo_part,
-                pal.reset,
-                "",
-                pal.bold,
-                label,
-                pal.reset,
-                pal.white,
-                val,
-                pal.reset,
-                logo_width = logo_width,
+                "   {}",
+                colors_row
             ));
-            row_idx += 1;
         }
     } else {
-        // No logo — just list details without the left column
+        let mut row_idx = 0;
         for (label, val) in &details {
             if row_idx >= max_body {
                 break;
@@ -206,13 +255,12 @@ pub fn render_fetch(
             ));
             row_idx += 1;
         }
-    }
-
-    if row_idx < max_body {
-        out.push(format!(
-            "   {}",
-            colors_row
-        ));
+        if row_idx < max_body {
+            out.push(format!(
+                "   {}",
+                colors_row
+            ));
+        }
     }
 
     out

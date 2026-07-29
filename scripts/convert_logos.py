@@ -59,7 +59,14 @@ def build_logo_db(json_path: str) -> bytes:
             p = p.strip().rstrip("*").strip('"').strip()
             if not p or p == "*":
                 continue
-            pats.append(p.lower())
+            p = p.lower()
+            # Map size-variant suffixes to the base distro name so e.g.
+            # "ubuntu_small" also matches OS string "Ubuntu …".
+            for suffix in ("_small", "_old"):
+                if p.endswith(suffix):
+                    p = p[: -len(suffix)]
+                    break
+            pats.append(p)
         if pats:
             valid.append((ent, pats))
 

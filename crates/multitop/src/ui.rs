@@ -143,9 +143,27 @@ fn visible(lines: &[String], height: usize, _pin_header: bool, target_cols: usiz
     out
 }
 
-fn keybar_line() -> Line<'static> {
+fn keybar_line(sort: multitop_agent::SortBy, keybar_width: u16) -> Line<'static> {
     let key = Style::default().fg(Color::White);
     let label = Style::default().fg(Color::DarkGray);
+    let active = Style::default().fg(Color::White);
+    let inactive = Style::default().fg(Color::DarkGray);
+    let sort_label = Style::default().fg(Color::Yellow);
+
+    // Fixed left part: " ESC / Q Quit  F Fetch  D Docker  S Stats  U Upgrade"
+    let left_width: u16 = " ESC / Q Quit  F Fetch  D Docker  S Stats  U Upgrade".len() as u16;
+    // Sort badge: "[Sort by: Mem/ Cpu]"
+    let badge_width: u16 = "[Sort by: Mem/ Cpu]".len() as u16;
+    let pad = (keybar_width as usize)
+        .saturating_sub(left_width as usize)
+        .saturating_sub(badge_width as usize);
+    let pad_str = " ".repeat(pad);
+
+    let (mem_style, cpu_style) = match sort {
+        multitop_agent::SortBy::Mem => (active, inactive),
+        multitop_agent::SortBy::Cpu => (inactive, active),
+    };
+
     Line::from(vec![
         Span::styled(" ESC / Q", key),
         Span::styled(" Quit  ", label),
@@ -157,6 +175,12 @@ fn keybar_line() -> Line<'static> {
         Span::styled(" Stats  ", label),
         Span::styled("U", key),
         Span::styled(" Upgrade", label),
+        Span::styled(pad_str, label),
+        Span::styled("[Sort by: ", sort_label),
+        Span::styled("Mem", mem_style),
+        Span::styled("/ ", sort_label),
+        Span::styled("Cpu", cpu_style),
+        Span::styled("]", sort_label),
     ])
 }
 
@@ -181,7 +205,7 @@ pub fn draw(f: &mut Frame, app: &App) {
     }
 
     f.render_widget(
-        Paragraph::new(keybar_line()).style(Style::default().bg(Color::Indexed(236))),
+        Paragraph::new(keybar_line(app.sort, keybar.width)).style(Style::default().bg(Color::Indexed(236))),
         keybar,
     );
 }
@@ -292,7 +316,7 @@ mod tests {
 
     #[test]
     fn keybar_lists_every_binding() {
-        let text: String = keybar_line()
+        let text: String = keybar_line(multitop_agent::SortBy::Cpu, 80)
             .spans
             .iter()
             .map(|s| s.content.as_ref())
@@ -300,5 +324,27 @@ mod tests {
         for hint in ["ESC", "Quit", "F", "Fetch", "D", "Docker", "S", "Stats", "U", "Upgrade"] {
             assert!(text.contains(hint), "missing {hint} in {text:?}");
         }
+    }
+
+    #[test]
+    fn keybar_shows_sort_by_cpu() {
+        let text: String = keybar_line(multitop_agent::SortBy::Cpu, 80)
+            .spans
+            .iter()
+            .map(|s| s.content.as_ref())
+            .collect();
+        assert!(text.contains("[Sort by:"), "sort indicator missing");
+        assert!(text.contains("Cpu"), "CPU sort key missing from keybar");
+    }
+
+    #[test]
+    fn keybar_shows_sort_by_mem() {
+        let text: String = keybar_line(multitop_agent::SortBy::Mem, 80)
+            .spans
+            .iter()
+            .map(|s| s.content.as_ref())
+            .collect();
+        assert!(text.contains("[Sort by:"), "sort indicator missing");
+        assert!(text.contains("Mem"), "Memory sort key missing from keybar");
     }
 }

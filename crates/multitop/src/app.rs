@@ -5,6 +5,8 @@
 //! runtime in `run.rs` does the I/O; this module can be tested without a
 //! terminal or a network.
 
+use multitop_agent::fetch::FetchSnapshot;
+
 use crate::config::Server;
 
 /// Status lines carry their own ANSI so a panel's contents are always just
@@ -36,6 +38,8 @@ pub struct Panel {
     /// Most recent monitor frame, kept across mode switches so returning to
     /// stats is instant instead of showing "connecting..." again.
     pub last_frame: Option<Vec<String>>,
+    /// Raw fetch snapshot, kept so the fetch view can be re-rendered on resize.
+    pub last_fetch: Option<FetchSnapshot>,
     pub view: Vec<String>,
 }
 
@@ -46,6 +50,7 @@ impl Panel {
             mode: Mode::Monitor,
             gen: 0,
             last_frame: None,
+            last_fetch: None,
             view: vec![format!("{GRAY}connecting...{RESET}")],
         }
     }
@@ -77,6 +82,13 @@ pub enum Msg {
         panel: usize,
         gen: u64,
         text: String,
+    },
+    /// Fetch data arrived — store the raw snapshot and its rendered view.
+    FetchData {
+        panel: usize,
+        gen: u64,
+        snap: FetchSnapshot,
+        lines: Vec<String>,
     },
     /// Begin collecting command output, optionally under a header.
     AuxBegin {
@@ -245,6 +257,12 @@ impl App {
                     self.panels[panel].view = vec![text];
                 }
             }
+            Msg::FetchData { panel, gen, snap, lines } => {
+                if self.accepts(panel, gen) {
+                    self.panels[panel].last_fetch = Some(snap);
+                    self.panels[panel].view = lines;
+                }
+            }
             Msg::AuxBegin { panel, gen, header } => {
                 if self.accepts(panel, gen) {
                     self.panels[panel].view = header.into_iter().collect();
@@ -263,6 +281,23 @@ impl App {
             Msg::AuxDone { panel, gen, note } => {
                 if let (true, Some(note)) = (self.accepts(panel, gen), note) {
                     self.panels[panel].view.push(note);
+                }
+            }
+        }
+    }
+
+    /// Re-render all fetch-mode panels at the given dimensions.
+    pub fn rerender_fetch(&mut self, dims: (u16, u16)) {
+        let pal = &multitop_agent::color::ANSI;
+        for panel in &mut self.panels {
+            if panel.mode == Mode::Fetch {
+                if let Some(snap) = &panel.last_fetch {
+                    panel.view = crate::fetch_render::render_fetch(
+                        snap,
+                        dims.0 as usize,
+                        dims.1 as usize,
+                        pal,
+                    );
                 }
             }
         }

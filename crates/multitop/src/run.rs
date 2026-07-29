@@ -128,6 +128,8 @@ async fn event_loop(
                 if new_dims != dims {
                     dims = new_dims;
                     let _ = dims_tx.send(new_dims);
+                    // Re-render fetch panels at the new size so logos adapt.
+                    app.rerender_fetch(new_dims);
                 }
                 dirty = true;
             }
