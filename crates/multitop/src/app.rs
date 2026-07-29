@@ -9,12 +9,7 @@ use multitop_agent::fetch::FetchSnapshot;
 
 use crate::config::Server;
 
-/// Status lines carry their own ANSI so a panel's contents are always just
-/// "lines of agent-flavoured text", whatever produced them.
-const YELLOW: &str = "\x1b[0;33m";
-const RED: &str = "\x1b[0;31m";
-const GRAY: &str = "\x1b[0;90m";
-const RESET: &str = "\x1b[0m";
+
 
 /// Upper bound on retained command output, so a chatty `upgrade_cmd` cannot
 /// grow the buffer without limit. The view shows the tail regardless.
@@ -35,27 +30,31 @@ pub struct Panel {
     pub gen: u64,
     pub last_frame: Option<Vec<String>>,
     pub last_fetch: Option<FetchSnapshot>,
-    pub last_payload: Option<multitop_agent::proto::Payload>,
+    pub last_monitor: Option<multitop_agent::proto::Payload>,
+    pub last_docker: Option<multitop_agent::proto::Payload>,
     pub view: Vec<String>,
 }
 
 impl Panel {
     fn new(server: Server) -> Self {
+        let pal = &multitop_agent::color::ANSI;
         Panel {
             server,
             mode: Mode::Monitor,
             gen: 0,
             last_frame: None,
             last_fetch: None,
-            last_payload: None,
-            view: vec![format!("{GRAY}connecting...{RESET}")],
+            last_monitor: None,
+            last_docker: None,
+            view: vec![format!("{}connecting...{}", pal.muted(), pal.reset)],
         }
     }
 
     fn show_last_frame(&mut self) {
+        let pal = &multitop_agent::color::ANSI;
         self.view = match &self.last_frame {
             Some(f) => f.clone(),
-            None => vec![format!("{YELLOW}waiting for data...{RESET}")],
+            None => vec![format!("{}waiting for data...{}", pal.meter_mid(), pal.reset)],
         };
     }
 }
@@ -175,12 +174,13 @@ impl App {
         if self.in_fetch() {
             return self.switch_stats();
         }
+        let pal = self.current_theme();
         let mut cmds = Vec::with_capacity(self.panels.len());
         for i in 0..self.panels.len() {
             let gen = self.bump(i);
             let p = &mut self.panels[i];
             p.mode = Mode::Fetch;
-            p.view = vec![format!("{YELLOW}\u{2192} Fetching system info...{RESET}")];
+            p.view = vec![format!("{}\u{2192} Fetching system info...{}", pal.meter_mid(), pal.reset)];
             cmds.push(Command::RunFetch { panel: i, gen });
         }
         cmds
@@ -194,12 +194,13 @@ impl App {
         if self.in_docker() {
             return self.switch_stats();
         }
+        let pal = self.current_theme();
         let mut cmds = Vec::with_capacity(self.panels.len());
         for i in 0..self.panels.len() {
             let gen = self.bump(i);
             let p = &mut self.panels[i];
             p.mode = Mode::Docker;
-            p.view = vec![format!("{YELLOW}\u{2192} Docker loading...{RESET}")];
+            p.view = vec![format!("{}\u{2192} Docker loading...{}", pal.meter_mid(), pal.reset)];
             cmds.push(Command::RunDocker { panel: i, gen });
         }
         cmds
@@ -218,6 +219,7 @@ impl App {
 
     /// `u`: run each server's configured upgrade command.
     pub fn run_upgrade(&mut self) -> Vec<Command> {
+        let pal = self.current_theme();
         let mut cmds = Vec::new();
         for i in 0..self.panels.len() {
             let gen = self.bump(i);
@@ -225,12 +227,14 @@ impl App {
             p.mode = Mode::Upgrade;
             match p.server.upgrade_cmd.is_some() {
                 true => {
-                    p.view = vec![format!("{YELLOW}\u{2192} Upgrade running...{RESET}")];
+                    p.view = vec![format!("{}\u{2192} Upgrade running...{}", pal.meter_mid(), pal.reset)];
                     cmds.push(Command::RunUpgrade { panel: i, gen });
                 }
                 false => {
                     p.view = vec![format!(
-                        "{YELLOW}No upgrade_cmd configured for this server{RESET}\n"
+                        "{}No upgrade_cmd configured for this server{}\n",
+                        pal.meter_mid(),
+                        pal.reset
                     )];
                 }
             }
@@ -254,15 +258,30 @@ impl App {
                 let sort = self.sort;
                 let accepts = self.accepts(panel, gen);
                 let Some(p) = self.panels.get_mut(panel) else { return; };
-                p.last_payload = Some(payload.clone());
-                let lines = crate::run::render_payload(&payload, dims, sort, pal);
-                if let multitop_agent::proto::Payload::Monitor(_) = payload {
-                    p.last_frame = Some(lines.clone());
-                    if p.mode == Mode::Monitor {
-                        p.view = lines;
+
+                match &payload {
+                    multitop_agent::proto::Payload::Monitor(_) => {
+                        p.last_monitor = Some(payload.clone());
+                        let lines = crate::run::render_payload(&payload, dims, sort, pal);
+                        p.last_frame = Some(lines.clone());
+                        if p.mode == Mode::Monitor {
+                            p.view = lines;
+                        }
                     }
-                } else if accepts {
-                    p.view = lines;
+                    multitop_agent::proto::Payload::Docker { .. } => {
+                        p.last_docker = Some(payload.clone());
+                        if p.mode == Mode::Docker && accepts {
+                            let lines = crate::run::render_payload(&payload, dims, sort, pal);
+                            p.view = lines;
+                        }
+                    }
+                    multitop_agent::proto::Payload::Fetch(snap) => {
+                        p.last_fetch = Some(snap.clone());
+                        if p.mode == Mode::Fetch && accepts {
+                            let lines = crate::fetch_render::render_fetch(snap, dims.0 as usize, dims.1 as usize, pal);
+                            p.view = lines;
+                        }
+                    }
                 }
             }
             Msg::Frame { panel, lines } => {
@@ -317,22 +336,33 @@ impl App {
         &multitop_agent::color::THEMES[self.theme_idx]
     }
 
-    /// Re-render all panels (Stats, Docker, Fetch) at the given dimensions using active theme.
+    /// Re-render all panels in their current mode (Stats, Docker, Fetch) at the given dimensions using active theme.
     pub fn rerender_all(&mut self, dims: (u16, u16)) {
         let pal = self.current_theme();
         let sort = self.sort;
         for panel in &mut self.panels {
-            if let Some(payload) = &panel.last_payload {
-                panel.view = crate::run::render_payload(payload, dims, sort, pal);
-            } else if panel.mode == Mode::Fetch {
-                if let Some(snap) = &panel.last_fetch {
-                    panel.view = crate::fetch_render::render_fetch(
-                        snap,
-                        dims.0 as usize,
-                        dims.1 as usize,
-                        pal,
-                    );
+            match panel.mode {
+                Mode::Monitor => {
+                    if let Some(payload) = &panel.last_monitor {
+                        panel.view = crate::run::render_payload(payload, dims, sort, pal);
+                    }
                 }
+                Mode::Docker => {
+                    if let Some(payload) = &panel.last_docker {
+                        panel.view = crate::run::render_payload(payload, dims, sort, pal);
+                    }
+                }
+                Mode::Fetch => {
+                    if let Some(snap) = &panel.last_fetch {
+                        panel.view = crate::fetch_render::render_fetch(
+                            snap,
+                            dims.0 as usize,
+                            dims.1 as usize,
+                            pal,
+                        );
+                    }
+                }
+                Mode::Upgrade => {}
             }
         }
     }
@@ -340,13 +370,16 @@ impl App {
 
 /// Format an error for display inside a panel.
 pub fn error_line(text: impl std::fmt::Display) -> String {
-    format!("{RED}{text}{RESET}")
+    let pal = &multitop_agent::color::ANSI;
+    format!("{}{text}{}", pal.meter_high(), pal.reset)
 }
 
 pub fn status_line(text: impl std::fmt::Display) -> String {
-    format!("{YELLOW}{text}{RESET}")
+    let pal = &multitop_agent::color::ANSI;
+    format!("{}{text}{}", pal.meter_mid(), pal.reset)
 }
 
 pub fn header_line(text: impl std::fmt::Display) -> String {
-    format!("\x1b[1m{text}{RESET}")
+    let pal = &multitop_agent::color::ANSI;
+    format!("{}{}{text}{}", pal.primary(), pal.bold, pal.reset)
 }
