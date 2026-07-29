@@ -198,7 +198,7 @@ pub fn draw(f: &mut Frame, app: &App) {
     let theme = app.current_theme();
     let bg_color = Color::Rgb(theme.ratatui_keybar_bg.0, theme.ratatui_keybar_bg.1, theme.ratatui_keybar_bg.2);
 
-    for ((idx, panel), area) in app.panels.iter().enumerate().zip(panel_areas) {
+    for ((idx, panel), area) in app.panels.iter().enumerate().zip(&panel_areas) {
         let inner = Rect {
             x: area.x + SIDE_MARGIN,
             y: area.y,
@@ -216,52 +216,67 @@ pub fn draw(f: &mut Frame, app: &App) {
             lines[0] = format!("{refitted}{tag}");
         }
         f.render_widget(Paragraph::new(ansi::to_text(&lines)), inner);
+
+        // Per-panel sudo password dialog
+        if panel.prompt_sudo && inner.height >= 7 && inner.width >= 30 {
+            let dialog_w = 50.min(inner.width.saturating_sub(2));
+            let dialog_h = 7.min(inner.height.saturating_sub(2));
+            let dialog_x = inner.x + (inner.width.saturating_sub(dialog_w)) / 2;
+            let dialog_y = inner.y + (inner.height.saturating_sub(dialog_h)) / 2;
+            let dialog_area = Rect::new(dialog_x, dialog_y, dialog_w, dialog_h);
+
+            f.render_widget(Clear, dialog_area);
+
+            let is_active = idx == app.selected_panel;
+            let border_color = if is_active {
+                Color::Rgb(theme.ratatui_accent.0, theme.ratatui_accent.1, theme.ratatui_accent.2)
+            } else {
+                Color::Rgb(theme.ratatui_border.0, theme.ratatui_border.1, theme.ratatui_border.2)
+            };
+            let accent_color = Color::Rgb(theme.ratatui_accent.0, theme.ratatui_accent.1, theme.ratatui_accent.2);
+
+            let masked = "*".repeat(panel.password_input.len());
+            let max_pw = (dialog_w as usize).saturating_sub(22).min(28);
+            let content = vec![
+                Line::from(vec![Span::styled(
+                    format!(" Password for {}", panel.server.host),
+                    Style::default().fg(Color::Yellow).add_modifier(ratatui::style::Modifier::BOLD),
+                )]),
+                Line::from(""),
+                Line::from(vec![
+                    Span::raw(" [ "),
+                    Span::styled(format!("{:<max_pw$}", masked), Style::default().fg(accent_color)),
+                    Span::raw(" ]"),
+                ]),
+                Line::from(if is_active {
+                    vec![
+                        Span::styled(" [Enter]", Style::default().fg(Color::White)),
+                        Span::styled(" Save  ", Style::default().fg(Color::DarkGray)),
+                        Span::styled("[Esc]", Style::default().fg(Color::White)),
+                        Span::styled(" Cancel", Style::default().fg(Color::DarkGray)),
+                    ]
+                } else {
+                    vec![Span::styled(
+                        format!(" Press {} to select", idx + 1),
+                        Style::default().fg(Color::DarkGray),
+                    )]
+                }),
+            ];
+
+            let block = Block::default()
+                .title(" Sudo Password ")
+                .borders(Borders::ALL)
+                .border_style(Style::default().fg(border_color))
+                .style(Style::default().bg(bg_color));
+
+            f.render_widget(Paragraph::new(content).block(block), dialog_area);
+        }
     }
 
     f.render_widget(
         Paragraph::new(keybar_line(app.sort, theme, keybar.width)).style(Style::default().bg(bg_color)),
         keybar,
     );
-
-    if let Some(panel) = app.panels.iter().find(|p| p.prompt_sudo) {
-        let area = f.area();
-        let dialog_w = 54.min(area.width.saturating_sub(4));
-        let dialog_h = 9.min(area.height);
-        let dialog_x = area.x + (area.width.saturating_sub(dialog_w)) / 2;
-        let dialog_y = area.y + (area.height.saturating_sub(dialog_h)) / 2;
-        let dialog_area = Rect::new(dialog_x, dialog_y, dialog_w, dialog_h);
-
-        f.render_widget(Clear, dialog_area);
-
-        let border_color = Color::Rgb(theme.ratatui_border.0, theme.ratatui_border.1, theme.ratatui_border.2);
-        let accent_color = Color::Rgb(theme.ratatui_accent.0, theme.ratatui_accent.1, theme.ratatui_accent.2);
-
-        let masked_pass = "*".repeat(panel.password_input.len());
-        let content = vec![
-            Line::from(vec![Span::styled(format!(" Sudo Password Required for {}", panel.server.host), Style::default().fg(Color::Yellow).add_modifier(ratatui::style::Modifier::BOLD))]),
-            Line::from(""),
-            Line::from(vec![
-                Span::raw(" Enter Password: [ "),
-                Span::styled(format!("{:<28}", masked_pass), Style::default().fg(accent_color)),
-                Span::raw(" ]"),
-            ]),
-            Line::from(""),
-            Line::from(vec![
-                Span::styled(" [Enter]", Style::default().fg(Color::White)),
-                Span::styled(" Save & Run Upgrade   ", Style::default().fg(Color::DarkGray)),
-                Span::styled("[Esc]", Style::default().fg(Color::White)),
-                Span::styled(" Cancel", Style::default().fg(Color::DarkGray)),
-            ]),
-        ];
-
-        let block = Block::default()
-            .title(" Sudo Password ")
-            .borders(Borders::ALL)
-            .border_style(Style::default().fg(border_color))
-            .style(Style::default().bg(bg_color));
-
-        f.render_widget(Paragraph::new(content).block(block), dialog_area);
-    }
 }
 
 #[cfg(test)]

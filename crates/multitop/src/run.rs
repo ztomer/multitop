@@ -213,58 +213,48 @@ fn handle_key(
         return;
     }
 
-    if let Some(idx) = app.panels.iter().position(|p| p.prompt_sudo) {
+    // Any panel prompting for sudo intercepts keys, but only the selected
+    // panel receives typed characters.  Number keys switch the active panel.
+    if app.panels.iter().any(|p| p.prompt_sudo) {
+        let sel = app.selected_panel;
         match key.code {
-            KeyCode::Esc => {
-                // Cancel all pending prompts
-                for p in app.panels.iter_mut() {
-                    p.prompt_sudo = false;
-                    p.password_input.clear();
+            KeyCode::Char(c @ '1'..='9') => {
+                let target = (c as usize) - ('1' as usize);
+                if target < app.panels.len() {
+                    app.selected_panel = target;
                 }
             }
-            KeyCode::Enter => {
-                let pass = app.panels[idx].password_input.clone();
-                // Clear all prompts
-                for p in app.panels.iter_mut() {
-                    p.prompt_sudo = false;
-                    p.password_input.clear();
-                }
+            KeyCode::Esc => {
+                app.panels[sel].prompt_sudo = false;
+                app.panels[sel].password_input.clear();
+            }
+            KeyCode::Enter if app.panels[sel].prompt_sudo => {
+                let pass = app.panels[sel].password_input.clone();
+                app.panels[sel].prompt_sudo = false;
+                app.panels[sel].password_input.clear();
                 if !pass.trim().is_empty() {
+                    app.panels[sel].sudo_password = Some(pass.clone());
                     if let Some(ref path) = app.config_path {
-                        crate::config::save_sudo_password(path, &app.panels[idx].server.host, &pass);
+                        crate::config::save_sudo_password(path, &app.panels[sel].server.host, &pass);
                     }
-                    // Apply the password and re-run upgrade for all panels
-                    // that are in Upgrade mode and don't yet have a sudo password.
-                    #[allow(clippy::needless_range_loop)]
-                    for i in 0..app.panels.len() {
-                        if app.panels[i].mode != crate::app::Mode::Upgrade {
-                            continue;
-                        }
-                        if servers[i].upgrade_cmd.is_none() {
-                            continue;
-                        }
-                        app.panels[i].sudo_password = Some(pass.clone());
-                        let gen = app.bump(i);
+                    if servers[sel].upgrade_cmd.is_some() {
+                        let gen = app.bump(sel);
                         let pal = app.current_theme();
-                        app.panels[i].view = vec![format!("{}\u{2192} Upgrade running...{}", pal.meter_mid(), pal.reset)];
+                        app.panels[sel].view = vec![format!("{}\u{2192} Upgrade running...{}", pal.meter_mid(), pal.reset)];
                         let handle = crate::tasks::spawn_upgrade(
-                            i,
-                            gen,
-                            servers[i].clone(),
-                            Some(pass.clone()),
-                            tx.clone(),
+                            sel, gen, servers[sel].clone(), Some(pass), tx.clone(),
                         );
-                        if let Some(old) = tasks.aux[i].replace(handle) {
+                        if let Some(old) = tasks.aux[sel].replace(handle) {
                             old.abort();
                         }
                     }
                 }
             }
-            KeyCode::Backspace => {
-                app.panels[idx].password_input.pop();
+            KeyCode::Backspace if app.panels[sel].prompt_sudo => {
+                app.panels[sel].password_input.pop();
             }
-            KeyCode::Char(c) => {
-                app.panels[idx].password_input.push(c);
+            KeyCode::Char(c) if app.panels[sel].prompt_sudo => {
+                app.panels[sel].password_input.push(c);
             }
             _ => {}
         }
