@@ -1,5 +1,5 @@
 use multitop::config::Server;
-use multitop::run::{connect, next_packet};
+use multitop::stream::{connect, next_packet};
 use multitop::ssh::Mode;
 use multitop_agent::proto::Payload;
 use multitop_agent::SortBy;
@@ -85,6 +85,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     Payload::Docker { host, rows } => {
                         let rows_bytes = rows.iter().map(|r| r.name.len() + r.status.len() + r.cpu.len() + r.mem.len() + 16).sum::<usize>();
                         8 + host.len() + 2 + rows_bytes
+                    }
+                    Payload::Fetch(snap) => {
+                        8 + snap.user_host.len() + snap.os.len() + snap.kernel.len() + snap.uptime.len() + snap.host_model.len() + snap.cpu_model.len() + snap.memory_str.len() + snap.disk_str.len() + 32
                     }
                 };
 

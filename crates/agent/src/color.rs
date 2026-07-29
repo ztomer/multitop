@@ -16,6 +16,7 @@ pub struct Palette {
     pub cyan: &'static str,
     pub white: &'static str,
     pub gray: &'static str,
+    pub purple: &'static str,
 }
 
 pub const ANSI: Palette = Palette {
@@ -29,6 +30,7 @@ pub const ANSI: Palette = Palette {
     cyan: "\x1b[0;36m",
     white: "\x1b[0;37m",
     gray: "\x1b[0;90m",
+    purple: "\x1b[0;35m",
 };
 
 pub const PLAIN: Palette = Palette {
@@ -42,6 +44,7 @@ pub const PLAIN: Palette = Palette {
     cyan: "",
     white: "",
     gray: "",
+    purple: "",
 };
 
 impl Palette {

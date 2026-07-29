@@ -28,16 +28,16 @@ fn logo_for_os(os: &str, kernel: &str, pal: &Palette) -> (&'static [&'static str
     let k = kernel.to_ascii_lowercase();
 
     if o.contains("mac") || o.contains("darwin") || k.contains("darwin") {
-        // macOS / Darwin — simple Apple silhouette
+        // macOS / Darwin — Apple silhouette
         (
             &[
-                "   .--.   ",
-                "  |o_o |  ",
-                "  |:_/ |  ",
-                " //   \\ \\ ",
-                "(|     | )",
-                "/'\\_   _/`\\",
-                "\\___)=(___/",
+                "    .--.   ",
+                "   /    \\  ",
+                "  /  .--.\\ ",
+                "  |  |  | |",
+                "  |  '--' |",
+                "   \\      /",
+                "    `----' ",
             ],
             pal.cyan,
         )
@@ -110,6 +110,20 @@ fn logo_for_os(os: &str, kernel: &str, pal: &Palette) -> (&'static [&'static str
                 "          ",
             ],
             pal.blue,
+        )
+    } else if k.contains("freebsd") || o.contains("freebsd") || o.contains("openbsd") || o.contains("netbsd") {
+        // BSD — the Beastie puffball
+        (
+            &[
+                "    (  )   ",
+                "  (      ) ",
+                "(          )",
+                "(          )",
+                "  (      ) ",
+                "    (  )   ",
+                "            ",
+            ],
+            pal.purple,
         )
     } else {
         // Generic Linux — Tux the penguin
@@ -217,7 +231,7 @@ pub fn sample_os() -> String {
             let ver = String::from_utf8_lossy(&os_rev[..size.saturating_sub(1)]).to_string();
             return format!("macOS {ver}");
         }
-        return "macOS".to_string();
+        "macOS".to_string()
     }
 
     #[cfg(not(target_os = "macos"))]
@@ -341,7 +355,7 @@ pub fn sample_cpu_model() -> String {
             let brand = String::from_utf8_lossy(&cpu_buf[..size.saturating_sub(1)]).to_string();
             return format!("{brand} ({c_str})");
         }
-        return format!("Apple Silicon ({c_str})");
+        format!("Apple Silicon ({c_str})")
     }
 
     #[cfg(not(target_os = "macos"))]
@@ -374,7 +388,7 @@ pub fn sample_fetch(host: &str) -> FetchSnapshot {
         host_model: sample_host_model(),
         cpu_model: sample_cpu_model(),
         memory_str: mem_str,
-        disk_str: disk_str,
+        disk_str,
     }
 }
 

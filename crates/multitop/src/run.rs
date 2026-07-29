@@ -1,9 +1,11 @@
 //! The async runtime: terminal event loop plus one SSH task per panel.
 
+use std::sync::Arc;
 use std::time::Duration;
 
 use crossterm::event::{Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 use tokio::sync::mpsc::{self, Sender};
+use tokio::sync::watch;
 use tokio::task::JoinHandle;
 use tokio::time::{sleep, Instant};
 use tokio_stream::StreamExt as _;
@@ -69,8 +71,10 @@ async fn event_loop(
     let mut events = crossterm::event::EventStream::new();
 
     let mut dims = ui::agent_dims(terminal.size()?, n);
+    let (dims_tx, dims_rx) = watch::channel(dims);
+    let dims_rx = Arc::new(dims_rx);
     for (i, server) in servers.iter().enumerate() {
-        tasks.monitors[i] = Some(spawn_monitor(i, server.clone(), dims, app.sort, tx.clone()));
+        tasks.monitors[i] = Some(spawn_monitor(i, server.clone(), dims_rx.clone(), app.sort, tx.clone()));
     }
 
     let mut resize_at: Option<Instant> = None;
@@ -95,7 +99,7 @@ async fn event_loop(
             maybe = events.next() => {
                 match maybe {
                     Some(Ok(Event::Key(key))) => {
-                        handle_key(key, &mut app, &servers, dims, &tx, &mut tasks);
+                        handle_key(key, &mut app, &servers, dims, dims_rx.clone(), &tx, &mut tasks);
                         dirty = true;
                     }
                     Some(Ok(Event::Resize(..))) => {
@@ -123,8 +127,7 @@ async fn event_loop(
                 let new_dims = ui::agent_dims(terminal.size()?, n);
                 if new_dims != dims {
                     dims = new_dims;
-                    // With binary telemetry, resizes happen 100% locally in Ratatui
-                    // without restarting SSH tasks!
+                    let _ = dims_tx.send(new_dims);
                 }
                 dirty = true;
             }
@@ -142,6 +145,7 @@ fn handle_key(
     app: &mut App,
     servers: &[Server],
     dims: (u16, u16),
+    dims_rx: Arc<watch::Receiver<(u16, u16)>>,
     tx: &Sender<Msg>,
     tasks: &mut Tasks,
 ) {
@@ -163,7 +167,7 @@ fn handle_key(
             let old_sort = app.sort;
             app.sort = SortBy::Cpu;
             if old_sort != app.sort {
-                restart_all_agents(app, servers, dims, tx, tasks);
+                restart_all_agents(app, servers, dims_rx.clone(), tx, tasks);
             }
             return;
         }
@@ -171,7 +175,7 @@ fn handle_key(
             let old_sort = app.sort;
             app.sort = SortBy::Mem;
             if old_sort != app.sort {
-                restart_all_agents(app, servers, dims, tx, tasks);
+                restart_all_agents(app, servers, dims_rx.clone(), tx, tasks);
             }
             return;
         }
@@ -211,7 +215,7 @@ fn handle_key(
 fn restart_all_agents(
     app: &App,
     servers: &[Server],
-    dims: (u16, u16),
+    dims_rx: Arc<watch::Receiver<(u16, u16)>>,
     tx: &Sender<Msg>,
     tasks: &mut Tasks,
 ) {
@@ -219,9 +223,10 @@ fn restart_all_agents(
         if let Some(h) = tasks.monitors[i].take() {
             h.abort();
         }
-        tasks.monitors[i] = Some(spawn_monitor(i, server.clone(), dims, app.sort, tx.clone()));
+        tasks.monitors[i] = Some(spawn_monitor(i, server.clone(), dims_rx.clone(), app.sort, tx.clone()));
     }
     if app.in_docker() {
+        let dims = *dims_rx.borrow();
         for (i, panel) in app.panels.iter().enumerate() {
             if panel.mode == crate::app::Mode::Docker {
                 let gen = panel.gen;
@@ -240,17 +245,13 @@ fn restart_all_agents(
 fn spawn_monitor(
     idx: usize,
     server: Server,
-    dims: (u16, u16),
+    dims_rx: Arc<watch::Receiver<(u16, u16)>>,
     sort: SortBy,
     tx: Sender<Msg>,
 ) -> JoinHandle<()> {
     tokio::spawn(async move {
         let mut failures = 0usize;
         loop {
-            // Status messages from a monitor restart are only worth showing
-            // while the panel has nothing better; generation 0 is never
-            // superseded for the monitor stream, so send them unconditionally
-            // as frames of one line.
             let status_tx = tx.clone();
             let notify = move |text: String| {
                 let _ = status_tx.try_send(Msg::Frame {
@@ -266,35 +267,8 @@ fn spawn_monitor(
                     let pal = &multitop_agent::color::ANSI;
 
                     while let Ok(Some(payload)) = stream::next_packet(&mut stream, &mut errbuf).await {
-                        let lines = match payload {
-                            multitop_agent::proto::Payload::Monitor(snap) => {
-                                multitop_agent::render::render(
-                                    &snap,
-                                    dims.0 as usize,
-                                    dims.1 as usize,
-                                    multitop_agent::render::bar_len_for(dims.0 as usize),
-                                    pal,
-                                )
-                            }
-                            multitop_agent::proto::Payload::Docker { host, rows } => {
-                                multitop_agent::docker::render(
-                                    &host,
-                                    dims.0 as usize,
-                                    dims.1 as usize,
-                                    &rows,
-                                    pal,
-                                    sort,
-                                )
-                            }
-                            multitop_agent::proto::Payload::Fetch(snap) => {
-                                multitop_agent::fetch::render_fetch(
-                                    &snap,
-                                    dims.0 as usize,
-                                    dims.1 as usize,
-                                    pal,
-                                )
-                            }
-                        };
+                        let dims = *dims_rx.borrow();
+                        let lines = render_payload(&payload, dims, sort, pal);
                         if tx.send(Msg::Frame { panel: idx, lines }).await.is_err() {
                             return;
                         }
@@ -352,4 +326,32 @@ fn spawn_fetch(
 
 fn spawn_upgrade(idx: usize, gen: u64, server: Server, tx: Sender<Msg>) -> JoinHandle<()> {
     crate::tasks::spawn_upgrade(idx, gen, server, tx)
+}
+
+/// Dispatch a received packet to the correct renderer at the given dimensions.
+///
+/// Extracted so the resize → re-render path can be tested without SSH.
+pub fn render_payload(
+    payload: &multitop_agent::proto::Payload,
+    dims: (u16, u16),
+    sort: multitop_agent::SortBy,
+    pal: &multitop_agent::color::Palette,
+) -> Vec<String> {
+    let (cols, height) = dims;
+    let bar_len = multitop_agent::render::bar_len_for(cols as usize);
+    match payload {
+        multitop_agent::proto::Payload::Monitor(snap) => multitop_agent::render::render(
+            snap,
+            cols as usize,
+            height as usize,
+            bar_len,
+            pal,
+        ),
+        multitop_agent::proto::Payload::Docker { host, rows } => {
+            multitop_agent::docker::render(host, cols as usize, height as usize, rows, pal, sort)
+        }
+        multitop_agent::proto::Payload::Fetch(snap) => {
+            multitop_agent::fetch::render_fetch(snap, cols as usize, height as usize, pal)
+        }
+    }
 }

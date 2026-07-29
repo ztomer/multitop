@@ -5,10 +5,12 @@ use tokio::task::JoinHandle;
 
 use crate::app::{error_line, header_line, status_line, Msg};
 use crate::config::Server;
+use crate::run::render_payload;
 use crate::stream::{connect, next_packet};
 use crate::ssh;
 
 use multitop_agent::SortBy;
+
 
 pub fn spawn_fetch(
     idx: usize,
@@ -50,20 +52,9 @@ pub fn spawn_fetch(
             })
             .await;
         let mut errbuf = Vec::new();
-        let pal = &multitop_agent::color::ANSI;
 
         while let Ok(Some(payload)) = next_packet(&mut stream, &mut errbuf).await {
-            let lines = match payload {
-                multitop_agent::proto::Payload::Fetch(snap) => {
-                    multitop_agent::fetch::render_fetch(&snap, dims.0 as usize, dims.1 as usize, pal)
-                }
-                multitop_agent::proto::Payload::Docker { host, rows } => {
-                    multitop_agent::docker::render(&host, dims.0 as usize, dims.1 as usize, &rows, pal, sort)
-                }
-                multitop_agent::proto::Payload::Monitor(snap) => {
-                    multitop_agent::render::render(&snap, dims.0 as usize, dims.1 as usize, multitop_agent::render::bar_len_for(dims.0 as usize), pal)
-                }
-            };
+            let lines = render_payload(&payload, dims, sort, &multitop_agent::color::ANSI);
 
             for line in lines {
                 if tx
@@ -132,20 +123,9 @@ pub fn spawn_docker(
             })
             .await;
         let mut errbuf = Vec::new();
-        let pal = &multitop_agent::color::ANSI;
 
         while let Ok(Some(payload)) = next_packet(&mut stream, &mut errbuf).await {
-            let lines = match payload {
-                multitop_agent::proto::Payload::Fetch(snap) => {
-                    multitop_agent::fetch::render_fetch(&snap, dims.0 as usize, dims.1 as usize, pal)
-                }
-                multitop_agent::proto::Payload::Docker { host, rows } => {
-                    multitop_agent::docker::render(&host, dims.0 as usize, dims.1 as usize, &rows, pal, sort)
-                }
-                multitop_agent::proto::Payload::Monitor(snap) => {
-                    multitop_agent::render::render(&snap, dims.0 as usize, dims.1 as usize, multitop_agent::render::bar_len_for(dims.0 as usize), pal)
-                }
-            };
+            let lines = render_payload(&payload, dims, sort, &multitop_agent::color::ANSI);
 
             for line in lines {
                 if tx
