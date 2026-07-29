@@ -1,22 +1,24 @@
+use std::collections::VecDeque;
+
 #[derive(Debug, Clone)]
 pub struct SparklineHistory {
-    samples: Vec<f32>,
+    samples: VecDeque<f32>,
     capacity: usize,
 }
 
 impl SparklineHistory {
     pub fn new(capacity: usize) -> Self {
         Self {
-            samples: Vec::with_capacity(capacity),
+            samples: VecDeque::with_capacity(capacity),
             capacity,
         }
     }
 
     pub fn push(&mut self, val: f32) {
         if self.samples.len() >= self.capacity {
-            self.samples.remove(0);
+            self.samples.pop_front();
         }
-        self.samples.push(val.clamp(0.0, 100.0));
+        self.samples.push_back(val.clamp(0.0, 100.0));
     }
 
     pub fn render_bar(&self) -> String {
