@@ -126,6 +126,7 @@ pub use multitop_agent::SortBy;
 
 pub struct App {
     pub panels: Vec<Panel>,
+    pub selected_panel: usize,
     pub should_quit: bool,
     pub sort: SortBy,
     pub theme_idx: usize,
@@ -141,6 +142,7 @@ impl App {
         let count = servers.len();
         App {
             panels: servers.into_iter().map(Panel::new).collect(),
+            selected_panel: 0,
             should_quit: false,
             sort: SortBy::Cpu,
             theme_idx: 0,
@@ -354,27 +356,45 @@ impl App {
     }
 
     pub fn scroll_up(&mut self, delta: usize) {
-        for p in &mut self.panels {
+        if self.selected_panel < self.panels.len() {
+            let p = &mut self.panels[self.selected_panel];
             let max_scroll = p.view.len().saturating_sub(1);
             p.scroll_offset = (p.scroll_offset + delta).min(max_scroll);
         }
     }
 
     pub fn scroll_down(&mut self, delta: usize) {
-        for p in &mut self.panels {
+        if self.selected_panel < self.panels.len() {
+            let p = &mut self.panels[self.selected_panel];
+            p.scroll_offset = p.scroll_offset.saturating_sub(delta);
+        }
+    }
+
+    pub fn scroll_panel_up(&mut self, panel: usize, delta: usize) {
+        if panel < self.panels.len() {
+            let p = &mut self.panels[panel];
+            let max_scroll = p.view.len().saturating_sub(1);
+            p.scroll_offset = (p.scroll_offset + delta).min(max_scroll);
+        }
+    }
+
+    pub fn scroll_panel_down(&mut self, panel: usize, delta: usize) {
+        if panel < self.panels.len() {
+            let p = &mut self.panels[panel];
             p.scroll_offset = p.scroll_offset.saturating_sub(delta);
         }
     }
 
     pub fn scroll_to_top(&mut self) {
-        for p in &mut self.panels {
-            p.scroll_offset = p.view.len().saturating_sub(1);
+        if self.selected_panel < self.panels.len() {
+            let p = &mut self.panels[self.selected_panel];
+            p.scroll_offset = p.scroll_offset.saturating_sub(1);
         }
     }
 
     pub fn reset_scroll(&mut self) {
-        for p in &mut self.panels {
-            p.scroll_offset = 0;
+        if self.selected_panel < self.panels.len() {
+            self.panels[self.selected_panel].scroll_offset = 0;
         }
     }
 

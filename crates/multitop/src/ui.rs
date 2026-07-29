@@ -21,7 +21,7 @@ const MIN_AGENT_COLS: u16 = 40;
 const MIN_AGENT_ROWS: u16 = 4;
 
 /// Split the screen into one region per panel plus the key bar.
-fn regions(area: Rect, panels: usize) -> (Vec<Rect>, Rect) {
+pub fn regions(area: Rect, panels: usize) -> (Vec<Rect>, Rect) {
     let [body, keybar] =
         Layout::vertical([Constraint::Min(0), Constraint::Length(KEYBAR_H)]).areas(area);
     if panels == 0 {
@@ -69,58 +69,7 @@ pub fn agent_dims(size: Size, panels: usize) -> (u16, u16) {
     (cols, rows)
 }
 
-/// Reflow line 0 header if target_cols differs from the line's pre-rendered width.
-pub fn refit_header(line: &str, target_cols: usize) -> Option<String> {
-    if !line.contains('\u{2500}') {
-        return None;
-    }
-    let fw: String = line
-        .chars()
-        .filter(|c| (0xFF01..=0xFF5E).contains(&(*c as u32)) || *c == ' ')
-        .collect();
-    let fw_trimmed = fw.trim();
-    if fw_trimmed.is_empty() {
-        return None;
-    }
-    let disp_w: usize = fw_trimmed
-        .chars()
-        .map(|c| if (0xFF01..=0xFF5E).contains(&(c as u32)) { 2 } else { 1 })
-        .sum();
-
-    if target_cols <= disp_w {
-        return Some(format!("\x1b[36;1m{fw_trimmed}\x1b[0m"));
-    }
-    let space_needed = disp_w + 2;
-    if target_cols < space_needed {
-        return Some(format!("\x1b[36;1m{fw_trimmed}\x1b[0m"));
-    }
-    let rem = target_cols - space_needed;
-    let left_len = rem / 2;
-    let right_len = rem - left_len;
-
-    Some(format!(
-        "\x1b[90m{}\x1b[0m\x1b[36;1m {} \x1b[0m\x1b[90m{}\x1b[0m",
-        "\u{2500}".repeat(left_len),
-        fw_trimmed,
-        "\u{2500}".repeat(right_len)
-    ))
-}
-
-pub fn refit_line(line: &str, target_cols: usize) -> String {
-    if target_cols == 0 {
-        return line.to_string();
-    }
-    if let Some(h) = refit_header(line, target_cols) {
-        return h;
-    }
-    let plain = multitop_agent::color::strip_ansi(line);
-    let trimmed = plain.trim();
-    if !trimmed.is_empty() && trimmed.chars().all(|c| c == '\u{2500}') {
-        let rule_w = target_cols.saturating_sub(2);
-        return format!(" \x1b[90m{}\x1b[0m", "\u{2500}".repeat(rule_w));
-    }
-    line.to_string()
-}
+pub use crate::refit::{refit_header, refit_line};
 
 /// Show the tail when there is more content than room, optionally pinning
 /// the header (line 0) so the server name stays visible. Supports scrolling via `scroll_offset`.
@@ -204,6 +153,8 @@ fn keybar_line(sort: multitop_agent::SortBy, theme: &multitop_agent::color::Pale
         Span::styled(" Stats  ", label),
         Span::styled("U", key),
         Span::styled(" Upgrade  ", label),
+        Span::styled("P", key),
+        Span::styled(" Password  ", label),
         Span::styled("T", key),
         Span::styled(" Theme", label),
     ];
@@ -247,7 +198,7 @@ pub fn draw(f: &mut Frame, app: &App) {
     let theme = app.current_theme();
     let bg_color = Color::Rgb(theme.ratatui_keybar_bg.0, theme.ratatui_keybar_bg.1, theme.ratatui_keybar_bg.2);
 
-    for (panel, area) in app.panels.iter().zip(panel_areas) {
+    for ((idx, panel), area) in app.panels.iter().enumerate().zip(panel_areas) {
         let inner = Rect {
             x: area.x + SIDE_MARGIN,
             y: area.y,
@@ -257,10 +208,13 @@ pub fn draw(f: &mut Frame, app: &App) {
         if inner.width == 0 || inner.height == 0 {
             continue;
         }
-        let lines = visible(&panel.view, inner.height as usize, true, inner.width as usize, panel.scroll_offset);
-        // No wrapping: frames are pre-formatted to the width we asked for,
-        // and wrapping a bar chart turns one row into two and breaks the
-        // whole panel's alignment.
+        let mut lines = visible(&panel.view, inner.height as usize, true, inner.width as usize, panel.scroll_offset);
+        if idx == app.selected_panel && app.panels.len() > 1 && !lines.is_empty() {
+            let tag = " \x1b[36;1m[\u{25cf} Active]\x1b[0m";
+            let target_w = (inner.width as usize).saturating_sub(10);
+            let refitted = refit_line(&lines[0], target_w);
+            lines[0] = format!("{refitted}{tag}");
+        }
         f.render_widget(Paragraph::new(ansi::to_text(&lines)), inner);
 
         if panel.prompt_sudo {

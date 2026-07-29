@@ -188,7 +188,6 @@ pub fn spawn_command(server: &Server, command: &str, password: Option<&str>) -> 
     };
 
     let mut child = ssh_command(server)
-        .arg("-tt")
         .arg(remote_cmd)
         .stdin(if password.is_some() { Stdio::piped() } else { Stdio::null() })
         .stdout(Stdio::piped())

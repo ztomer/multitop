@@ -18,6 +18,7 @@ use crate::config::Server;
 use crate::ssh::Mode;
 use crate::stream;
 use crate::ui;
+use ratatui::layout::Rect;
 
 /// How long to wait after the last resize event before restarting the agents
 /// at the new size. Dragging a window edge emits a burst of events.
@@ -128,13 +129,20 @@ async fn event_loop(
                         dirty = true;
                     }
                     Some(Ok(Event::Mouse(mouse))) => {
+                        let term_size = terminal.size().unwrap_or_default();
+                        let term_area = Rect::new(0, 0, term_size.width, term_size.height);
+                        let target_panel = panel_at_pos(mouse.column, mouse.row, term_area, app.panels.len());
                         match mouse.kind {
+                            MouseEventKind::Down(crossterm::event::MouseButton::Left) => {
+                                app.selected_panel = target_panel;
+                                dirty = true;
+                            }
                             MouseEventKind::ScrollUp => {
-                                app.scroll_up(3);
+                                app.scroll_panel_up(target_panel, 3);
                                 dirty = true;
                             }
                             MouseEventKind::ScrollDown => {
-                                app.scroll_down(3);
+                                app.scroll_panel_down(target_panel, 3);
                                 dirty = true;
                             }
                             _ => {}
@@ -178,6 +186,19 @@ async fn event_loop(
             return Ok(());
         }
     }
+}
+
+fn panel_at_pos(x: u16, y: u16, total_area: Rect, panel_count: usize) -> usize {
+    if panel_count == 0 {
+        return 0;
+    }
+    let (areas, _) = crate::ui::regions(total_area, panel_count);
+    for (i, a) in areas.iter().enumerate() {
+        if x >= a.x && x < a.x + a.width && y >= a.y && y < a.y + a.height {
+            return i;
+        }
+    }
+    0
 }
 
 fn handle_key(
@@ -237,6 +258,7 @@ fn handle_key(
         }
         return;
     }
+
     match key.code {
         KeyCode::Esc | KeyCode::Char('q') | KeyCode::Char('Q') => {
             app.quit();
@@ -244,6 +266,18 @@ fn handle_key(
         }
         KeyCode::Char('c') if key.modifiers.contains(KeyModifiers::CONTROL) => {
             app.quit();
+            return;
+        }
+        KeyCode::Char('p') | KeyCode::Char('P') => {
+            if app.selected_panel < app.panels.len() {
+                app.panels[app.selected_panel].prompt_sudo = true;
+                app.panels[app.selected_panel].password_input.clear();
+            }
+            return;
+        }
+        KeyCode::Char(c @ '1'..='9') => {
+            let idx = ((c as usize) - ('1' as usize)).min(app.panels.len().saturating_sub(1));
+            app.selected_panel = idx;
             return;
         }
         KeyCode::Char('c') | KeyCode::Char('C') => {
@@ -452,30 +486,4 @@ fn spawn_upgrade(
     crate::tasks::spawn_upgrade(idx, gen, server, pass, tx)
 }
 
-/// Dispatch a received packet to the correct renderer at the given dimensions.
-///
-/// Extracted so the resize → re-render path can be tested without SSH.
-pub fn render_payload(
-    payload: &multitop_agent::proto::Payload,
-    dims: (u16, u16),
-    sort: multitop_agent::SortBy,
-    pal: &multitop_agent::color::Palette,
-) -> Vec<String> {
-    let (cols, height) = dims;
-    let bar_len = multitop_agent::render::bar_len_for(cols as usize);
-    match payload {
-        multitop_agent::proto::Payload::Monitor(snap) => multitop_agent::render::render(
-            snap,
-            cols as usize,
-            height as usize,
-            bar_len,
-            pal,
-        ),
-        multitop_agent::proto::Payload::Docker { host, rows } => {
-            multitop_agent::docker::render(host, cols as usize, height as usize, rows, pal, sort)
-        }
-        multitop_agent::proto::Payload::Fetch(snap) => {
-            crate::fetch_render::render_fetch(snap, cols as usize, height as usize, pal)
-        }
-    }
-}
+pub use crate::render_payload::render_payload;

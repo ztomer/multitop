@@ -3,6 +3,8 @@ pub mod app;
 pub mod config;
 pub mod consts;
 pub mod fetch_render;
+pub mod refit;
+pub mod render_payload;
 pub mod run;
 pub mod sparkline;
 pub mod ssh;
