@@ -8,7 +8,7 @@ pub const SSH_OPTS: &[&str] = &[
     "-o",
     "ControlMaster=auto",
     "-o",
-    "ControlPath=/tmp/multitop-ssh-%C",
+    "ControlPath=/tmp/multitop-ssh-%u-%C",
     "-o",
     "ControlPersist=30s",
     "-o",
