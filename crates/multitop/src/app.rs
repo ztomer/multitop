@@ -11,9 +11,7 @@ use crate::config::Server;
 
 
 
-/// Upper bound on retained command output, so a chatty `upgrade_cmd` cannot
-/// grow the buffer without limit. The view shows the tail regardless.
-const MAX_AUX_LINES: usize = 2000;
+
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Mode {
@@ -33,6 +31,7 @@ pub struct Panel {
     pub last_monitor: Option<multitop_agent::proto::Payload>,
     pub last_docker: Option<multitop_agent::proto::Payload>,
     pub view: Vec<String>,
+    pub scroll_offset: usize,
 }
 
 impl Panel {
@@ -47,6 +46,7 @@ impl Panel {
             last_monitor: None,
             last_docker: None,
             view: vec![format!("{}connecting...{}", pal.muted(), pal.reset)],
+            scroll_offset: 0,
         }
     }
 
@@ -121,6 +121,7 @@ pub struct App {
     pub filter_query: String,
     pub is_filtering: bool,
     pub sparklines: Vec<crate::sparkline::SparklineHistory>,
+    pub upgrade_history_lines: usize,
 }
 
 impl App {
@@ -135,6 +136,7 @@ impl App {
             filter_query: String::new(),
             is_filtering: false,
             sparklines: (0..count).map(|_| crate::sparkline::SparklineHistory::new(30)).collect(),
+            upgrade_history_lines: crate::config::DEFAULT_UPGRADE_HISTORY_LINES,
         }
     }
 
@@ -171,6 +173,7 @@ impl App {
 
     /// `f`: all panels into the Fastfetch view, or all back to stats.
     pub fn toggle_fetch(&mut self) -> Vec<Command> {
+        self.reset_scroll();
         if self.in_fetch() {
             return self.switch_stats();
         }
@@ -191,6 +194,7 @@ impl App {
     /// The toggle is global rather than per-panel so the screen never shows a
     /// mix of two different views.
     pub fn toggle_docker(&mut self) -> Vec<Command> {
+        self.reset_scroll();
         if self.in_docker() {
             return self.switch_stats();
         }
@@ -208,6 +212,7 @@ impl App {
 
     /// `s`: back to the live stats view on every panel.
     pub fn switch_stats(&mut self) -> Vec<Command> {
+        self.reset_scroll();
         for i in 0..self.panels.len() {
             self.bump(i);
             let p = &mut self.panels[i];
@@ -219,6 +224,7 @@ impl App {
 
     /// `u`: run each server's configured upgrade command.
     pub fn run_upgrade(&mut self) -> Vec<Command> {
+        self.reset_scroll();
         let pal = self.current_theme();
         let mut cmds = Vec::new();
         for i in 0..self.panels.len() {
@@ -314,10 +320,11 @@ impl App {
                 if !self.accepts(panel, gen) {
                     return;
                 }
+                let cap = self.upgrade_history_lines;
                 let view = &mut self.panels[panel].view;
                 view.push(line);
-                if view.len() > MAX_AUX_LINES {
-                    view.drain(..view.len() - MAX_AUX_LINES);
+                if view.len() > cap {
+                    view.drain(..view.len() - cap);
                 }
             }
             Msg::AuxDone { panel, gen, note } => {
@@ -325,6 +332,31 @@ impl App {
                     self.panels[panel].view.push(note);
                 }
             }
+        }
+    }
+
+    pub fn scroll_up(&mut self, delta: usize) {
+        for p in &mut self.panels {
+            let max_scroll = p.view.len().saturating_sub(1);
+            p.scroll_offset = (p.scroll_offset + delta).min(max_scroll);
+        }
+    }
+
+    pub fn scroll_down(&mut self, delta: usize) {
+        for p in &mut self.panels {
+            p.scroll_offset = p.scroll_offset.saturating_sub(delta);
+        }
+    }
+
+    pub fn scroll_to_top(&mut self) {
+        for p in &mut self.panels {
+            p.scroll_offset = p.view.len().saturating_sub(1);
+        }
+    }
+
+    pub fn reset_scroll(&mut self) {
+        for p in &mut self.panels {
+            p.scroll_offset = 0;
         }
     }
 

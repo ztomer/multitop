@@ -74,7 +74,10 @@ async fn event_loop(
 ) -> std::io::Result<()> {
     let n = servers.len();
     let mut app = App::new(servers.clone());
-    app.config_path = Some(config_path);
+    app.config_path = Some(config_path.clone());
+    if let Ok(cfg) = crate::config::load(&config_path) {
+        app.upgrade_history_lines = cfg.upgrade_history_lines;
+    }
     if let Some(ref tname) = initial_theme {
         if let Some(idx) = multitop_agent::color::THEMES
             .iter()
@@ -204,6 +207,30 @@ fn handle_key(
                 crate::config::save_theme(path, app.current_theme().name);
             }
             app.rerender_all(dims);
+            return;
+        }
+        KeyCode::Up | KeyCode::Char('k') | KeyCode::Char('K') => {
+            app.scroll_up(1);
+            return;
+        }
+        KeyCode::Down | KeyCode::Char('j') | KeyCode::Char('J') => {
+            app.scroll_down(1);
+            return;
+        }
+        KeyCode::PageUp => {
+            app.scroll_up(15);
+            return;
+        }
+        KeyCode::PageDown => {
+            app.scroll_down(15);
+            return;
+        }
+        KeyCode::Home => {
+            app.scroll_to_top();
+            return;
+        }
+        KeyCode::End => {
+            app.reset_scroll();
             return;
         }
         _ => {}

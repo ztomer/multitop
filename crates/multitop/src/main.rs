@@ -145,6 +145,7 @@ fn main() -> ExitCode {
                     config::Config {
                         servers: Vec::new(),
                         theme: None,
+                        upgrade_history_lines: config::DEFAULT_UPGRADE_HISTORY_LINES,
                     }
                 } else {
                     eprintln!("[Error] {e}");

@@ -1,6 +1,5 @@
 use multitop::app::*;
 use multitop::config::Server;
-use multitop::consts::MAX_AUX_LINES;
 
 fn servers(n: usize) -> Vec<Server> {
     (0..n)
@@ -210,13 +209,14 @@ fn aux_output_streams_line_by_line() {
 #[test]
 fn aux_output_is_capped() {
     let mut a = app(1);
+    let cap = a.upgrade_history_lines;
     let gen = a.panels[0].gen;
     a.apply(Msg::AuxBegin {
         panel: 0,
         gen,
         header: None,
     });
-    for i in 0..MAX_AUX_LINES + 500 {
+    for i in 0..cap + 500 {
         a.apply(Msg::AuxLine {
             panel: 0,
             gen,
@@ -224,8 +224,8 @@ fn aux_output_is_capped() {
         });
     }
     let view = &a.panels[0].view;
-    assert_eq!(view.len(), MAX_AUX_LINES);
-    assert_eq!(view.last().unwrap(), &format!("l{}", MAX_AUX_LINES + 499));
+    assert_eq!(view.len(), cap);
+    assert_eq!(view.last().unwrap(), &format!("l{}", cap + 499));
 }
 
 #[test]

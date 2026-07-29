@@ -123,28 +123,60 @@ pub fn refit_line(line: &str, target_cols: usize) -> String {
 }
 
 /// Show the tail when there is more content than room, optionally pinning
-/// the header (line 0) so the server name stays visible.
-fn visible(lines: &[String], height: usize, pin_header: bool, target_cols: usize) -> Vec<String> {
+/// the header (line 0) so the server name stays visible. Supports scrolling via `scroll_offset`.
+fn visible(
+    lines: &[String],
+    height: usize,
+    pin_header: bool,
+    target_cols: usize,
+    scroll_offset: usize,
+) -> Vec<String> {
     if lines.is_empty() || height == 0 {
         return Vec::new();
     }
-    let mut out = if lines.len() <= height {
-        lines.to_vec()
-    } else if pin_header && lines.len() > 1 {
-        let body_budget = height.saturating_sub(1);
-        let tail_start = lines.len().saturating_sub(body_budget).max(1);
-        let mut v = Vec::with_capacity(height);
-        v.push(lines[0].clone());
-        v.extend_from_slice(&lines[tail_start..]);
-        v
+    if lines.len() <= height {
+        let mut out = lines.to_vec();
+        if !out.is_empty() && target_cols > 0 {
+            for line in out.iter_mut() {
+                *line = refit_line(line, target_cols);
+            }
+        }
+        return out;
+    }
+
+    let body_budget = height.saturating_sub(1);
+    let mut out = Vec::with_capacity(height);
+    let mut badge_offset = 0;
+
+    if pin_header && lines.len() > 1 {
+        let body_lines = &lines[1..];
+        let max_offset = body_lines.len().saturating_sub(body_budget);
+        let eff_offset = scroll_offset.min(max_offset);
+        badge_offset = eff_offset;
+
+        let end = body_lines.len().saturating_sub(eff_offset);
+        let start = end.saturating_sub(body_budget);
+
+        out.push(lines[0].clone());
+        out.extend_from_slice(&body_lines[start..end]);
     } else {
-        let tail_start = lines.len().saturating_sub(height);
-        lines[tail_start..].to_vec()
-    };
+        let max_offset = lines.len().saturating_sub(height);
+        let eff_offset = scroll_offset.min(max_offset);
+        let end = lines.len().saturating_sub(eff_offset);
+        let start = end.saturating_sub(height);
+        out.extend_from_slice(&lines[start..end]);
+    }
 
     if !out.is_empty() && target_cols > 0 {
-        for line in out.iter_mut() {
-            *line = refit_line(line, target_cols);
+        for (i, line) in out.iter_mut().enumerate() {
+            if i == 0 && badge_offset > 0 && pin_header {
+                let badge = format!(" [\u{2191} -{badge_offset} lines] ");
+                let target_w = target_cols.saturating_sub(badge.chars().count());
+                let refitted = refit_line(line, target_w);
+                *line = format!("{refitted}\x1b[33;1m{badge}\x1b[0m");
+            } else {
+                *line = refit_line(line, target_cols);
+            }
         }
     }
 
@@ -227,7 +259,7 @@ pub fn draw(f: &mut Frame, app: &App) {
         if inner.width == 0 || inner.height == 0 {
             continue;
         }
-        let lines = visible(&panel.view, inner.height as usize, true, inner.width as usize);
+        let lines = visible(&panel.view, inner.height as usize, true, inner.width as usize, panel.scroll_offset);
         // No wrapping: frames are pre-formatted to the width we asked for,
         // and wrapping a bar chart turns one row into two and breaks the
         // whole panel's alignment.
@@ -309,8 +341,8 @@ mod tests {
     #[test]
     fn visible_shows_everything_when_it_fits() {
         let lines: Vec<String> = (0..3).map(|i| i.to_string()).collect();
-        assert_eq!(visible(&lines, 10, false, 0).len(), 3);
-        assert_eq!(visible(&lines, 3, false, 0).len(), 3);
+        assert_eq!(visible(&lines, 10, false, 0, 0).len(), 3);
+        assert_eq!(visible(&lines, 3, false, 0, 0).len(), 3);
     }
 
     #[test]
@@ -328,7 +360,7 @@ mod tests {
             "p4".into(),
             "p5".into(),
         ];
-        let shown = visible(&lines, 6, true, 0);
+        let shown = visible(&lines, 6, true, 0, 0);
         assert_eq!(shown.len(), 6);
         assert_eq!(shown[0], "HEADER");
         assert_eq!(shown[1], "p1");
@@ -338,7 +370,33 @@ mod tests {
     #[test]
     fn visible_handles_zero_height() {
         let lines: Vec<String> = (0..3).map(|i| i.to_string()).collect();
-        assert!(visible(&lines, 0, false, 0).is_empty());
+        assert!(visible(&lines, 0, false, 0, 0).is_empty());
+    }
+
+    #[test]
+    fn visible_scrolls_backwards_into_history() {
+        let lines: Vec<String> = vec![
+            "HEADER".into(),
+            "line 1".into(),
+            "line 2".into(),
+            "line 3".into(),
+            "line 4".into(),
+            "line 5".into(),
+            "line 6".into(),
+            "line 7".into(),
+            "line 8".into(),
+            "line 9".into(),
+            "line 10".into(),
+        ];
+        let tail = visible(&lines, 4, true, 0, 0);
+        assert_eq!(tail[0], "HEADER");
+        assert_eq!(tail[1], "line 8");
+        assert_eq!(tail[3], "line 10");
+
+        let scrolled = visible(&lines, 4, true, 0, 3);
+        assert_eq!(scrolled[0], "HEADER");
+        assert_eq!(scrolled[1], "line 5");
+        assert_eq!(scrolled[3], "line 7");
     }
 
     #[test]

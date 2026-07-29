@@ -107,10 +107,13 @@ fn missing_config_message(path: &Path, legacy: Option<&Path>) -> ConfigError {
     ))
 }
 
+pub const DEFAULT_UPGRADE_HISTORY_LINES: usize = 5000;
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Config {
     pub servers: Vec<Server>,
     pub theme: Option<String>,
+    pub upgrade_history_lines: usize,
 }
 
 /// Read and validate the server list and config settings.
@@ -186,7 +189,19 @@ pub fn parse(text: &str) -> Result<Config, ConfigError> {
             upgrade_cmd,
         });
     }
-    Ok(Config { servers: out, theme })
+
+    let upgrade_history_lines = value
+        .get("upgrade_history_lines")
+        .or_else(|| value.get("history_lines"))
+        .and_then(|v| v.as_integer())
+        .map(|v| v as usize)
+        .unwrap_or(DEFAULT_UPGRADE_HISTORY_LINES);
+
+    Ok(Config {
+        servers: out,
+        theme,
+        upgrade_history_lines,
+    })
 }
 
 /// Save theme selection back to the TOML configuration file.
