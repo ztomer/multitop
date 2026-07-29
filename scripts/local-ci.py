@@ -152,6 +152,8 @@ def check_performance_regression():
     return True
 
 def main():
+    os.environ["MULTITOP_MOCK_KEYCHAIN"] = "1"
+    os.environ["CI"] = "1"
     print("============================================================")
     print("   multitop Deterministic Local CI Verification Harness     ")
     print("============================================================\n")
