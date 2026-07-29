@@ -1,13 +1,11 @@
-//! Fastfetch-inspired system information sampling and rendering.
+//! System information sampling.
 //!
-//! Logo ASCII art is drawn from well-known neofetch/fastfetch sources and
-//! scaled to 7 lines to pair one-to-one with the detail rows. Each logo is
-//! exactly 11 characters wide.
+//! Data collection only — rendering (including logo lookup) lives in the
+//! monitor crate's `fetch_render` module to keep the agent binary small.
 
 use std::path::Path;
 
-use crate::color::Palette;
-use crate::fmt::{center_header, fmt_size};
+use crate::fmt::fmt_size;
 use crate::proc;
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -20,126 +18,6 @@ pub struct FetchSnapshot {
     pub cpu_model: String,
     pub memory_str: String,
     pub disk_str: String,
-}
-
-/// Pick a 7-line logo for the given OS string.  Returns (lines, accent color).
-fn logo_for_os(os: &str, kernel: &str, pal: &Palette) -> (&'static [&'static str], &'static str) {
-    let o = os.to_ascii_lowercase();
-    let k = kernel.to_ascii_lowercase();
-
-    if o.contains("mac") || o.contains("darwin") || k.contains("darwin") {
-        // macOS / Darwin — Apple silhouette
-        (
-            &[
-                "    .--.   ",
-                "   /    \\  ",
-                "  /  .--.\\ ",
-                "  |  |  | |",
-                "  |  '--' |",
-                "   \\      /",
-                "    `----' ",
-            ],
-            pal.cyan,
-        )
-    } else if o.contains("ubuntu") {
-        // Ubuntu — Circle of Friends, three arcs
-        (
-            &[
-                "    _.     ",
-                " .-' '-.   ",
-                "/       \\  ",
-                "|       |  ",
-                "\\       /  ",
-                " '-._.-'   ",
-                "    '      ",
-            ],
-            pal.red,
-        )
-    } else if o.contains("debian") || o.contains("raspbian") {
-        // Debian — the swirl
-        (
-            &[
-                "   _____   ",
-                "  / \\   \\ ",
-                " |   |   | ",
-                "  \\_/   / ",
-                "   \\   /  ",
-                "    \\ /   ",
-                "     '    ",
-            ],
-            pal.red,
-        )
-    } else if o.contains("fedora") || o.contains("rhel") || o.contains("centos") {
-        // Fedora / RHEL — the infinity "F"
-        (
-            &[
-                "   _____   ",
-                "  /   /|   ",
-                " /   //    ",
-                "|   //     ",
-                "|  //      ",
-                "| //       ",
-                "|/         ",
-            ],
-            pal.blue,
-        )
-    } else if o.contains("arch") || o.contains("manjaro") || o.contains("endeavour") {
-        // Arch / Manjaro — the mountain/roof
-        (
-            &[
-                "   /\\      ",
-                "  /  \\     ",
-                " / /\\ \\    ",
-                "/ /  \\ \\   ",
-                "/_/    \\_\\ ",
-                "          ",
-                "          ",
-            ],
-            pal.cyan,
-        )
-    } else if k.contains("microsoft") || k.contains("wsl") || o.contains("microsoft") {
-        // WSL — the Windows logo window
-        (
-            &[
-                "   ___    ",
-                "  |   |   ",
-                "  |  _|   ",
-                "  | |_    ",
-                "  |___|   ",
-                "          ",
-                "          ",
-            ],
-            pal.blue,
-        )
-    } else if k.contains("freebsd") || o.contains("freebsd") || o.contains("openbsd") || o.contains("netbsd") {
-        // BSD — the Beastie puffball
-        (
-            &[
-                "    (  )   ",
-                "  (      ) ",
-                "(          )",
-                "(          )",
-                "  (      ) ",
-                "    (  )   ",
-                "            ",
-            ],
-            pal.purple,
-        )
-    } else {
-        // Generic Linux — Tux the penguin
-        (
-            &[
-                "   .--.   ",
-                "  |o_o |  ",
-                "  |:_/ |  ",
-                " //   \\ \\ ",
-                "(|     | )",
-                "/'\\_   _/`\\",
-                "\\___)=(___/",
-            ],
-            pal.green,
-        )
-    }
 }
 
 pub fn sample_uptime() -> String {
@@ -390,65 +268,4 @@ pub fn sample_fetch(host: &str) -> FetchSnapshot {
         memory_str: mem_str,
         disk_str,
     }
-}
-
-pub fn render_fetch(
-    snap: &FetchSnapshot,
-    cols: usize,
-    max_rows: usize,
-    pal: &Palette,
-) -> Vec<String> {
-    let mut out = Vec::with_capacity(12);
-    out.push(center_header(&snap.user_host, cols, pal));
-
-    let (logo_lines, _accent) = logo_for_os(&snap.os, &snap.kernel, pal);
-
-    let details = [
-        ("OS", &snap.os),
-        ("Kernel", &snap.kernel),
-        ("Uptime", &snap.uptime),
-        ("Host", &snap.host_model),
-        ("CPU", &snap.cpu_model),
-        ("Memory", &snap.memory_str),
-        ("Disk", &snap.disk_str),
-    ];
-
-    let colors_row = format!(
-        "\x1b[40m  \x1b[41m  \x1b[42m  \x1b[43m  \x1b[44m  \x1b[45m  \x1b[46m  \x1b[47m  {}",
-        pal.reset
-    );
-
-    let max_body = max_rows.saturating_sub(2);
-    let mut row_idx = 0;
-
-    for (i, (label, val)) in details.iter().enumerate() {
-        if row_idx >= max_body {
-            break;
-        }
-        let logo_part = logo_lines.get(i).copied().unwrap_or("          ");
-        out.push(format!(
-            " {}{}{}{} {}{:<7}{} : {}{}{}",
-            pal.cyan,
-            logo_part,
-            pal.reset,
-            " ",
-            pal.bold,
-            label,
-            pal.reset,
-            pal.white,
-            val,
-            pal.reset
-        ));
-        row_idx += 1;
-    }
-
-    if row_idx < max_body {
-        let logo_part = logo_lines.get(details.len()).copied().unwrap_or("          ");
-        out.push(format!(
-            " {}{}{}{} {}",
-            pal.cyan, logo_part, pal.reset, " ", colors_row
-        ));
-    }
-
-    out
 }

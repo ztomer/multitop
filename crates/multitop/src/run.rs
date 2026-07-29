@@ -351,7 +351,7 @@ pub fn render_payload(
             multitop_agent::docker::render(host, cols as usize, height as usize, rows, pal, sort)
         }
         multitop_agent::proto::Payload::Fetch(snap) => {
-            multitop_agent::fetch::render_fetch(snap, cols as usize, height as usize, pal)
+            crate::fetch_render::render_fetch(snap, cols as usize, height as usize, pal)
         }
     }
 }

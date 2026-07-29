@@ -141,9 +141,23 @@ pub fn run_agent<I: IntoIterator<Item = String>>(argv: I) {
         Mode::Fetch => {
             let snap = fetch::sample_fetch(&host);
             if is_tty {
-                let frame = fetch::render_fetch(&snap, args.cols, args.lines, pal);
+                // Text-only fallback — the full rendering with logos lives in
+                // the monitor crate's fetch_render module.
+                let details = [
+                    ("OS", &snap.os),
+                    ("Kernel", &snap.kernel),
+                    ("Uptime", &snap.uptime),
+                    ("Host", &snap.host_model),
+                    ("CPU", &snap.cpu_model),
+                    ("Memory", &snap.memory_str),
+                    ("Disk", &snap.disk_str),
+                ];
                 let mut out = io::stdout().lock();
-                let _ = writeln!(out, "{}", frame.join("\n"));
+                let _ = writeln!(out, "{}", crate::fmt::center_header(&snap.user_host, args.cols, pal));
+                for (label, val) in &details {
+                    let _ = writeln!(out, "  {}{:<7}{}: {}{}{}",
+                        pal.bold, label, pal.reset, pal.white, val, pal.reset);
+                }
             } else {
                 let payload = proto::Payload::Fetch(snap);
                 let bytes = proto::encode_packet(&payload);

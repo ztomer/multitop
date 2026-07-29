@@ -2,6 +2,7 @@ pub mod ansi;
 pub mod app;
 pub mod config;
 pub mod consts;
+pub mod fetch_render;
 pub mod run;
 pub mod sparkline;
 pub mod ssh;
