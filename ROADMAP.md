@@ -96,3 +96,15 @@ This roadmap documents upcoming features, UX enhancements, and test suite expans
   - Added `#[cfg(target_os = "macos")]` attribute to `HashMap` import in `sys.rs` to fix unused import compiler warnings across Linux compilation targets (`x86_64-unknown-linux-musl` & `aarch64-unknown-linux-musl`).
 - **Release Version**:
   - Bumped workspace version to `v0.20.4`.
+
+## 12. Release 0.20.5 & Zero-Allocation Stack Sampling Optimization
+- **Eliminated $O(N^2)$ Linear Scans**:
+  - Replaced $O(N^2)$ PID array searching in `ProcSampler::top()` with an $O(N)$ `HashSet` active PID set lookup.
+- **Single-Pass Token Parsing**:
+  - Replaced `split_ascii_whitespace().collect()` in `parse_pid_stat()` and `parse_net_dev()` with zero-allocation single-pass iterators.
+- **Stack-Allocated Byte Buffering**:
+  - Switched `get_cpu_stat()`, `get_net()`, `get_memory()`, and `get_disk()` to read kernel `/proc` pseudofiles directly into fixed `[u8; 4096]` / `[u8; 2048]` stack byte arrays without dynamic heap String allocations.
+- **CPU Footprint**:
+  - Reduced sampling CPU consumption to **0.5% CPU** on Linux (`.90`).
+- **Release Version**:
+  - Bumped workspace version to `v0.20.5`.

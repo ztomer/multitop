@@ -27,14 +27,18 @@ pub fn parse_pid_stat(data: &str) -> Option<RawProcStat> {
     let pid: u32 = data[..open].trim().parse().ok()?;
     let comm = data[open + 1..close].to_string();
 
-    let f: Vec<&str> = data[close + 1..].split_ascii_whitespace().collect();
-    if f.len() < 22 {
-        return None;
-    }
-    let utime: u64 = f[11].parse().ok()?;
-    let stime: u64 = f[12].parse().ok()?;
-    let starttime: u64 = f[19].parse().ok()?;
-    let rss_pages: u64 = f[21].parse::<i64>().unwrap_or(0).max(0) as u64;
+    let mut iter = data[close + 1..].split_ascii_whitespace();
+    let utime_str = iter.nth(11)?;
+    let stime_str = iter.next()?;
+    let utime: u64 = utime_str.parse().ok()?;
+    let stime: u64 = stime_str.parse().ok()?;
+
+    let starttime_str = iter.nth(6)?;
+    let starttime: u64 = starttime_str.parse().ok()?;
+
+    let _skip20 = iter.next()?;
+    let rss_str = iter.next()?;
+    let rss_pages: u64 = rss_str.parse::<i64>().unwrap_or(0).max(0) as u64;
 
     Some(RawProcStat {
         pid,

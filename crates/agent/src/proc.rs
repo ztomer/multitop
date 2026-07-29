@@ -126,12 +126,17 @@ pub fn parse_proc_stat(data: &str) -> CpuStat {
 }
 
 pub fn get_cpu_stat() -> CpuStat {
-    let stat = parse_proc_stat(&read_proc("/proc/stat"));
-    if stat.cores.is_empty() && stat.aggregate.total == 0 {
-        crate::sys::get_cpu_stat_macos()
-    } else {
-        stat
+    let mut buf = [0u8; 4096];
+    let n = read_proc_bytes("/proc/stat", &mut buf);
+    if n > 0 {
+        if let Ok(s) = std::str::from_utf8(&buf[..n]) {
+            let stat = parse_proc_stat(s);
+            if !stat.cores.is_empty() || stat.aggregate.total != 0 {
+                return stat;
+            }
+        }
     }
+    crate::sys::get_cpu_stat_macos()
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
@@ -182,12 +187,6 @@ pub fn parse_meminfo(data: &str) -> Usage {
     Usage::new(total, total.saturating_sub(reclaimable))
 }
 
-/// Mount point of the root filesystem, if `/proc/self/mountinfo` names one.
-///
-/// mountinfo columns are: id, parent, dev, root-within-fs, mount-point, ...
-/// The Python original matched on column 4 (the mount point) but then
-/// `statvfs`'d column 3 (the path inside the filesystem); that only worked
-/// because the two coincide for the root mount.
 pub fn root_mount_point(mountinfo: &str) -> Option<&str> {
     mountinfo.lines().find_map(|line| {
         let mut parts = line.split_ascii_whitespace();
@@ -196,11 +195,8 @@ pub fn root_mount_point(mountinfo: &str) -> Option<&str> {
     })
 }
 
-/// `statvfs(3)` wrapper returning (total, available) bytes.
 pub fn statvfs_bytes(path: &str) -> Option<(u64, u64)> {
     let c_path = std::ffi::CString::new(path).ok()?;
-    // SAFETY: c_path is a valid NUL-terminated string; statvfs only writes
-    // into the buffer we hand it, and we check the return code before reading.
     unsafe {
         let mut st: libc::statvfs = std::mem::zeroed();
         if libc::statvfs(c_path.as_ptr(), &mut st) != 0 {
@@ -212,21 +208,38 @@ pub fn statvfs_bytes(path: &str) -> Option<(u64, u64)> {
 }
 
 pub fn get_disk() -> Usage {
-    let mountinfo = read_proc("/proc/self/mountinfo");
-    let mount = root_mount_point(&mountinfo).unwrap_or("/");
-    let Some((total, free)) = statvfs_bytes(mount) else {
-        return Usage::default();
+    let mut buf = [0u8; 4096];
+    let n = read_proc_bytes("/proc/self/mountinfo", &mut buf);
+    let root = if n > 0 {
+        if let Ok(s) = std::str::from_utf8(&buf[..n]) {
+            root_mount_point(s).map(|s| s.to_string())
+        } else {
+            None
+        }
+    } else {
+        None
     };
-    Usage::new(total, total.saturating_sub(free))
+
+    let target = root.as_deref().unwrap_or("/");
+    if let Some((total, free)) = statvfs_bytes(target) {
+        Usage::new(total, total.saturating_sub(free))
+    } else {
+        Usage::default()
+    }
 }
 
 pub fn get_memory() -> Usage {
-    let usage = parse_meminfo(&read_proc("/proc/meminfo"));
-    if usage.total == 0 {
-        crate::sys::get_memory_macos()
-    } else {
-        usage
+    let mut buf = [0u8; 2048];
+    let n = read_proc_bytes("/proc/meminfo", &mut buf);
+    if n > 0 {
+        if let Ok(s) = std::str::from_utf8(&buf[..n]) {
+            let mem = parse_meminfo(s);
+            if mem.total != 0 {
+                return mem;
+            }
+        }
     }
+    crate::sys::get_memory_macos()
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -235,43 +248,39 @@ pub struct NetTotals {
     pub tx: u64,
 }
 
-/// Sum rx/tx byte counters across every non-loopback interface.
 pub fn parse_net_dev(data: &str) -> NetTotals {
     let mut totals = NetTotals::default();
-    // Two header rows.
     for line in data.lines().skip(2) {
-        // Split on the interface colon rather than on whitespace: the kernel's
-        // field widths run the name and the first counter together once the
-        // name is long enough (`enp0s31f6:12345678`).
         let Some((iface, counters)) = line.split_once(':') else {
             continue;
         };
         let iface = iface.trim();
-        // Loopback only — an interface merely *starting* with "lo" is real.
         if iface == "lo" || iface.starts_with("lo:") {
             continue;
         }
-        let cols: Vec<&str> = counters.split_ascii_whitespace().collect();
-        if cols.len() < 9 {
-            continue;
-        }
-        totals.rx = totals
-            .rx
-            .saturating_add(cols[0].parse::<u64>().unwrap_or(0));
-        totals.tx = totals
-            .tx
-            .saturating_add(cols[8].parse::<u64>().unwrap_or(0));
+        let mut iter = counters.split_ascii_whitespace();
+        let Some(rx_str) = iter.next() else { continue; };
+        let rx_val: u64 = rx_str.parse().unwrap_or(0);
+        let Some(tx_str) = iter.nth(7) else { continue; };
+        let tx_val: u64 = tx_str.parse().unwrap_or(0);
+        totals.rx = totals.rx.saturating_add(rx_val);
+        totals.tx = totals.tx.saturating_add(tx_val);
     }
     totals
 }
 
 pub fn get_net() -> NetTotals {
-    let totals = parse_net_dev(&read_proc("/proc/net/dev"));
-    if totals.rx == 0 && totals.tx == 0 {
-        crate::sys::get_net_macos()
-    } else {
-        totals
+    let mut buf = [0u8; 2048];
+    let n = read_proc_bytes("/proc/net/dev", &mut buf);
+    if n > 0 {
+        if let Ok(s) = std::str::from_utf8(&buf[..n]) {
+            let net = parse_net_dev(s);
+            if net.rx != 0 || net.tx != 0 {
+                return net;
+            }
+        }
     }
+    crate::sys::get_net_macos()
 }
 
 pub use crate::sys::get_core_temps;
@@ -324,7 +333,8 @@ impl ProcSampler {
             );
             temp_procs.push((i, cpu, s.rss_pages * self.page_size));
         }
-        self.prev.retain(|pid, _| scanned.iter().any(|s| s.pid == *pid));
+        let active: std::collections::HashSet<u32> = scanned.iter().map(|s| s.pid).collect();
+        self.prev.retain(|pid, _| active.contains(pid));
 
         match sort_by {
             crate::SortBy::Cpu => {
