@@ -333,3 +333,25 @@ fn helpers_wrap_in_ansi() {
     assert!(status_line("wait").contains("wait"));
     assert!(header_line("hi").contains("hi"));
 }
+
+#[test]
+fn local_server_deduplication() {
+    use multitop::config::Server;
+    use multitop::ssh::is_local;
+
+    let s1 = Server { host: "127.0.0.1".into(), port: 0, user: "".into(), upgrade_cmd: None };
+    let s2 = Server { host: "localhost".into(), port: 22, user: "".into(), upgrade_cmd: None };
+    let s3 = Server { host: "192.168.0.33".into(), port: 22, user: "".into(), upgrade_cmd: None };
+
+    let mut servers = vec![s1, s2, s3];
+    let mut seen_local = false;
+    servers.retain(|s| {
+        if is_local(s) {
+            if seen_local { false } else { seen_local = true; true }
+        } else { true }
+    });
+
+    assert_eq!(servers.len(), 2);
+    assert_eq!(servers[0].host, "127.0.0.1");
+    assert_eq!(servers[1].host, "192.168.0.33");
+}

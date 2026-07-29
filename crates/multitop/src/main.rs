@@ -120,7 +120,7 @@ fn main() -> ExitCode {
         .unwrap_or_else(config::default_config_path);
     let mut initial_theme: Option<String> = None;
 
-    let servers = if opts.local_only {
+    let mut servers = if opts.local_only {
         vec![local_server]
     } else if !opts.remote_hosts.is_empty() {
         let mut list: Vec<config::Server> = opts
@@ -133,7 +133,7 @@ fn main() -> ExitCode {
                 upgrade_cmd: None,
             })
             .collect();
-        if opts.local {
+        if opts.local && !list.iter().any(ssh::is_local) {
             list.insert(0, local_server);
         }
         list
@@ -142,7 +142,10 @@ fn main() -> ExitCode {
             Ok(c) => c,
             Err(e) => {
                 if opts.local {
-                    config::Config { servers: Vec::new(), theme: None }
+                    config::Config {
+                        servers: Vec::new(),
+                        theme: None,
+                    }
                 } else {
                     eprintln!("[Error] {e}");
                     return ExitCode::FAILURE;
@@ -150,11 +153,25 @@ fn main() -> ExitCode {
             }
         };
         initial_theme = cfg.theme;
-        if opts.local {
+        if opts.local && !cfg.servers.iter().any(ssh::is_local) {
             cfg.servers.insert(0, local_server);
         }
         cfg.servers
     };
+
+    let mut seen_local = false;
+    servers.retain(|s| {
+        if ssh::is_local(s) {
+            if seen_local {
+                false
+            } else {
+                seen_local = true;
+                true
+            }
+        } else {
+            true
+        }
+    });
 
     if servers.is_empty() {
         eprintln!("[Error] No servers to monitor.");
