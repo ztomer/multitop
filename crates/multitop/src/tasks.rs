@@ -229,13 +229,23 @@ pub fn spawn_upgrade(
                 .await;
         }
         if sudo_help {
-            let _ = tx
-                .send(Msg::AuxLine {
-                    panel: idx,
-                    gen,
-                    line: "\x1b[33m\u{2192} Tip: Set password in settings ('e') to allow upgrades\x1b[0m".to_string(),
-                })
-                .await;
+            if pass.is_none() {
+                let _ = tx
+                    .send(Msg::AuxLine {
+                        panel: idx,
+                        gen,
+                        line: "\x1b[33m\u{2192} Tip: Set password in settings ('e') to allow upgrades\x1b[0m".to_string(),
+                    })
+                    .await;
+            } else {
+                let _ = tx
+                    .send(Msg::AuxLine {
+                        panel: idx,
+                        gen,
+                        line: "\x1b[33m\u{2192} Tip: Check password in settings ('e') or sudoer permissions\x1b[0m".to_string(),
+                    })
+                    .await;
+            }
             let _ = tx
                 .send(Msg::AuxLine {
                     panel: idx,
