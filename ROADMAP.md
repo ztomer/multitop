@@ -60,3 +60,11 @@ This roadmap documents upcoming features, UX enhancements, and test suite expans
   - Added `Sparklines (Experimental): Enabled / Disabled` setting toggle in the configuration screen (`'e'`). Pressing `P` toggles header sparklines and persists `show_sparklines = true/false` in `config.toml`.
 - **Release Version**:
   - Bumped workspace version to `v0.19.0`.
+
+## 8. Release 0.20.1 & View Keybar Reordering
+- **Keybar Hint Sequence**:
+  - Reordered bottom keybar mode options to `Stats Docker Fetch Upgrade` (`[S Stats] [D Docker] [F Fetch] [U Upgrade]`).
+- **View Selection Stability**:
+  - Pressing active selection keys stays in current view without re-triggering network fetches.
+- **Release Version**:
+  - Bumped workspace version to `v0.20.1`.
