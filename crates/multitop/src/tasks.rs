@@ -140,13 +140,19 @@ pub fn spawn_docker(
 }
 
 /// One-shot: runs the server's `upgrade_cmd`, streaming its output.
-pub fn spawn_upgrade(idx: usize, gen: u64, server: Server, tx: Sender<Msg>) -> JoinHandle<()> {
+pub fn spawn_upgrade(
+    idx: usize,
+    gen: u64,
+    server: Server,
+    pass: Option<String>,
+    tx: Sender<Msg>,
+) -> JoinHandle<()> {
     tokio::spawn(async move {
         let Some(command) = server.upgrade_cmd.clone() else {
             return;
         };
 
-        let mut child = match ssh::spawn_command(&server, &command) {
+        let mut child = match ssh::spawn_command(&server, &command, pass.as_deref()) {
             Ok(c) => c,
             Err(e) => {
                 let _ = tx
@@ -224,6 +230,9 @@ pub fn spawn_upgrade(idx: usize, gen: u64, server: Server, tx: Sender<Msg>) -> J
                     line: "\x1b[33m\u{2192} Tip: Add '<user> ALL=(ALL) NOPASSWD: ALL' to /etc/sudoers for passwordless sudo\x1b[0m".to_string(),
                 })
                 .await;
+            if pass.is_none() {
+                let _ = tx.send(Msg::PromptSudo { panel: idx, gen }).await;
+            }
         }
         let _ = tx
             .send(Msg::AuxDone {

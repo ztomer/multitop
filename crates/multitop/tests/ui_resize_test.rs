@@ -12,6 +12,7 @@ fn sample_servers(count: usize) -> Vec<Server> {
             port: 22,
             user: "root".into(),
             upgrade_cmd: None,
+            sudo_password: None,
         })
         .collect()
 }

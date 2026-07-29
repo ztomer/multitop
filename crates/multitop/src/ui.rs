@@ -3,7 +3,7 @@
 use ratatui::layout::{Constraint, Layout, Rect, Size};
 use ratatui::style::{Color, Style};
 use ratatui::text::{Line, Span};
-use ratatui::widgets::Paragraph;
+use ratatui::widgets::{Block, Borders, Clear, Paragraph};
 use ratatui::Frame;
 
 use crate::ansi;
@@ -236,14 +236,12 @@ fn keybar_line(sort: multitop_agent::SortBy, theme: &multitop_agent::color::Pale
     } else {
         SPACES
     };
-
-    let mut spans = Vec::with_capacity(left_spans.len() + 1 + badge_spans.len());
+        let mut spans = Vec::with_capacity(left_spans.len() + 1 + badge_spans.len());
     spans.extend(left_spans);
     spans.push(Span::styled(pad_str, label));
     spans.extend(badge_spans);
     Line::from(spans)
 }
-
 pub fn draw(f: &mut Frame, app: &App) {
     let (panel_areas, keybar) = regions(f.area(), app.panels.len());
     let theme = app.current_theme();
@@ -264,6 +262,45 @@ pub fn draw(f: &mut Frame, app: &App) {
         // and wrapping a bar chart turns one row into two and breaks the
         // whole panel's alignment.
         f.render_widget(Paragraph::new(ansi::to_text(&lines)), inner);
+
+        if panel.prompt_sudo {
+            let dialog_w = 46.min(area.width.saturating_sub(2));
+            let dialog_h = 7.min(area.height);
+            let dialog_x = area.x + (area.width.saturating_sub(dialog_w)) / 2;
+            let dialog_y = area.y + (area.height.saturating_sub(dialog_h)) / 2;
+            let dialog_area = Rect::new(dialog_x, dialog_y, dialog_w, dialog_h);
+
+            f.render_widget(Clear, dialog_area);
+
+            let border_color = Color::Rgb(theme.ratatui_border.0, theme.ratatui_border.1, theme.ratatui_border.2);
+            let accent_color = Color::Rgb(theme.ratatui_accent.0, theme.ratatui_accent.1, theme.ratatui_accent.2);
+
+            let masked_pass = "*".repeat(panel.password_input.len());
+            let content = vec![
+                Line::from(vec![Span::styled(format!("Sudo Password for {}:", panel.server.host), Style::default().fg(Color::Yellow))]),
+                Line::from(""),
+                Line::from(vec![
+                    Span::raw("[ "),
+                    Span::styled(format!("{:<30}", masked_pass), Style::default().fg(accent_color)),
+                    Span::raw(" ]"),
+                ]),
+                Line::from(""),
+                Line::from(vec![
+                    Span::styled("[Enter]", Style::default().fg(Color::White)),
+                    Span::styled(" Save & Upgrade   ", Style::default().fg(Color::DarkGray)),
+                    Span::styled("[Esc]", Style::default().fg(Color::White)),
+                    Span::styled(" Cancel", Style::default().fg(Color::DarkGray)),
+                ]),
+            ];
+
+            let block = Block::default()
+                .title(" Sudo Password Required ")
+                .borders(Borders::ALL)
+                .border_style(Style::default().fg(border_color))
+                .style(Style::default().bg(bg_color));
+
+            f.render_widget(Paragraph::new(content).block(block), dialog_area);
+        }
     }
 
     f.render_widget(

@@ -87,6 +87,7 @@ fn main() {
                 port: 22,
                 user: "admin".into(),
                 upgrade_cmd: None,
+                sudo_password: None,
             })
             .collect();
         let mut app = App::new(servers);

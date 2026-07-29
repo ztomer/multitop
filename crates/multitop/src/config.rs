@@ -34,6 +34,7 @@ pub struct Server {
     pub port: u16,
     pub user: String,
     pub upgrade_cmd: Option<String>,
+    pub sudo_password: Option<String>,
 }
 
 impl Server {
@@ -182,11 +183,19 @@ pub fn parse(text: &str) -> Result<Config, ConfigError> {
             .map(str::to_string)
             .filter(|s| !s.trim().is_empty());
 
+        let sudo_password = table
+            .get("sudo_password")
+            .or_else(|| table.get("sudo_pass"))
+            .and_then(|v| v.as_str())
+            .map(str::to_string)
+            .filter(|s| !s.trim().is_empty());
+
         out.push(Server {
             host,
             port,
             user,
             upgrade_cmd,
+            sudo_password,
         });
     }
 
@@ -209,6 +218,23 @@ pub fn save_theme(path: &Path, theme_name: &str) {
     let Ok(content) = std::fs::read_to_string(path) else { return; };
     let Ok(mut doc) = content.parse::<toml::Table>() else { return; };
     doc.insert("theme".to_string(), toml::Value::String(theme_name.to_string()));
+    let Ok(new_content) = toml::to_string(&doc) else { return; };
+    let _ = std::fs::write(path, new_content);
+}
+
+/// Save sudo password for a server host back to the TOML configuration file.
+pub fn save_sudo_password(path: &Path, host: &str, password: &str) {
+    let Ok(content) = std::fs::read_to_string(path) else { return; };
+    let Ok(mut doc) = content.parse::<toml::Table>() else { return; };
+    if let Some(toml::Value::Array(servers)) = doc.get_mut("servers") {
+        for server in servers.iter_mut() {
+            if let Some(table) = server.as_table_mut() {
+                if table.get("host").and_then(|h| h.as_str()) == Some(host) {
+                    table.insert("sudo_password".to_string(), toml::Value::String(password.to_string()));
+                }
+            }
+        }
+    }
     let Ok(new_content) = toml::to_string(&doc) else { return; };
     let _ = std::fs::write(path, new_content);
 }
@@ -239,6 +265,7 @@ pub fn parse_ssh_config(text: &str) -> Vec<Server> {
                         port: current_port,
                         user: current_user.clone(),
                         upgrade_cmd: None,
+                        sudo_password: None,
                     });
                 }
                 if val.contains('*') || val.contains('?') {
@@ -275,6 +302,7 @@ pub fn parse_ssh_config(text: &str) -> Vec<Server> {
             port: current_port,
             user: current_user,
             upgrade_cmd: None,
+            sudo_password: None,
         });
     }
 

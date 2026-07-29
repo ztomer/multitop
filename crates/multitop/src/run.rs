@@ -194,6 +194,49 @@ fn handle_key(
     if key.kind != KeyEventKind::Press {
         return;
     }
+
+    if let Some(idx) = app.panels.iter().position(|p| p.prompt_sudo) {
+        match key.code {
+            KeyCode::Esc => {
+                app.panels[idx].prompt_sudo = false;
+                app.panels[idx].password_input.clear();
+            }
+            KeyCode::Enter => {
+                let pass = app.panels[idx].password_input.clone();
+                app.panels[idx].prompt_sudo = false;
+                app.panels[idx].password_input.clear();
+                if !pass.trim().is_empty() {
+                    app.panels[idx].sudo_password = Some(pass.clone());
+                    if let Some(ref path) = app.config_path {
+                        crate::config::save_sudo_password(path, &app.panels[idx].server.host, &pass);
+                    }
+                    let cmds = app.run_upgrade();
+                    for cmd in cmds {
+                        if let Command::RunUpgrade { panel, gen } = cmd {
+                            let handle = spawn_upgrade(
+                                panel,
+                                gen,
+                                servers[panel].clone(),
+                                app.panels[panel].sudo_password.clone(),
+                                tx.clone(),
+                            );
+                            if let Some(old) = tasks.aux[panel].replace(handle) {
+                                old.abort();
+                            }
+                        }
+                    }
+                }
+            }
+            KeyCode::Backspace => {
+                app.panels[idx].password_input.pop();
+            }
+            KeyCode::Char(c) => {
+                app.panels[idx].password_input.push(c);
+            }
+            _ => {}
+        }
+        return;
+    }
     match key.code {
         KeyCode::Esc | KeyCode::Char('q') | KeyCode::Char('Q') => {
             app.quit();
@@ -274,7 +317,13 @@ fn handle_key(
             ),
             Command::RunUpgrade { panel, gen } => (
                 panel,
-                spawn_upgrade(panel, gen, servers[panel].clone(), tx.clone()),
+                spawn_upgrade(
+                    panel,
+                    gen,
+                    servers[panel].clone(),
+                    app.panels[panel].sudo_password.clone(),
+                    tx.clone(),
+                ),
             ),
         };
         // Supersede whatever that panel was running.
@@ -393,8 +442,14 @@ fn spawn_fetch(
     crate::tasks::spawn_fetch(idx, gen, server, dims, sort, tx)
 }
 
-fn spawn_upgrade(idx: usize, gen: u64, server: Server, tx: Sender<Msg>) -> JoinHandle<()> {
-    crate::tasks::spawn_upgrade(idx, gen, server, tx)
+fn spawn_upgrade(
+    idx: usize,
+    gen: u64,
+    server: Server,
+    pass: Option<String>,
+    tx: Sender<Msg>,
+) -> JoinHandle<()> {
+    crate::tasks::spawn_upgrade(idx, gen, server, pass, tx)
 }
 
 /// Dispatch a received packet to the correct renderer at the given dimensions.

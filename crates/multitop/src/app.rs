@@ -32,11 +32,15 @@ pub struct Panel {
     pub last_docker: Option<multitop_agent::proto::Payload>,
     pub view: Vec<String>,
     pub scroll_offset: usize,
+    pub sudo_password: Option<String>,
+    pub prompt_sudo: bool,
+    pub password_input: String,
 }
 
 impl Panel {
     fn new(server: Server) -> Self {
         let pal = &multitop_agent::color::ANSI;
+        let pass = server.sudo_password.clone();
         Panel {
             server,
             mode: Mode::Monitor,
@@ -47,6 +51,9 @@ impl Panel {
             last_docker: None,
             view: vec![format!("{}connecting...{}", pal.muted(), pal.reset)],
             scroll_offset: 0,
+            sudo_password: pass,
+            prompt_sudo: false,
+            password_input: String::new(),
         }
     }
 
@@ -107,6 +114,11 @@ pub enum Msg {
         panel: usize,
         gen: u64,
         note: Option<String>,
+    },
+    /// Request the user for a sudo password via a Modal Dialog.
+    PromptSudo {
+        panel: usize,
+        gen: u64,
     },
 }
 
@@ -330,6 +342,12 @@ impl App {
             Msg::AuxDone { panel, gen, note } => {
                 if let (true, Some(note)) = (self.accepts(panel, gen), note) {
                     self.panels[panel].view.push(note);
+                }
+            }
+            Msg::PromptSudo { panel, gen } => {
+                if self.accepts(panel, gen) && self.panels[panel].sudo_password.is_none() {
+                    self.panels[panel].prompt_sudo = true;
+                    self.panels[panel].password_input.clear();
                 }
             }
         }

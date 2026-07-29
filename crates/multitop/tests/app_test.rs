@@ -8,6 +8,7 @@ fn servers(n: usize) -> Vec<Server> {
             port: 22,
             user: String::new(),
             upgrade_cmd: None,
+            sudo_password: None,
         })
         .collect()
 }
@@ -364,9 +365,9 @@ fn local_server_deduplication() {
     use multitop::config::Server;
     use multitop::ssh::is_local;
 
-    let s1 = Server { host: "127.0.0.1".into(), port: 0, user: "".into(), upgrade_cmd: None };
-    let s2 = Server { host: "localhost".into(), port: 22, user: "".into(), upgrade_cmd: None };
-    let s3 = Server { host: "192.168.0.33".into(), port: 22, user: "".into(), upgrade_cmd: None };
+    let s1 = Server { host: "127.0.0.1".into(), port: 0, user: "".into(), upgrade_cmd: None, sudo_password: None };
+    let s2 = Server { host: "localhost".into(), port: 22, user: "".into(), upgrade_cmd: None, sudo_password: None };
+    let s3 = Server { host: "192.168.0.33".into(), port: 22, user: "".into(), upgrade_cmd: None, sudo_password: None };
 
     let mut servers = vec![s1, s2, s3];
     let mut seen_local = false;
@@ -379,4 +380,28 @@ fn local_server_deduplication() {
     assert_eq!(servers.len(), 2);
     assert_eq!(servers[0].host, "127.0.0.1");
     assert_eq!(servers[1].host, "192.168.0.33");
+}
+
+#[test]
+fn sudo_password_config_parsing_and_persistence_test() {
+    let toml = r#"
+    [[servers]]
+    host = "192.168.0.33"
+    upgrade_cmd = "us;ud"
+    sudo_password = "secret_pass_123"
+    "#;
+
+    let cfg = multitop::config::parse(toml).unwrap();
+    assert_eq!(cfg.servers[0].sudo_password.as_deref(), Some("secret_pass_123"));
+
+    let dir = std::env::temp_dir().join(format!("multitop_test_{}", std::process::id()));
+    let file = dir.join("config.toml");
+    let _ = std::fs::create_dir_all(&dir);
+    std::fs::write(&file, toml).unwrap();
+
+    multitop::config::save_sudo_password(&file, "192.168.0.33", "new_secret_456");
+    let updated = std::fs::read_to_string(&file).unwrap();
+    let cfg2 = multitop::config::parse(&updated).unwrap();
+    assert_eq!(cfg2.servers[0].sudo_password.as_deref(), Some("new_secret_456"));
+    let _ = std::fs::remove_dir_all(&dir);
 }
