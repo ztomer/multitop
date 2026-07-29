@@ -173,7 +173,6 @@ async fn event_loop(
                 }
                 dirty = true;
             }
-
             _ = resize_wait, if resize_at.is_some() => {
                 resize_at = None;
                 let new_dims = ui::agent_dims(terminal.size()?, n);
