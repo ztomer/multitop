@@ -37,7 +37,7 @@ fn regions(area: Rect, panels: usize) -> (Vec<Rect>, Rect) {
 
     // For panels >= 3, use a 2-column grid layout
     let grid_cols: u32 = 2;
-    let grid_rows: u32 = (panels as u32 + 1) / 2;
+    let grid_rows: u32 = (panels as u32).div_ceil(2);
     let v_chunks = Layout::vertical(vec![Constraint::Ratio(1, grid_rows); grid_rows as usize]).split(body);
     let mut rects = Vec::with_capacity(panels);
     for (r_idx, row_rect) in v_chunks.iter().enumerate() {
@@ -60,7 +60,7 @@ pub fn agent_dims(size: Size, panels: usize) -> (u16, u16) {
     let (grid_cols, grid_rows) = match panels {
         1 => (1u16, 1u16),
         2 => (1u16, 2u16),
-        n => (2u16, (n as u16 + 1) / 2),
+        n => (2u16, (n as u16).div_ceil(2)),
     };
     let cols = (size.width / grid_cols)
         .saturating_sub(SIDE_MARGIN * 2)

@@ -86,9 +86,6 @@ pub fn is_local(server: &Server) -> bool {
 }
 
 pub fn spawn_local_agent(mode: Mode, sort: SortBy) -> io::Result<Child> {
-    let path_var = std::env::var_os("PATH").unwrap_or_default();
-    let on_path = std::env::split_paths(&path_var).any(|dir| dir.join("multitop-agent").is_file());
-
     let (mut cmd, extra_args) = if let Ok(exe) = std::env::current_exe() {
         let parent = exe.parent().unwrap_or(Path::new(""));
         let grand = parent.parent().unwrap_or(Path::new(""));
@@ -102,13 +99,9 @@ pub fn spawn_local_agent(mode: Mode, sort: SortBy) -> io::Result<Child> {
             (Command::new(grand.join("multitop-agent")), vec![])
         } else if grand.join("multitop").is_file() {
             (Command::new(grand.join("multitop")), vec!["--agent".to_string()])
-        } else if on_path {
-            (Command::new("multitop-agent"), vec![])
         } else {
             (Command::new("multitop-agent"), vec![])
         }
-    } else if on_path {
-        (Command::new("multitop-agent"), vec![])
     } else {
         (Command::new("multitop-agent"), vec![])
     };

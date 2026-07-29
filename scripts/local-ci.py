@@ -6,8 +6,9 @@ Gates enforced:
  1. File LOC Limit: No .rs file in crates/ may exceed 500 lines of code.
  2. Approved Emoji / Unicode Whitelist: No unapproved emojis allowed in source.
  3. Workspace Build & Test Execution: All tests must pass cleanly.
- 4. Fuzzing & Protocol Sanity: Fuzzing suite must execute cleanly with zero panics.
- 5. Deterministic Regression Detection: Performance thresholds must be met.
+ 4. Clippy Lint Check: cargo clippy --all-targets -- -D warnings (warnings = errors).
+ 5. Fuzzing & Protocol Sanity: Fuzzing suite must execute cleanly with zero panics.
+ 6. Deterministic Regression Detection: Performance thresholds must be met.
 """
 
 import os
@@ -97,6 +98,20 @@ def run_build_and_tests():
     print_ok("Cargo test suite passed cleanly (100% green).")
     return True
 
+def run_clippy():
+    print_info("Gate 4: Running Clippy Lint Check (warnings as errors)...")
+    res = subprocess.run(
+        ["cargo", "clippy", "--all-targets", "--", "-D", "warnings"],
+        capture_output=True, text=True,
+    )
+    if res.returncode != 0:
+        print_err("Clippy lint check failed!")
+        print(res.stderr)
+        print(res.stdout)
+        return False
+    print_ok("Clippy passed cleanly with zero warnings.")
+    return True
+
 def run_fuzz_sanity():
     print_info("Gate 4: Running Fuzzing Protocol Sanity Gate...")
     res = subprocess.run(["cargo", "test", "-p", "multitop-agent", "proto::tests::decode_fuzz_garbage_never_panics"], capture_output=True, text=True)
@@ -145,6 +160,7 @@ def main():
         check_loc_limit,
         check_emoji_whitelist,
         run_build_and_tests,
+        run_clippy,
         run_fuzz_sanity,
         check_performance_regression,
     ]

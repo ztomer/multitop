@@ -104,7 +104,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 if last_report.elapsed() >= report_interval {
                     let elapsed_sec = start_time.elapsed().as_secs_f64();
                     let bw_kib = (total_bytes as f64 / 1024.0) / elapsed_sec;
-                    let avg_pkt = if total_packets > 0 { total_bytes / total_packets } else { 0 };
+                    let avg_pkt = total_bytes.checked_div(total_packets).unwrap_or(0);
                     let avg_delay = if !delays_ms.is_empty() { delays_ms.iter().sum::<f64>() / delays_ms.len() as f64 } else { 0.0 };
 
                     let client_rss_mib = get_client_rss_mib();
@@ -143,7 +143,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let elapsed_total = start_time.elapsed().as_secs_f64();
     let avg_bw_kib = (total_bytes as f64 / 1024.0) / elapsed_total;
-    let avg_pkt_size = if total_packets > 0 { total_bytes / total_packets } else { 0 };
+    let avg_pkt_size = total_bytes.checked_div(total_packets).unwrap_or(0);
     let avg_delay = if !delays_ms.is_empty() { delays_ms.iter().sum::<f64>() / delays_ms.len() as f64 } else { 0.0 };
 
     println!("--------------------------------------------------------------------------------------------------");
