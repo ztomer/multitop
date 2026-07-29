@@ -8,9 +8,35 @@ use crate::render::{Snapshot, TempUnit};
 pub const MAGIC: &[u8; 4] = b"MTOP";
 pub const PROTO_VERSION: u8 = 1;
 
-pub const MODE_MONITOR: u8 = 0;
-pub const MODE_DOCKER: u8 = 1;
-pub const MODE_FETCH: u8 = 2;
+#[repr(u8)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ProtoMode {
+    Monitor = 0,
+    Docker = 1,
+    Fetch = 2,
+}
+
+impl ProtoMode {
+    pub const fn as_u8(self) -> u8 {
+        self as u8
+    }
+}
+
+impl TryFrom<u8> for ProtoMode {
+    type Error = u8;
+    fn try_from(val: u8) -> Result<Self, Self::Error> {
+        match val {
+            0 => Ok(ProtoMode::Monitor),
+            1 => Ok(ProtoMode::Docker),
+            2 => Ok(ProtoMode::Fetch),
+            other => Err(other),
+        }
+    }
+}
+
+pub const MODE_MONITOR: u8 = ProtoMode::Monitor.as_u8();
+pub const MODE_DOCKER: u8 = ProtoMode::Docker.as_u8();
+pub const MODE_FETCH: u8 = ProtoMode::Fetch.as_u8();
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum Payload {
@@ -21,16 +47,17 @@ pub enum Payload {
 
 pub fn encode_packet(payload: &Payload) -> Vec<u8> {
     let mut buf = Vec::with_capacity(512);
-    // Placeholder for 6-byte header: magic(4) + version(1) + mode(1) + payload_len(2)
+    // Header: magic(4) + version(1) + mode(1) + payload_len(2)
     buf.extend_from_slice(MAGIC);
     buf.push(PROTO_VERSION);
     let mode = match payload {
-        Payload::Monitor(_) => MODE_MONITOR,
-        Payload::Docker { .. } => MODE_DOCKER,
-        Payload::Fetch(_) => MODE_FETCH,
+        Payload::Monitor(_) => ProtoMode::Monitor,
+        Payload::Docker { .. } => ProtoMode::Docker,
+        Payload::Fetch(_) => ProtoMode::Fetch,
     };
-    buf.push(mode);
-    buf.extend_from_slice(&[0u8; 2]); // payload_len placeholder
+    buf.push(mode.as_u8());
+    buf.push(0); // payload_len placeholder byte 1
+    buf.push(0); // payload_len placeholder byte 2
 
     let payload_start = buf.len();
 
