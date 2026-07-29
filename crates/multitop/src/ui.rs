@@ -149,10 +149,8 @@ fn keybar_line() -> Line<'static> {
     Line::from(vec![
         Span::styled(" ESC / Q", key),
         Span::styled(" Quit  ", label),
-        Span::styled("C", key),
-        Span::styled(" Cpu  ", label),
-        Span::styled("M", key),
-        Span::styled(" Mem  ", label),
+        Span::styled("F", key),
+        Span::styled(" Fetch  ", label),
         Span::styled("D", key),
         Span::styled(" Docker  ", label),
         Span::styled("S", key),
@@ -299,7 +297,7 @@ mod tests {
             .iter()
             .map(|s| s.content.as_ref())
             .collect();
-        for hint in ["ESC", "Quit", "D", "Docker", "S", "Stats", "U", "Upgrade"] {
+        for hint in ["ESC", "Quit", "F", "Fetch", "D", "Docker", "S", "Stats", "U", "Upgrade"] {
             assert!(text.contains(hint), "missing {hint} in {text:?}");
         }
     }

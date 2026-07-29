@@ -63,6 +63,7 @@ impl Arch {
 pub enum Mode {
     Monitor,
     Docker,
+    Fetch,
 }
 
 impl Mode {
@@ -70,6 +71,7 @@ impl Mode {
         match self {
             Mode::Monitor => "monitor",
             Mode::Docker => "docker",
+            Mode::Fetch => "fetch",
         }
     }
 }

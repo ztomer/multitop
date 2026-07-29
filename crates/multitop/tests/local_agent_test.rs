@@ -37,7 +37,7 @@ async fn local_agent_streams_binary_packets() {
 #[tokio::test]
 async fn connect_local_server_succeeds_and_streams_snapshots() {
     use multitop::config::Server;
-    use multitop::run::{connect, next_packet};
+    use multitop::stream::{connect, next_packet};
 
     let server = Server {
         host: "localhost".into(),

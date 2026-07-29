@@ -9,6 +9,7 @@ pub mod color;
 pub mod consts;
 pub mod docker;
 pub mod docker_cli;
+pub mod fetch;
 pub mod fmt;
 pub mod monitor;
 pub mod proc;
@@ -54,6 +55,17 @@ pub struct Args {
 pub enum Mode {
     Monitor,
     Docker,
+    Fetch,
+}
+
+impl Mode {
+    pub fn word(&self) -> &'static str {
+        match self {
+            Mode::Monitor => "monitor",
+            Mode::Docker => "docker",
+            Mode::Fetch => "fetch",
+        }
+    }
 }
 
 impl Default for Args {
@@ -68,7 +80,7 @@ impl Default for Args {
     }
 }
 
-/// Parse `[monitor|docker] [ip] [cols] [lines] [cpu|mem]`.
+/// Parse `[monitor|docker|fetch] [ip] [cols] [lines] [cpu|mem]`.
 ///
 /// The mode word is optional so the binary still behaves sensibly when run by
 /// hand on a server with no arguments at all.
@@ -86,14 +98,16 @@ pub fn parse_args<I: IntoIterator<Item = String>>(argv: I) -> Args {
                 args.mode = Mode::Docker;
                 rest.remove(0);
             }
+            "fetch" => {
+                args.mode = Mode::Fetch;
+                rest.remove(0);
+            }
             _ => {}
         }
     }
 
     let mut positional = rest.into_iter();
     args.display_ip = positional.next().filter(|s| !s.is_empty());
-    // A malformed dimension falls back to the default rather than aborting;
-    // a wrong panel size is far better than no panel.
     if let Some(v) = positional.next().and_then(|v| v.parse().ok()) {
         args.cols = v;
     }
@@ -124,6 +138,20 @@ pub fn run_agent<I: IntoIterator<Item = String>>(argv: I) {
     let host = proc::host_info(args.display_ip.as_deref());
 
     match args.mode {
+        Mode::Fetch => {
+            let snap = fetch::sample_fetch(&host);
+            if is_tty {
+                let frame = fetch::render_fetch(&snap, args.cols, args.lines, pal);
+                let mut out = io::stdout().lock();
+                let _ = writeln!(out, "{}", frame.join("\n"));
+            } else {
+                let payload = proto::Payload::Fetch(snap);
+                let bytes = proto::encode_packet(&payload);
+                let mut out = io::stdout().lock();
+                let _ = out.write_all(&bytes);
+                let _ = out.flush();
+            }
+        }
         Mode::Docker => {
             let rows = docker::collect();
             if is_tty {

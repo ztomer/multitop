@@ -21,6 +21,7 @@ OPTIONS:
 
 KEYS:
     ESC / q    Quit
+    f          Toggle Fastfetch system info view on every panel
     d          Toggle the Docker view on every panel
     s          Back to live stats
     u          Run each server's configured upgrade_cmd
@@ -274,7 +275,7 @@ mod tests {
 
     #[test]
     fn usage_documents_every_key() {
-        for key in ["ESC", "d", "s", "u"] {
+        for key in ["ESC", "f", "d", "s", "u"] {
             assert!(USAGE.contains(key), "usage is missing {key}");
         }
     }

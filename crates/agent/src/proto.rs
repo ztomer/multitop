@@ -1,6 +1,7 @@
 //! Compact binary telemetry protocol (b"MTOP") for streaming metrics over SSH.
 
 use crate::docker::Row as DockerRow;
+use crate::fetch::FetchSnapshot;
 use crate::proc::{Proc, Usage};
 use crate::render::{Snapshot, TempUnit};
 
@@ -9,11 +10,13 @@ pub const PROTO_VERSION: u8 = 1;
 
 pub const MODE_MONITOR: u8 = 0;
 pub const MODE_DOCKER: u8 = 1;
+pub const MODE_FETCH: u8 = 2;
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum Payload {
     Monitor(Snapshot),
     Docker { host: String, rows: Vec<DockerRow> },
+    Fetch(FetchSnapshot),
 }
 
 pub fn encode_packet(payload: &Payload) -> Vec<u8> {
@@ -24,6 +27,7 @@ pub fn encode_packet(payload: &Payload) -> Vec<u8> {
     let mode = match payload {
         Payload::Monitor(_) => MODE_MONITOR,
         Payload::Docker { .. } => MODE_DOCKER,
+        Payload::Fetch(_) => MODE_FETCH,
     };
     buf.push(mode);
     buf.extend_from_slice(&[0u8; 2]); // payload_len placeholder
@@ -33,6 +37,7 @@ pub fn encode_packet(payload: &Payload) -> Vec<u8> {
     match payload {
         Payload::Monitor(snap) => encode_snapshot(snap, &mut buf),
         Payload::Docker { host, rows } => encode_docker(host, rows, &mut buf),
+        Payload::Fetch(snap) => encode_fetch(snap, &mut buf),
     }
 
     let payload_len = (buf.len() - payload_start) as u16;
@@ -98,6 +103,17 @@ fn encode_docker(host: &str, rows: &[DockerRow], buf: &mut Vec<u8>) {
         encode_str(&r.mem, buf);
         buf.extend_from_slice(&r.mem_bytes.to_le_bytes());
     }
+}
+
+fn encode_fetch(snap: &FetchSnapshot, buf: &mut Vec<u8>) {
+    encode_str(&snap.user_host, buf);
+    encode_str(&snap.os, buf);
+    encode_str(&snap.kernel, buf);
+    encode_str(&snap.uptime, buf);
+    encode_str(&snap.host_model, buf);
+    encode_str(&snap.cpu_model, buf);
+    encode_str(&snap.memory_str, buf);
+    encode_str(&snap.disk_str, buf);
 }
 
 pub struct Cursor<'a> {
@@ -173,8 +189,22 @@ pub fn decode_packet(data: &[u8]) -> Option<Payload> {
     match mode {
         MODE_MONITOR => decode_snapshot(&mut cur).map(Payload::Monitor),
         MODE_DOCKER => decode_docker(&mut cur),
+        MODE_FETCH => decode_fetch(&mut cur).map(Payload::Fetch),
         _ => None,
     }
+}
+
+fn decode_fetch(cur: &mut Cursor) -> Option<FetchSnapshot> {
+    Some(FetchSnapshot {
+        user_host: cur.read_str()?,
+        os: cur.read_str()?,
+        kernel: cur.read_str()?,
+        uptime: cur.read_str()?,
+        host_model: cur.read_str()?,
+        cpu_model: cur.read_str()?,
+        memory_str: cur.read_str()?,
+        disk_str: cur.read_str()?,
+    })
 }
 
 fn decode_snapshot(cur: &mut Cursor) -> Option<Snapshot> {
@@ -336,6 +366,38 @@ mod tests {
             assert_eq!(rows[0].mem_bytes, row.mem_bytes);
         } else {
             panic!("expected Docker payload");
+        }
+    }
+
+    #[test]
+    fn fetch_round_trip() {
+        let snap = FetchSnapshot {
+            user_host: "alice@server1".to_string(),
+            os: "Ubuntu 24.04 LTS".to_string(),
+            kernel: "6.8.0-45-generic".to_string(),
+            uptime: "12d 4h 30m".to_string(),
+            host_model: "Dell PowerEdge R750".to_string(),
+            cpu_model: "Intel(R) Xeon(R) Gold 6438M (128)".to_string(),
+            memory_str: "32.0GiB/128.0GiB (25%)".to_string(),
+            disk_str: "256.0GiB/1.0TiB (25%)".to_string(),
+        };
+
+        let payload = Payload::Fetch(snap.clone());
+        let encoded = encode_packet(&payload);
+        assert_eq!(&encoded[..4], MAGIC);
+        let decoded = decode_packet(&encoded).expect("decode fetch packet");
+
+        if let Payload::Fetch(d) = decoded {
+            assert_eq!(d.user_host, snap.user_host);
+            assert_eq!(d.os, snap.os);
+            assert_eq!(d.kernel, snap.kernel);
+            assert_eq!(d.uptime, snap.uptime);
+            assert_eq!(d.host_model, snap.host_model);
+            assert_eq!(d.cpu_model, snap.cpu_model);
+            assert_eq!(d.memory_str, snap.memory_str);
+            assert_eq!(d.disk_str, snap.disk_str);
+        } else {
+            panic!("expected Fetch payload");
         }
     }
 

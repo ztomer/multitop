@@ -22,6 +22,7 @@ const MAX_AUX_LINES: usize = 2000;
 pub enum Mode {
     Monitor,
     Docker,
+    Fetch,
     Upgrade,
 }
 
@@ -61,6 +62,7 @@ impl Panel {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Command {
     RunDocker { panel: usize, gen: u64 },
+    RunFetch { panel: usize, gen: u64 },
     RunUpgrade { panel: usize, gen: u64 },
 }
 
@@ -143,6 +145,26 @@ impl App {
 
     pub fn in_docker(&self) -> bool {
         self.panels.iter().any(|p| p.mode == Mode::Docker)
+    }
+
+    pub fn in_fetch(&self) -> bool {
+        self.panels.iter().any(|p| p.mode == Mode::Fetch)
+    }
+
+    /// `f`: all panels into the Fastfetch view, or all back to stats.
+    pub fn toggle_fetch(&mut self) -> Vec<Command> {
+        if self.in_fetch() {
+            return self.switch_stats();
+        }
+        let mut cmds = Vec::with_capacity(self.panels.len());
+        for i in 0..self.panels.len() {
+            let gen = self.bump(i);
+            let p = &mut self.panels[i];
+            p.mode = Mode::Fetch;
+            p.view = vec![format!("{YELLOW}\u{2192} Fetching system info...{RESET}")];
+            cmds.push(Command::RunFetch { panel: i, gen });
+        }
+        cmds
     }
 
     /// `d`: all panels into the Docker view, or all back to stats.
