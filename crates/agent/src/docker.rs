@@ -12,6 +12,7 @@
 
 use std::collections::HashMap;
 use std::io::{self, Read, Write};
+use std::net::TcpStream;
 use std::os::unix::net::UnixStream;
 use std::time::Duration;
 
@@ -71,12 +72,6 @@ impl DockerEndpoint {
     }
 }
 
-fn socket_path() -> String {
-    match DockerEndpoint::from_env() {
-        DockerEndpoint::Unix(path) => path,
-        DockerEndpoint::Tcp(addr) => addr,
-    }
-}
 
 fn find_subslice(haystack: &[u8], needle: &[u8]) -> Option<usize> {
     haystack.windows(needle.len()).position(|w| w == needle)
@@ -110,22 +105,36 @@ pub fn decode_chunked(body: &[u8]) -> Vec<u8> {
     out
 }
 
-/// Minimal HTTP/1.1 GET over a unix socket.
+/// Minimal HTTP/1.1 GET over a unix domain socket or TCP socket.
 ///
 /// `Connection: close` lets us read to EOF instead of tracking content
 /// lengths, and the daemon answers every one of these in a single response.
 fn http_get(path: &str) -> io::Result<Vec<u8>> {
-    let mut stream = UnixStream::connect(socket_path())?;
-    stream.set_read_timeout(Some(IO_TIMEOUT))?;
-    stream.set_write_timeout(Some(IO_TIMEOUT))?;
+    let endpoint = DockerEndpoint::from_env();
     let req = format!(
         "GET {path} HTTP/1.1\r\nHost: localhost\r\nAccept: application/json\r\nConnection: close\r\n\r\n"
     );
-    stream.write_all(req.as_bytes())?;
-    stream.flush()?;
-
     let mut raw = Vec::with_capacity(8192);
-    stream.read_to_end(&mut raw)?;
+
+    match endpoint {
+        DockerEndpoint::Unix(sock_path) => {
+            let mut stream = UnixStream::connect(sock_path)?;
+            stream.set_read_timeout(Some(IO_TIMEOUT))?;
+            stream.set_write_timeout(Some(IO_TIMEOUT))?;
+            stream.write_all(req.as_bytes())?;
+            stream.flush()?;
+            stream.read_to_end(&mut raw)?;
+        }
+        DockerEndpoint::Tcp(addr) => {
+            let clean_addr = addr.trim_start_matches("tcp://");
+            let mut stream = TcpStream::connect(clean_addr)?;
+            stream.set_read_timeout(Some(IO_TIMEOUT))?;
+            stream.set_write_timeout(Some(IO_TIMEOUT))?;
+            stream.write_all(req.as_bytes())?;
+            stream.flush()?;
+            stream.read_to_end(&mut raw)?;
+        }
+    }
 
     let split = find_subslice(&raw, b"\r\n\r\n")
         .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidData, "no header terminator"))?;
