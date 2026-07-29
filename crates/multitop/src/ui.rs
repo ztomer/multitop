@@ -198,10 +198,12 @@ fn keybar_line(
         Span::styled("heme: ", sort_label),
         Span::styled(theme_name_padded, theme_val_style),
         Span::styled("]  ", sort_label),
-        Span::styled("[Sort by: ", sort_label),
-        Span::styled("Mem", mem_style),
+        Span::styled("[Sort: ", sort_label),
+        Span::styled("C", key_hi),
+        Span::styled("pu", cpu_style),
         Span::styled("/ ", sort_label),
-        Span::styled("Cpu", cpu_style),
+        Span::styled("M", key_hi),
+        Span::styled("em", mem_style),
         Span::styled("]", sort_label),
     ];
     let badge_width: usize = badge_spans.iter().map(|s| s.content.len()).sum();
@@ -249,11 +251,28 @@ pub fn draw(f: &mut Frame, app: &App) {
             inner.width as usize,
             panel.scroll_offset,
         );
-        if idx == app.selected_panel && app.panels.len() > 1 && !lines.is_empty() {
-            let tag = " \x1b[36;1m[\u{25cf} Active]\x1b[0m";
-            let target_w = (inner.width as usize).saturating_sub(10);
+        if !lines.is_empty() {
+            let mode_tag = match panel.mode {
+                crate::app::Mode::Monitor => "\x1b[34;1m[Stats]\x1b[0m",
+                crate::app::Mode::Docker => "\x1b[35;1m[Docker]\x1b[0m",
+                crate::app::Mode::Fetch => "\x1b[32;1m[Fetch]\x1b[0m",
+                crate::app::Mode::Upgrade => "\x1b[33;1m[Upgrade]\x1b[0m",
+            };
+            let active_tag = if idx == app.selected_panel && app.panels.len() > 1 {
+                " \x1b[36;1m[\u{25cf} Active]\x1b[0m"
+            } else {
+                ""
+            };
+            let live_tag = if panel.scroll_offset == 0 && panel.view.len() > inner.height as usize {
+                " \x1b[32;1m[\u{2193} Live]\x1b[0m"
+            } else {
+                ""
+            };
+            let tags = format!(" {mode_tag}{active_tag}{live_tag}");
+            let tag_len = 9 + if idx == app.selected_panel && app.panels.len() > 1 { 10 } else { 0 } + if panel.scroll_offset == 0 && panel.view.len() > inner.height as usize { 8 } else { 0 };
+            let target_w = (inner.width as usize).saturating_sub(tag_len);
             let refitted = refit_line(&lines[0], target_w);
-            lines[0] = format!("{refitted}{tag}");
+            lines[0] = format!("{refitted}{tags}");
         }
         f.render_widget(Paragraph::new(ansi::to_text(&lines)), inner);
     }
@@ -416,7 +435,7 @@ mod tests {
             .map(|s| s.content.as_ref())
             .collect();
         assert!(text.contains("heme: Kare"), "theme indicator missing");
-        assert!(text.contains("[Sort by:"), "sort indicator missing");
+        assert!(text.contains("[Sort:"), "sort indicator missing");
         assert!(text.contains("Cpu"), "CPU sort key missing from keybar");
     }
 
@@ -428,7 +447,7 @@ mod tests {
             .iter()
             .map(|s| s.content.as_ref())
             .collect();
-        assert!(text.contains("[Sort by:"), "sort indicator missing");
+        assert!(text.contains("[Sort:"), "sort indicator missing");
         assert!(text.contains("Mem"), "Memory sort key missing from keybar");
     }
 }

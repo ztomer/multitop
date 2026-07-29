@@ -63,14 +63,16 @@ pub fn draw(f: &mut Frame, app: &App) {
         lines.push(Line::from(""));
         if let Some(draft) = &manager.draft {
             lines.push(Line::from(Span::styled(
-                "Editing server",
+                "Editing Server Configuration & Password",
                 Style::default().fg(accent),
             )));
+            let masked_pass = "*".repeat(draft.password.chars().count());
             for (index, (label, value)) in [
                 ("Host", &draft.host),
                 ("User", &draft.user),
                 ("Port", &draft.port),
                 ("Upgrade command", &draft.upgrade_cmd),
+                ("Sudo password", &masked_pass),
             ]
             .iter()
             .enumerate()
@@ -81,18 +83,18 @@ pub fn draw(f: &mut Frame, app: &App) {
                 )));
             }
             lines.push(Line::from(Span::styled(
-                "[Tab/Up/Down] Field  [Enter] Save  [Esc] Cancel",
+                "[Tab/Up/Down] Field  [Enter] Save All Settings  [Esc] Cancel",
                 Style::default().fg(Color::DarkGray),
             )));
         } else {
             lines.push(Line::from(Span::styled(
-                "[A] Add  [Enter/E] Edit  [D] Delete  [Esc/E] Return",
+                "[A] Add Server  [Enter/E] Edit Server & Password  [D] Delete Server  [Esc/E] Return",
                 Style::default().fg(Color::DarkGray),
             )));
         }
     } else {
         lines.push(Line::from(Span::styled(
-            "  Server                         User              Password",
+            "  Server                         User              Password Status",
             Style::default().fg(Color::DarkGray),
         )));
         for (index, panel) in app.panels.iter().enumerate() {
@@ -102,26 +104,29 @@ pub fn draw(f: &mut Frame, app: &App) {
             } else {
                 &panel.server.user
             };
-            let state = if panel.password_saved {
-                "Stored securely"
+            let (state, state_color) = if panel.password_saved {
+                ("\u{1f512} Stored", Color::Green)
             } else if panel.sudo_password.is_some() {
-                "Session only"
+                ("\u{1f511} Session", Color::Yellow)
             } else {
-                "Not set"
+                ("\u{26aa} Unset", Color::DarkGray)
             };
             let style = if index == manager.selected {
                 Style::default().fg(accent)
             } else {
                 Style::default()
             };
-            lines.push(Line::from(Span::styled(
-                format!(
-                    "{marker} {:<30} {:<17} {state}",
-                    format!("{}:{}", panel.server.host, panel.server.port),
-                    user
+            lines.push(Line::from(vec![
+                Span::styled(
+                    format!(
+                        "{marker} {:<30} {:<17} ",
+                        format!("{}:{}", panel.server.host, panel.server.port),
+                        user
+                    ),
+                    style,
                 ),
-                style,
-            )));
+                Span::styled(state, Style::default().fg(state_color)),
+            ]));
         }
         lines.push(Line::from(""));
         if manager.editing {

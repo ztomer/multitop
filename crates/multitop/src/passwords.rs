@@ -18,11 +18,12 @@ pub struct ServerDraft {
     pub user: String,
     pub port: String,
     pub upgrade_cmd: String,
+    pub password: String,
     pub field: usize,
 }
 
 impl ServerDraft {
-    fn new(original: Option<usize>, server: Option<&Server>) -> Self {
+    pub fn new(original: Option<usize>, server: Option<&Server>, password: Option<&str>) -> Self {
         Self {
             original,
             host: server.map_or_else(String::new, |s| s.host.clone()),
@@ -31,6 +32,7 @@ impl ServerDraft {
             upgrade_cmd: server
                 .and_then(|s| s.upgrade_cmd.clone())
                 .unwrap_or_default(),
+            password: password.unwrap_or_default().to_string(),
             field: 0,
         }
     }
@@ -40,7 +42,8 @@ impl ServerDraft {
             0 => &mut self.host,
             1 => &mut self.user,
             2 => &mut self.port,
-            _ => &mut self.upgrade_cmd,
+            3 => &mut self.upgrade_cmd,
+            _ => &mut self.password,
         }
     }
 
@@ -180,7 +183,7 @@ fn password_key(app: &mut App, key: KeyCode) -> PasswordAction {
             manager.notice = None;
         }
         KeyCode::Char('a' | 'A') => {
-            manager.draft = Some(ServerDraft::new(None, None));
+            manager.draft = Some(ServerDraft::new(None, None, None));
             manager.section = ConfigSection::Servers;
         }
         KeyCode::Char('s' | 'S') => manager.store_on_save = !manager.store_on_save,
@@ -207,14 +210,16 @@ fn server_key(app: &mut App, key: KeyCode) -> PasswordAction {
     if let Some(draft) = manager.draft.as_mut() {
         match key {
             KeyCode::Esc => manager.draft = None,
-            KeyCode::Tab | KeyCode::Down => draft.field = (draft.field + 1) % 4,
-            KeyCode::Up => draft.field = draft.field.checked_sub(1).unwrap_or(3),
+            KeyCode::Tab | KeyCode::Down => draft.field = (draft.field + 1) % 5,
+            KeyCode::Up => draft.field = draft.field.checked_sub(1).unwrap_or(4),
             KeyCode::Backspace => {
                 draft.active_field().pop();
             }
             KeyCode::Char(character) => draft.active_field().push(character),
             KeyCode::Enter => {
                 let draft = manager.draft.take().expect("draft exists");
+                let pass_input = draft.password.clone();
+                let original_idx = draft.original;
                 match draft.clone().into_server() {
                     Ok(server) => {
                         let mut servers: Vec<Server> = app
@@ -222,10 +227,20 @@ fn server_key(app: &mut App, key: KeyCode) -> PasswordAction {
                             .iter()
                             .map(|panel| panel.server.clone())
                             .collect();
-                        if let Some(index) = draft.original {
+                        let target_idx = if let Some(index) = original_idx {
                             servers[index] = server;
+                            index
                         } else {
                             servers.push(server);
+                            servers.len() - 1
+                        };
+                        if !pass_input.trim().is_empty() {
+                            return PasswordAction::Save {
+                                panel: target_idx,
+                                password: pass_input,
+                                store: true,
+                                resume_upgrade: false,
+                            };
                         }
                         return PasswordAction::ApplyServers(servers);
                     }
@@ -247,12 +262,12 @@ fn server_key(app: &mut App, key: KeyCode) -> PasswordAction {
         KeyCode::Down | KeyCode::Char('j' | 'J') => {
             manager.selected = (manager.selected + 1).min(app.panels.len().saturating_sub(1))
         }
-        KeyCode::Char('a' | 'A') => manager.draft = Some(ServerDraft::new(None, None)),
+        KeyCode::Char('a' | 'A') => manager.draft = Some(ServerDraft::new(None, None, None)),
         KeyCode::Enter => {
             manager.draft = app
                 .panels
                 .get(manager.selected)
-                .map(|panel| ServerDraft::new(Some(manager.selected), Some(&panel.server)))
+                .map(|panel| ServerDraft::new(Some(manager.selected), Some(&panel.server), panel.sudo_password.as_deref()))
         }
         KeyCode::Char('d' | 'D') if app.panels.len() > 1 => {
             let mut servers: Vec<Server> = app
