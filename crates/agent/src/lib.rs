@@ -9,6 +9,7 @@ pub mod color;
 pub mod consts;
 pub mod docker;
 pub mod docker_cli;
+pub mod docker_render;
 pub mod fetch;
 pub mod fmt;
 pub mod monitor;

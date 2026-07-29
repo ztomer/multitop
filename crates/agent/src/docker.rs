@@ -17,8 +17,7 @@ use std::time::Duration;
 
 use serde_json::Value;
 
-use crate::color::Palette;
-use crate::fmt::{center_header, fmt_size, SIZE_MAX, SIZE_PAIR_W};
+use crate::fmt::{fmt_size, SIZE_MAX, SIZE_PAIR_W};
 
 /// Window between the two CPU samples. Long enough for the counters to move,
 /// short enough that pressing `d` feels instant.
@@ -382,12 +381,12 @@ pub fn collect() -> Vec<Row> {
 
 // ----------------------------------------------------------------- rendering
 
-const NAME_W: usize = 20;
-const STATUS_W: usize = 16;
+pub(crate) const NAME_W: usize = 20;
+pub(crate) const STATUS_W: usize = 16;
 /// Wide enough for `999.9%` on a single core and `6400.0%` on a big host.
-const CPU_W: usize = 7;
+pub(crate) const CPU_W: usize = 7;
 /// A `used/total` pair, sized from the formatter that produces it.
-const MEM_W: usize = SIZE_PAIR_W;
+pub(crate) const MEM_W: usize = SIZE_PAIR_W;
 
 pub fn truncate(s: &str, width: usize) -> String {
     if s.chars().count() < width {
@@ -398,97 +397,4 @@ pub fn truncate(s: &str, width: usize) -> String {
     t
 }
 
-pub fn render(
-    host: &str,
-    cols: usize,
-    max_rows: usize,
-    rows: &[Row],
-    pal: &Palette,
-    sort_by: crate::SortBy,
-) -> Vec<String> {
-    let mut out = Vec::with_capacity(rows.len() + 4);
-    out.push(center_header(host, cols, pal));
-
-    if rows.is_empty() {
-        out.push(format!(" {}No running containers{}", pal.muted(), pal.reset));
-        return out;
-    }
-
-    let mut sorted_rows = rows.to_vec();
-    match sort_by {
-        crate::SortBy::Cpu => sorted_rows.sort_unstable_by(|a, b| {
-            b.cpu_pct
-                .partial_cmp(&a.cpu_pct)
-                .unwrap_or(std::cmp::Ordering::Equal)
-                .then_with(|| b.mem_bytes.cmp(&a.mem_bytes))
-                .then_with(|| a.name.cmp(&b.name))
-        }),
-        crate::SortBy::Mem => sorted_rows.sort_unstable_by(|a, b| {
-            b.mem_bytes
-                .cmp(&a.mem_bytes)
-                .then_with(|| b.cpu_pct.partial_cmp(&a.cpu_pct).unwrap_or(std::cmp::Ordering::Equal))
-                .then_with(|| a.name.cmp(&b.name))
-        }),
-    }
-
-    out.push(format!(
-        " {}{}{:<NAME_W$}  {:<STATUS_W$}  {:<CPU_W$}  {:<MEM_W$}{}",
-        pal.secondary(), pal.bold, "NAME", "STATUS", "CPU", "MEM", pal.reset,
-    ));
-    let rule = format!(
-        " {}{}{}",
-        pal.primary(),
-        "\u{2500}".repeat(cols.saturating_sub(2)),
-        pal.reset
-    );
-    out.push(rule.clone());
-
-    // Budget: header(1) + col-header(1) + rule(1) + bottom-rule(1) = 4 rows of
-    // chrome.  Everything else is container rows.  When the panel is too short,
-    // show as many as fit and a summary.
-    let chrome_rows = 4;
-    let body_budget = max_rows.saturating_sub(chrome_rows);
-    let (visible, overflow) = if body_budget >= sorted_rows.len() || max_rows == 0 {
-        (&sorted_rows[..], 0)
-    } else {
-        // Reserve one row for the "…+N more" line.
-        let show = body_budget.saturating_sub(1);
-        (&sorted_rows[..show], sorted_rows.len() - show)
-    };
-
-    for r in visible {
-        let cpu_c = if r.cpu_pct >= 80.0 {
-            pal.meter_high()
-        } else if r.cpu_pct >= 20.0 {
-            pal.meter_mid()
-        } else {
-            pal.meter_low()
-        };
-        out.push(format!(
-            " {}{}{:<NAME_W$}{}  {}{:<STATUS_W$}{}  {}{:<CPU_W$}{}  {}{:<MEM_W$}{}",
-            pal.bold,
-            pal.text(),
-            truncate(&r.name, NAME_W),
-            pal.reset,
-            pal.status_color(&r.status),
-            truncate(&r.status, STATUS_W),
-            pal.reset,
-            cpu_c,
-            r.cpu,
-            pal.reset,
-            pal.primary(),
-            r.mem,
-            pal.reset,
-        ));
-    }
-
-    if overflow > 0 {
-        out.push(format!(
-            " {}\u{2026}+{} more{}",
-            pal.muted(), overflow, pal.reset
-        ));
-    }
-
-    out.push(rule);
-    out
-}
+pub use crate::docker_render::render;
