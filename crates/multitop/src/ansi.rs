@@ -26,7 +26,40 @@ fn apply_sgr_params(mut style: Style, params: &[u16]) -> Style {
             35 => style = style.fg(Color::Magenta),
             36 => style = style.fg(Color::Cyan),
             37 => style = style.fg(Color::Gray),
+            38 if i + 4 < params.len() && params[i + 1] == 2 => {
+                let r = params[i + 2] as u8;
+                let g = params[i + 3] as u8;
+                let b = params[i + 4] as u8;
+                style = style.fg(Color::Rgb(r, g, b));
+                i += 4;
+            }
+            38 if i + 2 < params.len() && params[i + 1] == 5 => {
+                let idx = params[i + 2] as u8;
+                style = style.fg(Color::Indexed(idx));
+                i += 2;
+            }
             39 => style.fg = None,
+            40 => style = style.bg(Color::Black),
+            41 => style = style.bg(Color::Red),
+            42 => style = style.bg(Color::Green),
+            43 => style = style.bg(Color::Yellow),
+            44 => style = style.bg(Color::Blue),
+            45 => style = style.bg(Color::Magenta),
+            46 => style = style.bg(Color::Cyan),
+            47 => style = style.bg(Color::Gray),
+            48 if i + 4 < params.len() && params[i + 1] == 2 => {
+                let r = params[i + 2] as u8;
+                let g = params[i + 3] as u8;
+                let b = params[i + 4] as u8;
+                style = style.bg(Color::Rgb(r, g, b));
+                i += 4;
+            }
+            48 if i + 2 < params.len() && params[i + 1] == 5 => {
+                let idx = params[i + 2] as u8;
+                style = style.bg(Color::Indexed(idx));
+                i += 2;
+            }
+            49 => style.bg = None,
             90 => style = style.fg(Color::DarkGray),
             91 => style = style.fg(Color::LightRed),
             92 => style = style.fg(Color::LightGreen),
@@ -35,13 +68,14 @@ fn apply_sgr_params(mut style: Style, params: &[u16]) -> Style {
             95 => style = style.fg(Color::LightMagenta),
             96 => style = style.fg(Color::LightCyan),
             97 => style = style.fg(Color::White),
-            38 if i + 4 < params.len() && params[i + 1] == 2 => {
-                let r = params[i + 2] as u8;
-                let g = params[i + 3] as u8;
-                let b = params[i + 4] as u8;
-                style = style.fg(Color::Rgb(r, g, b));
-                i += 4;
-            }
+            100 => style = style.bg(Color::DarkGray),
+            101 => style = style.bg(Color::LightRed),
+            102 => style = style.bg(Color::LightGreen),
+            103 => style = style.bg(Color::LightYellow),
+            104 => style = style.bg(Color::LightBlue),
+            105 => style = style.bg(Color::LightMagenta),
+            106 => style = style.bg(Color::LightCyan),
+            107 => style = style.bg(Color::White),
             _ => {}
         }
         i += 1;
@@ -284,5 +318,16 @@ mod tests {
     fn osc_escapes_and_control_chars_are_dropped() {
         let raw = "hello\x1b]0;title\x07world\r\x08!";
         assert_eq!(plain(&line_to_spans(raw)), "helloworld!");
+    }
+
+    #[test]
+    fn test_256_and_background_colors() {
+        let line = line_to_spans("\x1b[38;5;208m\x1b[48;5;21m256-color\x1b[0m");
+        assert_eq!(line.spans.len(), 1);
+        assert_eq!(line.spans[0].style.fg, Some(Color::Indexed(208)));
+        assert_eq!(line.spans[0].style.bg, Some(Color::Indexed(21)));
+
+        let line_rgb = line_to_spans("\x1b[48;2;10;20;30mrgb-bg\x1b[0m");
+        assert_eq!(line_rgb.spans[0].style.bg, Some(Color::Rgb(10, 20, 30)));
     }
 }
