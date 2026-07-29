@@ -90,3 +90,9 @@ This roadmap documents upcoming features, UX enhancements, and test suite expans
   - Enabled `opt-level = "z"` for `multitop-agent`.
 - **Release Version**:
   - Bumped workspace version to `v0.20.3`.
+
+## 11. Release 0.20.4 & Warning Elimination
+- **Target-Scoped Imports**:
+  - Added `#[cfg(target_os = "macos")]` attribute to `HashMap` import in `sys.rs` to fix unused import compiler warnings across Linux compilation targets (`x86_64-unknown-linux-musl` & `aarch64-unknown-linux-musl`).
+- **Release Version**:
+  - Bumped workspace version to `v0.20.4`.

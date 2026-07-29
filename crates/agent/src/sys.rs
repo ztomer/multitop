@@ -1,6 +1,7 @@
 #![allow(deprecated)]
 //! Platform-specific sampling fallback for non-Linux hosts (e.g. macOS).
 
+#[cfg(target_os = "macos")]
 use std::collections::HashMap;
 
 #[allow(unused_imports)]
