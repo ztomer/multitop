@@ -35,8 +35,6 @@ pub struct Panel {
 impl Panel {
     pub fn new(server: Server) -> Self {
         let pal = &multitop_agent::color::ANSI;
-        let stored_pass = crate::password_store::load(&server).ok().flatten();
-        let password_saved = stored_pass.is_some();
         Panel {
             server,
             mode: Mode::Monitor,
@@ -47,9 +45,19 @@ impl Panel {
             last_docker: None,
             view: vec![format!("{}connecting...{}", pal.muted(), pal.reset)],
             scroll_offset: 0,
-            sudo_password: stored_pass,
-            password_saved,
+            sudo_password: None,
+            password_saved: false,
         }
+    }
+
+    pub fn ensure_sudo_password(&mut self) -> Option<String> {
+        if self.sudo_password.is_none() {
+            if let Ok(Some(pass)) = crate::password_store::load(&self.server) {
+                self.sudo_password = Some(pass);
+                self.password_saved = true;
+            }
+        }
+        self.sudo_password.clone()
     }
 
     fn show_last_frame(&mut self) {
@@ -251,6 +259,7 @@ impl App {
             let gen = self.bump(i);
             let p = &mut self.panels[i];
             p.mode = Mode::Upgrade;
+            p.ensure_sudo_password();
             match p.server.upgrade_cmd.is_some() {
                 true => {
                     p.view = vec![format!(

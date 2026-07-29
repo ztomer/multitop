@@ -75,8 +75,12 @@ async fn test_e2e_app_initialization_auto_loads_stored_password() {
     // Pre-seed OS credential store
     let _ = multitop::password_store::save(&server, "preseeded_password");
 
-    // Initialize App
-    let app = App::new(vec![server.clone()]);
+    // Initialize App and verify deferred loading on demand
+    let mut app = App::new(vec![server.clone()]);
+    assert_eq!(app.panels[0].sudo_password, None);
+
+    // Call ensure_sudo_password on demand
+    app.panels[0].ensure_sudo_password();
     assert_eq!(
         app.panels[0].sudo_password.as_deref(),
         Some("preseeded_password")

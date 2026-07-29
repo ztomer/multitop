@@ -112,8 +112,10 @@ pub enum PasswordAction {
 
 pub fn open(app: &mut App, selected: usize, resume_upgrade: bool) {
     if !app.panels.is_empty() {
+        let idx = selected.min(app.panels.len() - 1);
+        app.panels[idx].ensure_sudo_password();
         app.password_manager = Some(PasswordManager::new(
-            selected.min(app.panels.len() - 1),
+            idx,
             resume_upgrade,
         ));
     }
