@@ -86,6 +86,8 @@ Sustained 5-minute (300-second) test streaming live binary telemetry over a real
 
 ### Memory Safety & Fuzzing Verification
 - **Valgrind Memcheck (Ubuntu 26.04, release build)**: `0 bytes definitely lost`, `0 bytes indirectly lost` — clean across both monitored hosts. The ~154 KB of `still reachable` + `possibly lost` at exit is internal glibc/Rust allocator metadata, not user code leaks.
+- **SSH Disconnect Safety (v0.20.7)**: The agent's stdin watchdog detects EOF and self-terminates within ≤2 s when the SSH pipe breaks, preventing stray agents even if the local process crashes.
+- **Cross-Platform Process Scanning (v0.20.7)**: macOS process enumeration uses `proc_pidinfo` when `/proc` is unavailable.
 - **`cargo-fuzz` / `libFuzzer` + ASAN**: Over **114 Million fuzzing iterations** across 6 targets (`fuzz_proto`, `fuzz_client_stream`, `fuzz_proc_stat`, `fuzz_meminfo`, `fuzz_net_dev`, `fuzz_fetch`) with **0 crashes, 0 panics, and 0 memory leaks**.
 - **Callgrind CPU Profile (.33, debug build)**: 227M instructions over 10 s; top self-time in `parse_pid_stat` (1.00%) and stdlib I/O routines — agent hot path is already allocation-free.
 
