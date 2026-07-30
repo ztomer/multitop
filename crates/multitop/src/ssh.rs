@@ -280,3 +280,23 @@ pub async fn upload_agent(server: &Server, arch: Arch, token: &str) -> Result<()
 pub fn any_agent_embedded() -> bool {
     AGENT_X86_64.is_some() || AGENT_AARCH64.is_some()
 }
+
+/// Probe the remote host's architecture by running `uname -m` over SSH.
+pub async fn probe_remote_arch(server: &Server) -> Option<Arch> {
+    let output = ssh_command(server)
+        .arg("uname")
+        .arg("-m")
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .spawn()
+        .ok()?
+        .wait_with_output()
+        .await
+        .ok()?;
+    if output.status.success() {
+        let arch_str = String::from_utf8_lossy(&output.stdout).trim().to_string();
+        Arch::from_uname(&arch_str)
+    } else {
+        None
+    }
+}

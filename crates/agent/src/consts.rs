@@ -3,6 +3,9 @@
 /// Frame marker on the wire.
 pub const FRAME_MARKER: &str = "===MONITOR===";
 
+/// Agent binary version (set from Cargo.toml at compile time).
+pub const AGENT_VERSION: &str = env!("CARGO_PKG_VERSION");
+
 /// Default refresh interval in seconds.
 pub const DEFAULT_INTERVAL: f64 = 2.0;
 

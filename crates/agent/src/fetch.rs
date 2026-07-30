@@ -7,10 +7,12 @@ use std::path::Path;
 
 use crate::fmt::fmt_size;
 use crate::proc;
+use crate::consts::AGENT_VERSION;
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct FetchSnapshot {
     pub user_host: String,
+    pub agent_version: String,
     pub os: String,
     pub kernel: String,
     pub uptime: String,
@@ -282,6 +284,7 @@ pub fn sample_fetch(host: &str) -> FetchSnapshot {
 
     FetchSnapshot {
         user_host,
+        agent_version: AGENT_VERSION.to_string(),
         os: sample_os(),
         kernel: sample_kernel(),
         uptime: sample_uptime(),

@@ -2,6 +2,7 @@
 
 use crate::proc::{self, CpuStat, NetTotals, ProcSampler};
 use crate::render::{Chrome, Snapshot};
+use crate::consts::AGENT_VERSION;
 
 pub struct Monitor {
     host: String,
@@ -69,6 +70,7 @@ impl Monitor {
         // ask for exactly as many processes as it has room to draw.
         let mut snap = Snapshot {
             host: self.host.clone(),
+            agent_version: AGENT_VERSION.to_string(),
             cpu_pct,
             cores,
             temp_unit: Default::default(),

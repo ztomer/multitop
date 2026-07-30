@@ -6,6 +6,7 @@ use multitop_agent::fmt::fullwidth;
 fn snap(os: &str, kernel: &str) -> FetchSnapshot {
     FetchSnapshot {
         user_host: "user@host".into(),
+        agent_version: "0.0.0".into(),
         os: os.into(),
         kernel: kernel.into(),
         uptime: "10d 4h".into(),

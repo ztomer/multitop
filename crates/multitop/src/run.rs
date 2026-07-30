@@ -7,18 +7,16 @@ use crossterm::event::{Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers, Mou
 use tokio::sync::mpsc::{self, Sender};
 use tokio::sync::watch;
 use tokio::task::JoinHandle;
-use tokio::time::{sleep, Instant};
+use tokio::time::Instant;
 use tokio_stream::StreamExt as _;
 
-use crate::app::{error_line, App, Command, Msg};
+use crate::app::{App, Command, Msg};
 use crate::config::Server;
-use crate::ssh::Mode;
-use crate::stream;
 use crate::ui;
 use ratatui::layout::Rect;
 
 const RESIZE_DEBOUNCE: Duration = Duration::from_millis(30);
-const RECONNECT_BACKOFF: [u64; 4] = [2, 5, 10, 20];
+pub(super) const RECONNECT_BACKOFF: [u64; 4] = [2, 5, 10, 20];
 
 use std::path::PathBuf;
 
@@ -427,71 +425,6 @@ fn restart_all_agents(
 }
 
 /// Long-lived: streams monitor frames and reconnects on failure.
-fn spawn_monitor(
-    idx: usize,
-    server: Server,
-    dims_rx: Arc<watch::Receiver<(u16, u16)>>,
-    sort: SortBy,
-    tx: Sender<Msg>,
-) -> JoinHandle<()> {
-    tokio::spawn(async move {
-        let mut failures = 0usize;
-        loop {
-            let status_tx = tx.clone();
-            let notify = move |text: String| {
-                let _ = status_tx.try_send(Msg::Frame {
-                    panel: idx,
-                    lines: vec![text],
-                });
-            };
-
-            match stream::connect(&server, Mode::Monitor, sort, notify).await {
-                Ok(mut stream) => {
-                    failures = 0;
-                    let mut errbuf = Vec::new();
-                    while let Ok(Some(payload)) =
-                        stream::next_packet(&mut stream, &mut errbuf).await
-                    {
-                        let dims = *dims_rx.borrow();
-                        if tx
-                            .send(Msg::Packet {
-                                panel: idx,
-                                gen: 0,
-                                payload,
-                                dims,
-                            })
-                            .await
-                            .is_err()
-                        {
-                            return;
-                        }
-                    }
-
-                    let detail = errbuf
-                        .last()
-                        .cloned()
-                        .unwrap_or_else(|| format!("Connection to {} closed", server.host));
-                    let _ = tx
-                        .send(Msg::Frame {
-                            panel: idx,
-                            lines: vec![error_line(detail)],
-                        })
-                        .await;
-                }
-                Err(e) => {
-                    let _ = tx
-                        .send(Msg::Frame {
-                            panel: idx,
-                            lines: vec![error_line(e)],
-                        })
-                        .await;
-                }
-            }
-
-            let wait = RECONNECT_BACKOFF[failures.min(RECONNECT_BACKOFF.len() - 1)];
-            failures += 1;
-            sleep(Duration::from_secs(wait)).await;
-        }
-    })
-}
+mod spawn;
+use spawn::spawn_monitor;
 

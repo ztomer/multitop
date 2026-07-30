@@ -84,6 +84,7 @@ fn encode_str(s: &str, buf: &mut Vec<u8>) {
 
 fn encode_snapshot(snap: &Snapshot, buf: &mut Vec<u8>) {
     encode_str(&snap.host, buf);
+    encode_str(&snap.agent_version, buf);
     buf.extend_from_slice(&(snap.cpu_pct as f32).to_le_bytes());
 
     let num_cores = snap.cores.len().min(u16::MAX as usize) as u16;
@@ -134,6 +135,7 @@ fn encode_docker(host: &str, rows: &[DockerRow], buf: &mut Vec<u8>) {
 
 fn encode_fetch(snap: &FetchSnapshot, buf: &mut Vec<u8>) {
     encode_str(&snap.user_host, buf);
+    encode_str(&snap.agent_version, buf);
     encode_str(&snap.os, buf);
     encode_str(&snap.kernel, buf);
     encode_str(&snap.uptime, buf);
@@ -227,6 +229,7 @@ pub fn decode_packet(data: &[u8]) -> Option<Payload> {
 fn decode_fetch(cur: &mut Cursor) -> Option<FetchSnapshot> {
     Some(FetchSnapshot {
         user_host: cur.read_str()?,
+        agent_version: cur.read_str()?,
         os: cur.read_str()?,
         kernel: cur.read_str()?,
         uptime: cur.read_str()?,
@@ -239,6 +242,7 @@ fn decode_fetch(cur: &mut Cursor) -> Option<FetchSnapshot> {
 
 fn decode_snapshot(cur: &mut Cursor) -> Option<Snapshot> {
     let host = cur.read_str()?;
+    let agent_version = cur.read_str()?;
     let cpu_pct = cur.read_f32()? as f64;
 
     let num_cores = cur.read_u16()? as usize;
@@ -287,6 +291,7 @@ fn decode_snapshot(cur: &mut Cursor) -> Option<Snapshot> {
 
     Some(Snapshot {
         host,
+        agent_version,
         cpu_pct,
         cores,
         temp_unit,

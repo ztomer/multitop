@@ -15,12 +15,16 @@ fuzz_target!(|data: &[u8]| {
                 }
             }
             proto::Payload::Docker { host, rows } => {
-                // Test rendering docker payload
                 let pal = &color::ANSI;
                 for &(cols, lines) in &[(40, 10), (80, 24), (120, 40)] {
                     let _ = docker::render(&host, cols, lines, &rows, pal, SortBy::Cpu);
                     let _ = docker::render(&host, cols, lines, &rows, pal, SortBy::Mem);
                 }
+            }
+            proto::Payload::Fetch(snap) => {
+                let _ = &snap.user_host;
+                let _ = &snap.agent_version;
+                let _ = &snap.os;
             }
         }
     }

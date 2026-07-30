@@ -298,25 +298,24 @@ pub use crate::proc_sys::*;
 impl ProcSampler {
     /// Prime the baseline without producing output.
     pub fn prime(&mut self) {
-        self.prev = self
-            .scan()
-            .into_iter()
-            .map(|s| {
-                (
-                    s.pid,
-                    PidSample {
-                        ticks: s.ticks,
-                        starttime: s.starttime,
-                    },
-                )
-            })
-            .collect();
+        self.scan();
+        self.prev.clear();
+        for s in &self.scanned {
+            self.prev.insert(
+                s.pid,
+                PidSample {
+                    ticks: s.ticks,
+                    starttime: s.starttime,
+                },
+            );
+        }
     }
 
     /// Top `n` processes over the last `elapsed` seconds, sorted by `sort_by`.
     pub fn top(&mut self, elapsed: f64, n: usize, sort_by: crate::SortBy) -> Vec<Proc> {
-        let scanned = self.scan();
-        let mut temp_procs: Vec<(usize, f64, u64)> = Vec::with_capacity(scanned.len());
+        self.scan();
+        let scanned = std::mem::take(&mut self.scanned);
+        self.temp_procs.clear();
         for (i, s) in scanned.iter().enumerate() {
             let cpu = match self.prev.get(&s.pid) {
                 Some(p) if p.starttime == s.starttime && elapsed > 0.0 => {
@@ -331,14 +330,17 @@ impl ProcSampler {
                     starttime: s.starttime,
                 },
             );
-            temp_procs.push((i, cpu, s.rss_pages * self.page_size));
+            self.temp_procs.push((i, cpu, s.rss_pages * self.page_size));
         }
-        let active: std::collections::HashSet<u32> = scanned.iter().map(|s| s.pid).collect();
-        self.prev.retain(|pid, _| active.contains(pid));
+        self.active_pids.clear();
+        for s in &scanned {
+            self.active_pids.insert(s.pid);
+        }
+        self.prev.retain(|pid, _| self.active_pids.contains(pid));
 
         match sort_by {
             crate::SortBy::Cpu => {
-                temp_procs.sort_unstable_by(|&(i_a, cpu_a, mem_a), &(i_b, cpu_b, mem_b)| {
+                self.temp_procs.sort_unstable_by(|&(i_a, cpu_a, mem_a), &(i_b, cpu_b, mem_b)| {
                     cpu_b
                         .partial_cmp(&cpu_a)
                         .unwrap_or(std::cmp::Ordering::Equal)
@@ -347,7 +349,7 @@ impl ProcSampler {
                 })
             }
             crate::SortBy::Mem => {
-                temp_procs.sort_unstable_by(|&(i_a, cpu_a, mem_a), &(i_b, cpu_b, mem_b)| {
+                self.temp_procs.sort_unstable_by(|&(i_a, cpu_a, mem_a), &(i_b, cpu_b, mem_b)| {
                     mem_b
                         .cmp(&mem_a)
                         .then_with(|| {
@@ -360,11 +362,11 @@ impl ProcSampler {
             }
         }
 
-        temp_procs.truncate(n);
-
-        temp_procs
-            .into_iter()
-            .map(|(i, cpu, mem)| Proc {
+        self.temp_procs.truncate(n);
+        let result: Vec<Proc> = self
+            .temp_procs
+            .iter()
+            .map(|&(i, cpu, mem)| Proc {
                 pid: scanned[i].pid,
                 name: if scanned[i].comm.is_empty() {
                     crate::proc_sys::read_comm(scanned[i].pid)
@@ -374,7 +376,9 @@ impl ProcSampler {
                 cpu,
                 mem,
             })
-            .collect()
+            .collect();
+        self.scanned = scanned;
+        result
     }
 }
 

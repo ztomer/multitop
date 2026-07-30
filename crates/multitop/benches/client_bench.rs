@@ -29,6 +29,7 @@ fn sample_snapshot(server_id: usize) -> Snapshot {
                 mem: 150_000_000,
             })
             .collect(),
+        agent_version: String::new(),
     }
 }
 

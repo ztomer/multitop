@@ -1,6 +1,6 @@
 //! Low-level process sampling and stat parser functions.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fs;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -116,6 +116,9 @@ pub struct ProcSampler {
     pub prev: HashMap<u32, PidSample>,
     pub clk_tck: f64,
     pub page_size: u64,
+    pub scanned: Vec<RawProcStat>,
+    pub active_pids: HashSet<u32>,
+    pub temp_procs: Vec<(usize, f64, u64)>,
 }
 
 impl Default for ProcSampler {
@@ -136,14 +139,17 @@ impl ProcSampler {
             } else {
                 4096
             },
+            scanned: Vec::with_capacity(64),
+            active_pids: HashSet::with_capacity(64),
+            temp_procs: Vec::with_capacity(64),
         }
     }
 
-    pub fn scan(&self) -> Vec<RawProcStat> {
+    pub fn scan(&mut self) {
+        self.scanned.clear();
         let Ok(entries) = fs::read_dir("/proc") else {
-            return crate::sys::scan_macos();
+            return;
         };
-        let mut out = Vec::with_capacity(64);
         let mut path_buf = [0u8; 48];
         let mut file_buf = [0u8; 512];
 
@@ -160,11 +166,10 @@ impl ProcSampler {
                 if let Ok(data) = std::str::from_utf8(&file_buf[..n]) {
                     if let Some(mut st) = parse_pid_stat(data) {
                         st.comm = String::new();
-                        out.push(st);
+                        self.scanned.push(st);
                     }
                 }
             }
         }
-        out
     }
 }

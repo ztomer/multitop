@@ -22,6 +22,7 @@ use multitop_agent::SortBy;
 fn sample_snapshot() -> Snapshot {
     Snapshot {
         host: "test-host.example.com (10.0.0.1)".into(),
+        agent_version: "0.0.0".into(),
         cpu_pct: 42.0,
         cores: (0..8)
             .map(|c| (c, 10.0 + c as f64 * 8.0, Some(50.0 + c as f64)))
@@ -45,6 +46,7 @@ fn sample_snapshot() -> Snapshot {
 fn sample_fetch() -> Payload {
     Payload::Fetch(multitop_agent::fetch::FetchSnapshot {
         user_host: "admin@test-host".into(),
+        agent_version: "0.0.0".into(),
         os: "Ubuntu 24.04 LTS".into(),
         kernel: "6.8.0-45-generic".into(),
         uptime: "12d 3h".into(),

@@ -25,3 +25,31 @@ path = "fuzz_targets/fuzz_client_stream.rs"
 test = false
 doc = false
 bench = false
+
+[[bin]]
+name = "fuzz_proc_stat"
+path = "fuzz_targets/fuzz_proc_stat.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "fuzz_meminfo"
+path = "fuzz_targets/fuzz_meminfo.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "fuzz_net_dev"
+path = "fuzz_targets/fuzz_net_dev.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "fuzz_fetch"
+path = "fuzz_targets/fuzz_fetch.rs"
+test = false
+doc = false
+bench = false

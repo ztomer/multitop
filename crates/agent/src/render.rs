@@ -54,6 +54,7 @@ pub enum TempUnit {
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Snapshot {
     pub host: String,
+    pub agent_version: String,
     pub cpu_pct: f64,
     /// (core index, busy percent, temp deg C), ascending by index
     pub cores: Vec<(usize, f64, Option<f64>)>,
