@@ -9,7 +9,8 @@ zero setup on the remote side. Also monitors the local machine, runs
 upgrade commands across servers with power-loss detection, and includes
 a Docker container view. Works on macOS and Linux.
 
-<img width="1002" height="1232" alt="image" src="https://github.com/user-attachments/assets/63eb4cf2-0b1b-4b8a-8fba-f57cd9fcec24" />
+<img width="1902" height="1232" alt="image" src="https://github.com/user-attachments/assets/d145f190-03b3-49e3-8fa7-1501e1aa73a7" />
+
 
 ## Installation
 
