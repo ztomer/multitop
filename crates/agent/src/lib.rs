@@ -5,6 +5,8 @@
 //! terminal it repaints in place, otherwise it delimits frames with
 //! `===MONITOR===` so the reader can tell them apart.
 
+use std::os::unix::fs::FileTypeExt;
+
 pub mod color;
 pub mod consts;
 pub mod docker;
@@ -126,7 +128,9 @@ pub fn parse_args<I: IntoIterator<Item = String>>(argv: I) -> Args {
 }
 
 pub fn run_agent<I: IntoIterator<Item = String>>(argv: I) {
-    use std::io::{self, IsTerminal, Write};
+    use std::io::{self, IsTerminal, Read, Write};
+    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::sync::Arc;
     use std::time::{Duration, Instant};
 
     let args = parse_args(argv);
@@ -189,6 +193,23 @@ pub fn run_agent<I: IntoIterator<Item = String>>(argv: I) {
             }
         }
         Mode::Monitor => {
+            let stdin_gone = Arc::new(AtomicBool::new(false));
+            let stdin_pipe = !io::stdin().is_terminal()
+                && std::fs::metadata("/proc/self/fd/0")
+                    .map(|m| m.file_type().is_fifo())
+                    .unwrap_or(false);
+            if stdin_pipe {
+                let sig = stdin_gone.clone();
+                std::thread::spawn(move || {
+                    let mut buf = [0u8; 64];
+                    while let Ok(n) = io::stdin().read(&mut buf) {
+                        if n == 0 {
+                            break;
+                        }
+                    }
+                    sig.store(true, Ordering::Relaxed);
+                });
+            }
             if is_tty {
                 let _ = io::stdout().write_all(b"\x1b[?25l");
             }
@@ -225,6 +246,9 @@ pub fn run_agent<I: IntoIterator<Item = String>>(argv: I) {
             std::thread::sleep(interval);
 
             loop {
+                if stdin_gone.load(Ordering::Relaxed) {
+                    return;
+                }
                 let elapsed = last.elapsed().as_secs_f64();
                 last = Instant::now();
 
