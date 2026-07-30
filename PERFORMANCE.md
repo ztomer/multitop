@@ -8,7 +8,7 @@ sessions.
 
 | Feature / Metric | **`multitop`** | **`glances`** (Python) | **`btop` / `htop`** | **`dstat` / `nmon`** |
 | :--- | :--- | :--- | :--- | :--- |
-| **Multi-Server Aggregation** | **Native Side-by-Side TUI** | Web UI / REST / XML-RPC | ❌ Local Only | Line-based / CSV |
+| **Multi-Server Aggregation** | **Native Side-by-Side TUI** | Web UI / REST / XML-RPC | Local Only | Line-based / CSV |
 | **Remote Server Setup** | **Zero** (Self-deploying static binary) | Python 3 + `pip` + daemon | N/A | `dstat` package |
 | **Remote Agent Footprint** | **~650 KiB binary / ~2.7 MiB RSS (~316 KiB private)** | ~50+ MB (Python runtime) | N/A | ~5–10 MiB |
 | **SSH Bootstrap Latency** | **142.98 ms** | Manual installation | N/A | N/A |
