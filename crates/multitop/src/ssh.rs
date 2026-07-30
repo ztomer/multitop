@@ -181,21 +181,23 @@ pub async fn spawn_agent(server: &Server, mode: Mode, sort: SortBy) -> io::Resul
 /// connected to the same server. Stale locks older than 6 hours are
 /// automatically broken so a server crash / power loss doesn't permanently
 /// block future upgrades.
+///
+/// The `LOCK_OK` flag ensures the inner command only runs if the lock was
+/// actually acquired — a race between stale-lock removal and re-acquisition
+/// won't silently run the upgrade without a lock.
 fn wrap_with_upgrade_lock(inner: &str) -> String {
     let lockdir = "~/.cache/multitop/upgrade.lock";
     format!(
         "mkdir -p ~/.cache/multitop 2>/dev/null; \
          LOCK={ldir}; \
+         [ -e \"$LOCK\" ] && [ ! -d \"$LOCK\" ] && rm -f \"$LOCK\" 2>/dev/null; \
          if mkdir \"$LOCK\" 2>/dev/null; then \
-           date +%s > \"$LOCK/ts\" 2>/dev/null; \
-           trap 'rm -rf \"$LOCK\"' EXIT; \
-           {inner}; \
-           rc=$?; \
-           rm -rf \"$LOCK\"; \
-           exit $rc; \
+           LOCK_OK=1; \
          elif [ -f \"$LOCK/ts\" ] && [ \"$(($(date +%s) - $(cat \"$LOCK/ts\" 2>/dev/null)))\" -gt 21600 ] 2>/dev/null; then \
            rm -rf \"$LOCK\" 2>/dev/null; \
-           mkdir \"$LOCK\" 2>/dev/null && \
+           mkdir \"$LOCK\" 2>/dev/null && LOCK_OK=1; \
+         fi; \
+         if [ \"${{LOCK_OK:-0}}\" -eq 1 ]; then \
            date +%s > \"$LOCK/ts\" 2>/dev/null; \
            trap 'rm -rf \"$LOCK\"' EXIT; \
            {inner}; \
@@ -217,20 +219,22 @@ fn wrap_with_upgrade_lock(inner: &str) -> String {
 /// exists but the recorded PID is no longer running, the lock is broken.
 /// This prevents two local multitop processes from upgrading the same
 /// machine simultaneously, while surviving crashes (dead PID = stale lock).
+///
+/// The `LOCK_OK` flag ensures the inner command only runs if the lock was
+/// actually acquired — a race between stale-lock removal and re-acquisition
+/// won't silently run the upgrade without a lock.
 fn wrap_with_local_upgrade_lock(inner: &str) -> String {
     format!(
         "mkdir -p ~/.cache/multitop 2>/dev/null; \
          LOCK=~/.cache/multitop/upgrade.lock; \
+         [ -e \"$LOCK\" ] && [ ! -d \"$LOCK\" ] && rm -f \"$LOCK\" 2>/dev/null; \
          if mkdir \"$LOCK\" 2>/dev/null; then \
-           echo $$ > \"$LOCK/pid\" 2>/dev/null; \
-           trap 'rm -rf \"$LOCK\"' EXIT; \
-           {inner}; \
-           rc=$?; \
-           rm -rf \"$LOCK\"; \
-           exit $rc; \
+           LOCK_OK=1; \
          elif [ -f \"$LOCK/pid\" ] && ! kill -0 $(cat \"$LOCK/pid\" 2>/dev/null) 2>/dev/null; then \
            rm -rf \"$LOCK\" 2>/dev/null; \
-           mkdir \"$LOCK\" 2>/dev/null && \
+           mkdir \"$LOCK\" 2>/dev/null && LOCK_OK=1; \
+         fi; \
+         if [ \"${{LOCK_OK:-0}}\" -eq 1 ]; then \
            echo $$ > \"$LOCK/pid\" 2>/dev/null; \
            trap 'rm -rf \"$LOCK\"' EXIT; \
            {inner}; \
