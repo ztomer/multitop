@@ -4,6 +4,11 @@ SSH into multiple servers and watch a compact real-time system monitor
 for each one, side by side in a single terminal. Written in Rust
 ([ratatui](https://ratatui.rs) + tokio).
 
+Self-deploys a tiny static agent binary to each host on first connect —
+zero setup on the remote side. Also monitors the local machine, runs
+upgrade commands across servers with power-loss detection, and includes
+a Docker container view. Works on macOS and Linux.
+
 <img width="1002" height="1232" alt="image" src="https://github.com/user-attachments/assets/63eb4cf2-0b1b-4b8a-8fba-f57cd9fcec24" />
 
 
