@@ -485,7 +485,7 @@ dependencies = [
 
 [[package]]
 name = "multitop"
-version = "0.20.9"
+version = "0.20.10"
 dependencies = [
  "crossterm",
  "keyring",
@@ -499,7 +499,7 @@ dependencies = [
 
 [[package]]
 name = "multitop-agent"
-version = "0.20.9"
+version = "0.20.10"
 dependencies = [
  "libc",
  "serde_json",

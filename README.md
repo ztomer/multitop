@@ -185,6 +185,7 @@ The test suite covers panel rendering across multiple terminal dimensions, windo
 - **Upgrade output stays on screen** until you press **s**, and streams live rather than appearing only when the command exits.
 - **Zero-allocation sampling & minimal memory footprint.** The agent reuses internal buffers (`scanned`, `active_pids`, `temp_procs`) across ticks, deallocates platform IPC handles, and defers process string allocations until after sorting and truncation. Memory usage remains constant at < 2.7 MiB RSS (< 320 KiB private) over long-running sessions.
 - **Upgrade state machine.** Per-server `UpgradeState` enum (NIL/STARTED/DONE) with power-loss detection via `upgrade_started_at` marker, exit-code-aware completion, and concurrent upgrade locking.
+- **Agent cache cleanup.** After each agent upload, stale `agent-*` binaries are removed from `~/.cache/multitop/`, keeping only the current x86_64 and aarch64 builds.
 - **Binary protocol.** The agent streams compact `b"MTOP"` packets over SSH — >10× more network efficient than ANSI text streaming.
 
 ## Project structure
