@@ -217,8 +217,8 @@ fn wrap_with_upgrade_lock(inner: &str) -> String {
 ///
 /// Uses `mkdir` atomicity with a PID liveness check: if the lock directory
 /// exists but the recorded PID is no longer running, the lock is broken.
-/// This prevents two local multitop processes from upgrading the same
-/// machine simultaneously, while surviving crashes (dead PID = stale lock).
+/// A timestamp file provides a 6-hour staleness fallback if the PID file
+/// is missing (e.g. disk full during `echo $$`).
 ///
 /// The `LOCK_OK` flag ensures the inner command only runs if the lock was
 /// actually acquired — a race between stale-lock removal and re-acquisition
@@ -233,9 +233,13 @@ fn wrap_with_local_upgrade_lock(inner: &str) -> String {
          elif [ -f \"$LOCK/pid\" ] && ! kill -0 $(cat \"$LOCK/pid\" 2>/dev/null) 2>/dev/null; then \
            rm -rf \"$LOCK\" 2>/dev/null; \
            mkdir \"$LOCK\" 2>/dev/null && LOCK_OK=1; \
+         elif [ -f \"$LOCK/ts\" ] && [ \"$(($(date +%s) - $(cat \"$LOCK/ts\" 2>/dev/null)))\" -gt 21600 ] 2>/dev/null; then \
+           rm -rf \"$LOCK\" 2>/dev/null; \
+           mkdir \"$LOCK\" 2>/dev/null && LOCK_OK=1; \
          fi; \
          if [ \"${{LOCK_OK:-0}}\" -eq 1 ]; then \
            echo $$ > \"$LOCK/pid\" 2>/dev/null; \
+           date +%s > \"$LOCK/ts\" 2>/dev/null; \
            trap 'rm -rf \"$LOCK\"' EXIT; \
            {inner}; \
            rc=$?; \

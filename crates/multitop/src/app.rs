@@ -229,18 +229,21 @@ impl App {
     /// Confirm upgrade from modal and execute `run_upgrade`.
     pub fn confirm_upgrade(&mut self) -> Vec<Command> {
         self.show_upgrade_modal = false;
-        self.upgrade_started_at = Some(
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap_or_default()
-                .as_secs(),
-        );
-        if let Some(ref path) = self.config_path {
-            let state = crate::state::AppState {
-                last_update: self.last_update,
-                upgrade_started_at: self.upgrade_started_at,
-            };
-            let _ = crate::state::save_state(path, &state);
+        let has_upgrade = self.panels.iter().any(|p| p.server.upgrade_cmd.is_some());
+        if has_upgrade {
+            self.upgrade_started_at = Some(
+                std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap_or_default()
+                    .as_secs(),
+            );
+            if let Some(ref path) = self.config_path {
+                let state = crate::state::AppState {
+                    last_update: self.last_update,
+                    upgrade_started_at: self.upgrade_started_at,
+                };
+                let _ = crate::state::save_state(path, &state);
+            }
         }
         self.run_upgrade()
     }

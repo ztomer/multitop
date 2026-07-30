@@ -143,6 +143,19 @@ pub fn apply(
                 app.panels[panel].mode = crate::app::Mode::Upgrade;
                 app.panels[panel].upgrade_state = crate::panel::UpgradeState::STARTED;
                 app.panels[panel].upgrade_gen = gen;
+                app.upgrade_started_at = Some(
+                    std::time::SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .unwrap_or_default()
+                        .as_secs(),
+                );
+                if let Some(ref path) = app.config_path {
+                    let state = crate::state::AppState {
+                        last_update: app.last_update,
+                        upgrade_started_at: app.upgrade_started_at,
+                    };
+                    let _ = crate::state::save_state(path, &state);
+                }
                 app.panels[panel].view = vec![format!(
                     "{}\u{2192} Upgrade running...{}",
                     palette.meter_mid(),
