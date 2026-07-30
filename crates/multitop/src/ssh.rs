@@ -67,6 +67,28 @@ pub fn upload_command(hash: &str, token: &str) -> String {
     )
 }
 
+/// Shell command that removes stale agent binaries from the cache directory.
+///
+/// Keeps only the current x86_64 and aarch64 agent hashes, removing everything
+/// else that matches the `agent-*` pattern. Safe to run concurrently — each
+/// `rm` targets a specific file, not the directory.
+pub fn cleanup_old_agents_command() -> String {
+    let keep = [HASH_X86_64, HASH_AARCH64];
+    let keep_patterns: Vec<String> = keep
+        .iter()
+        .filter(|h| !h.is_empty() && **h != "missing")
+        .map(|h| format!("agent-{h}"))
+        .collect();
+    let mut cmd = String::from("cd ~/.cache/multitop 2>/dev/null && for f in agent-*; do\n");
+    cmd.push_str("  case \"$f\" in\n");
+    for pattern in &keep_patterns {
+        cmd.push_str(&format!("    {pattern}) continue ;;\n"));
+    }
+    cmd.push_str("    agent-*) rm -f \"$f\" ;;\n");
+    cmd.push_str("  esac\ndone");
+    cmd
+}
+
 /// Parse a `===NEEDAGENT=== <arch>` line into its architecture field.
 pub fn parse_need_agent(line: &str) -> Option<&str> {
     line.trim().strip_prefix(NEED_AGENT).map(str::trim)
@@ -347,6 +369,14 @@ pub async fn upload_agent(server: &Server, arch: Arch, token: &str) -> Result<()
         .await
         .map_err(|e| format!("upload: {e}"))?;
     if out.status.success() {
+        // Clean up stale agent binaries left from previous builds.
+        // We don't care if this fails — it's best-effort cleanup.
+        let _ = ssh_command(server)
+            .arg(cleanup_old_agents_command())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status()
+            .await;
         return Ok(());
     }
     let stderr = String::from_utf8_lossy(&out.stderr);
