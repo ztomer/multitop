@@ -3,7 +3,8 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use crossterm::event::{Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers, MouseEventKind};
+use crossterm::event::{DisableMouseCapture, EnableMouseCapture, Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers, MouseEventKind};
+use crossterm::execute;
 use tokio::sync::mpsc::{self, Sender};
 use tokio::sync::watch;
 use tokio::task::JoinHandle;
@@ -26,7 +27,9 @@ pub async fn run(
     initial_theme: Option<String>,
 ) -> std::io::Result<()> {
     let mut terminal = ratatui::init();
+    execute!(std::io::stdout(), EnableMouseCapture)?;
     let result = event_loop(&mut terminal, servers, config_path, initial_theme).await;
+    execute!(std::io::stdout(), DisableMouseCapture)?;
     ratatui::restore();
     result
 }
