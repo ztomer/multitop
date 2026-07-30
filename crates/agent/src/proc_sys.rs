@@ -148,6 +148,11 @@ impl ProcSampler {
     pub fn scan(&mut self) {
         self.scanned.clear();
         let Ok(entries) = fs::read_dir("/proc") else {
+            let macos = crate::sys::scan_macos();
+            self.scanned.reserve(macos.len());
+            for s in macos {
+                self.scanned.push(s);
+            }
             return;
         };
         let mut path_buf = [0u8; 48];

@@ -154,9 +154,8 @@ pub async fn spawn_agent(server: &Server, mode: Mode, sort: SortBy) -> io::Resul
         .kill_on_drop(true);
 
     let mut child = cmd.spawn()?;
-    if let Some(mut stdin) = child.stdin.take() {
+    if let Some(stdin) = child.stdin.as_mut() {
         stdin.write_all(script.as_bytes()).await?;
-        stdin.shutdown().await?;
     }
     Ok(child)
 }
