@@ -3,7 +3,7 @@
 use tokio::io::{BufReader, Lines};
 use tokio::process::{Child, ChildStderr, ChildStdout};
 
-use crate::app::status_line;
+use crate::fmt::status_line;
 use crate::config::Server;
 use crate::ssh::{self, Arch, Mode};
 

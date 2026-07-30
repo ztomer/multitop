@@ -4,7 +4,7 @@ use tokio::sync::watch;
 use tokio::task::JoinHandle;
 use tokio::time::sleep;
 
-use crate::app::error_line;
+use crate::fmt::error_line;
 use crate::config::Server;
 use crate::ssh;
 use crate::ssh::Mode;

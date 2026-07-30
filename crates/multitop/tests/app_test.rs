@@ -1,5 +1,6 @@
 use multitop::app::*;
 use multitop::config::Server;
+use multitop::fmt::{error_line, header_line, status_line};
 
 fn servers(n: usize) -> Vec<Server> {
     (0..n)
@@ -297,6 +298,7 @@ fn upgrade_output_persists_until_dismissed() {
         panel: 0,
         gen,
         note: None,
+        success: true,
     });
     a.apply(Msg::Frame {
         panel: 0,
@@ -340,6 +342,7 @@ fn aux_done_can_append_a_note() {
         panel: 0,
         gen,
         note: Some("exit 1".into()),
+        success: true,
     });
     assert!(text(&a.panels[0]).contains("exit 1"));
 }

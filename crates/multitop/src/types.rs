@@ -43,5 +43,6 @@ pub enum Msg {
         panel: usize,
         gen: u64,
         note: Option<String>,
+        success: bool,
     },
 }

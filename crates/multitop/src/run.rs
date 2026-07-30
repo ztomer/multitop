@@ -51,7 +51,7 @@ impl Tasks {
 
     /// Aborting a task drops the `Child` it owns, and every child is spawned
     /// with `kill_on_drop`, so this also terminates the SSH process.
-    fn abort_all(&mut self) {
+    fn abort_all(&mut self, app: &mut App) {
         for h in self
             .monitors
             .iter_mut()
@@ -59,6 +59,11 @@ impl Tasks {
             .flatten()
         {
             h.abort();
+        }
+        for p in &mut app.panels {
+            if p.upgrade_state == crate::panel::UpgradeState::STARTED {
+                p.upgrade_state = crate::panel::UpgradeState::DONE;
+            }
         }
     }
 }
@@ -83,6 +88,7 @@ async fn event_loop(
     }
     let state = crate::state::load_state(&config_path);
     app.last_update = state.last_update;
+    app.upgrade_started_at = state.upgrade_started_at;
     if let Some(ref tname) = initial_theme {
         if let Some(idx) = multitop_agent::color::THEMES
             .iter()
@@ -186,7 +192,7 @@ async fn event_loop(
         }
 
         if app.should_quit {
-            tasks.abort_all();
+            tasks.abort_all(&mut app);
             return Ok(());
         }
     }
@@ -314,9 +320,9 @@ fn handle_key(
         KeyCode::Char('d') | KeyCode::Char('D') => app.toggle_docker(),
         KeyCode::Char('s') | KeyCode::Char('S') => app.switch_stats(),
         KeyCode::Char('u') | KeyCode::Char('U') => {
-            if app.upgrades_in_flight > 0 {
+            if app.upgrades_in_flight() {
                 // Upgrade already running — don't interrupt
-            } else if app.had_upgrade {
+            } else if app.had_upgrade() {
                 if app.in_upgrade() {
                     let cmds = app.run_upgrade();
                     execute_cmds(cmds, app, servers, dims, tx, tasks);

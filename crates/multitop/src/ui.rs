@@ -8,6 +8,7 @@ use ratatui::Frame;
 
 use crate::ansi;
 use crate::app::App;
+use crate::fmt::unixtime_to_str;
 
 /// Rows reserved at the bottom for the key hints.
 pub const KEYBAR_H: u16 = 1;
@@ -406,50 +407,56 @@ fn draw_upgrade_modal(f: &mut Frame, app: &App) {
 
     f.render_widget(ratatui::widgets::Clear, popup_rect);
 
-    let last_up = app.last_update.as_deref().unwrap_or("Never");
+    let last_up = app.last_update.map(unixtime_to_str).unwrap_or_else(|| "Never".to_string());
+    let interrupted = app.upgrade_started_at.is_some_and(|started| app.last_update.is_none_or(|lu| started > lu));
 
-    let text = vec![
-        Line::from(""),
-        Line::from(vec![Span::styled(
-            "  Updates can be slow and potentially destructive.",
-            Style::default().fg(Color::Yellow),
-        )]),
-        Line::from(vec![Span::styled(
-            "  Are you sure you want to run updates on all servers?",
-            Style::default().fg(Color::White),
-        )]),
-        Line::from(""),
-        Line::from(vec![
-            Span::styled("  Last update: ", Style::default().fg(Color::DarkGray)),
-            Span::styled(last_up, Style::default().fg(Color::Cyan)),
-        ]),
-        Line::from(""),
-        Line::from(vec![
-            Span::styled("  Press ", Style::default().fg(Color::DarkGray)),
-            Span::styled(
-                "U",
-                Style::default()
-                    .fg(Color::White)
-                    .add_modifier(ratatui::style::Modifier::BOLD),
-            ),
-            Span::styled(" or ", Style::default().fg(Color::DarkGray)),
-            Span::styled(
-                "Enter",
-                Style::default()
-                    .fg(Color::White)
-                    .add_modifier(ratatui::style::Modifier::BOLD),
-            ),
-            Span::styled(" to confirm, ", Style::default().fg(Color::DarkGray)),
-            Span::styled(
-                "Esc",
-                Style::default()
-                    .fg(Color::White)
-                    .add_modifier(ratatui::style::Modifier::BOLD),
-            ),
-            Span::styled(" to cancel", Style::default().fg(Color::DarkGray)),
-        ]),
-    ];
+    let mut lines: Vec<Line> = Vec::new();
+    lines.push(Line::from(""));
+    lines.push(Line::from(vec![Span::styled(
+        "  Updates can be slow and potentially destructive.",
+        Style::default().fg(Color::Yellow),
+    )]));
+    if interrupted {
+        lines.push(Line::from(vec![Span::styled(
+            "  \u{26A0} Previous upgrade was interrupted! Check server state.",
+            Style::default().fg(Color::Red),
+        )]));
+    }
+    lines.push(Line::from(vec![Span::styled(
+        "  Are you sure you want to run updates on all servers?",
+        Style::default().fg(Color::White),
+    )]));
+    lines.push(Line::from(""));
+    lines.push(Line::from(vec![
+        Span::styled("  Last update: ", Style::default().fg(Color::DarkGray)),
+        Span::styled(last_up, Style::default().fg(Color::Cyan)),
+    ]));
+    lines.push(Line::from(""));
+    lines.push(Line::from(vec![
+        Span::styled("  Press ", Style::default().fg(Color::DarkGray)),
+        Span::styled(
+            "U",
+            Style::default()
+                .fg(Color::White)
+                .add_modifier(ratatui::style::Modifier::BOLD),
+        ),
+        Span::styled(" or ", Style::default().fg(Color::DarkGray)),
+        Span::styled(
+            "Enter",
+            Style::default()
+                .fg(Color::White)
+                .add_modifier(ratatui::style::Modifier::BOLD),
+        ),
+        Span::styled(" to confirm, ", Style::default().fg(Color::DarkGray)),
+        Span::styled(
+            "Esc",
+            Style::default()
+                .fg(Color::White)
+                .add_modifier(ratatui::style::Modifier::BOLD),
+        ),
+        Span::styled(" to cancel", Style::default().fg(Color::DarkGray)),
+    ]));
 
-    let paragraph = Paragraph::new(text).block(block);
+    let paragraph = Paragraph::new(lines).block(block);
     f.render_widget(paragraph, popup_rect);
 }

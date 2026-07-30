@@ -42,9 +42,21 @@ fn test_upgrade_modal_workflow_and_state_saving() {
     // Confirm upgrade
     let cmds = app.confirm_upgrade();
 
-    // Modal is now closed, commands generated, and last_update saved
+    // Modal is now closed and commands generated
     assert!(!app.show_upgrade_modal);
     assert_eq!(cmds.len(), 1);
+
+    // Simulate upgrade completing so last_update gets persisted
+    let gen = match &cmds[0] {
+        multitop::app::Command::RunUpgrade { gen, .. } => *gen,
+        _ => unreachable!(),
+    };
+    app.apply(Msg::AuxDone {
+        panel: 0,
+        gen,
+        note: None,
+        success: true,
+    });
     assert!(app.last_update.is_some());
 
     // Verify state.toml persisted
@@ -107,7 +119,8 @@ fn test_state_persistence_roundtrip() {
     let config_path = temp_dir.join("config.toml");
 
     let initial = AppState {
-        last_update: Some("2026-07-29 20:00:00 UTC".to_string()),
+        last_update: Some(1722000000),
+        upgrade_started_at: None,
     };
 
     state::save_state(&config_path, &initial).expect("save state");

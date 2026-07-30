@@ -175,26 +175,100 @@ pub async fn spawn_agent(server: &Server, mode: Mode, sort: SortBy) -> io::Resul
 /// The command is embedded in a single-quoted zsh/bash `-c` argument, so
 /// single quotes within the command are escaped via the `'\''` idiom to
 /// prevent premature termination of the outer quote.
+/// Wraps a shell command with an atomic remote lock using `mkdir`.
+///
+/// Only one concurrent upgrade can hold the lock across all clients/sessions
+/// connected to the same server. Stale locks older than 6 hours are
+/// automatically broken so a server crash / power loss doesn't permanently
+/// block future upgrades.
+fn wrap_with_upgrade_lock(inner: &str) -> String {
+    let lockdir = "~/.cache/multitop/upgrade.lock";
+    format!(
+        "mkdir -p ~/.cache/multitop 2>/dev/null; \
+         LOCK={ldir}; \
+         if mkdir \"$LOCK\" 2>/dev/null; then \
+           date +%s > \"$LOCK/ts\" 2>/dev/null; \
+           trap 'rm -rf \"$LOCK\"' EXIT; \
+           {inner}; \
+           rc=$?; \
+           rm -rf \"$LOCK\"; \
+           exit $rc; \
+         elif [ -f \"$LOCK/ts\" ] && [ \"$(($(date +%s) - $(cat \"$LOCK/ts\" 2>/dev/null)))\" -gt 21600 ] 2>/dev/null; then \
+           rm -rf \"$LOCK\" 2>/dev/null; \
+           mkdir \"$LOCK\" 2>/dev/null && \
+           date +%s > \"$LOCK/ts\" 2>/dev/null; \
+           trap 'rm -rf \"$LOCK\"' EXIT; \
+           {inner}; \
+           rc=$?; \
+           rm -rf \"$LOCK\"; \
+           exit $rc; \
+         else \
+           echo \"Upgrade already in progress on this server\" >&2; \
+           exit 1; \
+         fi",
+        ldir = lockdir,
+        inner = inner
+    )
+}
+
+/// Wraps a local shell command with a PID-based lock.
+///
+/// Uses `mkdir` atomicity with a PID liveness check: if the lock directory
+/// exists but the recorded PID is no longer running, the lock is broken.
+/// This prevents two local multitop processes from upgrading the same
+/// machine simultaneously, while surviving crashes (dead PID = stale lock).
+fn wrap_with_local_upgrade_lock(inner: &str) -> String {
+    format!(
+        "mkdir -p ~/.cache/multitop 2>/dev/null; \
+         LOCK=~/.cache/multitop/upgrade.lock; \
+         if mkdir \"$LOCK\" 2>/dev/null; then \
+           echo $$ > \"$LOCK/pid\" 2>/dev/null; \
+           trap 'rm -rf \"$LOCK\"' EXIT; \
+           {inner}; \
+           rc=$?; \
+           rm -rf \"$LOCK\"; \
+           exit $rc; \
+         elif [ -f \"$LOCK/pid\" ] && ! kill -0 $(cat \"$LOCK/pid\" 2>/dev/null) 2>/dev/null; then \
+           rm -rf \"$LOCK\" 2>/dev/null; \
+           mkdir \"$LOCK\" 2>/dev/null && \
+           echo $$ > \"$LOCK/pid\" 2>/dev/null; \
+           trap 'rm -rf \"$LOCK\"' EXIT; \
+           {inner}; \
+           rc=$?; \
+           rm -rf \"$LOCK\"; \
+           exit $rc; \
+         else \
+           echo \"Upgrade already in progress on this machine\" >&2; \
+           exit 1; \
+         fi",
+        inner = inner
+    )
+}
+
 pub fn spawn_command(server: &Server, command: &str, password: Option<&str>) -> io::Result<Child> {
     let quoted = sh_quote(command);
-    // Escape single quotes in `quoted` for embedding inside a single-quoted
-    // shell argument (e.g. zsh -c '...eval QUOTED...').
-    // sh_quote produces 'us;ud', and we need to embed it in 'eval 'us;ud''
-    // which breaks. By escaping, we get 'eval '\''us;ud'\'''
     let quoted_escaped = quoted.replace('\'', r"'\''");
     if is_local(server) {
         let shell = std::env::var("SHELL").unwrap_or_else(|_| "zsh".to_string());
+        let use_lock = !crate::password_store::is_mock_enabled();
+        let wrap = |inner: String| {
+            if use_lock {
+                wrap_with_local_upgrade_lock(&inner)
+            } else {
+                inner
+            }
+        };
         let wrapped = match password {
-            Some(_pass) if crate::password_store::is_mock_enabled() => format!(
+            Some(_pass) if crate::password_store::is_mock_enabled() => wrap(format!(
                 "setopt expand_aliases 2>/dev/null; shopt -s expand_aliases 2>/dev/null; source ~/.zshrc 2>/dev/null; source ~/.zprofile 2>/dev/null; source ~/.bashrc 2>/dev/null; eval {quoted}"
-            ),
-            Some(pass) => format!(
+            )),
+            Some(pass) => wrap(format!(
                 "echo {} | sudo -S -p '' -v 2>/dev/null && setopt expand_aliases 2>/dev/null; shopt -s expand_aliases 2>/dev/null; source ~/.zshrc 2>/dev/null; source ~/.zprofile 2>/dev/null; source ~/.bashrc 2>/dev/null; eval {quoted}",
                 sh_quote(pass),
-            ),
-            None => format!(
+            )),
+            None => wrap(format!(
                 "setopt expand_aliases 2>/dev/null; shopt -s expand_aliases 2>/dev/null; source ~/.zshrc 2>/dev/null; source ~/.zprofile 2>/dev/null; source ~/.bashrc 2>/dev/null; eval {quoted}"
-            ),
+            )),
         };
         let child = Command::new(&shell)
             .arg("-c")
@@ -209,18 +283,18 @@ pub fn spawn_command(server: &Server, command: &str, password: Option<&str>) -> 
     }
 
     let remote_cmd = match password {
-        Some(_pass) if crate::password_store::is_mock_enabled() => format!(
+        Some(_pass) if crate::password_store::is_mock_enabled() => wrap_with_upgrade_lock(&format!(
             "if command -v zsh >/dev/null 2>&1; then zsh -l -i -c 'setopt expand_aliases 2>/dev/null; source ~/.zshrc 2>/dev/null; source ~/.zprofile 2>/dev/null; eval {quoted_escaped}'; elif command -v bash >/dev/null 2>&1; then bash -i -c 'shopt -s expand_aliases 2>/dev/null; source ~/.bashrc 2>/dev/null; source ~/.bash_profile 2>/dev/null; eval {quoted_escaped}'; else sh -c {quoted}; fi"
-        ),
+        )),
         Some(pass) => {
             let pass_q = sh_quote(pass);
-            format!(
+            wrap_with_upgrade_lock(&format!(
                 "echo {pass_q} | sudo -S -p '' -v 2>/dev/null && if command -v zsh >/dev/null 2>&1; then zsh -l -i -c 'setopt expand_aliases 2>/dev/null; source ~/.zshrc 2>/dev/null; source ~/.zprofile 2>/dev/null; eval {quoted_escaped}'; elif command -v bash >/dev/null 2>&1; then bash -i -c 'shopt -s expand_aliases 2>/dev/null; source ~/.bashrc 2>/dev/null; source ~/.bash_profile 2>/dev/null; eval {quoted_escaped}'; else sh -c {quoted}; fi"
-            )
+            ))
         }
-        None => format!(
+        None => wrap_with_upgrade_lock(&format!(
             "if command -v zsh >/dev/null 2>&1; then zsh -l -i -c 'setopt expand_aliases 2>/dev/null; source ~/.zshrc 2>/dev/null; source ~/.zprofile 2>/dev/null; eval {quoted_escaped}'; elif command -v bash >/dev/null 2>&1; then bash -i -c 'shopt -s expand_aliases 2>/dev/null; source ~/.bashrc 2>/dev/null; source ~/.bash_profile 2>/dev/null; eval {quoted_escaped}'; else sh -c {quoted}; fi"
-        ),
+        )),
     };
 
     let child = ssh_command_tty(server)

@@ -141,6 +141,8 @@ pub fn apply(
                 let gen = app.bump(panel);
                 let palette = app.current_theme();
                 app.panels[panel].mode = crate::app::Mode::Upgrade;
+                app.panels[panel].upgrade_state = crate::panel::UpgradeState::STARTED;
+                app.panels[panel].upgrade_gen = gen;
                 app.panels[panel].view = vec![format!(
                     "{}\u{2192} Upgrade running...{}",
                     palette.meter_mid(),

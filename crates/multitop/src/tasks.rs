@@ -3,8 +3,9 @@ use tokio::io::BufReader;
 use tokio::sync::mpsc::Sender;
 use tokio::task::JoinHandle;
 
-use crate::app::{error_line, header_line, status_line, Msg};
+use crate::app::Msg;
 use crate::config::Server;
+use crate::fmt::{error_line, header_line, status_line};
 use crate::ssh;
 use crate::stream::{connect, next_packet};
 
@@ -258,11 +259,18 @@ pub fn spawn_upgrade(
                 })
                 .await;
         }
+        let exit_status = child.wait().await;
+        let success = exit_status.is_ok_and(|s| s.success());
         let _ = tx
             .send(Msg::AuxDone {
                 panel: idx,
                 gen,
-                note: Some(status_line("\u{2500} done")),
+                note: if success {
+                    Some(status_line("\u{2500} done"))
+                } else {
+                    Some(status_line("\u{26A0} disconnected (upgrade may be incomplete)"))
+                },
+                success,
             })
             .await;
     })

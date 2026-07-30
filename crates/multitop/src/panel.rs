@@ -9,6 +9,14 @@ pub enum Mode {
     Upgrade,
 }
 
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum UpgradeState {
+    #[default]
+    NIL,
+    STARTED,
+    DONE,
+}
+
 #[derive(Clone, Debug)]
 pub struct Panel {
     pub server: Server,
@@ -17,6 +25,8 @@ pub struct Panel {
     pub last_frame: Option<Vec<String>>,
     pub last_fetch: Option<FetchSnapshot>,
     pub last_upgrade: Vec<String>,
+    pub upgrade_state: UpgradeState,
+    pub upgrade_gen: u64,
     pub last_monitor: Option<multitop_agent::proto::Payload>,
     pub last_docker: Option<multitop_agent::proto::Payload>,
     pub view: Vec<String>,
@@ -35,6 +45,8 @@ impl Panel {
             last_frame: None,
             last_fetch: None,
             last_upgrade: Vec::new(),
+            upgrade_state: UpgradeState::NIL,
+            upgrade_gen: 0,
             last_monitor: None,
             last_docker: None,
             view: vec![format!("{}connecting...{}", pal.muted(), pal.reset)],

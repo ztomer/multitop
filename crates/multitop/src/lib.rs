@@ -1,6 +1,7 @@
 pub mod ansi;
 pub mod app;
 pub mod config;
+pub mod fmt;
 pub mod config_ui;
 pub mod consts;
 pub mod fetch_render;

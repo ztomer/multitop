@@ -27,9 +27,8 @@ pub struct App {
     pub upgrade_history_lines: usize,
     pub password_manager: Option<crate::passwords::PasswordManager>,
     pub show_upgrade_modal: bool,
-    pub had_upgrade: bool,
-    pub upgrades_in_flight: usize,
-    pub last_update: Option<String>,
+    pub last_update: Option<u64>,
+    pub upgrade_started_at: Option<u64>,
     pub show_sparklines: bool,
 }
 
@@ -57,11 +56,22 @@ impl App {
             upgrade_history_lines: crate::config::DEFAULT_UPGRADE_HISTORY_LINES,
             password_manager: None,
             show_upgrade_modal: false,
-            had_upgrade: false,
-            upgrades_in_flight: 0,
             last_update: None,
+            upgrade_started_at: None,
             show_sparklines: false,
         }
+    }
+
+    pub fn upgrades_in_flight(&self) -> bool {
+        self.panels
+            .iter()
+            .any(|p| p.upgrade_state == crate::panel::UpgradeState::STARTED)
+    }
+
+    pub fn had_upgrade(&self) -> bool {
+        self.panels
+            .iter()
+            .any(|p| p.upgrade_state != crate::panel::UpgradeState::NIL)
     }
 
     pub fn filtered_indices(&self) -> Vec<usize> {
@@ -171,19 +181,13 @@ impl App {
                     pal.reset
                 )]
             } else {
-                std::mem::take(&mut p.last_upgrade)
+                p.last_upgrade.clone()
             };
         }
     }
 
     /// `u`: run each server's configured upgrade command.
     pub fn run_upgrade(&mut self) -> Vec<Command> {
-        self.had_upgrade = true;
-        self.upgrades_in_flight = self
-            .panels
-            .iter()
-            .filter(|p| p.server.upgrade_cmd.is_some())
-            .count();
         self.reset_scroll();
         let pal = self.current_theme();
         let mut cmds = Vec::new();
@@ -194,6 +198,8 @@ impl App {
             p.ensure_sudo_password();
             match p.server.upgrade_cmd.is_some() {
                 true => {
+                    p.upgrade_state = crate::panel::UpgradeState::STARTED;
+                    p.upgrade_gen = gen;
                     p.view = vec![
                         format!(
                             "{}\u{2192} Upgrade running...{}",
@@ -223,11 +229,16 @@ impl App {
     /// Confirm upgrade from modal and execute `run_upgrade`.
     pub fn confirm_upgrade(&mut self) -> Vec<Command> {
         self.show_upgrade_modal = false;
-        let ts = current_timestamp_str();
-        self.last_update = Some(ts.clone());
+        self.upgrade_started_at = Some(
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_secs(),
+        );
         if let Some(ref path) = self.config_path {
             let state = crate::state::AppState {
-                last_update: Some(ts),
+                last_update: self.last_update,
+                upgrade_started_at: self.upgrade_started_at,
             };
             let _ = crate::state::save_state(path, &state);
         }
@@ -329,24 +340,49 @@ impl App {
                 }
             }
             Msg::AuxLine { panel, gen, line } => {
-                if !self.accepts(panel, gen) {
-                    return;
-                }
                 let cap = self.upgrade_history_lines;
-                let view = &mut self.panels[panel].view;
-                view.push(line);
-                if view.len() > cap {
-                    view.drain(..view.len() - cap);
+                let Some(p) = self.panels.get_mut(panel) else {
+                    return;
+                };
+                if p.gen == gen {
+                    p.view.push(line.clone());
+                    if p.view.len() > cap {
+                        p.view.drain(..p.view.len() - cap);
+                    }
+                }
+                if p.upgrade_state == crate::panel::UpgradeState::STARTED && p.upgrade_gen == gen
+                {
+                    p.last_upgrade.push(line);
+                    if p.last_upgrade.len() > cap {
+                        p.last_upgrade.drain(..p.last_upgrade.len() - cap);
+                    }
                 }
             }
-            Msg::AuxDone { panel, gen, note } => {
-                if self.accepts(panel, gen) {
-                    if self.upgrades_in_flight > 0 {
-                        self.upgrades_in_flight -= 1;
+            Msg::AuxDone { panel, gen, note, success } => {
+                if !self.accepts(panel, gen) && !self.panels.get(panel).is_some_and(|p| p.upgrade_gen == gen && p.upgrade_state == crate::panel::UpgradeState::STARTED) {
+                    return;
+                }
+                if self.panels[panel].upgrade_state == crate::panel::UpgradeState::STARTED && self.panels[panel].upgrade_gen == gen {
+                    self.panels[panel].upgrade_state = crate::panel::UpgradeState::DONE;
+                    if success && !self.upgrades_in_flight() {
+                        self.last_update = Some(
+                            std::time::SystemTime::now()
+                                .duration_since(std::time::UNIX_EPOCH)
+                                .unwrap_or_default()
+                                .as_secs(),
+                        );
+                        self.upgrade_started_at = None;
+                        if let Some(ref path) = self.config_path {
+                            let state = crate::state::AppState {
+                                last_update: self.last_update,
+                                upgrade_started_at: None,
+                            };
+                            let _ = crate::state::save_state(path, &state);
+                        }
                     }
-                    if let Some(note) = note {
-                        self.panels[panel].view.push(note);
-                    }
+                }
+                if let Some(note) = note {
+                    self.panels[panel].view.push(note);
                 }
             }
         }
@@ -433,48 +469,5 @@ impl App {
             }
         }
     }
-}
-
-/// Format an error for display inside a panel.
-pub fn error_line(text: impl std::fmt::Display) -> String {
-    let pal = &multitop_agent::color::ANSI;
-    format!("{}{text}{}", pal.meter_high(), pal.reset)
-}
-
-pub fn status_line(text: impl std::fmt::Display) -> String {
-    let pal = &multitop_agent::color::ANSI;
-    format!("{}{text}{}", pal.meter_mid(), pal.reset)
-}
-
-pub fn header_line(text: impl std::fmt::Display) -> String {
-    let pal = &multitop_agent::color::ANSI;
-    format!("{}{}{text}{}", pal.primary(), pal.bold, pal.reset)
-}
-
-pub fn current_timestamp_str() -> String {
-    use std::time::SystemTime;
-    let secs = SystemTime::now()
-        .duration_since(SystemTime::UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_secs();
-
-    let days = secs / 86400;
-    let rem_secs = secs % 86400;
-    let hours = rem_secs / 3600;
-    let minutes = (rem_secs % 3600) / 60;
-    let seconds = rem_secs % 60;
-
-    let z = days + 719468;
-    let era = z / 146097;
-    let doe = z - era * 146097;
-    let yoe = (doe - doe / 1460 + doe / 36524 - doe / 146096) / 365;
-    let y = yoe + era * 400;
-    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
-    let mp = (5 * doy + 2) / 153;
-    let d = doy - (153 * mp + 2) / 5 + 1;
-    let m = if mp < 10 { mp + 3 } else { mp - 9 };
-    let y = if m <= 2 { y + 1 } else { y };
-
-    format!("{y:04}-{m:02}-{d:02} {hours:02}:{minutes:02}:{seconds:02} UTC")
 }
 

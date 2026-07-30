@@ -121,7 +121,7 @@ async fn test_e2e_spawn_upgrade_streams_output_with_stored_password() {
                     stream_line_received = true;
                 }
             }
-            Msg::AuxDone { panel: 0, gen: 1, note } => {
+            Msg::AuxDone { panel: 0, gen: 1, note, .. } => {
                 done_received = true;
                 assert!(note.unwrap_or_default().contains("done"));
                 break;
