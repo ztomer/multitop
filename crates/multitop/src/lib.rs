@@ -17,4 +17,5 @@ pub mod ssh;
 pub mod ssh_opts;
 pub mod stream;
 pub mod tasks;
+pub mod types;
 pub mod ui;

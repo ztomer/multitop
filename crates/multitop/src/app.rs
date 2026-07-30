@@ -5,62 +5,10 @@
 //! runtime in `run.rs` does the I/O; this module can be tested without a
 //! terminal or a network.
 
-use multitop_agent::fetch::FetchSnapshot;
-
 use crate::config::Server;
 
 pub use crate::panel::{Mode, Panel};
-
-/// Work the runtime should start as a result of a state transition.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Command {
-    RunDocker { panel: usize, gen: u64 },
-    RunFetch { panel: usize, gen: u64 },
-    RunUpgrade { panel: usize, gen: u64 },
-}
-
-/// Messages produced by the background tasks.
-#[derive(Clone, Debug, PartialEq)]
-pub enum Msg {
-    Packet {
-        panel: usize,
-        gen: u64,
-        payload: multitop_agent::proto::Payload,
-        dims: (u16, u16),
-    },
-    /// A monitor frame. Never generation-gated: the monitor stream keeps
-    /// running through mode switches so its data stays warm.
-    Frame { panel: usize, lines: Vec<String> },
-    /// Replace a panel's contents with a transient status line.
-    Status {
-        panel: usize,
-        gen: u64,
-        text: String,
-    },
-    /// Fetch data arrived — store the raw snapshot and its rendered view.
-    FetchData {
-        panel: usize,
-        gen: u64,
-        snap: FetchSnapshot,
-        lines: Vec<String>,
-    },
-    /// Begin collecting command output, optionally under a header.
-    AuxBegin {
-        panel: usize,
-        gen: u64,
-        header: Option<String>,
-    },
-    AuxLine {
-        panel: usize,
-        gen: u64,
-        line: String,
-    },
-    AuxDone {
-        panel: usize,
-        gen: u64,
-        note: Option<String>,
-    },
-}
+pub use crate::types::{Command, Msg};
 
 pub use multitop_agent::SortBy;
 
@@ -79,6 +27,8 @@ pub struct App {
     pub upgrade_history_lines: usize,
     pub password_manager: Option<crate::passwords::PasswordManager>,
     pub show_upgrade_modal: bool,
+    pub had_upgrade: bool,
+    pub upgrades_in_flight: usize,
     pub last_update: Option<String>,
     pub show_sparklines: bool,
 }
@@ -107,6 +57,8 @@ impl App {
             upgrade_history_lines: crate::config::DEFAULT_UPGRADE_HISTORY_LINES,
             password_manager: None,
             show_upgrade_modal: false,
+            had_upgrade: false,
+            upgrades_in_flight: 0,
             last_update: None,
             show_sparklines: false,
         }
@@ -141,6 +93,10 @@ impl App {
 
     pub fn in_fetch(&self) -> bool {
         self.panels.iter().any(|p| p.mode == Mode::Fetch)
+    }
+
+    pub fn in_upgrade(&self) -> bool {
+        self.panels.iter().any(|p| p.mode == Mode::Upgrade)
     }
 
     /// `f`: all panels into the Fastfetch view.
@@ -193,14 +149,41 @@ impl App {
         for i in 0..self.panels.len() {
             self.bump(i);
             let p = &mut self.panels[i];
+            if p.mode == Mode::Upgrade {
+                p.last_upgrade = std::mem::take(&mut p.view);
+            }
             p.mode = Mode::Monitor;
             p.show_last_frame();
         }
         Vec::new()
     }
 
+    /// Show the last upgrade output without re-running upgrades.
+    pub fn show_upgrade_output(&mut self) {
+        self.reset_scroll();
+        let pal = self.current_theme();
+        for p in &mut self.panels {
+            p.mode = Mode::Upgrade;
+            p.view = if p.last_upgrade.is_empty() {
+                vec![format!(
+                    "{}\u{2192} No previous upgrade output{}",
+                    pal.meter_mid(),
+                    pal.reset
+                )]
+            } else {
+                std::mem::take(&mut p.last_upgrade)
+            };
+        }
+    }
+
     /// `u`: run each server's configured upgrade command.
     pub fn run_upgrade(&mut self) -> Vec<Command> {
+        self.had_upgrade = true;
+        self.upgrades_in_flight = self
+            .panels
+            .iter()
+            .filter(|p| p.server.upgrade_cmd.is_some())
+            .count();
         self.reset_scroll();
         let pal = self.current_theme();
         let mut cmds = Vec::new();
@@ -357,8 +340,13 @@ impl App {
                 }
             }
             Msg::AuxDone { panel, gen, note } => {
-                if let (true, Some(note)) = (self.accepts(panel, gen), note) {
-                    self.panels[panel].view.push(note);
+                if self.accepts(panel, gen) {
+                    if self.upgrades_in_flight > 0 {
+                        self.upgrades_in_flight -= 1;
+                    }
+                    if let Some(note) = note {
+                        self.panels[panel].view.push(note);
+                    }
                 }
             }
         }

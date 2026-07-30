@@ -314,7 +314,18 @@ fn handle_key(
         KeyCode::Char('d') | KeyCode::Char('D') => app.toggle_docker(),
         KeyCode::Char('s') | KeyCode::Char('S') => app.switch_stats(),
         KeyCode::Char('u') | KeyCode::Char('U') => {
-            app.show_upgrade_modal = true;
+            if app.upgrades_in_flight > 0 {
+                // Upgrade already running — don't interrupt
+            } else if app.had_upgrade {
+                if app.in_upgrade() {
+                    let cmds = app.run_upgrade();
+                    execute_cmds(cmds, app, servers, dims, tx, tasks);
+                } else {
+                    app.show_upgrade_output();
+                }
+            } else {
+                app.show_upgrade_modal = true;
+            }
             Vec::new()
         }
         _ => return,
