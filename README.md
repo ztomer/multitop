@@ -60,7 +60,7 @@ Additional views accessible via keys:
 
 - **Docker view** (`d`) — container list with CPU/memory usage, sorted by load
 - **Upgrade view** (`u`) — live streaming output of each server's `upgrade_cmd`
-- **Configuration screen** (`p`) — manage passwords and server entries
+- **Configuration screen** (`p`) — manage passwords, vault, and server entries
 
 The stats stream keeps running underneath the Docker and upgrade views, so
 returning with **s** is instant rather than reconnecting.
@@ -75,7 +75,7 @@ returning with **s** is instant rather than reconnecting.
 | **d** | Toggle the Docker view on all panels |
 | **s** | Back to live stats |
 | **u** | Run each server's configured `upgrade_cmd` |
-| **p** | Open Configuration: manage passwords and servers |
+| **p** | Open Configuration: manage passwords, vault, and servers |
 | **t** | Cycle the active theme |
 
 ## Configuration
@@ -92,10 +92,35 @@ user = ""            # optional
 
 Pass a different path with `--config`.
 
+## Encrypted Sudo Password Vault
+
+Multitop includes an encrypted vault for sudo passwords with biometric unlock:
+
+- **macOS**: Touch ID / Face ID via Secure Enclave (ECIES P-256)
+- **Linux**: Fingerprint via fprintd (D-Bus)
+- **Fallback**: Master password (Argon2id, auto-tuned to available RAM)
+
+### Features
+
+- **AES-256-GCM** encryption with **Ed25519** signature verification
+- **HKDF key separation** — distinct encryption and signing sub-keys
+- **Argon2id** key derivation (auto-tuned: RAM/4, clamped 64–1024 MiB)
+- **Rate limiting** — exponential backoff (1s, 2s, 4s… max 60s), hard lockout after 10 failures (5 min)
+- **Rollback protection** — monotonic counter stored in OS keychain; rejects replaced/old vault files
+- **mlock** — vault key locked in RAM (best-effort on macOS/Linux)
+- **Secure overwrite** — 3-pass random/zero/random on key rotation (best-effort)
+- **Keychain storage** — rollback counter stored in OS keychain (`multitop-vault-rollback`)
+
+### Vault Integration
+
+- **Upgrade flow**: Press `u` → if vault locked, biometric prompt → fallback to master password → passwords auto-loaded into panels
+- **Config screen** (`p`): Tab to **Vault** tab → unlock/lock, change master password, view status
+- **Priority**: Vault passwords take precedence over OS keychain entries
+
 ## Configuration and passwords
 
 Press **p** for the full-screen Configuration screen. **Tab** switches between
-Passwords and Servers. Server changes are written to the config file and take
+Passwords, Vault, and Servers. Server changes are written to the config file and take
 effect after restarting multitop. Passwords can be retained for the current
 session or saved with **S** in the OS credential store: macOS Keychain or the
 Linux desktop Secret Service. Password values are never displayed or written
@@ -172,7 +197,7 @@ the result is a single self-contained executable.
 cargo test --workspace
 ```
 
-The test suite covers panel rendering across multiple terminal dimensions, window resizing, docker table parsing/formatting, `/proc` parsing, and TUI app state transitions across dedicated test files in `tests/`.
+The test suite covers panel rendering across multiple terminal dimensions, window resizing, docker table parsing/formatting, `/proc` parsing, vault operations (init, unlock, rate limiting, rollback, biometric), and TUI app state transitions across dedicated test files in `tests/`.
 
 ## Design notes
 
@@ -198,7 +223,26 @@ The test suite covers panel rendering across multiple terminal dimensions, windo
 │   ├── agent/                # multitop-agent - runs on monitored host
 │   │   ├── src/{color,consts,docker,fmt,lib,main,monitor,proc,render}.rs
 │   │   └── tests/{docker_test,proc_test,render_layout_test,render_test}.rs
-│   └── multitop/             # local TUI dashboard
-│       ├── src/{ansi,app,config,consts,lib,main,run,ssh,tasks,ui}.rs
-│       └── tests/{app_test,ui_resize_test}.rs
+│   ├── multitop/             # local TUI dashboard
+│   │   ├── src/{ansi,app,config,consts,lib,main,run,ssh,tasks,ui,vault,mlock,lockout,rollback,fprintd,secure_enclave}.rs
+│   │   └── tests/{app_test,ui_resize_test,vault_upgrade_e2e}.rs
+│   └── vault/                # encrypted password vault (separate crate)
+│       ├── src/{api,crypto,format,lockout,mlock,rollback,fprintd,secure_enclave}.rs
+│       └── tests/*.rs
 ```
+
+## Security
+
+The vault implementation has undergone three rounds of security review. Key properties:
+
+- **No plaintext secrets** in memory after lock — `zeroize` on drop
+- **Signature verification before decrypt** — prevents ciphertext malleability
+- **Canary in plaintext** — detects wrong password vs corruption
+- **Rate limiting** — persists across restarts via companion lockout file
+- **Rollback detection** — counter stored in system keychain, survives vault file replacement
+- **mlock best-effort** — prevents swapping vault key to disk (logs warning on EPERM/ENOMEM)
+- **Secure overwrite** — 3-pass on key rotation (random/zero/random); full-disk encryption recommended for true protection
+
+## License
+
+MIT
