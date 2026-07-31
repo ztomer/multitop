@@ -1,17 +1,16 @@
 //! High-level Vault API
 
-use crate::crypto::{self, WrapperType, now_ms};
+use crate::crypto::{self, now_ms, WrapperType};
 use crate::format;
 use crate::lockout::{LockoutGuard, LockoutState};
 use crate::secure_enclave;
-use crate::{VaultConfig, VaultError, VaultContents};
+use crate::{VaultConfig, VaultContents, VaultError};
 use secrecy::SecretString;
-use zeroize::Zeroize;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::Mutex as StdMutex;
 use tokio::sync::Mutex;
-
+use zeroize::Zeroize;
 
 /// Result of vault unlock
 #[derive(Debug)]
@@ -71,20 +70,25 @@ impl UnlockedVault {
             .map_err(|e| VaultError::Serialization(e.to_string()))?;
 
         let (ciphertext, nonce) = crypto::encrypt_vault(&self.vault_key, &plaintext)?;
-        
+
         // Zeroize plaintext after encryption
         plaintext.zeroize();
-        
+
         self.header.nonce = nonce;
 
         // Sign the vault (signs header + ciphertext)
-        self.header.signature = crypto::sign_vault(&self.vault_key, &self.header.signed_data(&ciphertext));
+        self.header.signature =
+            crypto::sign_vault(&self.vault_key, &self.header.signed_data(&ciphertext));
 
         // Write atomically
         format::atomic_write_vault(&self.file_path, &self.header, &ciphertext)?;
 
         // Update rollback counter in keychain
-        crate::rollback::store_counter(&self.file_path, self.header.counter, self.header.created_timestamp_ms);
+        crate::rollback::store_counter(
+            &self.file_path,
+            self.header.counter,
+            self.header.created_timestamp_ms,
+        );
 
         Ok(())
     }
@@ -132,8 +136,7 @@ impl Vault {
 
         // Create vault directory
         if let Some(parent) = self.config.vault_path.parent() {
-            std::fs::create_dir_all(parent)
-                .map_err(VaultError::Io)?;
+            std::fs::create_dir_all(parent).map_err(VaultError::Io)?;
             #[cfg(unix)]
             {
                 use std::os::unix::fs::PermissionsExt;
@@ -158,7 +161,10 @@ impl Vault {
         let argon2id_wrapper = crypto::wrap_argon2id(&vault_key, system_password, &salt, &params)?;
 
         // Try to create Secure Enclave wrapper (macOS)
-        let mut wrappers = vec![crypto::Wrapper::new(WrapperType::Argon2id, argon2id_wrapper)?];
+        let mut wrappers = vec![crypto::Wrapper::new(
+            WrapperType::Argon2id,
+            argon2id_wrapper,
+        )?];
 
         #[cfg(target_os = "macos")]
         if let Ok(se) = secure_enclave::get_secure_enclave() {
@@ -177,8 +183,8 @@ impl Vault {
         )?;
 
         // Encrypt contents
-        let plaintext = serde_json::to_vec(&contents)
-            .map_err(|e| VaultError::Serialization(e.to_string()))?;
+        let plaintext =
+            serde_json::to_vec(&contents).map_err(|e| VaultError::Serialization(e.to_string()))?;
 
         let (ciphertext, nonce) = crypto::encrypt_vault(&vault_key, &plaintext)?;
         let mut header = header;
@@ -193,7 +199,10 @@ impl Vault {
 
     /// Unlock vault with biometric (Touch ID / fingerprint)
     /// Falls back to password if biometric fails or unavailable
-    pub async fn unlock_biometric(&self, password_fallback: bool) -> Result<(UnlockedVault, UnlockResult), VaultError> {
+    pub async fn unlock_biometric(
+        &self,
+        password_fallback: bool,
+    ) -> Result<(UnlockedVault, UnlockResult), VaultError> {
         // Try biometric first
         if let Ok(vault) = self.try_unlock_biometric().await {
             return Ok((vault, UnlockResult::Biometric));
@@ -218,8 +227,12 @@ impl Vault {
         let vault_file = format::read_vault_file(&self.config.vault_path)?;
 
         // Verify signature BEFORE decrypting
-        crypto::verify_vault_signature(&vault_file.header.ed25519_pk, &vault_file.header.signed_data(&vault_file.ciphertext), &vault_file.header.signature)
-            .map_err(|_| VaultError::Corrupted("signature verification failed".into()))?;
+        crypto::verify_vault_signature(
+            &vault_file.header.ed25519_pk,
+            &vault_file.header.signed_data(&vault_file.ciphertext),
+            &vault_file.header.signature,
+        )
+        .map_err(|_| VaultError::Corrupted("signature verification failed".into()))?;
 
         // Try Secure Enclave (macOS)
         #[cfg(target_os = "macos")]
@@ -268,15 +281,20 @@ impl Vault {
         let vault_file = format::read_vault_file(&self.config.vault_path)?;
 
         // Verify signature
-        crypto::verify_vault_signature(&vault_file.header.ed25519_pk, &vault_file.header.signed_data(&vault_file.ciphertext), &vault_file.header.signature)
-            .map_err(|_| VaultError::Corrupted("signature verification failed".into()))?;
+        crypto::verify_vault_signature(
+            &vault_file.header.ed25519_pk,
+            &vault_file.header.signed_data(&vault_file.ciphertext),
+            &vault_file.header.signature,
+        )
+        .map_err(|_| VaultError::Corrupted("signature verification failed".into()))?;
 
         // Check rate limiting before attempting password
         let now = now_ms();
         {
-            let lockout = self.lockout.lock().map_err(|_| {
-                VaultError::Other("lockout mutex poisoned".into())
-            })?;
+            let lockout = self
+                .lockout
+                .lock()
+                .map_err(|_| VaultError::Other("lockout mutex poisoned".into()))?;
             lockout.check_lockout(now)?;
         }
 
@@ -284,11 +302,18 @@ impl Vault {
         let mut guard = LockoutGuard::new(&self.lockout, &self.config.vault_path, now);
 
         // Find Argon2id wrapper
-        let argon2id_wrapper = vault_file.header.get_wrapper(WrapperType::Argon2id)
+        let argon2id_wrapper = vault_file
+            .header
+            .get_wrapper(WrapperType::Argon2id)
             .ok_or_else(|| VaultError::Corrupted("no Argon2id wrapper found".into()))?;
 
         let params = &vault_file.header.argon2_params;
-        let vault_key = crypto::unwrap_argon2id(&argon2id_wrapper.data, password, &vault_file.header.salt, params)?;
+        let vault_key = crypto::unwrap_argon2id(
+            &argon2id_wrapper.data,
+            password,
+            &vault_file.header.salt,
+            params,
+        )?;
 
         let unlocked = self.decrypt_and_load(vault_key, &vault_file)?;
 
@@ -304,32 +329,37 @@ impl Vault {
     }
 
     /// Decrypt vault contents with key
-    fn decrypt_and_load(&self, vault_key: crypto::VaultKey, vault_file: &format::VaultFile) -> Result<UnlockedVault, VaultError> {
-        let mut plaintext = crypto::decrypt_vault(&vault_key, &vault_file.header.nonce, &vault_file.ciphertext)?;
+    fn decrypt_and_load(
+        &self,
+        vault_key: crypto::VaultKey,
+        vault_file: &format::VaultFile,
+    ) -> Result<UnlockedVault, VaultError> {
+        let mut plaintext =
+            crypto::decrypt_vault(&vault_key, &vault_file.header.nonce, &vault_file.ciphertext)?;
 
-        let contents: VaultContents = serde_json::from_slice(&plaintext)
-            .map_err(|e| {
-                plaintext.zeroize();
-                VaultError::Serialization(e.to_string())
-            })?;
+        let contents: VaultContents = serde_json::from_slice(&plaintext).map_err(|e| {
+            plaintext.zeroize();
+            VaultError::Serialization(e.to_string())
+        })?;
 
         // Zeroize the plaintext after parsing
         plaintext.zeroize();
 
         // Verify canary
         if !contents.verify_canary(&vault_file.header.canary) {
-            return Err(VaultError::Corrupted("canary mismatch - wrong password or corrupted".into()));
+            return Err(VaultError::Corrupted(
+                "canary mismatch - wrong password or corrupted".into(),
+            ));
         }
 
         let header = vault_file.header.clone();
         let file_path = self.config.vault_path.clone();
 
         // Lock vault key in memory to prevent swapping (best-effort)
-        let key_lock = crate::mlock::LockedMemory::new(vault_key.as_bytes())
-            .unwrap_or_else(|e| {
-                eprintln!("vault: mlock warning: {}", e);
-                crate::mlock::LockedMemory::noop()
-            });
+        let key_lock = crate::mlock::LockedMemory::new(vault_key.as_bytes()).unwrap_or_else(|e| {
+            eprintln!("vault: mlock warning: {}", e);
+            crate::mlock::LockedMemory::noop()
+        });
 
         Ok(UnlockedVault {
             vault_key,
@@ -375,22 +405,32 @@ impl Vault {
             }
         }
 
-        Err(VaultError::PlatformNotSupported("No biometric hardware available".into()))
+        Err(VaultError::PlatformNotSupported(
+            "No biometric hardware available".into(),
+        ))
     }
 
     /// Change vault password
-    pub async fn change_password(&self, old_password: &str, new_password: &str) -> Result<(), VaultError> {
+    pub async fn change_password(
+        &self,
+        old_password: &str,
+        new_password: &str,
+    ) -> Result<(), VaultError> {
         let mut vault = self.unlock_with_password(old_password)?;
 
         // Create new Argon2id wrapper with new password
         let salt = crypto::generate_salt();
         let params = self.config.argon2_params.unwrap_or_default();
-        let argon2id_wrapper = crypto::wrap_argon2id(&vault.vault_key, new_password, &salt, &params)?;
+        let argon2id_wrapper =
+            crypto::wrap_argon2id(&vault.vault_key, new_password, &salt, &params)?;
 
         // Update header
         vault.header.salt = salt;
         vault.header.argon2_params = params;
-        vault.header.replace_wrapper(crypto::Wrapper::new(WrapperType::Argon2id, argon2id_wrapper)?)?;
+        vault.header.replace_wrapper(crypto::Wrapper::new(
+            WrapperType::Argon2id,
+            argon2id_wrapper,
+        )?)?;
         vault.header.key_version += 1;
 
         // Re-encrypt with new nonce
@@ -398,7 +438,8 @@ impl Vault {
             .map_err(|e| VaultError::Serialization(e.to_string()))?;
         let (ciphertext, nonce) = crypto::encrypt_vault(&vault.vault_key, &plaintext)?;
         vault.header.nonce = nonce;
-        vault.header.signature = crypto::sign_vault(&vault.vault_key, &vault.header.signed_data(&ciphertext));
+        vault.header.signature =
+            crypto::sign_vault(&vault.vault_key, &vault.header.signed_data(&ciphertext));
 
         // Securely overwrite old vault file before writing new one
         crypto::secure_overwrite(&vault.file_path).ok(); // best-effort, ignore errors
@@ -412,8 +453,7 @@ impl Vault {
     /// Delete vault file
     pub fn delete(&self) -> Result<(), VaultError> {
         if self.exists() {
-            std::fs::remove_file(&self.config.vault_path)
-                .map_err(VaultError::Io)?;
+            std::fs::remove_file(&self.config.vault_path).map_err(VaultError::Io)?;
         }
         Ok(())
     }
@@ -454,34 +494,36 @@ pub async fn migrate_if_needed(vault_path: &std::path::Path) -> Result<(), Vault
     }
 
     let vault_file = format::read_vault_file(vault_path)?;
-    
+
     match vault_file.header.version {
         0 | 1 => {
             // Migrate v1 -> v2: Add canary field if missing
             // v1 vaults don't have the canary field, so we need to re-encrypt
             eprintln!("vault: migrating from v{} to v2", vault_file.header.version);
-            
+
             // For now, we can't migrate without the password
             // The migration will happen on next unlock with password
             // Store a flag that migration is needed
             let migration_flag = vault_path.with_extension("bin.migrate");
-            
+
             // Write with restrictive permissions
             use std::fs::OpenOptions;
             #[cfg(unix)]
             use std::os::unix::fs::OpenOptionsExt;
-            
+
             #[allow(unused_mut)]
             let mut open_opts = OpenOptions::new();
             open_opts.write(true).create(true).truncate(true);
             #[cfg(unix)]
             open_opts.mode(0o600);
-            
-            let mut file = open_opts.open(&migration_flag)
-                .map_err(VaultError::Io)?;
-            std::io::Write::write_all(&mut file, format!("{}", vault_file.header.version).as_bytes())
-                .map_err(VaultError::Io)?;
-            
+
+            let mut file = open_opts.open(&migration_flag).map_err(VaultError::Io)?;
+            std::io::Write::write_all(
+                &mut file,
+                format!("{}", vault_file.header.version).as_bytes(),
+            )
+            .map_err(VaultError::Io)?;
+
             Ok(())
         }
         2 => Ok(()), // Current version, no migration needed
@@ -499,7 +541,11 @@ mod tests {
     fn fast_vault_config(path: std::path::PathBuf) -> VaultConfig {
         VaultConfig {
             vault_path: path,
-            argon2_params: Some(Argon2Params { t: 1, m_kib: 32768, p: 1 }),
+            argon2_params: Some(Argon2Params {
+                t: 1,
+                m_kib: 32768,
+                p: 1,
+            }),
         }
     }
 
@@ -516,12 +562,23 @@ mod tests {
 
         let mut unlocked = vault.unlock_with_password(password).unwrap();
 
-        unlocked.set_password("server1:22".into(), SecretString::from("pass123")).unwrap();
-        assert_eq!(unlocked.get_password("server1:22").unwrap().expose_secret(), "pass123");
+        unlocked
+            .set_password("server1:22".into(), SecretString::from("pass123"))
+            .unwrap();
+        assert_eq!(
+            unlocked.get_password("server1:22").unwrap().expose_secret(),
+            "pass123"
+        );
 
         unlocked.lock();
         let unlocked2 = vault.unlock_with_password(password).unwrap();
-        assert_eq!(unlocked2.get_password("server1:22").unwrap().expose_secret(), "pass123");
+        assert_eq!(
+            unlocked2
+                .get_password("server1:22")
+                .unwrap()
+                .expose_secret(),
+            "pass123"
+        );
     }
 
     #[tokio::test]
@@ -557,7 +614,10 @@ mod tests {
             assert!(vault.unlock_with_password("wrong").is_err());
         }
 
-        assert!(matches!(vault.unlock_with_password("wrong"), Err(VaultError::RateLimited(_))));
+        assert!(matches!(
+            vault.unlock_with_password("wrong"),
+            Err(VaultError::RateLimited(_))
+        ));
 
         tokio::time::sleep(std::time::Duration::from_secs(2)).await;
 
@@ -616,7 +676,7 @@ mod tests {
         let vault = Vault::new(config);
 
         vault.initialize("password").await.unwrap();
-        
+
         // Biometric will fail, should fall back to password prompt
         // Since we can't mock stdin, this will fail with IO error
         let result = vault.unlock_biometric(true).await;
@@ -631,7 +691,7 @@ mod tests {
         let vault = Vault::new(config);
 
         vault.initialize("password").await.unwrap();
-        
+
         // Biometric will fail, no fallback
         let result = vault.unlock_biometric(false).await;
         assert!(result.is_err());
@@ -646,7 +706,7 @@ mod tests {
         let vault = Vault::new(config);
 
         vault.initialize("password").await.unwrap();
-        
+
         // get_unlocked will try biometric, then fall back to password prompt
         // Since we can't mock stdin, this will fail
         let result = vault.get_unlocked().await;
@@ -661,7 +721,7 @@ mod tests {
         let vault = Vault::new(config);
 
         vault.initialize("password").await.unwrap();
-        
+
         // Lock should work even when nothing is unlocked
         vault.lock().await;
     }
@@ -701,7 +761,9 @@ mod tests {
         vault.initialize("password").await.unwrap();
         let mut unlocked = vault.unlock_with_password("password").unwrap();
 
-        unlocked.set_password("server1:22".into(), SecretString::from("pass1")).unwrap();
+        unlocked
+            .set_password("server1:22".into(), SecretString::from("pass1"))
+            .unwrap();
         assert!(unlocked.get_password("server1:22").is_some());
 
         let removed = unlocked.remove_password("server1:22").unwrap();
@@ -735,8 +797,12 @@ mod tests {
 
         assert!(unlocked.hosts().is_empty());
 
-        unlocked.set_password("server1:22".into(), SecretString::from("pass1")).unwrap();
-        unlocked.set_password("server2:22".into(), SecretString::from("pass2")).unwrap();
+        unlocked
+            .set_password("server1:22".into(), SecretString::from("pass1"))
+            .unwrap();
+        unlocked
+            .set_password("server2:22".into(), SecretString::from("pass2"))
+            .unwrap();
 
         let mut hosts = unlocked.hosts();
         hosts.sort();
@@ -751,15 +817,20 @@ mod tests {
         let vault = Vault::new(config);
 
         vault.initialize("password").await.unwrap();
-        
+
         {
             let mut unlocked = vault.unlock_with_password("password").unwrap();
-            unlocked.set_password("server1:22".into(), SecretString::from("pass1")).unwrap();
+            unlocked
+                .set_password("server1:22".into(), SecretString::from("pass1"))
+                .unwrap();
         }
 
         // Unlock again and check password persisted
         let unlocked = vault.unlock_with_password("password").unwrap();
-        assert_eq!(unlocked.get_password("server1:22").unwrap().expose_secret(), "pass1");
+        assert_eq!(
+            unlocked.get_password("server1:22").unwrap().expose_secret(),
+            "pass1"
+        );
     }
 
     #[tokio::test]
@@ -776,7 +847,9 @@ mod tests {
         for i in 0..10 {
             let host = format!("server{i}:22");
             let pass = format!("pass{i}");
-            unlocked.set_password(host.into(), SecretString::from(pass.as_str())).unwrap();
+            unlocked
+                .set_password(host.into(), SecretString::from(pass.as_str()))
+                .unwrap();
         }
 
         // Verify all passwords
@@ -807,7 +880,9 @@ mod tests {
                 let mut unlocked = vault.unlock_with_password("password").unwrap();
                 let host = format!("server{i}:22");
                 let pass = format!("pass{i}");
-                unlocked.set_password(host.into(), SecretString::from(pass.as_str())).unwrap();
+                unlocked
+                    .set_password(host.into(), SecretString::from(pass.as_str()))
+                    .unwrap();
             }));
         }
 
@@ -853,4 +928,3 @@ mod tests {
         assert!(result.is_ok());
     }
 }
-

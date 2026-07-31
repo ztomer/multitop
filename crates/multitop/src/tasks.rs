@@ -268,7 +268,9 @@ pub fn spawn_upgrade(
                 note: if success {
                     Some(status_line("\u{2500} done"))
                 } else {
-                    Some(status_line("\u{26A0} disconnected (upgrade may be incomplete)"))
+                    Some(status_line(
+                        "\u{26A0} disconnected (upgrade may be incomplete)",
+                    ))
                 },
                 success,
             })

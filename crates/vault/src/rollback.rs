@@ -4,8 +4,7 @@ use std::path::Path;
 const SERVICE: &str = "multitop-vault-rollback";
 
 fn account(vault_path: &Path) -> String {
-    let canonical = std::fs::canonicalize(vault_path)
-        .unwrap_or_else(|_| vault_path.to_path_buf());
+    let canonical = std::fs::canonicalize(vault_path).unwrap_or_else(|_| vault_path.to_path_buf());
     let hash = Sha256::digest(canonical.to_string_lossy().as_bytes());
     hex::encode(hash)
 }
@@ -26,9 +25,14 @@ pub fn store_counter(vault_path: &Path, counter: u32, created_ts: u64) {
 /// Verify that the vault's counter has not regressed.
 /// Returns Ok(()) if the counter is >= the stored counter, or if no stored
 /// counter exists (first unlock). Returns Err on rollback detection.
-pub fn check_counter(vault_path: &Path, counter: u32, created_ts: u64) -> Result<(), crate::VaultError> {
+pub fn check_counter(
+    vault_path: &Path,
+    counter: u32,
+    created_ts: u64,
+) -> Result<(), crate::VaultError> {
     // In test/CI environments, skip keychain check
-    if cfg!(test) || std::env::var("CI").is_ok() || std::env::var("MULTITOP_MOCK_KEYCHAIN").is_ok() {
+    if cfg!(test) || std::env::var("CI").is_ok() || std::env::var("MULTITOP_MOCK_KEYCHAIN").is_ok()
+    {
         return Ok(());
     }
 
@@ -96,7 +100,7 @@ mod tests {
         let dir = tempfile::TempDir::new().unwrap();
         let path = dir.path().join("vault.bin");
         std::fs::write(&path, b"test").unwrap();
-        
+
         let acc1 = account(&path);
         let acc2 = account(&path);
         assert_eq!(acc1, acc2);
@@ -136,7 +140,7 @@ mod tests {
         let dir = tempfile::TempDir::new().unwrap();
         let path = dir.path().join("vault.bin");
         std::fs::write(&path, b"test").unwrap();
-        
+
         // Even with a lower counter, should pass in test mode
         let result = check_counter(&path, 0, 0);
         assert!(result.is_ok());

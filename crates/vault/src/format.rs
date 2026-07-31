@@ -95,27 +95,45 @@ impl VaultHeader {
         })
     }
 
-    pub fn get_wrapper(&self, wrapper_type: crate::crypto::WrapperType) -> Option<&crate::crypto::Wrapper> {
-        self.wrappers.iter().find(|w| w.wrapper_type == wrapper_type)
+    pub fn get_wrapper(
+        &self,
+        wrapper_type: crate::crypto::WrapperType,
+    ) -> Option<&crate::crypto::Wrapper> {
+        self.wrappers
+            .iter()
+            .find(|w| w.wrapper_type == wrapper_type)
     }
 
-    pub fn add_wrapper(&mut self, wrapper: crate::crypto::Wrapper) -> Result<(), crate::VaultError> {
-        if self.wrappers.len() >= 8 && !self.wrappers.iter().any(|w| w.wrapper_type == wrapper.wrapper_type) {
+    pub fn add_wrapper(
+        &mut self,
+        wrapper: crate::crypto::Wrapper,
+    ) -> Result<(), crate::VaultError> {
+        if self.wrappers.len() >= 8
+            && !self
+                .wrappers
+                .iter()
+                .any(|w| w.wrapper_type == wrapper.wrapper_type)
+        {
             return Err(crate::VaultError::TooManyWrappers);
         }
         if wrapper.data.len() > 65535 {
             return Err(crate::VaultError::WrapperTooLarge(65535));
         }
-        self.wrappers.retain(|w| w.wrapper_type != wrapper.wrapper_type);
+        self.wrappers
+            .retain(|w| w.wrapper_type != wrapper.wrapper_type);
         self.wrappers.push(wrapper);
         Ok(())
     }
 
-    pub fn replace_wrapper(&mut self, wrapper: crate::crypto::Wrapper) -> Result<(), crate::VaultError> {
+    pub fn replace_wrapper(
+        &mut self,
+        wrapper: crate::crypto::Wrapper,
+    ) -> Result<(), crate::VaultError> {
         if wrapper.data.len() > 65535 {
             return Err(crate::VaultError::WrapperTooLarge(65535));
         }
-        self.wrappers.retain(|w| w.wrapper_type != wrapper.wrapper_type);
+        self.wrappers
+            .retain(|w| w.wrapper_type != wrapper.wrapper_type);
         self.wrappers.push(wrapper);
         Ok(())
     }
@@ -127,7 +145,8 @@ impl VaultHeader {
     /// Data that gets signed (header without signature + ciphertext)
     pub fn signed_data(&self, ciphertext: &[u8]) -> Vec<u8> {
         let mut data = Vec::new();
-        self.write_header_without_sig(&mut data).expect("write to vec");
+        self.write_header_without_sig(&mut data)
+            .expect("write to vec");
         data.extend_from_slice(ciphertext);
         data
     }
@@ -160,7 +179,8 @@ impl VaultHeader {
 
     pub fn to_bytes(&self) -> Vec<u8> {
         let mut buf = Vec::new();
-        self.write_header_without_sig(&mut buf).expect("write to vec");
+        self.write_header_without_sig(&mut buf)
+            .expect("write to vec");
         buf.extend_from_slice(&self.signature.0);
         buf
     }
@@ -172,37 +192,55 @@ impl VaultHeader {
 
     fn from_cursor(cursor: &mut Cursor<&[u8]>) -> Result<Self, crate::VaultError> {
         let mut magic = [0u8; 4];
-        cursor.read_exact(&mut magic).map_err(|e| crate::VaultError::ParseError(e.to_string()))?;
+        cursor
+            .read_exact(&mut magic)
+            .map_err(|e| crate::VaultError::ParseError(e.to_string()))?;
         if magic != *b"MQV2" {
             return Err(crate::VaultError::InvalidFormat("invalid magic".into()));
         }
 
         let mut version = [0u8; 1];
-        cursor.read_exact(&mut version).map_err(|e| crate::VaultError::ParseError(e.to_string()))?;
+        cursor
+            .read_exact(&mut version)
+            .map_err(|e| crate::VaultError::ParseError(e.to_string()))?;
         if version[0] != CURRENT_VERSION {
             return Err(crate::VaultError::UnsupportedVersion(version[0]));
         }
 
         let mut key_version = [0u8; 1];
-        cursor.read_exact(&mut key_version).map_err(|e| crate::VaultError::ParseError(e.to_string()))?;
+        cursor
+            .read_exact(&mut key_version)
+            .map_err(|e| crate::VaultError::ParseError(e.to_string()))?;
 
         let mut created_ts = [0u8; 8];
-        cursor.read_exact(&mut created_ts).map_err(|e| crate::VaultError::ParseError(e.to_string()))?;
+        cursor
+            .read_exact(&mut created_ts)
+            .map_err(|e| crate::VaultError::ParseError(e.to_string()))?;
         let created_timestamp_ms = u64::from_le_bytes(created_ts);
 
         let mut counter = [0u8; 4];
-        cursor.read_exact(&mut counter).map_err(|e| crate::VaultError::ParseError(e.to_string()))?;
+        cursor
+            .read_exact(&mut counter)
+            .map_err(|e| crate::VaultError::ParseError(e.to_string()))?;
         let counter = u32::from_le_bytes(counter);
 
         let mut salt = [0u8; 32];
-        cursor.read_exact(&mut salt).map_err(|e| crate::VaultError::ParseError(e.to_string()))?;
+        cursor
+            .read_exact(&mut salt)
+            .map_err(|e| crate::VaultError::ParseError(e.to_string()))?;
 
         let mut t = [0u8; 1];
-        cursor.read_exact(&mut t).map_err(|e| crate::VaultError::ParseError(e.to_string()))?;
+        cursor
+            .read_exact(&mut t)
+            .map_err(|e| crate::VaultError::ParseError(e.to_string()))?;
         let mut m_kib = [0u8; 4];
-        cursor.read_exact(&mut m_kib).map_err(|e| crate::VaultError::ParseError(e.to_string()))?;
+        cursor
+            .read_exact(&mut m_kib)
+            .map_err(|e| crate::VaultError::ParseError(e.to_string()))?;
         let mut p = [0u8; 1];
-        cursor.read_exact(&mut p).map_err(|e| crate::VaultError::ParseError(e.to_string()))?;
+        cursor
+            .read_exact(&mut p)
+            .map_err(|e| crate::VaultError::ParseError(e.to_string()))?;
         let argon2_params = crate::crypto::Argon2Params {
             t: t[0],
             m_kib: u32::from_le_bytes(m_kib),
@@ -210,7 +248,9 @@ impl VaultHeader {
         };
 
         let mut wrapper_count = [0u8; 1];
-        cursor.read_exact(&mut wrapper_count).map_err(|e| crate::VaultError::ParseError(e.to_string()))?;
+        cursor
+            .read_exact(&mut wrapper_count)
+            .map_err(|e| crate::VaultError::ParseError(e.to_string()))?;
         let wrapper_count = wrapper_count[0] as usize;
 
         // Validate wrapper count (max 8 wrappers allowed)
@@ -223,40 +263,58 @@ impl VaultHeader {
         let mut wrappers = Vec::with_capacity(wrapper_count);
         for _ in 0..wrapper_count {
             let mut wt = [0u8; 1];
-            cursor.read_exact(&mut wt).map_err(|e| crate::VaultError::ParseError(e.to_string()))?;
+            cursor
+                .read_exact(&mut wt)
+                .map_err(|e| crate::VaultError::ParseError(e.to_string()))?;
             let _wrapper_type = crate::crypto::WrapperType::from_u8(wt[0])
                 .ok_or_else(|| crate::VaultError::InvalidWrapperType(wt[0]))?;
 
             let mut len = [0u8; 2];
-            cursor.read_exact(&mut len).map_err(|e| crate::VaultError::ParseError(e.to_string()))?;
+            cursor
+                .read_exact(&mut len)
+                .map_err(|e| crate::VaultError::ParseError(e.to_string()))?;
             let len = u16::from_le_bytes(len) as usize;
 
             let mut wrapper_data = vec![0u8; len];
-            cursor.read_exact(&mut wrapper_data).map_err(|e| crate::VaultError::ParseError(e.to_string()))?;
+            cursor
+                .read_exact(&mut wrapper_data)
+                .map_err(|e| crate::VaultError::ParseError(e.to_string()))?;
 
             wrappers.push(crate::crypto::Wrapper::new(
-                crate::crypto::WrapperType::from_u8(wt[0]).ok_or(crate::VaultError::InvalidWrapperType(wt[0]))?,
+                crate::crypto::WrapperType::from_u8(wt[0])
+                    .ok_or(crate::VaultError::InvalidWrapperType(wt[0]))?,
                 wrapper_data,
             )?);
         }
 
         let mut nonce = [0u8; 12];
-        cursor.read_exact(&mut nonce).map_err(|e| crate::VaultError::ParseError(e.to_string()))?;
+        cursor
+            .read_exact(&mut nonce)
+            .map_err(|e| crate::VaultError::ParseError(e.to_string()))?;
 
         let mut ed25519_pk = [0u8; 32];
-        cursor.read_exact(&mut ed25519_pk).map_err(|e| crate::VaultError::ParseError(e.to_string()))?;
+        cursor
+            .read_exact(&mut ed25519_pk)
+            .map_err(|e| crate::VaultError::ParseError(e.to_string()))?;
 
         // Read canary string (written before signature in write_header_without_sig)
         let mut canary_len = [0u8; 2];
-        cursor.read_exact(&mut canary_len).map_err(|e| crate::VaultError::ParseError(e.to_string()))?;
+        cursor
+            .read_exact(&mut canary_len)
+            .map_err(|e| crate::VaultError::ParseError(e.to_string()))?;
         let canary_len = u16::from_le_bytes(canary_len) as usize;
         let mut canary_bytes = vec![0u8; canary_len];
-        cursor.read_exact(&mut canary_bytes).map_err(|e| crate::VaultError::ParseError(e.to_string()))?;
-        let canary = String::from_utf8(canary_bytes).map_err(|_| crate::VaultError::ParseError("invalid canary utf-8".into()))?;
+        cursor
+            .read_exact(&mut canary_bytes)
+            .map_err(|e| crate::VaultError::ParseError(e.to_string()))?;
+        let canary = String::from_utf8(canary_bytes)
+            .map_err(|_| crate::VaultError::ParseError("invalid canary utf-8".into()))?;
 
         // Read signature (appended after header in to_bytes)
         let mut sig = [0u8; 64];
-        cursor.read_exact(&mut sig).map_err(|e| crate::VaultError::ParseError(e.to_string()))?;
+        cursor
+            .read_exact(&mut sig)
+            .map_err(|e| crate::VaultError::ParseError(e.to_string()))?;
 
         Ok(Self {
             magic,
@@ -307,17 +365,23 @@ pub fn read_vault_file(path: &std::path::Path) -> Result<VaultFile, crate::Vault
 }
 
 /// Atomically write vault file (tmp + rename + dir fsync) with advisory file locking
-pub fn atomic_write_vault(path: &std::path::Path, header: &VaultHeader, ciphertext: &[u8]) -> Result<(), crate::VaultError> {
+pub fn atomic_write_vault(
+    path: &std::path::Path,
+    header: &VaultHeader,
+    ciphertext: &[u8],
+) -> Result<(), crate::VaultError> {
+    use fs2::FileExt;
     use std::fs::{File, OpenOptions};
     #[cfg(unix)]
     use std::os::unix::fs::PermissionsExt;
-    use fs2::FileExt;
 
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent).map_err(crate::VaultError::Io)?;
         #[cfg(unix)]
         {
-            let mut perms = std::fs::metadata(parent).map_err(crate::VaultError::Io)?.permissions();
+            let mut perms = std::fs::metadata(parent)
+                .map_err(crate::VaultError::Io)?
+                .permissions();
             perms.set_mode(0o700);
             std::fs::set_permissions(parent, perms).map_err(crate::VaultError::Io)?;
         }
@@ -333,16 +397,19 @@ pub fn atomic_write_vault(path: &std::path::Path, header: &VaultHeader, cipherte
     let mut file = open_opts.open(&tmp_path).map_err(crate::VaultError::Io)?;
 
     // Acquire exclusive lock on the temp file
-    file.lock_exclusive().map_err(|e| crate::VaultError::Io(std::io::Error::other(e)))?;
+    file.lock_exclusive()
+        .map_err(|e| crate::VaultError::Io(std::io::Error::other(e)))?;
 
     let header_bytes = header.to_bytes();
-    file.write_all(&header_bytes).map_err(crate::VaultError::Io)?;
+    file.write_all(&header_bytes)
+        .map_err(crate::VaultError::Io)?;
     file.write_all(ciphertext).map_err(crate::VaultError::Io)?;
     file.flush().map_err(crate::VaultError::Io)?;
     file.sync_all().map_err(crate::VaultError::Io)?;
 
     // Release lock before rename (lock is on temp file)
-    file.unlock().map_err(|e| crate::VaultError::Io(std::io::Error::other(e)))?;
+    file.unlock()
+        .map_err(|e| crate::VaultError::Io(std::io::Error::other(e)))?;
 
     std::fs::rename(&tmp_path, path).map_err(crate::VaultError::Io)?;
 
@@ -365,14 +432,19 @@ mod tests {
     fn make_test_header() -> VaultHeader {
         let key = VaultKey::new();
         let salt = generate_salt();
-        let params = Argon2Params { t: 1, m_kib: 32_768, p: 1 };
+        let params = Argon2Params {
+            t: 1,
+            m_kib: 32_768,
+            p: 1,
+        };
         let wrapper = Wrapper::new(WrapperType::Argon2id, vec![1u8; 60]).unwrap();
         VaultHeader::new(
             Ed25519PublicKey(key.derive_verifying_key().to_bytes()),
             salt,
             params,
             vec![wrapper],
-        ).unwrap()
+        )
+        .unwrap()
     }
 
     #[test]
@@ -390,11 +462,21 @@ mod tests {
     fn test_vault_header_new_too_many_wrappers() {
         let key = VaultKey::new();
         let salt = generate_salt();
-        let params = Argon2Params { t: 1, m_kib: 32_768, p: 1 };
+        let params = Argon2Params {
+            t: 1,
+            m_kib: 32_768,
+            p: 1,
+        };
         let wrappers: Vec<Wrapper> = (0..9)
-            .map(|i| Wrapper::new(WrapperType::from_u8(i as u8 + 1).unwrap_or(WrapperType::Argon2id), vec![1u8; 10]).unwrap())
+            .map(|i| {
+                Wrapper::new(
+                    WrapperType::from_u8(i as u8 + 1).unwrap_or(WrapperType::Argon2id),
+                    vec![1u8; 10],
+                )
+                .unwrap()
+            })
             .collect();
-        
+
         let result = VaultHeader::new(
             Ed25519PublicKey(key.derive_verifying_key().to_bytes()),
             salt,
@@ -409,7 +491,11 @@ mod tests {
     fn test_vault_header_new_wrapper_too_large() {
         let key = VaultKey::new();
         let salt = generate_salt();
-        let params = Argon2Params { t: 1, m_kib: 32_768, p: 1 };
+        let params = Argon2Params {
+            t: 1,
+            m_kib: 32_768,
+            p: 1,
+        };
         // Wrapper::new will fail with 65536 bytes, so we can't create the wrapper
         let result_wrapper = Wrapper::new(WrapperType::Argon2id, vec![1u8; 65536]);
         assert!(result_wrapper.is_err());
@@ -427,7 +513,7 @@ mod tests {
     fn test_vault_header_add_wrapper() {
         let mut header = make_test_header();
         let new_wrapper = Wrapper::new(WrapperType::SecureEnclave, vec![2u8; 50]).unwrap();
-        
+
         header.add_wrapper(new_wrapper).unwrap();
         assert!(header.get_wrapper(WrapperType::SecureEnclave).is_some());
         assert!(header.wrappers.len() == 2);
@@ -437,10 +523,12 @@ mod tests {
     fn test_vault_header_add_wrapper_replaces_existing() {
         let mut header = make_test_header();
         let new_wrapper = Wrapper::new(WrapperType::Argon2id, vec![3u8; 60]).unwrap();
-        
+
         header.add_wrapper(new_wrapper).unwrap();
         // Should still have only 1 Argon2id wrapper
-        let argon2_wrappers: Vec<_> = header.wrappers.iter()
+        let argon2_wrappers: Vec<_> = header
+            .wrappers
+            .iter()
             .filter(|w| w.wrapper_type == WrapperType::Argon2id)
             .collect();
         assert_eq!(argon2_wrappers.len(), 1);
@@ -457,7 +545,7 @@ mod tests {
             // This will replace the existing Argon2id wrapper, so we won't exceed 8
             // We need to test with actual different types
         }
-        
+
         // Actually, let's test the case where we try to exceed 8 wrappers
         // The issue is that add_wrapper replaces existing types
         // So we need to test with types that don't exist yet
@@ -475,7 +563,7 @@ mod tests {
     fn test_vault_header_replace_wrapper() {
         let mut header = make_test_header();
         let new_wrapper = Wrapper::new(WrapperType::Argon2id, vec![4u8; 60]).unwrap();
-        
+
         header.replace_wrapper(new_wrapper).unwrap();
         assert_eq!(header.wrappers.len(), 1);
         assert_eq!(header.wrappers[0].data, vec![4u8; 60]);
@@ -493,7 +581,7 @@ mod tests {
         let header = make_test_header();
         let ciphertext = b"test ciphertext";
         let signed_data = header.signed_data(ciphertext);
-        
+
         // Signed data should include header fields + ciphertext
         assert!(signed_data.len() > ciphertext.len());
         assert!(signed_data.ends_with(ciphertext));
@@ -503,7 +591,7 @@ mod tests {
     fn test_vault_header_to_bytes_roundtrip() {
         let header = make_test_header();
         let bytes = header.to_bytes();
-        
+
         let restored = VaultHeader::from_bytes(&bytes).unwrap();
         assert_eq!(restored.magic, header.magic);
         assert_eq!(restored.version, header.version);
@@ -522,7 +610,7 @@ mod tests {
         let mut header = make_test_header();
         header.magic = *b"BAD!";
         let bytes = header.to_bytes();
-        
+
         let result = VaultHeader::from_bytes(&bytes);
         assert!(result.is_err());
         assert!(matches!(result, Err(VaultError::InvalidFormat(_))));
@@ -533,7 +621,7 @@ mod tests {
         let mut header = make_test_header();
         header.version = 99;
         let bytes = header.to_bytes();
-        
+
         let result = VaultHeader::from_bytes(&bytes);
         assert!(result.is_err());
         assert!(matches!(result, Err(VaultError::UnsupportedVersion(99))));
@@ -549,10 +637,10 @@ mod tests {
     fn test_vault_file_from_bytes_roundtrip() {
         let header = make_test_header();
         let ciphertext = vec![5u8; 100];
-        
+
         let mut bytes = header.to_bytes();
         bytes.extend_from_slice(&ciphertext);
-        
+
         let vault_file = VaultFile::from_bytes(&bytes).unwrap();
         assert_eq!(vault_file.header.version, header.version);
         assert_eq!(vault_file.ciphertext, ciphertext);
@@ -562,7 +650,7 @@ mod tests {
     fn test_vault_file_from_bytes_too_short() {
         let header = make_test_header();
         let bytes = header.to_bytes();
-        
+
         // Truncate the bytes
         let result = VaultFile::from_bytes(&bytes[..10]);
         assert!(result.is_err());
@@ -574,9 +662,9 @@ mod tests {
         let path = dir.path().join("test_vault.bin");
         let header = make_test_header();
         let ciphertext = vec![6u8; 50];
-        
+
         atomic_write_vault(&path, &header, &ciphertext).unwrap();
-        
+
         assert!(path.exists());
         let vault_file = VaultFile::read(&path).unwrap();
         assert_eq!(vault_file.header.version, header.version);
@@ -589,7 +677,7 @@ mod tests {
         let path = dir.path().join("deep").join("nested").join("vault.bin");
         let header = make_test_header();
         let ciphertext = vec![7u8; 20];
-        
+
         atomic_write_vault(&path, &header, &ciphertext).unwrap();
         assert!(path.exists());
     }
@@ -600,9 +688,9 @@ mod tests {
         let path = dir.path().join("test_vault.bin");
         let header = make_test_header();
         let ciphertext = vec![8u8; 75];
-        
+
         atomic_write_vault(&path, &header, &ciphertext).unwrap();
-        
+
         let vault_file = read_vault_file(&path).unwrap();
         assert_eq!(vault_file.header.version, 2);
         assert_eq!(vault_file.ciphertext, ciphertext);

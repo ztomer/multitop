@@ -5,9 +5,9 @@
 
 use std::path::Path;
 
+use crate::consts::AGENT_VERSION;
 use crate::fmt::fmt_size;
 use crate::proc;
-use crate::consts::AGENT_VERSION;
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct FetchSnapshot {

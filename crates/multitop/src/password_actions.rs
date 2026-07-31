@@ -28,7 +28,9 @@ pub fn apply(
                 let mut new_panels = Vec::with_capacity(new_servers.len());
                 for server in new_servers {
                     let mut panel = crate::app::Panel::new(server.clone());
-                    if let Some(old_panel) = app.panels.iter().find(|p| p.server.host == server.host) {
+                    if let Some(old_panel) =
+                        app.panels.iter().find(|p| p.server.host == server.host)
+                    {
                         panel.sudo_password = old_panel.sudo_password.clone();
                         panel.password_saved = old_panel.password_saved;
                         panel.external_password = old_panel.external_password;
@@ -57,7 +59,13 @@ pub fn apply(
             target_idx,
             password,
         } => {
-            apply(PasswordAction::ApplyServers(new_servers), app, servers, tx, tasks);
+            apply(
+                PasswordAction::ApplyServers(new_servers),
+                app,
+                servers,
+                tx,
+                tasks,
+            );
             if target_idx < app.panels.len() {
                 apply(
                     PasswordAction::Save {
@@ -132,7 +140,8 @@ pub fn apply(
             // Also save to vault if unlocked
             if let Some(ref mut unlocked) = app.vault_unlocked {
                 let key = crate::password_store::account(&app.panels[panel].server);
-                let _ = unlocked.set_password(key, SecretString::new(password.clone().into_boxed_str()));
+                let _ = unlocked
+                    .set_password(key, SecretString::new(password.clone().into_boxed_str()));
             }
             if let Some(manager) = app.password_manager.as_mut() {
                 manager.resume_upgrade = false;
@@ -143,8 +152,14 @@ pub fn apply(
                     }
                 });
             }
-            let should_resume = resume_upgrade || app.panels[panel].mode == crate::app::Mode::Upgrade;
-            if should_resume && servers.get(panel).and_then(|s| s.upgrade_cmd.as_ref()).is_some() {
+            let should_resume =
+                resume_upgrade || app.panels[panel].mode == crate::app::Mode::Upgrade;
+            if should_resume
+                && servers
+                    .get(panel)
+                    .and_then(|s| s.upgrade_cmd.as_ref())
+                    .is_some()
+            {
                 let gen = app.bump(panel);
                 let palette = app.current_theme();
                 app.panels[panel].mode = crate::app::Mode::Upgrade;

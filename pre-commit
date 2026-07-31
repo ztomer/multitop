@@ -1,0 +1,34 @@
+#!/usr/bin/env bash
+#
+# Pre-commit hook: runs ruff, checks LOC limit, and checks for emoji.
+# Blocks commits that fail any gate.
+#
+set -euo pipefail
+
+cd "$(git rev-parse --show-toplevel)"
+
+echo "==> ruff check"
+python3 -m ruff check checks/ scripts/ || {
+    echo "FAIL: ruff check failed - run 'ruff check --fix checks/ scripts/'"
+    exit 1
+}
+
+echo "==> ruff format check"
+python3 -m ruff format --check checks/ scripts/ || {
+    echo "FAIL: formatting check failed - run 'ruff format checks/ scripts/'"
+    exit 1
+}
+
+echo "==> LOC limit"
+python3 checks/check_loc_limit.py || {
+    echo "FAIL: LOC limit exceeded"
+    exit 1
+}
+
+echo "==> emoji check"
+python3 checks/check_style_icons.py || {
+    echo "FAIL: unauthorized emoji found"
+    exit 1
+}
+
+echo "All pre-commit checks passed."

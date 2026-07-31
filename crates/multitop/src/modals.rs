@@ -41,8 +41,13 @@ pub fn draw_upgrade_modal(f: &mut Frame, app: &App) {
 
     f.render_widget(ratatui::widgets::Clear, popup_rect);
 
-    let last_up = app.last_update.map(unixtime_to_str).unwrap_or_else(|| "Never".to_string());
-    let interrupted = app.upgrade_started_at.is_some_and(|started| app.last_update.is_none_or(|lu| started > lu));
+    let last_up = app
+        .last_update
+        .map(unixtime_to_str)
+        .unwrap_or_else(|| "Never".to_string());
+    let interrupted = app
+        .upgrade_started_at
+        .is_some_and(|started| app.last_update.is_none_or(|lu| started > lu));
 
     let mut lines = vec![
         Line::from(""),

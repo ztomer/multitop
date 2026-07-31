@@ -1,5 +1,5 @@
-use multitop_agent::fetch::FetchSnapshot;
 use crate::config::Server;
+use multitop_agent::fetch::FetchSnapshot;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Mode {

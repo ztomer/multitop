@@ -42,7 +42,10 @@ pub fn is_mock_enabled() -> bool {
     {
         return true;
     }
-    MOCK_STORE.read().unwrap_or_else(|e| e.into_inner()).is_some()
+    MOCK_STORE
+        .read()
+        .unwrap_or_else(|e| e.into_inner())
+        .is_some()
 }
 
 pub fn account(server: &Server) -> String {

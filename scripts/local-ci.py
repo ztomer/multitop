@@ -17,26 +17,62 @@ import glob
 import subprocess
 import re
 
+
 def print_info(message):
     print(f"[ ==> ] {message}")
+
 
 def print_wrn(message):
     print(f"[ Wrn ] {message}")
 
+
 def print_err(message):
     print(f"[ Err ] {message}")
+
 
 def print_ok(message):
     print(f"[ Ok  ] {message}")
 
-APPROVED_EMOJIS_AND_SYMBOLS = set([
-    ' ', '▂', '▃', '▄', '▅', '▆', '▇', '█', # Sparklines
-    '→', '←', '↑', '↓', '°',                # Symbols & Degrees
-    '✓', '✗', '…', '–', '—',                # Approved Symbols & Punctuation
-    '\u2192', '\u2190', '\u2191', '\u2193',
-    '\u00b0', '\u2026', '\u2013', '\u2014',
-    '\u2581', '\u2582', '\u2583', '\u2584', '\u2585', '\u2586', '\u2587', '\u2588',
-])
+
+APPROVED_EMOJIS_AND_SYMBOLS = set(
+    [
+        " ",
+        "▂",
+        "▃",
+        "▄",
+        "▅",
+        "▆",
+        "▇",
+        "█",  # Sparklines
+        "→",
+        "←",
+        "↑",
+        "↓",
+        "°",  # Symbols & Degrees
+        "✓",
+        "✗",
+        "…",
+        "–",
+        "—",  # Approved Symbols & Punctuation
+        "\u2192",
+        "\u2190",
+        "\u2191",
+        "\u2193",
+        "\u00b0",
+        "\u2026",
+        "\u2013",
+        "\u2014",
+        "\u2581",
+        "\u2582",
+        "\u2583",
+        "\u2584",
+        "\u2585",
+        "\u2586",
+        "\u2587",
+        "\u2588",
+    ]
+)
+
 
 def check_loc_limit():
     print_info("Gate 1: Checking File LOC Limits (Soft Warning: 400, Hard Limit: 500)...")
@@ -59,17 +95,18 @@ def check_loc_limit():
         for path, count in violations:
             print_err(f"LOC Violation: {path} has {count} lines (> 500 limit)")
         return False
-    
+
     print_ok(f"All {len(rs_files)} Rust source files are strictly <= 500 LOC.")
     return True
+
 
 def check_emoji_whitelist():
     print_info("Gate 2: Checking Emoji & Unicode Whitelist...")
     violations = []
     rs_files = glob.glob("crates/**/*.rs", recursive=True)
-    
+
     # Emoji regex pattern
-    emoji_pattern = re.compile(r'[\U00010000-\U0010ffff]')
+    emoji_pattern = re.compile(r"[\U00010000-\U0010ffff]")
 
     for path in rs_files:
         with open(path, "r", encoding="utf-8") as f:
@@ -88,6 +125,7 @@ def check_emoji_whitelist():
     print_ok("Emoji & Unicode whitelist passed cleanly.")
     return True
 
+
 def run_build_and_tests():
     print_info("Gate 3: Running Workspace Build & Test Suite...")
     res = subprocess.run(["cargo", "test", "--workspace"], capture_output=True, text=True)
@@ -98,11 +136,13 @@ def run_build_and_tests():
     print_ok("Cargo test suite passed cleanly (100% green).")
     return True
 
+
 def run_clippy():
     print_info("Gate 4: Running Clippy Lint Check (warnings as errors)...")
     res = subprocess.run(
         ["cargo", "clippy", "--all-targets", "--", "-D", "warnings"],
-        capture_output=True, text=True,
+        capture_output=True,
+        text=True,
     )
     if res.returncode != 0:
         print_err("Clippy lint check failed!")
@@ -112,9 +152,14 @@ def run_clippy():
     print_ok("Clippy passed cleanly with zero warnings.")
     return True
 
+
 def run_fuzz_sanity():
     print_info("Gate 4: Running Fuzzing Protocol Sanity Gate...")
-    res = subprocess.run(["cargo", "test", "-p", "multitop-agent", "proto::tests::decode_fuzz_garbage_never_panics"], capture_output=True, text=True)
+    res = subprocess.run(
+        ["cargo", "test", "-p", "multitop-agent", "proto::tests::decode_fuzz_garbage_never_panics"],
+        capture_output=True,
+        text=True,
+    )
     if res.returncode != 0:
         print_err("Fuzz protocol sanity check failed!")
         print(res.stderr)
@@ -122,18 +167,21 @@ def run_fuzz_sanity():
     print_ok("Fuzz protocol sanity check passed.")
     return True
 
+
 def check_performance_regression():
     print_info("Gate 5: Running Performance Regression Check...")
-    res = subprocess.run(["cargo", "bench", "-p", "multitop", "--bench", "client_bench"], capture_output=True, text=True)
+    res = subprocess.run(
+        ["cargo", "bench", "-p", "multitop", "--bench", "client_bench"], capture_output=True, text=True
+    )
     if res.returncode != 0:
         print_err("Benchmark execution failed!")
         print(res.stderr)
         return False
-    
+
     # Parse latency from benchmark output
     output = res.stdout
-    decode_match = re.search(r'Latency:\s+([\d\.]+)\s+ns\s+/\s+packet', output)
-    render_match = re.search(r'Latency:\s+([\d\.]+)\s+ns\s+/\s+frame', output)
+    decode_match = re.search(r"Latency:\s+([\d\.]+)\s+ns\s+/\s+packet", output)
+    render_match = re.search(r"Latency:\s+([\d\.]+)\s+ns\s+/\s+frame", output)
 
     if decode_match and render_match:
         decode_ns = float(decode_match.group(1))
@@ -142,14 +190,19 @@ def check_performance_regression():
         print_info(f"Measured Frame Render Latency:  {render_ns:.2f} ns (Threshold: < 50000.0 ns)")
 
         if decode_ns > 5000.0:
-            print_err(f"Performance Regression Detected: Packet decode latency {decode_ns:.2f} ns exceeds 5000.0 ns threshold!")
+            print_err(
+                f"Performance Regression Detected: Packet decode latency {decode_ns:.2f} ns exceeds 5000.0 ns threshold!"
+            )
             return False
         if render_ns > 50000.0:
-            print_err(f"Performance Regression Detected: Frame render latency {render_ns:.2f} ns exceeds 50000.0 ns threshold!")
+            print_err(
+                f"Performance Regression Detected: Frame render latency {render_ns:.2f} ns exceeds 50000.0 ns threshold!"
+            )
             return False
 
     print_ok("Performance regression check passed cleanly. All metrics optimal.")
     return True
+
 
 def main():
     os.environ["MULTITOP_MOCK_KEYCHAIN"] = "1"
@@ -176,6 +229,7 @@ def main():
     print("============================================================")
     print_ok("ALL LOCAL CI GATES PASSED DETERMINISTICALLY! READY TO COMMIT.")
     print("============================================================")
+
 
 if __name__ == "__main__":
     main()

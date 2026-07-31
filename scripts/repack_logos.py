@@ -8,24 +8,26 @@ import struct
 import sys
 import zstd
 
+
 def clean_patterns(patterns):
     new_pats = []
     for raw_p in patterns:
         p = raw_p.strip()
         # Handle mac case like mac"*"_small
-        if 'mac' in p.lower():
-            new_pats.extend(['mac', 'darwin', 'macos', 'apple'])
+        if "mac" in p.lower():
+            new_pats.extend(["mac", "darwin", "macos", "apple"])
             continue
-        p = p.replace('"', '').replace('*', '').strip().lower()
-        for suffix in ('_small', '_old', 'old'):
+        p = p.replace('"', "").replace("*", "").strip().lower()
+        for suffix in ("_small", "_old", "old"):
             if p.endswith(suffix):
-                p = p[:-len(suffix)].strip()
+                p = p[: -len(suffix)].strip()
                 break
         if p:
             new_pats.append(p)
-            if p in ('mac', 'darwin'):
-                new_pats.extend(['macos', 'apple'])
+            if p in ("mac", "darwin"):
+                new_pats.extend(["macos", "apple"])
     return list(dict.fromkeys(new_pats))
+
 
 def pack_db(entries):
     buf = bytearray()
@@ -34,9 +36,9 @@ def pack_db(entries):
     buf.extend(struct.pack("<H", len(entries)))  # count
 
     for ent in entries:
-        patterns = ent['patterns']
-        colors = ent['colors']
-        lines = ent['lines']
+        patterns = ent["patterns"]
+        colors = ent["colors"]
+        lines = ent["lines"]
 
         pattern_bytes = bytearray()
         for ps in patterns:
@@ -67,38 +69,48 @@ def pack_db(entries):
 
     return bytes(buf)
 
+
 def main():
-    raw_bin = subprocess.check_output(['git', 'show', 'HEAD:crates/multitop/data/logos.bin.zst'])
+    raw_bin = subprocess.check_output(["git", "show", "HEAD:crates/multitop/data/logos.bin.zst"])
     raw = zstd.decompress(raw_bin)
-    count = struct.unpack_from('<H', raw, 6)[0]
+    count = struct.unpack_from("<H", raw, 6)[0]
 
     pos = 8
     entries = []
     for idx in range(count):
-        entry_size = struct.unpack_from('<H', raw, pos)[0]
+        entry_size = struct.unpack_from("<H", raw, pos)[0]
         entry_end = pos + 2 + entry_size
         pos += 2
-        num_patterns = raw[pos]; pos += 1
+        num_patterns = raw[pos]
+        pos += 1
         patterns = []
         for _ in range(num_patterns):
-            plen = raw[pos]; pos += 1
-            patterns.append(raw[pos:pos+plen].decode('ascii')); pos += plen
-        num_colors = raw[pos]; pos += 1
-        colors = raw[pos:pos+num_colors]; pos += num_colors
-        num_lines = struct.unpack_from('<H', raw, pos)[0]; pos += 2
+            plen = raw[pos]
+            pos += 1
+            patterns.append(raw[pos : pos + plen].decode("ascii"))
+            pos += plen
+        num_colors = raw[pos]
+        pos += 1
+        colors = raw[pos : pos + num_colors]
+        pos += num_colors
+        num_lines = struct.unpack_from("<H", raw, pos)[0]
+        pos += 2
         lines = []
         for _ in range(num_lines):
-            llen = raw[pos]; pos += 1
-            line = raw[pos:pos+llen].decode('utf-8', errors='replace')
+            llen = raw[pos]
+            pos += 1
+            line = raw[pos : pos + llen].decode("utf-8", errors="replace")
             lines.append(line)
             pos += llen
 
         cleaned_pats = clean_patterns(patterns)
-        entries.append({
-            'patterns': cleaned_pats,
-            'colors': list(colors),
-            'lines': lines,
-        })
+        entries.append(
+            {
+                "patterns": cleaned_pats,
+                "colors": list(colors),
+                "lines": lines,
+            }
+        )
         pos = entry_end
 
     packed = pack_db(entries)
@@ -107,6 +119,7 @@ def main():
         f.write(compressed)
 
     print(f"Repacked {len(entries)} logo entries -> crates/multitop/data/logos.bin.zst ({len(compressed):,} bytes)")
+
 
 if __name__ == "__main__":
     main()

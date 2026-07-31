@@ -4,14 +4,14 @@ use tokio::sync::watch;
 use tokio::task::JoinHandle;
 use tokio::time::sleep;
 
-use crate::fmt::error_line;
 use crate::config::Server;
+use crate::fmt::error_line;
 use crate::ssh;
 use crate::ssh::Mode;
 use crate::stream;
 
-use multitop_agent::proto::Payload;
 use super::RECONNECT_BACKOFF;
+use multitop_agent::proto::Payload;
 
 pub fn spawn_monitor(
     idx: usize,

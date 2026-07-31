@@ -3,7 +3,10 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use crossterm::event::{DisableMouseCapture, EnableMouseCapture, Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers, MouseEventKind};
+use crossterm::event::{
+    DisableMouseCapture, EnableMouseCapture, Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers,
+    MouseEventKind,
+};
 use crossterm::execute;
 use tokio::sync::mpsc::{self, Sender};
 use tokio::sync::watch;
@@ -234,11 +237,19 @@ fn handle_key(
 
     if app.show_upgrade_modal {
         match key.code {
-            KeyCode::Char('u') | KeyCode::Char('U') | KeyCode::Char('y') | KeyCode::Char('Y') | KeyCode::Enter => {
+            KeyCode::Char('u')
+            | KeyCode::Char('U')
+            | KeyCode::Char('y')
+            | KeyCode::Char('Y')
+            | KeyCode::Enter => {
                 let cmds = app.confirm_upgrade();
                 execute_cmds(cmds, app, servers, dims, tx, tasks);
             }
-            KeyCode::Esc | KeyCode::Char('q') | KeyCode::Char('Q') | KeyCode::Char('n') | KeyCode::Char('N') => {
+            KeyCode::Esc
+            | KeyCode::Char('q')
+            | KeyCode::Char('Q')
+            | KeyCode::Char('n')
+            | KeyCode::Char('N') => {
                 app.show_upgrade_modal = false;
             }
             _ => {}
@@ -418,20 +429,20 @@ fn execute_cmds(
                     tx.clone(),
                 ),
             ),
-Command::RunUpgrade { panel, gen } => {
-                    // Use the panel's stored sudo password (from keychain)
-                    let password = app.panels[panel].sudo_password.clone();
-                    (
+            Command::RunUpgrade { panel, gen } => {
+                // Use the panel's stored sudo password (from keychain)
+                let password = app.panels[panel].sudo_password.clone();
+                (
+                    panel,
+                    crate::tasks::spawn_upgrade(
                         panel,
-                        crate::tasks::spawn_upgrade(
-                            panel,
-                            gen,
-                            servers[panel].clone(),
-                            password,
-                            tx.clone(),
-                        ),
-                    )
-                },
+                        gen,
+                        servers[panel].clone(),
+                        password,
+                        tx.clone(),
+                    ),
+                )
+            }
         };
         // Supersede whatever that panel was running, except for upgrade tasks
         // which should continue running in the background until they complete.
@@ -494,4 +505,3 @@ fn restart_all_agents(
 /// Long-lived: streams monitor frames and reconnects on failure.
 mod spawn;
 use spawn::spawn_monitor;
-

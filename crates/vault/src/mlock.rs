@@ -22,7 +22,10 @@ pub fn mlock_memory(ptr: *const u8, len: usize) -> Result<(), std::io::Error> {
         let err = std::io::Error::last_os_error();
         match err.raw_os_error() {
             Some(libc::ENOMEM) | Some(libc::EPERM) => {
-                eprintln!("vault: mlock failed ({}), continuing without memory lock", err);
+                eprintln!(
+                    "vault: mlock failed ({}), continuing without memory lock",
+                    err
+                );
                 Ok(())
             }
             _ => Err(err),

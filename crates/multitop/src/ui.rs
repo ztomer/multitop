@@ -167,14 +167,46 @@ pub fn keybar_line(
         .fg(Color::White)
         .add_modifier(ratatui::style::Modifier::BOLD);
 
-    let f_hi = if active_mode == crate::app::Mode::Fetch { active_mode_style } else { key_hi };
-    let f_lbl = if active_mode == crate::app::Mode::Fetch { active_mode_style } else { label };
-    let d_hi = if active_mode == crate::app::Mode::Docker { active_mode_style } else { key_hi };
-    let d_lbl = if active_mode == crate::app::Mode::Docker { active_mode_style } else { label };
-    let s_hi = if active_mode == crate::app::Mode::Monitor { active_mode_style } else { key_hi };
-    let s_lbl = if active_mode == crate::app::Mode::Monitor { active_mode_style } else { label };
-    let u_hi = if active_mode == crate::app::Mode::Upgrade { active_mode_style } else { key_hi };
-    let u_lbl = if active_mode == crate::app::Mode::Upgrade { active_mode_style } else { label };
+    let f_hi = if active_mode == crate::app::Mode::Fetch {
+        active_mode_style
+    } else {
+        key_hi
+    };
+    let f_lbl = if active_mode == crate::app::Mode::Fetch {
+        active_mode_style
+    } else {
+        label
+    };
+    let d_hi = if active_mode == crate::app::Mode::Docker {
+        active_mode_style
+    } else {
+        key_hi
+    };
+    let d_lbl = if active_mode == crate::app::Mode::Docker {
+        active_mode_style
+    } else {
+        label
+    };
+    let s_hi = if active_mode == crate::app::Mode::Monitor {
+        active_mode_style
+    } else {
+        key_hi
+    };
+    let s_lbl = if active_mode == crate::app::Mode::Monitor {
+        active_mode_style
+    } else {
+        label
+    };
+    let u_hi = if active_mode == crate::app::Mode::Upgrade {
+        active_mode_style
+    } else {
+        key_hi
+    };
+    let u_lbl = if active_mode == crate::app::Mode::Upgrade {
+        active_mode_style
+    } else {
+        label
+    };
 
     let left_spans = [
         Span::styled("ESC / ", label),
@@ -307,29 +339,31 @@ pub fn draw(f: &mut Frame, app: &App) {
                     .map(|s| s.render_bar())
                     .unwrap_or_default();
 
-                let (left_str, mem_used_len) = if app.show_sparklines && !mem_bar.is_empty() && left_rule_len >= 3 {
-                    let text = format!("M:{mem_bar}");
-                    let len = text.chars().count();
-                    if len <= left_rule_len {
-                        (format!("\x1b[36;1m{text}\x1b[0m"), len)
+                let (left_str, mem_used_len) =
+                    if app.show_sparklines && !mem_bar.is_empty() && left_rule_len >= 3 {
+                        let text = format!("M:{mem_bar}");
+                        let len = text.chars().count();
+                        if len <= left_rule_len {
+                            (format!("\x1b[36;1m{text}\x1b[0m"), len)
+                        } else {
+                            (String::new(), 0)
+                        }
                     } else {
                         (String::new(), 0)
-                    }
-                } else {
-                    (String::new(), 0)
-                };
+                    };
 
-                let (right_str, cpu_used_len) = if app.show_sparklines && !cpu_bar.is_empty() && right_rule_len >= 3 {
-                    let text = format!("C:{cpu_bar}");
-                    let len = text.chars().count();
-                    if len <= right_rule_len {
-                        (format!("\x1b[33;1m{text}\x1b[0m"), len)
+                let (right_str, cpu_used_len) =
+                    if app.show_sparklines && !cpu_bar.is_empty() && right_rule_len >= 3 {
+                        let text = format!("C:{cpu_bar}");
+                        let len = text.chars().count();
+                        if len <= right_rule_len {
+                            (format!("\x1b[33;1m{text}\x1b[0m"), len)
+                        } else {
+                            (String::new(), 0)
+                        }
                     } else {
                         (String::new(), 0)
-                    }
-                } else {
-                    (String::new(), 0)
-                };
+                    };
 
                 let left_rule_rem = left_rule_len.saturating_sub(mem_used_len);
                 let right_rule_rem = right_rule_len.saturating_sub(cpu_used_len);

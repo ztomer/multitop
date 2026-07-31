@@ -259,9 +259,13 @@ pub fn parse_net_dev(data: &str) -> NetTotals {
             continue;
         }
         let mut iter = counters.split_ascii_whitespace();
-        let Some(rx_str) = iter.next() else { continue; };
+        let Some(rx_str) = iter.next() else {
+            continue;
+        };
         let rx_val: u64 = rx_str.parse().unwrap_or(0);
-        let Some(tx_str) = iter.nth(7) else { continue; };
+        let Some(tx_str) = iter.nth(7) else {
+            continue;
+        };
         let tx_val: u64 = tx_str.parse().unwrap_or(0);
         totals.rx = totals.rx.saturating_add(rx_val);
         totals.tx = totals.tx.saturating_add(tx_val);
@@ -340,25 +344,27 @@ impl ProcSampler {
 
         match sort_by {
             crate::SortBy::Cpu => {
-                self.temp_procs.sort_unstable_by(|&(i_a, cpu_a, mem_a), &(i_b, cpu_b, mem_b)| {
-                    cpu_b
-                        .partial_cmp(&cpu_a)
-                        .unwrap_or(std::cmp::Ordering::Equal)
-                        .then_with(|| mem_b.cmp(&mem_a))
-                        .then_with(|| scanned[i_a].pid.cmp(&scanned[i_b].pid))
-                })
+                self.temp_procs
+                    .sort_unstable_by(|&(i_a, cpu_a, mem_a), &(i_b, cpu_b, mem_b)| {
+                        cpu_b
+                            .partial_cmp(&cpu_a)
+                            .unwrap_or(std::cmp::Ordering::Equal)
+                            .then_with(|| mem_b.cmp(&mem_a))
+                            .then_with(|| scanned[i_a].pid.cmp(&scanned[i_b].pid))
+                    })
             }
             crate::SortBy::Mem => {
-                self.temp_procs.sort_unstable_by(|&(i_a, cpu_a, mem_a), &(i_b, cpu_b, mem_b)| {
-                    mem_b
-                        .cmp(&mem_a)
-                        .then_with(|| {
-                            cpu_b
-                                .partial_cmp(&cpu_a)
-                                .unwrap_or(std::cmp::Ordering::Equal)
-                        })
-                        .then_with(|| scanned[i_a].pid.cmp(&scanned[i_b].pid))
-                })
+                self.temp_procs
+                    .sort_unstable_by(|&(i_a, cpu_a, mem_a), &(i_b, cpu_b, mem_b)| {
+                        mem_b
+                            .cmp(&mem_a)
+                            .then_with(|| {
+                                cpu_b
+                                    .partial_cmp(&cpu_a)
+                                    .unwrap_or(std::cmp::Ordering::Equal)
+                            })
+                            .then_with(|| scanned[i_a].pid.cmp(&scanned[i_b].pid))
+                    })
             }
         }
 

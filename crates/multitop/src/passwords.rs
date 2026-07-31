@@ -121,10 +121,7 @@ pub fn open(app: &mut App, selected: usize, resume_upgrade: bool) {
     if !app.panels.is_empty() {
         let idx = selected.min(app.panels.len() - 1);
         app.panels[idx].ensure_sudo_password();
-        app.password_manager = Some(PasswordManager::new(
-            idx,
-            resume_upgrade,
-        ));
+        app.password_manager = Some(PasswordManager::new(idx, resume_upgrade));
     }
 }
 
@@ -195,7 +192,8 @@ fn password_key(app: &mut App, key: KeyCode) -> PasswordAction {
             manager.editing = true;
             manager.is_sso = true;
             manager.input.clear();
-            manager.notice = Some("Enter Single Sign-On (SSO) password for all servers:".to_string());
+            manager.notice =
+                Some("Enter Single Sign-On (SSO) password for all servers:".to_string());
         }
         KeyCode::Char('o' | 'O') => {
             manager.editing = true;
@@ -287,10 +285,13 @@ fn server_key(app: &mut App, key: KeyCode) -> PasswordAction {
         }
         KeyCode::Char('a' | 'A') => manager.draft = Some(ServerDraft::new(None, None, None)),
         KeyCode::Enter => {
-            manager.draft = app
-                .panels
-                .get(manager.selected)
-                .map(|panel| ServerDraft::new(Some(manager.selected), Some(&panel.server), panel.sudo_password.as_deref()))
+            manager.draft = app.panels.get(manager.selected).map(|panel| {
+                ServerDraft::new(
+                    Some(manager.selected),
+                    Some(&panel.server),
+                    panel.sudo_password.as_deref(),
+                )
+            })
         }
         KeyCode::Char('d' | 'D') if app.panels.len() > 1 => {
             let mut servers: Vec<Server> = app

@@ -1,4 +1,6 @@
-use multitop::ui::{agent_dims, keybar_line, regions, visible, MIN_AGENT_COLS, MIN_AGENT_ROWS, KEYBAR_H};
+use multitop::ui::{
+    agent_dims, keybar_line, regions, visible, KEYBAR_H, MIN_AGENT_COLS, MIN_AGENT_ROWS,
+};
 use ratatui::layout::{Rect, Size};
 
 fn size(w: u16, h: u16) -> Size {

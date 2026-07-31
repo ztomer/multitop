@@ -164,7 +164,9 @@ impl ProcSampler {
             if !name.as_bytes().first().is_some_and(u8::is_ascii_digit) {
                 continue;
             }
-            let Ok(pid) = name.parse::<u32>() else { continue };
+            let Ok(pid) = name.parse::<u32>() else {
+                continue;
+            };
             let path = fmt_proc_stat_path(pid, &mut path_buf);
             let n = crate::proc::read_proc_bytes(path, &mut file_buf);
             if n > 0 {

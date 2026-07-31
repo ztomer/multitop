@@ -3,8 +3,8 @@
 use tokio::io::{BufReader, Lines};
 use tokio::process::{Child, ChildStderr, ChildStdout};
 
-use crate::fmt::status_line;
 use crate::config::Server;
+use crate::fmt::status_line;
 use crate::ssh::{self, Arch, Mode};
 
 use multitop_agent::SortBy;

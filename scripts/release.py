@@ -29,19 +29,28 @@ FORMULA_PATH = "Formula/multitop.rb"
 TAP_BRANCH = "main"
 REPO = "ztomer/multitop"
 
-C = dict(
-    info="→", ok="✓", warn="⚠", die="✗"
-)
+C = dict(info="→", ok="✓", warn="⚠", die="✗")
 
 
 def emit(label, msg):
     print(f"  {C[label]} {msg}")
 
 
-def info(msg): emit("info", msg)
-def ok(msg): emit("ok", msg)
-def warn(msg): emit("warn", msg)
-def die(msg): emit("die", msg); sys.exit(1)
+def info(msg):
+    emit("info", msg)
+
+
+def ok(msg):
+    emit("ok", msg)
+
+
+def warn(msg):
+    emit("warn", msg)
+
+
+def die(msg):
+    emit("die", msg)
+    sys.exit(1)
 
 
 def check(*args, **kw):
@@ -57,6 +66,7 @@ def gh(*args, **kw):
 
 
 # ---------------------------------------------------------------------------
+
 
 def step_verify_tag(tag: str):
     r = check("git", "tag", "-l", tag)
@@ -139,7 +149,9 @@ def step_homebrew(tag: str, sha256: str):
         clone = tmp / "tap"
         if not clone.is_dir():
             token = os.environ.get("GITHUB_TOKEN") or os.environ.get("GH_TOKEN") or ""
-            clone_url = f"https://oauth2:{token}@github.com/{TAP_REPO}.git" if token else f"https://github.com/{TAP_REPO}.git"
+            clone_url = (
+                f"https://oauth2:{token}@github.com/{TAP_REPO}.git" if token else f"https://github.com/{TAP_REPO}.git"
+            )
             info(f"cloning {TAP_REPO}")
             check("git", "clone", clone_url, str(clone), check=True)
 
@@ -164,7 +176,7 @@ def step_homebrew(tag: str, sha256: str):
 
         new = re.sub(
             r'(url ".*/archive/refs/tags/)([^"/]+)(\.tar\.gz")',
-            f'\\g<1>{tag}\\g<3>',
+            f"\\g<1>{tag}\\g<3>",
             content,
         )
         new = re.sub(r'sha256 "[^"]*"', f'sha256 "{sha256}"', new)
@@ -192,6 +204,7 @@ def step_homebrew(tag: str, sha256: str):
 
 # ---------------------------------------------------------------------------
 
+
 def main():
     if len(sys.argv) < 2:
         print(f"Usage: {sys.argv[0]} <tag>", file=sys.stderr)
@@ -201,7 +214,7 @@ def main():
     tag = sys.argv[1]
     if not tag.startswith("v"):
         tag = "v" + tag
-    if not re.match(r'^v\d+\.\d+\.\d+$', tag):
+    if not re.match(r"^v\d+\.\d+\.\d+$", tag):
         die(f"bad tag format: {tag} (expected vX.Y.Z)")
 
     # Prereqs

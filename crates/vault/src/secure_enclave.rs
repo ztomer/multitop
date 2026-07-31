@@ -3,14 +3,17 @@
 //! Uses ECIES (Elliptic Curve Integrated Encryption Scheme) with P-256 keys
 //! stored in the Secure Enclave. Private key operations require Touch ID/Face ID authentication.
 
-use crate::{VaultError, crypto::{WrapperType, Wrapper, VaultKey}};
+use crate::{
+    crypto::{VaultKey, Wrapper, WrapperType},
+    VaultError,
+};
 
 #[cfg(target_os = "macos")]
-use security_framework::key::{SecKey, KeyType, Token, GenerateKeyOptions, Algorithm};
+use security_framework::access_control::SecAccessControl;
 #[cfg(target_os = "macos")]
-use security_framework::access_control::{SecAccessControl};
+use security_framework::item::{ItemClass, ItemSearchOptions, KeyClass, Reference, SearchResult};
 #[cfg(target_os = "macos")]
-use security_framework::item::{ItemSearchOptions, ItemClass, KeyClass, SearchResult, Reference};
+use security_framework::key::{Algorithm, GenerateKeyOptions, KeyType, SecKey, Token};
 #[cfg(target_os = "macos")]
 use security_framework_sys::access_control::kSecAccessControlBiometryCurrentSet;
 
@@ -38,13 +41,15 @@ impl SecureEnclave {
 
     fn load_existing() -> Result<Self, VaultError> {
         let mut search = ItemSearchOptions::new();
-        search.class(ItemClass::key())
+        search
+            .class(ItemClass::key())
             .key_class(KeyClass::private())
             .label(SE_KEY_LABEL)
             .load_refs(true)
             .limit(1);
 
-        let results = search.search()
+        let results = search
+            .search()
             .map_err(|e| VaultError::SecureEnclaveError(format!("search: {e}")))?;
 
         let private_key = match results.first() {
@@ -52,17 +57,21 @@ impl SecureEnclave {
             _ => return Err(VaultError::SecureEnclaveError("no existing SE key".into())),
         };
 
-        let public_key = private_key.public_key()
+        let public_key = private_key
+            .public_key()
             .ok_or_else(|| VaultError::SecureEnclaveError("no public key".into()))?;
 
-        Ok(Self { private_key, public_key })
+        Ok(Self {
+            private_key,
+            public_key,
+        })
     }
 
     fn generate_new() -> Result<Self, VaultError> {
         // Create access control: require biometry (Touch ID/Face ID) for private key operations
-        let access_control = SecAccessControl::create_with_flags(
-            kSecAccessControlBiometryCurrentSet,
-        ).map_err(|e| VaultError::SecureEnclaveError(format!("access control: {e}")))?;
+        let access_control =
+            SecAccessControl::create_with_flags(kSecAccessControlBiometryCurrentSet)
+                .map_err(|e| VaultError::SecureEnclaveError(format!("access control: {e}")))?;
 
         // Delete any existing key with this label first
         let _ = Self::delete_existing();
@@ -80,28 +89,35 @@ impl SecureEnclave {
             .map_err(|e| VaultError::SecureEnclaveError(format!("generate: {e}")))?;
 
         // Get the public key
-        let public_key = private_key.public_key()
+        let public_key = private_key
+            .public_key()
             .ok_or_else(|| VaultError::SecureEnclaveError("no public key after generate".into()))?;
 
-        Ok(Self { private_key, public_key })
+        Ok(Self {
+            private_key,
+            public_key,
+        })
     }
 
     fn delete_existing() -> Result<(), VaultError> {
         let mut search = ItemSearchOptions::new();
-        search.class(ItemClass::key())
+        search
+            .class(ItemClass::key())
             .key_class(KeyClass::private())
             .label(SE_KEY_LABEL);
-        search.delete().map_err(|e| VaultError::SecureEnclaveError(format!("delete: {e}")))
+        search
+            .delete()
+            .map_err(|e| VaultError::SecureEnclaveError(format!("delete: {e}")))
     }
 
     /// Wrap a vault key using the Secure Enclave public key (ECIES)
     pub fn wrap_key(&self, vault_key: &VaultKey) -> Result<Wrapper, VaultError> {
         // ECIES encryption: public key encrypts, private key decrypts (with Touch ID)
         let data = vault_key.as_bytes();
-        let encrypted = self.public_key.encrypt_data(
-            Algorithm::ECIESEncryptionStandardX963SHA256AESGCM,
-            data,
-        ).map_err(|e| VaultError::SecureEnclaveError(format!("wrap: {e}")))?;
+        let encrypted = self
+            .public_key
+            .encrypt_data(Algorithm::ECIESEncryptionStandardX963SHA256AESGCM, data)
+            .map_err(|e| VaultError::SecureEnclaveError(format!("wrap: {e}")))?;
 
         Wrapper::new(WrapperType::SecureEnclave, encrypted)
     }
@@ -109,26 +125,28 @@ impl SecureEnclave {
     /// Unwrap a vault key using the Secure Enclave private key (triggers Touch ID)
     pub fn unwrap_key(&self, wrapper: &Wrapper) -> Result<VaultKey, VaultError> {
         let data = &wrapper.data;
-        let decrypted = self.private_key.decrypt_data(
-            Algorithm::ECIESEncryptionStandardX963SHA256AESGCM,
-            data,
-        ).map_err(|e| {
-            // Use CFError code for proper error classification
-            let code = e.code();
-            // errSecAuthFailed = -25293 (auth failed / user canceled)
-            // errSecUserCanceled = -128 (user canceled)
-            // errSecItemNotFound = -25300 (key invalidated)
-            if code == -25293 || code == -128 {
-                VaultError::BiometricFailed
-            } else if code == -25300 {
-                VaultError::SecureEnclaveError("SE key invalidated".into())
-            } else {
-                VaultError::SecureEnclaveError(e.to_string())
-            }
-        })?;
+        let decrypted = self
+            .private_key
+            .decrypt_data(Algorithm::ECIESEncryptionStandardX963SHA256AESGCM, data)
+            .map_err(|e| {
+                // Use CFError code for proper error classification
+                let code = e.code();
+                // errSecAuthFailed = -25293 (auth failed / user canceled)
+                // errSecUserCanceled = -128 (user canceled)
+                // errSecItemNotFound = -25300 (key invalidated)
+                if code == -25293 || code == -128 {
+                    VaultError::BiometricFailed
+                } else if code == -25300 {
+                    VaultError::SecureEnclaveError("SE key invalidated".into())
+                } else {
+                    VaultError::SecureEnclaveError(e.to_string())
+                }
+            })?;
 
         if decrypted.len() != 32 {
-            return Err(VaultError::SecureEnclaveError("invalid decrypted key size".into()));
+            return Err(VaultError::SecureEnclaveError(
+                "invalid decrypted key size".into(),
+            ));
         }
 
         let mut key = [0u8; 32];
@@ -140,9 +158,7 @@ impl SecureEnclave {
     pub fn is_available() -> bool {
         // Use LAContext to properly check biometric enrollment
         use std::process::Command;
-        let output = Command::new("bioutil")
-            .args(["-rs"])
-            .output();
+        let output = Command::new("bioutil").args(["-rs"]).output();
         match output {
             Ok(out) => {
                 let stdout = String::from_utf8_lossy(&out.stdout);
@@ -173,7 +189,9 @@ pub fn is_available() -> bool {
 
 #[cfg(not(target_os = "macos"))]
 pub fn get_secure_enclave() -> Result<SecureEnclave, VaultError> {
-    Err(VaultError::PlatformNotSupported("Secure Enclave only on macOS".into()))
+    Err(VaultError::PlatformNotSupported(
+        "Secure Enclave only on macOS".into(),
+    ))
 }
 
 #[cfg(not(target_os = "macos"))]
@@ -182,10 +200,14 @@ pub struct SecureEnclave;
 #[cfg(not(target_os = "macos"))]
 impl SecureEnclave {
     pub fn wrap_key(&self, _key: &VaultKey) -> Result<Wrapper, VaultError> {
-        Err(VaultError::PlatformNotSupported("Secure Enclave only on macOS".into()))
+        Err(VaultError::PlatformNotSupported(
+            "Secure Enclave only on macOS".into(),
+        ))
     }
     pub fn unwrap_key(&self, _wrapper: &Wrapper) -> Result<VaultKey, VaultError> {
-        Err(VaultError::PlatformNotSupported("Secure Enclave only on macOS".into()))
+        Err(VaultError::PlatformNotSupported(
+            "Secure Enclave only on macOS".into(),
+        ))
     }
 }
 

@@ -106,10 +106,7 @@ fn test_sso_master_password_lifecycle_and_fallback() {
     // Cleanup SSO
     password_store::delete_sso().unwrap();
     assert_eq!(password_store::load_sso().unwrap(), None);
-    assert_eq!(
-        password_store::load(&server2).unwrap(),
-        None
-    );
+    assert_eq!(password_store::load(&server2).unwrap(), None);
 }
 
 #[test]

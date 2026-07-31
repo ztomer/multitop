@@ -104,11 +104,15 @@ fn test_save_new_server_with_password() {
         let _ = passwords::handle_key(&mut app, KeyCode::Char(character));
     }
     let action = passwords::handle_key(&mut app, KeyCode::Enter);
-    let PasswordAction::SaveServerWithPassword { servers, target_idx, password } = action else {
+    let PasswordAction::SaveServerWithPassword {
+        servers,
+        target_idx,
+        password,
+    } = action
+    else {
         panic!("expected SaveServerWithPassword action");
     };
     assert_eq!(servers.len(), 2);
     assert_eq!(target_idx, 1);
     assert_eq!(password, "secret123");
 }
-

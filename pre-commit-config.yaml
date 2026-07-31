@@ -1,0 +1,29 @@
+repos:
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.16.0
+    hooks:
+      - id: ruff
+        args: [--fix]
+
+  - repo: local
+    hooks:
+      - id: loc-limit
+        name: 500 LOC limit
+        entry: python3 checks/check_loc_limit.py
+        language: system
+        pass_filenames: false
+        always_run: true
+
+      - id: emoji-check
+        name: no emoji in tracked files
+        entry: python3 checks/check_style_icons.py
+        language: system
+        pass_filenames: false
+        always_run: true
+
+      - id: pytest
+        name: pytest
+        entry: pytest -x -q checks/tests scripts/maintenance/tests scripts/music/tests
+        language: system
+        pass_filenames: false
+        always_run: true

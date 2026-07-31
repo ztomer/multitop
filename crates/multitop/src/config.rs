@@ -240,10 +240,7 @@ pub fn save_show_sparklines(path: &Path, show: bool) {
     let Ok(mut doc) = content.parse::<toml::Table>() else {
         return;
     };
-    doc.insert(
-        "show_sparklines".to_string(),
-        toml::Value::Boolean(show),
-    );
+    doc.insert("show_sparklines".to_string(), toml::Value::Boolean(show));
     let Ok(new_content) = toml::to_string(&doc) else {
         return;
     };

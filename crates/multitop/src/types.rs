@@ -17,7 +17,10 @@ pub enum Msg {
         payload: multitop_agent::proto::Payload,
         dims: (u16, u16),
     },
-    Frame { panel: usize, lines: Vec<String> },
+    Frame {
+        panel: usize,
+        lines: Vec<String>,
+    },
     Status {
         panel: usize,
         gen: u64,

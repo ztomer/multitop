@@ -308,7 +308,8 @@ impl App {
                             };
                             self.sparklines_mem[panel].push(mem_pct);
                         }
-                        let lines = crate::render_payload::render_payload(&payload, dims, sort, pal);
+                        let lines =
+                            crate::render_payload::render_payload(&payload, dims, sort, pal);
                         p.last_frame = Some(lines.clone());
                         if p.mode == Mode::Monitor {
                             p.view = lines;
@@ -317,7 +318,8 @@ impl App {
                     multitop_agent::proto::Payload::Docker { .. } => {
                         p.last_docker = Some(payload.clone());
                         if p.mode == Mode::Docker && accepts {
-                            let lines = crate::render_payload::render_payload(&payload, dims, sort, pal);
+                            let lines =
+                                crate::render_payload::render_payload(&payload, dims, sort, pal);
                             p.view = lines;
                         }
                     }
@@ -377,19 +379,30 @@ impl App {
                         p.view.drain(..p.view.len() - cap);
                     }
                 }
-                if p.upgrade_state == crate::panel::UpgradeState::STARTED && p.upgrade_gen == gen
-                {
+                if p.upgrade_state == crate::panel::UpgradeState::STARTED && p.upgrade_gen == gen {
                     p.last_upgrade.push(line);
                     if p.last_upgrade.len() > cap {
                         p.last_upgrade.drain(..p.last_upgrade.len() - cap);
                     }
                 }
             }
-            Msg::AuxDone { panel, gen, note, success } => {
-                if !self.accepts(panel, gen) && !self.panels.get(panel).is_some_and(|p| p.upgrade_gen == gen && p.upgrade_state == crate::panel::UpgradeState::STARTED) {
+            Msg::AuxDone {
+                panel,
+                gen,
+                note,
+                success,
+            } => {
+                if !self.accepts(panel, gen)
+                    && !self.panels.get(panel).is_some_and(|p| {
+                        p.upgrade_gen == gen
+                            && p.upgrade_state == crate::panel::UpgradeState::STARTED
+                    })
+                {
                     return;
                 }
-                if self.panels[panel].upgrade_state == crate::panel::UpgradeState::STARTED && self.panels[panel].upgrade_gen == gen {
+                if self.panels[panel].upgrade_state == crate::panel::UpgradeState::STARTED
+                    && self.panels[panel].upgrade_gen == gen
+                {
                     self.panels[panel].upgrade_state = crate::panel::UpgradeState::DONE;
                     if success && !self.upgrades_in_flight() {
                         self.last_update = Some(
@@ -474,12 +487,14 @@ impl App {
             match panel.mode {
                 Mode::Monitor => {
                     if let Some(payload) = &panel.last_monitor {
-                        panel.view = crate::render_payload::render_payload(payload, dims, sort, pal);
+                        panel.view =
+                            crate::render_payload::render_payload(payload, dims, sort, pal);
                     }
                 }
                 Mode::Docker => {
                     if let Some(payload) = &panel.last_docker {
-                        panel.view = crate::render_payload::render_payload(payload, dims, sort, pal);
+                        panel.view =
+                            crate::render_payload::render_payload(payload, dims, sort, pal);
                     }
                 }
                 Mode::Fetch => {
@@ -497,4 +512,3 @@ impl App {
         }
     }
 }
-

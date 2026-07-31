@@ -1,8 +1,8 @@
 //! The sampling loop's state: what one tick needs to remember from the last.
 
+use crate::consts::AGENT_VERSION;
 use crate::proc::{self, CpuStat, NetTotals, ProcSampler};
 use crate::render::{Chrome, Snapshot};
-use crate::consts::AGENT_VERSION;
 
 pub struct Monitor {
     host: String,

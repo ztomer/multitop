@@ -43,7 +43,13 @@ async fn test_e2e_password_storage_and_os_keyring_lifecycle() {
     let (tx, _rx) = tokio::sync::mpsc::channel::<Msg>(100);
     let mut tasks = multitop::run::Tasks::new(1);
 
-    multitop::password_actions::apply(save_action, &mut app, std::slice::from_ref(&server), &tx, &mut tasks);
+    multitop::password_actions::apply(
+        save_action,
+        &mut app,
+        std::slice::from_ref(&server),
+        &tx,
+        &mut tasks,
+    );
 
     // Verify in-memory panel state
     assert_eq!(
@@ -58,7 +64,13 @@ async fn test_e2e_password_storage_and_os_keyring_lifecycle() {
 
     // Delete password
     let delete_action = PasswordAction::Delete { panel: 0 };
-    multitop::password_actions::apply(delete_action, &mut app, std::slice::from_ref(&server), &tx, &mut tasks);
+    multitop::password_actions::apply(
+        delete_action,
+        &mut app,
+        std::slice::from_ref(&server),
+        &tx,
+        &mut tasks,
+    );
 
     assert_eq!(app.panels[0].sudo_password, None);
     assert!(!app.panels[0].password_saved);
@@ -97,13 +109,7 @@ async fn test_e2e_spawn_upgrade_streams_output_with_stored_password() {
     let (tx, mut rx) = tokio::sync::mpsc::channel::<Msg>(100);
 
     // Spawn upgrade task with password
-    let handle = spawn_upgrade(
-        0,
-        1,
-        server,
-        Some("e2e_dummy_sudo_pass".to_string()),
-        tx,
-    );
+    let handle = spawn_upgrade(0, 1, server, Some("e2e_dummy_sudo_pass".to_string()), tx);
 
     let mut begin_received = false;
     let mut stream_line_received = false;
@@ -112,16 +118,29 @@ async fn test_e2e_spawn_upgrade_streams_output_with_stored_password() {
     while let Ok(msg) = tokio::time::timeout(std::time::Duration::from_secs(5), rx.recv()).await {
         let Some(msg) = msg else { break };
         match msg {
-            Msg::AuxBegin { panel: 0, gen: 1, header } => {
+            Msg::AuxBegin {
+                panel: 0,
+                gen: 1,
+                header,
+            } => {
                 begin_received = true;
                 assert!(header.unwrap_or_default().contains("Upgrade on 127.0.0.1"));
             }
-            Msg::AuxLine { panel: 0, gen: 1, line } => {
+            Msg::AuxLine {
+                panel: 0,
+                gen: 1,
+                line,
+            } => {
                 if line.contains("E2E_UPGRADE_STREAM_OK") {
                     stream_line_received = true;
                 }
             }
-            Msg::AuxDone { panel: 0, gen: 1, note, .. } => {
+            Msg::AuxDone {
+                panel: 0,
+                gen: 1,
+                note,
+                ..
+            } => {
                 done_received = true;
                 assert!(note.unwrap_or_default().contains("done"));
                 break;
@@ -133,14 +152,20 @@ async fn test_e2e_spawn_upgrade_streams_output_with_stored_password() {
     let _ = handle.await;
 
     assert!(begin_received, "AuxBegin stream message expected");
-    assert!(stream_line_received, "E2E_UPGRADE_STREAM_OK line expected in stream");
+    assert!(
+        stream_line_received,
+        "E2E_UPGRADE_STREAM_OK line expected in stream"
+    );
     assert!(done_received, "AuxDone stream message expected");
 }
 
 #[tokio::test]
 async fn test_e2e_spawn_upgrade_emits_in_stream_tip_on_sudo_failure() {
     // Sudo prompt output simulation
-    let server = test_server("127.0.0.1", Some("echo 'sudo: a terminal is required to authenticate'"));
+    let server = test_server(
+        "127.0.0.1",
+        Some("echo 'sudo: a terminal is required to authenticate'"),
+    );
     let (tx, mut rx) = tokio::sync::mpsc::channel::<Msg>(100);
 
     let handle = spawn_upgrade(0, 2, server, None, tx);
@@ -159,5 +184,8 @@ async fn test_e2e_spawn_upgrade_emits_in_stream_tip_on_sudo_failure() {
 
     let _ = handle.await;
 
-    assert!(tip_received, "In-stream guidance tip expected when sudo authentication is missing");
+    assert!(
+        tip_received,
+        "In-stream guidance tip expected when sudo authentication is missing"
+    );
 }

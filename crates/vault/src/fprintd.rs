@@ -9,7 +9,7 @@ use std::time::Duration;
 #[cfg(target_os = "linux")]
 use std::time::Duration;
 #[cfg(target_os = "linux")]
-use zbus::{Connection, Proxy, fdo::DBusProxy};
+use zbus::{fdo::DBusProxy, Connection, Proxy};
 
 /// Fingerprint verification result
 #[cfg(target_os = "linux")]
@@ -63,31 +63,52 @@ pub struct FingerprintVerifier {
 impl FingerprintVerifier {
     /// Create new fingerprint verifier with default device and finger
     pub async fn new() -> Result<Self, VaultError> {
-        let connection = Connection::system().await
+        let connection = Connection::system()
+            .await
             .map_err(|e| VaultError::FprintdError(format!("D-Bus connection failed: {e}")))?;
 
         // Get the first available fingerprint device
-        let device_proxy = Proxy::new(&connection, "net.reactivated.Fprint", "/net/reactivated/Fprint", "net.reactivated.Fprint").await
-            .map_err(|e| VaultError::FprintdError(format!("Fprint proxy failed: {e}")))?;
+        let device_proxy = Proxy::new(
+            &connection,
+            "net.reactivated.Fprint",
+            "/net/reactivated/Fprint",
+            "net.reactivated.Fprint",
+        )
+        .await
+        .map_err(|e| VaultError::FprintdError(format!("Fprint proxy failed: {e}")))?;
 
-        let devices: Vec<String> = device_proxy.call_method("GetDevices", &()).await
+        let devices: Vec<String> = device_proxy
+            .call_method("GetDevices", &())
+            .await
             .map_err(|e| VaultError::FprintdError(format!("GetDevices failed: {e}")))?;
 
         if devices.is_empty() {
-            return Err(VaultError::PlatformNotSupported("No fingerprint devices found".into()));
+            return Err(VaultError::PlatformNotSupported(
+                "No fingerprint devices found".into(),
+            ));
         }
 
         let device_path = devices[0].clone();
 
         // Get enrolled fingers for this device
-        let dev_proxy = Proxy::new(&connection, "net.reactivated.Fprint", &device_path, "net.reactivated.Fprint.Device").await
-            .map_err(|e| VaultError::FprintdError(format!("Device proxy failed: {e}")))?;
+        let dev_proxy = Proxy::new(
+            &connection,
+            "net.reactivated.Fprint",
+            &device_path,
+            "net.reactivated.Fprint.Device",
+        )
+        .await
+        .map_err(|e| VaultError::FprintdError(format!("Device proxy failed: {e}")))?;
 
-        let fingers: Vec<String> = dev_proxy.call_method("GetEnrolledFingers", &()).await
+        let fingers: Vec<String> = dev_proxy
+            .call_method("GetEnrolledFingers", &())
+            .await
             .map_err(|e| VaultError::FprintdError(format!("GetEnrolledFingers failed: {e}")))?;
 
         if fingers.is_empty() {
-            return Err(VaultError::PlatformNotSupported("No enrolled fingers on device".into()));
+            return Err(VaultError::PlatformNotSupported(
+                "No enrolled fingers on device".into(),
+            ));
         }
 
         Ok(Self {
@@ -100,18 +121,30 @@ impl FingerprintVerifier {
 
     /// Create with custom device path and finger
     pub async fn with_device(device_path: String, finger: String) -> Result<Self, VaultError> {
-        let connection = Connection::system().await
+        let connection = Connection::system()
+            .await
             .map_err(|e| VaultError::FprintdError(format!("D-Bus connection failed: {e}")))?;
 
         // Verify the finger is enrolled
-        let dev_proxy = Proxy::new(&connection, "net.reactivated.Fprint", &device_path, "net.reactivated.Fprint.Device").await
-            .map_err(|e| VaultError::FprintdError(format!("Device proxy failed: {e}")))?;
+        let dev_proxy = Proxy::new(
+            &connection,
+            "net.reactivated.Fprint",
+            &device_path,
+            "net.reactivated.Fprint.Device",
+        )
+        .await
+        .map_err(|e| VaultError::FprintdError(format!("Device proxy failed: {e}")))?;
 
-        let fingers: Vec<String> = dev_proxy.call_method("GetEnrolledFingers", &()).await
+        let fingers: Vec<String> = dev_proxy
+            .call_method("GetEnrolledFingers", &())
+            .await
             .map_err(|e| VaultError::FprintdError(format!("GetEnrolledFingers failed: {e}")))?;
 
         if !fingers.contains(&finger) {
-            return Err(VaultError::PlatformNotSupported(format!("Finger '{}' not enrolled on device", finger)));
+            return Err(VaultError::PlatformNotSupported(format!(
+                "Finger '{}' not enrolled on device",
+                finger
+            )));
         }
 
         Ok(Self {
@@ -130,11 +163,19 @@ impl FingerprintVerifier {
 
     /// Verify fingerprint with timeout
     pub async fn verify(&self) -> Result<FingerprintResult, VaultError> {
-        let dev_proxy = Proxy::new(&self.connection, "net.reactivated.Fprint", &self.device_path, "net.reactivated.Fprint.Device").await
-            .map_err(|e| VaultError::FprintdError(format!("Device proxy failed: {e}")))?;
+        let dev_proxy = Proxy::new(
+            &self.connection,
+            "net.reactivated.Fprint",
+            &self.device_path,
+            "net.reactivated.Fprint.Device",
+        )
+        .await
+        .map_err(|e| VaultError::FprintdError(format!("Device proxy failed: {e}")))?;
 
         // Start verification
-        let _: () = dev_proxy.call_method("VerifyStart", &(self.finger.clone())).await
+        let _: () = dev_proxy
+            .call_method("VerifyStart", &(self.finger.clone()))
+            .await
             .map_err(|e| VaultError::FprintdError(format!("VerifyStart failed: {e}")))?;
 
         // Poll for result
@@ -147,7 +188,9 @@ impl FingerprintVerifier {
             }
 
             // Check status
-            let status: String = dev_proxy.call_method("GetStatus", &()).await
+            let status: String = dev_proxy
+                .call_method("GetStatus", &())
+                .await
                 .map_err(|e| VaultError::FprintdError(format!("GetStatus failed: {e}")))?;
 
             match status.as_str() {
@@ -178,10 +221,18 @@ impl FingerprintVerifier {
 
     /// List enrolled fingers on default device
     pub async fn list_fingers(&self) -> Result<Vec<String>, VaultError> {
-        let dev_proxy = Proxy::new(&self.connection, "net.reactivated.Fprint", &self.device_path, "net.reactivated.Fprint.Device").await
-            .map_err(|e| VaultError::FprintdError(format!("Device proxy failed: {e}")))?;
+        let dev_proxy = Proxy::new(
+            &self.connection,
+            "net.reactivated.Fprint",
+            &self.device_path,
+            "net.reactivated.Fprint.Device",
+        )
+        .await
+        .map_err(|e| VaultError::FprintdError(format!("Device proxy failed: {e}")))?;
 
-        let fingers: Vec<String> = dev_proxy.call_method("GetEnrolledFingers", &()).await
+        let fingers: Vec<String> = dev_proxy
+            .call_method("GetEnrolledFingers", &())
+            .await
             .map_err(|e| VaultError::FprintdError(format!("GetEnrolledFingers failed: {e}")))?;
 
         Ok(fingers)
@@ -202,13 +253,19 @@ pub struct FingerprintVerifier;
 #[cfg(not(target_os = "linux"))]
 impl FingerprintVerifier {
     pub async fn new() -> Result<Self, VaultError> {
-        Err(VaultError::PlatformNotSupported("fprintd only on Linux".into()))
+        Err(VaultError::PlatformNotSupported(
+            "fprintd only on Linux".into(),
+        ))
     }
     pub async fn with_device(_device_path: String, _finger: String) -> Result<Self, VaultError> {
-        Err(VaultError::PlatformNotSupported("fprintd only on Linux".into()))
+        Err(VaultError::PlatformNotSupported(
+            "fprintd only on Linux".into(),
+        ))
     }
     pub async fn verify(&self) -> Result<FingerprintResult, VaultError> {
-        Err(VaultError::PlatformNotSupported("fprintd only on Linux".into()))
+        Err(VaultError::PlatformNotSupported(
+            "fprintd only on Linux".into(),
+        ))
     }
     pub fn with_timeout(self, _timeout: Duration) -> Self {
         self
@@ -217,13 +274,17 @@ impl FingerprintVerifier {
         false
     }
     pub async fn list_fingers(&self) -> Result<Vec<String>, VaultError> {
-        Err(VaultError::PlatformNotSupported("fprintd only on Linux".into()))
+        Err(VaultError::PlatformNotSupported(
+            "fprintd only on Linux".into(),
+        ))
     }
 }
 
 #[cfg(not(target_os = "linux"))]
 pub async fn check_fprintd() -> Result<Vec<String>, VaultError> {
-    Err(VaultError::PlatformNotSupported("fprintd only on Linux".into()))
+    Err(VaultError::PlatformNotSupported(
+        "fprintd only on Linux".into(),
+    ))
 }
 
 #[cfg(test)]

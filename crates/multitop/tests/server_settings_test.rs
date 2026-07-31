@@ -63,7 +63,8 @@ fn test_tab_between_passwords_and_servers_sections() {
 #[test]
 fn test_apply_servers_updates_panels_dynamically() {
     let mut app = App::new(vec![test_server("host1"), test_server("host2")]);
-    let tmp_path = std::env::temp_dir().join(format!("multitop_test_cfg_{}.toml", std::process::id()));
+    let tmp_path =
+        std::env::temp_dir().join(format!("multitop_test_cfg_{}.toml", std::process::id()));
     app.config_path = Some(tmp_path.clone());
     app.panels[0].sudo_password = Some("secret1".to_string());
     app.panels[0].password_saved = true;

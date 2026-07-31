@@ -385,8 +385,8 @@ fn macos_num_cpus() -> usize {
 /// Read temperatures for CPUs/cores from sysfs.
 #[cfg(not(target_os = "macos"))]
 pub fn get_core_temps() -> std::collections::HashMap<usize, f64> {
-    use std::sync::Mutex;
     use std::path::PathBuf;
+    use std::sync::Mutex;
 
     static SENSOR_CACHE: Mutex<Option<Vec<(usize, PathBuf)>>> = Mutex::new(None);
 

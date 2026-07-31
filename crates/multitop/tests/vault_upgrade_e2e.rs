@@ -35,14 +35,20 @@ async fn setup_test_vault(
 ) -> Vault {
     let config = VaultConfig {
         vault_path: vault_path.to_path_buf(),
-        argon2_params: Some(multitop_vault::crypto::Argon2Params { t: 1, m_kib: 32768, p: 1 }),
+        argon2_params: Some(multitop_vault::crypto::Argon2Params {
+            t: 1,
+            m_kib: 32768,
+            p: 1,
+        }),
     };
     let vault = Vault::new(config);
     vault.initialize(master_password).await.unwrap();
 
     let mut unlocked = vault.unlock_with_password(master_password).unwrap();
     for (host, pass) in passwords {
-        unlocked.set_password(host, SecretString::from(pass)).unwrap();
+        unlocked
+            .set_password(host, SecretString::from(pass))
+            .unwrap();
     }
     unlocked.lock();
     vault
@@ -62,7 +68,12 @@ async fn app_with_vault(
     let vault = setup_test_vault(&vault_path, "test-master", vault_passwords).await;
 
     // Create config
-    let config = Config { servers: servers.clone(), theme: None, upgrade_history_lines: 5000, show_sparklines: false };
+    let config = Config {
+        servers: servers.clone(),
+        theme: None,
+        upgrade_history_lines: 5000,
+        show_sparklines: false,
+    };
     multitop::config::save_servers(&config_path, &config.servers).unwrap();
 
     // Create app with vault
@@ -87,14 +98,16 @@ mod vault_upgrade_e2e_tests {
     async fn test_vault_unlock_loads_passwords_before_upgrade() {
         let master_pw = "test-master-password";
         let mut vault_passwords = HashMap::new();
-        vault_passwords.insert("testuser@test-host-1:22".to_string(), "sudo-pass-1".to_string());
-        vault_passwords.insert("testuser@test-host-2:22".to_string(), "sudo-pass-2".to_string());
+        vault_passwords.insert(
+            "testuser@test-host-1:22".to_string(),
+            "sudo-pass-1".to_string(),
+        );
+        vault_passwords.insert(
+            "testuser@test-host-2:22".to_string(),
+            "sudo-pass-2".to_string(),
+        );
 
-        let (mut app, _temp_dir) = app_with_vault(
-            test_servers(),
-            master_pw,
-            vault_passwords,
-        ).await;
+        let (mut app, _temp_dir) = app_with_vault(test_servers(), master_pw, vault_passwords).await;
 
         // Verify vault is unlocked
         assert!(app.vault_unlocked.is_some());
@@ -120,11 +133,7 @@ mod vault_upgrade_e2e_tests {
 
     #[tokio::test]
     async fn test_upgrade_without_vault_works() {
-        let (mut app, _temp_dir) = app_with_vault(
-            test_servers(),
-            "unused",
-            HashMap::new(),
-        ).await;
+        let (mut app, _temp_dir) = app_with_vault(test_servers(), "unused", HashMap::new()).await;
 
         // Remove vault
         app.vault = None;
@@ -150,21 +159,26 @@ mod vault_upgrade_e2e_tests {
         password_store::save(&app.panels[1].server, "keychain-pass-2").unwrap();
 
         // Verify fallback loads from password store
-        assert_eq!(password_store::load(&app.panels[0].server), Ok(Some("keychain-pass-1".to_string())));
-        assert_eq!(password_store::load(&app.panels[1].server), Ok(Some("keychain-pass-2".to_string())));
+        assert_eq!(
+            password_store::load(&app.panels[0].server),
+            Ok(Some("keychain-pass-1".to_string()))
+        );
+        assert_eq!(
+            password_store::load(&app.panels[1].server),
+            Ok(Some("keychain-pass-2".to_string()))
+        );
     }
 
     #[tokio::test]
     async fn test_vault_priority_over_keychain() {
         let master_pw = "test-master";
         let mut vault_passwords = HashMap::new();
-        vault_passwords.insert("testuser@test-host-1:22".to_string(), "vault-pass".to_string());
+        vault_passwords.insert(
+            "testuser@test-host-1:22".to_string(),
+            "vault-pass".to_string(),
+        );
 
-        let (mut app, _temp_dir) = app_with_vault(
-            test_servers(),
-            master_pw,
-            vault_passwords,
-        ).await;
+        let (mut app, _temp_dir) = app_with_vault(test_servers(), master_pw, vault_passwords).await;
 
         // Also set password in keychain (lower priority)
         let _key = password_store::account(&app.panels[0].server);
@@ -181,13 +195,12 @@ mod vault_upgrade_e2e_tests {
     async fn test_upgrade_modal_flow_with_vault() {
         let master_pw = "test-master";
         let mut vault_passwords = HashMap::new();
-        vault_passwords.insert("testuser@test-host-1:22".to_string(), "sudo-pass-1".to_string());
+        vault_passwords.insert(
+            "testuser@test-host-1:22".to_string(),
+            "sudo-pass-1".to_string(),
+        );
 
-        let (mut app, _temp_dir) = app_with_vault(
-            test_servers(),
-            master_pw,
-            vault_passwords,
-        ).await;
+        let (mut app, _temp_dir) = app_with_vault(test_servers(), master_pw, vault_passwords).await;
 
         // Simulate pressing 'u' key (upgrade) - calls run_upgrade internally
         let cmds = app.run_upgrade();
@@ -207,13 +220,12 @@ mod vault_upgrade_e2e_tests {
 async fn test_vault_password_prompt_state_machine() {
     let master_pw = "test-master";
     let mut vault_passwords = HashMap::new();
-    vault_passwords.insert("testuser@test-host-1:22".to_string(), "sudo-pass-1".to_string());
+    vault_passwords.insert(
+        "testuser@test-host-1:22".to_string(),
+        "sudo-pass-1".to_string(),
+    );
 
-    let (mut app, _temp_dir) = app_with_vault(
-        test_servers(),
-        master_pw,
-        vault_passwords,
-    ).await;
+    let (mut app, _temp_dir) = app_with_vault(test_servers(), master_pw, vault_passwords).await;
 
     // Initially vault is locked (vault exists but not unlocked)
     // But we pre-unlocked it for testing
@@ -250,13 +262,12 @@ async fn test_vault_password_prompt_state_machine() {
 async fn test_vault_failed_unlock_shows_error() {
     let master_pw = "test-master";
     let mut vault_passwords = HashMap::new();
-    vault_passwords.insert("testuser@test-host-1:22".to_string(), "sudo-pass-1".to_string());
+    vault_passwords.insert(
+        "testuser@test-host-1:22".to_string(),
+        "sudo-pass-1".to_string(),
+    );
 
-    let (mut app, _temp_dir) = app_with_vault(
-        test_servers(),
-        master_pw,
-        vault_passwords,
-    ).await;
+    let (mut app, _temp_dir) = app_with_vault(test_servers(), master_pw, vault_passwords).await;
 
     // The app was created with pre-unlocked vault, lock it first to test failure
     app.vault_unlocked = None;

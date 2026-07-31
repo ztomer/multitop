@@ -9,25 +9,24 @@
 pub mod api;
 pub mod crypto;
 pub mod format;
+pub mod fprintd;
 pub mod lockout;
 pub mod mlock;
 pub mod rollback;
 pub mod secure_enclave;
-pub mod fprintd;
 
 // Re-export public API
-pub use api::{Vault, UnlockedVault, UnlockResult, migrate_if_needed};
+pub use api::{migrate_if_needed, UnlockResult, UnlockedVault, Vault};
 pub use crypto::{
-    wrap_argon2id, unwrap_argon2id, encrypt_vault, decrypt_vault,
-    sign_vault, verify_vault_signature, generate_salt, now_ms,
-    VaultKey, Argon2Params, WrapperType, Wrapper,
-    Ed25519PublicKey, Ed25519Signature,
+    decrypt_vault, encrypt_vault, generate_salt, now_ms, sign_vault, unwrap_argon2id,
+    verify_vault_signature, wrap_argon2id, Argon2Params, Ed25519PublicKey, Ed25519Signature,
+    VaultKey, Wrapper, WrapperType,
 };
-pub use format::{VaultHeader, VaultFile, read_vault_file, atomic_write_vault};
-pub use secure_enclave::{SecureEnclave, get_secure_enclave, is_available};
-pub use fprintd::{FingerprintVerifier, FingerprintResult};
+pub use format::{atomic_write_vault, read_vault_file, VaultFile, VaultHeader};
 #[cfg(target_os = "linux")]
 pub use fprintd::check_fprintd;
+pub use fprintd::{FingerprintResult, FingerprintVerifier};
+pub use secure_enclave::{get_secure_enclave, is_available, SecureEnclave};
 
 use secrecy::{ExposeSecret, SecretString};
 use serde::{Deserialize, Serialize};
@@ -68,12 +67,15 @@ pub struct VaultContents {
 impl VaultContents {
     /// Get a password
     pub fn get(&self, host: &str) -> Option<SecretString> {
-        self.passwords.get(host).map(|s| SecretString::from(s.as_str()))
+        self.passwords
+            .get(host)
+            .map(|s| SecretString::from(s.as_str()))
     }
 
     /// Set a password
     pub fn set(&mut self, host: String, password: SecretString) {
-        self.passwords.insert(host, password.expose_secret().to_string());
+        self.passwords
+            .insert(host, password.expose_secret().to_string());
     }
 
     /// Remove a password
