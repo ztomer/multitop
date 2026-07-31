@@ -1115,7 +1115,7 @@ dependencies = [
  "rand",
  "rpassword",
  "secrecy",
- "security-framework 2.11.1",
+ "security-framework 3.7.0",
  "security-framework-sys",
  "serde",
  "serde_bytes",
