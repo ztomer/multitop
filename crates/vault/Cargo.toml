@@ -28,6 +28,9 @@ tokio = { version = "1", features = ["macros", "rt-multi-thread", "time"] }
 rpassword = "7.0"
 hex = "0.4"
 
+# Keychain
+keyring = { version = "3", features = ["apple-native", "sync-secret-service"] }
+
 # Platform-specific
 #[cfg(target_os = "macos")]
 security-framework = "2.11"

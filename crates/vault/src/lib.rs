@@ -10,6 +10,7 @@ pub mod api;
 pub mod crypto;
 pub mod format;
 pub mod lockout;
+pub mod rollback;
 pub mod secure_enclave;
 pub mod fprintd;
 
@@ -177,4 +178,7 @@ pub enum VaultError {
 
     #[error("Rate limited: {0} seconds remaining")]
     RateLimited(u64),
+
+    #[error("Rollback detected: expected counter {expected}, got {actual}")]
+    RollbackDetected { expected: u32, actual: u32 },
 }

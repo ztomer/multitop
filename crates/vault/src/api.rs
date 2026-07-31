@@ -77,6 +77,10 @@ impl UnlockedVault {
 
         // Write atomically
         format::atomic_write_vault(&self.file_path, &self.header, &ciphertext)?;
+
+        // Update rollback counter in keychain
+        crate::rollback::store_counter(&self.file_path, self.header.counter, self.header.created_timestamp_ms);
+
         Ok(())
     }
 
@@ -275,6 +279,13 @@ impl Vault {
         let vault_key = crypto::unwrap_argon2id(&argon2id_wrapper.data, password, &vault_file.header.salt, params)?;
 
         let unlocked = self.decrypt_and_load(vault_key, &vault_file)?;
+
+        // Check rollback: ensure counter hasn't regressed
+        crate::rollback::check_counter(
+            &self.config.vault_path,
+            unlocked.header.counter,
+            unlocked.header.created_timestamp_ms,
+        )?;
 
         guard.mark_success();
         Ok(unlocked)
@@ -481,4 +492,5 @@ mod tests {
         assert!(result.is_err());
         assert!(!matches!(result, Err(VaultError::RateLimited(_))));
     }
+
 }

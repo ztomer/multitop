@@ -1111,6 +1111,7 @@ dependencies = [
  "ed25519-dalek",
  "hex",
  "hkdf",
+ "keyring",
  "rand",
  "rpassword",
  "secrecy",
