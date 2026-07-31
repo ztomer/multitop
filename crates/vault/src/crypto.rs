@@ -274,7 +274,7 @@ pub fn wrap_argon2id(key: &VaultKey, password: &str, salt: &[u8; 32], params: &A
         .hash_password_into(password.as_bytes(), salt, &mut wrapping_key)
         .map_err(|e| crate::VaultError::Argon2Error(e.to_string()))?;
 
-    // Encrypt vault_key with wrapping_key using AES-256-GCM
+    // Encrypt the RAW vault key (not the derived sub-key) with wrapping_key using AES-256-GCM
     let key_arr = GenericArray::clone_from_slice(&wrapping_key);
     let cipher = Aes256Gcm::new(&key_arr);
     let nonce = Aes256Gcm::generate_nonce(&mut OsRng);
