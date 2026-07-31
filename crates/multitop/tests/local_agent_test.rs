@@ -5,6 +5,7 @@ use tokio::io::AsyncReadExt;
 use tokio::io::BufReader;
 
 #[tokio::test]
+#[ignore = "requires ssh binary in PATH"]
 async fn local_agent_streams_binary_packets() {
     let mut child = spawn_local_agent(Mode::Monitor, SortBy::Cpu).expect("spawn local agent");
     let stdout = child.stdout.take().expect("stdout piped");
@@ -38,6 +39,7 @@ async fn local_agent_streams_binary_packets() {
 }
 
 #[tokio::test]
+#[ignore = "requires ssh binary in PATH"]
 async fn connect_local_server_succeeds_and_streams_snapshots() {
     use multitop::config::Server;
     use multitop::stream::{connect, next_packet};

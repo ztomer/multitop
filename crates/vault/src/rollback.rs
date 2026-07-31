@@ -75,3 +75,81 @@ pub fn check_counter(vault_path: &Path, counter: u32, created_ts: u64) -> Result
 
     Ok(())
 }
+
+/// Parse a stored counter value string
+pub fn parse_stored_counter(stored: &str) -> Option<(u32, u64)> {
+    let parts: Vec<&str> = stored.split(':').collect();
+    if parts.len() != 2 {
+        return None;
+    }
+    let counter = parts[0].parse().ok()?;
+    let ts = parts[1].parse().ok()?;
+    Some((counter, ts))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_account_deterministic() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let path = dir.path().join("vault.bin");
+        std::fs::write(&path, b"test").unwrap();
+        
+        let acc1 = account(&path);
+        let acc2 = account(&path);
+        assert_eq!(acc1, acc2);
+        // Should be a 64-char hex string (SHA256)
+        assert_eq!(acc1.len(), 64);
+        assert!(acc1.chars().all(|c| c.is_ascii_hexdigit()));
+    }
+
+    #[test]
+    fn test_parse_stored_counter_valid() {
+        let result = parse_stored_counter("42:1234567890");
+        assert_eq!(result, Some((42, 1234567890)));
+    }
+
+    #[test]
+    fn test_parse_stored_counter_invalid_format() {
+        assert_eq!(parse_stored_counter("invalid"), None);
+        assert_eq!(parse_stored_counter("42"), None);
+        assert_eq!(parse_stored_counter("42:123:456"), None);
+    }
+
+    #[test]
+    fn test_parse_stored_counter_invalid_numbers() {
+        assert_eq!(parse_stored_counter("abc:123"), None);
+        assert_eq!(parse_stored_counter("42:xyz"), None);
+    }
+
+    #[test]
+    fn test_parse_stored_counter_zero() {
+        let result = parse_stored_counter("0:0");
+        assert_eq!(result, Some((0, 0)));
+    }
+
+    #[test]
+    fn test_check_counter_skipped_in_test() {
+        // In test mode, check_counter always returns Ok
+        let dir = tempfile::TempDir::new().unwrap();
+        let path = dir.path().join("vault.bin");
+        std::fs::write(&path, b"test").unwrap();
+        
+        // Even with a lower counter, should pass in test mode
+        let result = check_counter(&path, 0, 0);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_rollback_error_display() {
+        let err = crate::VaultError::RollbackDetected {
+            expected: 10,
+            actual: 5,
+        };
+        let msg = err.to_string();
+        assert!(msg.contains("10"));
+        assert!(msg.contains("5"));
+    }
+}

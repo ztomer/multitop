@@ -188,3 +188,50 @@ impl SecureEnclave {
         Err(VaultError::PlatformNotSupported("Secure Enclave only on macOS".into()))
     }
 }
+
+#[cfg(test)]
+mod tests {
+    #[cfg(not(target_os = "macos"))]
+    use super::*;
+
+    #[test]
+    fn test_is_available() {
+        // On non-macOS, should always return false
+        #[cfg(not(target_os = "macos"))]
+        assert!(!is_available());
+    }
+
+    #[test]
+    fn test_get_secure_enclave_unavailable() {
+        #[cfg(not(target_os = "macos"))]
+        {
+            let result = get_secure_enclave();
+            assert!(result.is_err());
+            assert!(matches!(result, Err(VaultError::PlatformNotSupported(_))));
+        }
+    }
+
+    #[test]
+    fn test_secure_enclave_wrap_key_unavailable() {
+        #[cfg(not(target_os = "macos"))]
+        {
+            let se = SecureEnclave;
+            let key = VaultKey::new();
+            let result = se.wrap_key(&key);
+            assert!(result.is_err());
+            assert!(matches!(result, Err(VaultError::PlatformNotSupported(_))));
+        }
+    }
+
+    #[test]
+    fn test_secure_enclave_unwrap_key_unavailable() {
+        #[cfg(not(target_os = "macos"))]
+        {
+            let se = SecureEnclave;
+            let wrapper = Wrapper::new(WrapperType::SecureEnclave, vec![1u8; 64]).unwrap();
+            let result = se.unwrap_key(&wrapper);
+            assert!(result.is_err());
+            assert!(matches!(result, Err(VaultError::PlatformNotSupported(_))));
+        }
+    }
+}

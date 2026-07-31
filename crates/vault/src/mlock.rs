@@ -74,3 +74,94 @@ impl LockedMemory {
         Self { ptr: std::ptr::null(), len: 0 }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_mlock_memory_valid() {
+        let data = [1u8; 1024];
+        let result = mlock_memory(data.as_ptr(), data.len());
+        // On macOS, mlock may fail with EPERM for non-privileged processes
+        // but we test that the function doesn't panic
+        match result {
+            Ok(()) => (),
+            Err(e) => {
+                // EPERM or ENOMEM are expected on macOS without root
+                assert!(
+                    e.raw_os_error() == Some(libc::EPERM) || e.raw_os_error() == Some(libc::ENOMEM),
+                    "unexpected error: {e}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn test_munlock_memory_valid() {
+        let data = [1u8; 1024];
+        // First try to lock
+        let _ = mlock_memory(data.as_ptr(), data.len());
+        // Then unlock
+        let result = munlock_memory(data.as_ptr(), data.len());
+        // Should not panic regardless of platform
+        match result {
+            Ok(()) => (),
+            Err(e) => {
+                // May fail if mlock didn't succeed
+                assert!(
+                    e.raw_os_error() == Some(libc::EINVAL) || e.raw_os_error() == Some(libc::EPERM),
+                    "unexpected error: {e}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn test_locked_memory_new() {
+        let data = [2u8; 2048];
+        let locked = LockedMemory::new(&data);
+        // Should not panic
+        match locked {
+            Ok(_) => (), // Memory locked successfully
+            Err(e) => {
+                // Expected on macOS without root
+                assert!(
+                    e.raw_os_error() == Some(libc::EPERM) || e.raw_os_error() == Some(libc::ENOMEM),
+                    "unexpected error: {e}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn test_locked_memory_noop() {
+        let locked = LockedMemory::noop();
+        assert!(locked.ptr.is_null());
+        assert_eq!(locked.len, 0);
+        // Drop should not panic
+    }
+
+    #[test]
+    fn test_locked_memory_drop() {
+        let data = [3u8; 1024];
+        {
+            let _locked = LockedMemory::new(&data);
+            // Memory is locked here
+        }
+        // Memory is unlocked here (drop called)
+        // Should not panic
+    }
+
+    #[test]
+    fn test_locked_memory_is_send() {
+        fn assert_send<T: Send>() {}
+        assert_send::<LockedMemory>();
+    }
+
+    #[test]
+    fn test_locked_memory_is_sync() {
+        fn assert_sync<T: Sync>() {}
+        assert_sync::<LockedMemory>();
+    }
+}

@@ -6,6 +6,9 @@ rust-version.workspace = true
 license.workspace = true
 description = "Multi-server TUI dashboard over SSH"
 
+[lints]
+workspace = true
+
 [dependencies]
 crossterm = { version = "0.29", features = ["event-stream"] }
 keyring = { version = "3", features = ["apple-native", "sync-secret-service"] }

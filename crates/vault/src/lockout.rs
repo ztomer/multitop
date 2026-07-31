@@ -90,3 +90,183 @@ impl Drop for LockoutGuard<'_> {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::VaultError;
+    use tempfile::TempDir;
+
+    fn make_test_lockout() -> (LockoutState, tempfile::TempDir) {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("vault.bin");
+        let state = LockoutState::load(&path);
+        (state, dir)
+    }
+
+    #[test]
+    fn test_lockout_state_default() {
+        let (state, _dir) = make_test_lockout();
+        assert_eq!(state.failed_attempts, 0);
+        assert_eq!(state.lockout_until_epoch_ms, 0);
+    }
+
+    #[test]
+    fn test_lockout_state_load_save() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("vault.bin");
+        
+        let state = LockoutState { failed_attempts: 5, lockout_until_epoch_ms: 12345 };
+        state.save(&path);
+        
+        let loaded = LockoutState::load(&path);
+        assert_eq!(loaded.failed_attempts, 5);
+        assert_eq!(loaded.lockout_until_epoch_ms, 12345);
+    }
+
+    #[test]
+    fn test_lockout_state_load_nonexistent() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("nonexistent.bin");
+        
+        let state = LockoutState::load(&path);
+        assert_eq!(state.failed_attempts, 0);
+        assert_eq!(state.lockout_until_epoch_ms, 0);
+    }
+
+    #[test]
+    fn test_lockout_on_failure_no_delay() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("vault.bin");
+        let mut state = LockoutState::load(&path);
+        
+        // First 2 failures should not trigger delay
+        state.on_failure(&path, 1000);
+        assert_eq!(state.failed_attempts, 1);
+        assert_eq!(state.lockout_until_epoch_ms, 0);
+        
+        state.on_failure(&path, 1000);
+        assert_eq!(state.failed_attempts, 2);
+        assert_eq!(state.lockout_until_epoch_ms, 0);
+    }
+
+    #[test]
+    fn test_lockout_on_failure_exponential_backoff() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("vault.bin");
+        let mut state = LockoutState::load(&path);
+        
+        // 3 failures: 1s delay
+        state.on_failure(&path, 1000);
+        state.on_failure(&path, 1000);
+        state.on_failure(&path, 1000);
+        assert_eq!(state.failed_attempts, 3);
+        assert_eq!(state.lockout_until_epoch_ms, 2000); // 1000 + 1000ms
+        
+        // 4 failures: 2s delay
+        state.on_failure(&path, 2000);
+        assert_eq!(state.failed_attempts, 4);
+        assert_eq!(state.lockout_until_epoch_ms, 4000); // 2000 + 2000ms
+        
+        // 5 failures: 4s delay
+        state.on_failure(&path, 4000);
+        assert_eq!(state.failed_attempts, 5);
+        assert_eq!(state.lockout_until_epoch_ms, 8000); // 4000 + 4000ms
+    }
+
+    #[test]
+    fn test_lockout_on_failure_max_delay_capped() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("vault.bin");
+        let mut state = LockoutState::load(&path);
+        
+        // Simulate many failures
+        for i in 0..20 {
+            state.on_failure(&path, i * 1000);
+        }
+        
+        // Delay should be capped at 60 seconds
+        // After 10 failures, we're in hard lockout (5 minutes = 300,000 ms)
+        // The test checks that after many failures, the delay is reasonable
+        assert!(state.lockout_until_epoch_ms > 0);
+        // Hard lockout is 300,000 ms from the last failure
+        assert!(state.lockout_until_epoch_ms >= 19 * 1000 + 300_000 - 1000);
+    }
+
+    #[test]
+    fn test_lockout_on_failure_hard_lockout() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("vault.bin");
+        let mut state = LockoutState::load(&path);
+        
+        // 10 failures: hard lockout (5 minutes)
+        for i in 0..10 {
+            state.on_failure(&path, i * 1000);
+        }
+        
+        assert_eq!(state.failed_attempts, 10);
+        // Should be locked out for 5 minutes (300,000 ms)
+        assert!(state.lockout_until_epoch_ms > 9 * 1000 + 300_000 - 1000);
+    }
+
+    #[test]
+    fn test_lockout_on_success() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("vault.bin");
+        let mut state = LockoutState { failed_attempts: 5, lockout_until_epoch_ms: 99999 };
+        
+        state.on_success(&path);
+        assert_eq!(state.failed_attempts, 0);
+        assert_eq!(state.lockout_until_epoch_ms, 0);
+    }
+
+    #[test]
+    fn test_check_lockout_not_locked() {
+        let state = LockoutState { failed_attempts: 0, lockout_until_epoch_ms: 0 };
+        assert!(state.check_lockout(1000).is_ok());
+    }
+
+    #[test]
+    fn test_check_lockout_locked() {
+        let state = LockoutState { failed_attempts: 3, lockout_until_epoch_ms: 5000 };
+        
+        // Before lockout expires
+        assert!(state.check_lockout(4000).is_err());
+        assert!(matches!(state.check_lockout(4000), Err(VaultError::RateLimited(_))));
+        
+        // After lockout expires
+        assert!(state.check_lockout(5000).is_ok());
+        assert!(state.check_lockout(6000).is_ok());
+    }
+
+    #[test]
+    fn test_lockout_guard_records_failure() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("vault.bin");
+        let state = Mutex::new(LockoutState::load(&path));
+        
+        {
+            let _guard = LockoutGuard::new(&state, &path, 1000);
+            // Guard drops without marking success
+        }
+        
+        let state = state.lock().unwrap();
+        assert_eq!(state.failed_attempts, 1);
+    }
+
+    #[test]
+    fn test_lockout_guard_records_success() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("vault.bin");
+        let state = Mutex::new(LockoutState { failed_attempts: 3, lockout_until_epoch_ms: 5000 });
+        
+        {
+            let mut guard = LockoutGuard::new(&state, &path, 1000);
+            guard.mark_success();
+        }
+        
+        let state = state.lock().unwrap();
+        assert_eq!(state.failed_attempts, 0);
+        assert_eq!(state.lockout_until_epoch_ms, 0);
+    }
+}

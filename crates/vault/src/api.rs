@@ -400,6 +400,34 @@ impl Vault {
         }
         Ok(())
     }
+
+    /// Complete pending migration after unlock
+    pub async fn complete_migration(&self, password: &str) -> Result<(), VaultError> {
+        let migration_flag = self.config.vault_path.with_extension("bin.migrate");
+        if !migration_flag.exists() {
+            return Ok(());
+        }
+
+        let old_version = std::fs::read_to_string(&migration_flag)
+            .map_err(VaultError::Io)?
+            .parse::<u8>()
+            .map_err(|e| VaultError::ParseError(format!("invalid migration flag: {e}")))?;
+
+        // Unlock with old password
+        let mut vault = self.unlock_with_password(password)?;
+
+        // Update version
+        vault.header.version = 2;
+
+        // Re-save (this will re-encrypt with current format)
+        vault.save()?;
+
+        // Remove migration flag
+        std::fs::remove_file(&migration_flag).map_err(VaultError::Io)?;
+
+        eprintln!("vault: migration from v{old_version} to v2 complete");
+        Ok(())
+    }
 }
 
 /// Run upgrade/migration if needed
@@ -409,11 +437,25 @@ pub async fn migrate_if_needed(vault_path: &std::path::Path) -> Result<(), Vault
     }
 
     let vault_file = format::read_vault_file(vault_path)?;
-    if vault_file.header.version < 2 {
-        // Migrate v1 -> v2
-        // For now, just rebuild with v2 format
+    
+    match vault_file.header.version {
+        0 | 1 => {
+            // Migrate v1 -> v2: Add canary field if missing
+            // v1 vaults don't have the canary field, so we need to re-encrypt
+            eprintln!("vault: migrating from v{} to v2", vault_file.header.version);
+            
+            // For now, we can't migrate without the password
+            // The migration will happen on next unlock with password
+            // Store a flag that migration is needed
+            let migration_flag = vault_path.with_extension("bin.migrate");
+            std::fs::write(&migration_flag, format!("{}", vault_file.header.version))
+                .map_err(VaultError::Io)?;
+            
+            Ok(())
+        }
+        2 => Ok(()), // Current version, no migration needed
+        v => Err(VaultError::UnsupportedVersion(v)),
     }
-    Ok(())
 }
 
 #[cfg(test)]
@@ -494,6 +536,290 @@ mod tests {
         let result = vault.unlock_with_password("wrong");
         assert!(result.is_err());
         assert!(!matches!(result, Err(VaultError::RateLimited(_))));
+    }
+
+    #[tokio::test]
+    async fn test_vault_exists_and_path() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("test_vault.bin");
+        let config = fast_vault_config(path.clone());
+        let vault = Vault::new(config);
+
+        assert!(!vault.exists());
+        assert_eq!(vault.path(), &path);
+
+        vault.initialize("password").await.unwrap();
+        assert!(vault.exists());
+    }
+
+    #[tokio::test]
+    async fn test_vault_initialize_already_exists() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("test_vault.bin");
+        let config = fast_vault_config(path.clone());
+        let vault = Vault::new(config);
+
+        vault.initialize("password").await.unwrap();
+        let result = vault.initialize("password").await;
+        assert!(result.is_err());
+        assert!(matches!(result, Err(VaultError::AlreadyExists(_))));
+    }
+
+    #[tokio::test]
+    async fn test_vault_unlock_wrong_password() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("test_vault.bin");
+        let config = fast_vault_config(path.clone());
+        let vault = Vault::new(config);
+
+        vault.initialize("correct-password").await.unwrap();
+        let result = vault.unlock_with_password("wrong-password");
+        assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_vault_unlock_biometric_fallback() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("test_vault.bin");
+        let config = fast_vault_config(path.clone());
+        let vault = Vault::new(config);
+
+        vault.initialize("password").await.unwrap();
+        
+        // Biometric will fail, should fall back to password prompt
+        // Since we can't mock stdin, this will fail with IO error
+        let result = vault.unlock_biometric(true).await;
+        assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_vault_unlock_biometric_no_fallback() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("test_vault.bin");
+        let config = fast_vault_config(path.clone());
+        let vault = Vault::new(config);
+
+        vault.initialize("password").await.unwrap();
+        
+        // Biometric will fail, no fallback
+        let result = vault.unlock_biometric(false).await;
+        assert!(result.is_err());
+        assert!(matches!(result, Err(VaultError::BiometricFailed)));
+    }
+
+    #[tokio::test]
+    async fn test_vault_get_unlocked() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("test_vault.bin");
+        let config = fast_vault_config(path.clone());
+        let vault = Vault::new(config);
+
+        vault.initialize("password").await.unwrap();
+        
+        // get_unlocked will try biometric, then fall back to password prompt
+        // Since we can't mock stdin, this will fail
+        let result = vault.get_unlocked().await;
+        assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_vault_lock() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("test_vault.bin");
+        let config = fast_vault_config(path.clone());
+        let vault = Vault::new(config);
+
+        vault.initialize("password").await.unwrap();
+        
+        // Lock should work even when nothing is unlocked
+        vault.lock().await;
+    }
+
+    #[tokio::test]
+    async fn test_vault_delete() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("test_vault.bin");
+        let config = fast_vault_config(path.clone());
+        let vault = Vault::new(config);
+
+        vault.initialize("password").await.unwrap();
+        assert!(vault.exists());
+
+        vault.delete().unwrap();
+        assert!(!vault.exists());
+    }
+
+    #[tokio::test]
+    async fn test_vault_delete_nonexistent() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("nonexistent.bin");
+        let config = fast_vault_config(path.clone());
+        let vault = Vault::new(config);
+
+        // Should not error
+        vault.delete().unwrap();
+    }
+
+    #[tokio::test]
+    async fn test_unlocked_vault_remove_password() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("test_vault.bin");
+        let config = fast_vault_config(path.clone());
+        let vault = Vault::new(config);
+
+        vault.initialize("password").await.unwrap();
+        let mut unlocked = vault.unlock_with_password("password").unwrap();
+
+        unlocked.set_password("server1:22".into(), SecretString::from("pass1")).unwrap();
+        assert!(unlocked.get_password("server1:22").is_some());
+
+        let removed = unlocked.remove_password("server1:22").unwrap();
+        assert!(removed);
+        assert!(unlocked.get_password("server1:22").is_none());
+    }
+
+    #[tokio::test]
+    async fn test_unlocked_vault_remove_nonexistent_password() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("test_vault.bin");
+        let config = fast_vault_config(path.clone());
+        let vault = Vault::new(config);
+
+        vault.initialize("password").await.unwrap();
+        let mut unlocked = vault.unlock_with_password("password").unwrap();
+
+        let removed = unlocked.remove_password("nonexistent").unwrap();
+        assert!(!removed);
+    }
+
+    #[tokio::test]
+    async fn test_unlocked_vault_hosts() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("test_vault.bin");
+        let config = fast_vault_config(path.clone());
+        let vault = Vault::new(config);
+
+        vault.initialize("password").await.unwrap();
+        let mut unlocked = vault.unlock_with_password("password").unwrap();
+
+        assert!(unlocked.hosts().is_empty());
+
+        unlocked.set_password("server1:22".into(), SecretString::from("pass1")).unwrap();
+        unlocked.set_password("server2:22".into(), SecretString::from("pass2")).unwrap();
+
+        let mut hosts = unlocked.hosts();
+        hosts.sort();
+        assert_eq!(hosts, vec!["server1:22", "server2:22"]);
+    }
+
+    #[tokio::test]
+    async fn test_unlocked_vault_persists_after_save() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("test_vault.bin");
+        let config = fast_vault_config(path.clone());
+        let vault = Vault::new(config);
+
+        vault.initialize("password").await.unwrap();
+        
+        {
+            let mut unlocked = vault.unlock_with_password("password").unwrap();
+            unlocked.set_password("server1:22".into(), SecretString::from("pass1")).unwrap();
+        }
+
+        // Unlock again and check password persisted
+        let unlocked = vault.unlock_with_password("password").unwrap();
+        assert_eq!(unlocked.get_password("server1:22").unwrap().expose_secret(), "pass1");
+    }
+
+    #[tokio::test]
+    async fn test_vault_multiple_servers() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("test_vault.bin");
+        let config = fast_vault_config(path.clone());
+        let vault = Vault::new(config);
+
+        vault.initialize("password").await.unwrap();
+        let mut unlocked = vault.unlock_with_password("password").unwrap();
+
+        // Add multiple server passwords
+        for i in 0..10 {
+            let host = format!("server{i}:22");
+            let pass = format!("pass{i}");
+            unlocked.set_password(host.into(), SecretString::from(pass.as_str())).unwrap();
+        }
+
+        // Verify all passwords
+        for i in 0..10 {
+            let host = format!("server{i}:22");
+            let pass = format!("pass{i}");
+            assert_eq!(unlocked.get_password(&host).unwrap().expose_secret(), pass);
+        }
+
+        assert_eq!(unlocked.hosts().len(), 10);
+    }
+
+    #[tokio::test]
+    async fn test_vault_concurrent_access() {
+        use std::sync::Arc;
+
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("test_vault.bin");
+        let config = fast_vault_config(path.clone());
+        let vault = Arc::new(Vault::new(config));
+
+        vault.initialize("password").await.unwrap();
+
+        let mut handles = vec![];
+        for i in 0..5 {
+            let vault = vault.clone();
+            handles.push(tokio::spawn(async move {
+                let mut unlocked = vault.unlock_with_password("password").unwrap();
+                let host = format!("server{i}:22");
+                let pass = format!("pass{i}");
+                unlocked.set_password(host.into(), SecretString::from(pass.as_str())).unwrap();
+            }));
+        }
+
+        for handle in handles {
+            handle.await.unwrap();
+        }
+
+        // Verify all passwords were saved (last writer wins for each host)
+        let unlocked = vault.unlock_with_password("password").unwrap();
+        assert_eq!(unlocked.hosts().len(), 5);
+    }
+
+    #[tokio::test]
+    async fn test_vault_migration_flag() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("test_vault.bin");
+        let config = fast_vault_config(path.clone());
+        let vault = Vault::new(config);
+
+        vault.initialize("password").await.unwrap();
+
+        // Simulate migration needed by creating flag file
+        let migration_flag = path.with_extension("bin.migrate");
+        std::fs::write(&migration_flag, "1").unwrap();
+        assert!(migration_flag.exists());
+
+        // Complete migration
+        vault.complete_migration("password").await.unwrap();
+        assert!(!migration_flag.exists());
+    }
+
+    #[tokio::test]
+    async fn test_vault_migration_not_needed() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("test_vault.bin");
+        let config = fast_vault_config(path.clone());
+        let vault = Vault::new(config);
+
+        vault.initialize("password").await.unwrap();
+
+        // No migration flag
+        let result = vault.complete_migration("password").await;
+        assert!(result.is_ok());
     }
 }
 

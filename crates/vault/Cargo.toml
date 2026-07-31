@@ -5,6 +5,9 @@ edition = "2021"
 license = "MIT"
 description = "Encrypted sudo password vault with biometric unlock"
 
+[lints]
+workspace = true
+
 [dependencies]
 # Crypto
 aes-gcm = "0.10"

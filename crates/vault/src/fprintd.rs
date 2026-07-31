@@ -225,3 +225,89 @@ impl FingerprintVerifier {
 pub async fn check_fprintd() -> Result<Vec<String>, VaultError> {
     Err(VaultError::PlatformNotSupported("fprintd only on Linux".into()))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_fingerprint_result_display() {
+        assert_eq!(FingerprintResult::Verified.to_string(), "verified");
+        assert_eq!(FingerprintResult::Failed.to_string(), "failed");
+        assert_eq!(FingerprintResult::Timeout.to_string(), "timeout");
+        assert_eq!(FingerprintResult::NotEnrolled.to_string(), "not enrolled");
+        assert_eq!(FingerprintResult::Busy.to_string(), "busy");
+        assert_eq!(FingerprintResult::Cancelled.to_string(), "cancelled");
+        assert_eq!(FingerprintResult::Error.to_string(), "error");
+    }
+
+    #[test]
+    fn test_fingerprint_result_debug() {
+        // Verify Debug is implemented
+        let _ = format!("{:?}", FingerprintResult::Verified);
+    }
+
+    #[test]
+    fn test_fingerprint_result_clone() {
+        let r = FingerprintResult::Verified;
+        let r2 = r;
+        assert_eq!(r, r2);
+    }
+
+    #[test]
+    fn test_fingerprint_result_partial_eq() {
+        assert_eq!(FingerprintResult::Verified, FingerprintResult::Verified);
+        assert_ne!(FingerprintResult::Verified, FingerprintResult::Failed);
+    }
+
+    #[tokio::test]
+    async fn test_fingerprint_verifier_new_unavailable() {
+        #[cfg(not(target_os = "linux"))]
+        {
+            let result = FingerprintVerifier::new().await;
+            assert!(result.is_err());
+            assert!(matches!(result, Err(VaultError::PlatformNotSupported(_))));
+        }
+    }
+
+    #[tokio::test]
+    async fn test_fingerprint_verifier_verify_unavailable() {
+        #[cfg(not(target_os = "linux"))]
+        {
+            let verifier = FingerprintVerifier;
+            let result = verifier.verify().await;
+            assert!(result.is_err());
+            assert!(matches!(result, Err(VaultError::PlatformNotSupported(_))));
+        }
+    }
+
+    #[tokio::test]
+    async fn test_fingerprint_verifier_is_available() {
+        #[cfg(not(target_os = "linux"))]
+        {
+            let result = FingerprintVerifier::is_available().await;
+            assert!(!result);
+        }
+    }
+
+    #[tokio::test]
+    async fn test_fingerprint_verifier_list_fingers_unavailable() {
+        #[cfg(not(target_os = "linux"))]
+        {
+            let verifier = FingerprintVerifier;
+            let result = verifier.list_fingers().await;
+            assert!(result.is_err());
+            assert!(matches!(result, Err(VaultError::PlatformNotSupported(_))));
+        }
+    }
+
+    #[tokio::test]
+    async fn test_check_fprintd_unavailable() {
+        #[cfg(not(target_os = "linux"))]
+        {
+            let result = check_fprintd().await;
+            assert!(result.is_err());
+            assert!(matches!(result, Err(VaultError::PlatformNotSupported(_))));
+        }
+    }
+}
