@@ -1123,6 +1123,7 @@ dependencies = [
  "hex",
  "hkdf",
  "keyring",
+ "libc",
  "rand",
  "rpassword",
  "secrecy",

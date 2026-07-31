@@ -41,16 +41,17 @@ Additional current-state bug discovered during review: **calibre-web has no publ
 
 ## Solution
 
-### 1. `href` — use `https://SERVICE.media.home/`
+### 1. `href` — VPN-mode services use IP:port (VPN fallback), local-mode use hostname
 
-All services have Traefik routers configured (verified via Traefik API). DNS resolves `*.media.home` to 192.168.0.33, Traefik proxies to the correct back-end. This is the only way to reach VPN-mode services that gluetun doesn't publish host ports for.
+VPN-mode services (sonarr, radarr, lidarr, readarr, jellyfin, qbittorrent, prowlarr, slskd, calibre-web, jellyseerr, deemix) use `http://<LAN_IP>:PORT/` for href. Phase 0 publishes all 16 VPN-mode ports through gluetun, so these work regardless of DNS state (client VPN ON/OFF).
 
-**Caveat — user VPN ON**: When the user's client VPN is active, DNS queries bypass the LAN DNS server. `.home` is not a real TLD, so the VPN's resolver returns NXDOMAIN. Two approaches:
+Local-mode services (navidrome, tdarr, cleanuparr, droppedneedle, sparkyfitness, wger, ryot) use `https://SERVICE.media.home/` via Traefik.
 
-- **Server-side (recommended)**: Publish missing service ports through gluetun. Then href can use `http://192.168.0.33:PORT/` as a VPN-proof alternative. Pro: works regardless of DNS. Con: increases attack surface (direct port access bypasses Traefik's TLS/SSO).
-- **Client-side (backup)**: VPN split DNS (route `*.media.home` to 192.168.0.158) or `/etc/hosts` entries. Fragile across clients.
+Secure-context hostname exceptions (Calibre, Actual Budget, Firefly III, Traefik) kept as hostnames — they cannot work as IP:port.
 
-Decision: start with `https://SERVICE.media.home/` for href. Add gluetun ports immediately to enable VPN-proof IP-based hrefs as a follow-up while the compose change is fresh (before phase 0-4 is deployed).
+Calibre Content Server stays `http://{ip}:8085/` (canary for update_lan_ip.py).
+
+External device IPs (tp-link, brother) kept as-is.
 
 ### 2. `ping_url` — reachable from inside homarr
 
@@ -283,12 +284,13 @@ Verify `http://calibre:8080/` from inside homarr. Calibre is on `local_network` 
 
 Rewrite the `TILES` tuple. Key changes:
 
-- **href**: `http://{ip}:PORT/` → `https://SERVICE.media.home/` for ALL Traefik-routed services
-- **href**: secure-context hostname exceptions (Calibre, Actual Budget, Firefly III, Traefik) kept as-is
-- **href**: external device IPs (tp-link, brother) kept as-is
-- **href**: Calibre Content Server stays `http://{ip}:8085/` (published through calibre compose, NOT gluetun; reachable from host) — this is the canary that keeps `update_lan_ip.py` verify_targets working
-- **ping_url**: `http://SERVICE:PORT/` → `http://vpn:PORT/` for all VPN-mode services (sonarr, radarr, lidarr, readarr, jellyfin, calibre-web, jellyseerr, deemix, qbittorrent, prowlarr, slskd)
-- **ping_url**: local-mode services keep docker DNS names as-is
+- **href**: VPN-mode services → `http://{ip}:PORT/` (gluetun ports published in Phase 0, VPN-proof)
+- **href**: Local-mode services → `https://SERVICE.media.home/` (via Traefik)
+- **href**: Secure-context exceptions (Calibre, Actual Budget, Firefly III, Traefik) → hostname kept
+- **href**: External device IPs (tp-link, brother) → kept as-is
+- **href**: Calibre Content Server → `http://{ip}:8085/` (canary for update_lan_ip.py)
+- **ping_url**: VPN-mode services → `http://vpn:PORT/` (Docker DNS alias)
+- **ping_url**: Local-mode services → Docker DNS names as-is
 - **ping_url**: Traefik → `http://traefik:8080/api/version` (not /ping, which returns 404)
 
 Also add: pre-flight DNS check that resolves each `SERVICE.media.home` before writing, so a broken DNS state doesn't silently kill all tiles.
@@ -386,17 +388,17 @@ slskd has a 15-minute healthcheck start_period. During that window, the containe
 
 | Tile name | href | ping_url |
 |-----------|------|----------|
-| Sonarr | `https://sonarr.media.home/` | `http://vpn:8989/` |
-| Radarr | `https://radarr.media.home/` | `http://vpn:7878/` |
-| Lidarr | `https://lidarr.media.home/` | `http://vpn:8686/lidarr/` |
-| Chaptarr (Readarr) | `https://readarr.media.home/` | `http://vpn:8787/readarr/` |
-| Jellyfin | `https://jellyfin.media.home/` | `http://vpn:8096/health` |
-| Qbittorrent | `https://qbittorrent.media.home/` | `http://vpn:8081/` |
-| Prowlarr | `https://prowlarr.media.home/` | `http://vpn:9696/prowlarr/` |
-| Calibre-Web Automated | `https://calibre-web.media.home/` | `http://vpn:8083/` |
-| Seerr (Jellyseerr) | `https://seerr.media.home/` | `http://vpn:5055/api/v1/status` |
-| slskd | `https://slskd.media.home/` | `http://vpn:5030/` |
-| Deemix | `https://deemix.media.home/` | `http://vpn:6595/` |
+| Sonarr | `http://192.168.0.33:8989/` | `http://vpn:8989/` |
+| Radarr | `http://192.168.0.33:7878/` | `http://vpn:7878/` |
+| Lidarr | `http://192.168.0.33:8686/lidarr/` | `http://vpn:8686/lidarr/` |
+| Chaptarr (Readarr) | `http://192.168.0.33:8787/readarr/` | `http://vpn:8787/readarr/` |
+| Jellyfin | `http://192.168.0.33:8096/` | `http://vpn:8096/health` |
+| Qbittorrent | `http://192.168.0.33:8081/` | `http://vpn:8081/` |
+| Prowlarr | `http://192.168.0.33:9696/prowlarr/` | `http://vpn:9696/prowlarr/` |
+| Calibre-Web Automated | `http://192.168.0.33:8083/` | `http://vpn:8083/` |
+| Seerr (Jellyseerr) | `http://192.168.0.33:5055/` | `http://vpn:5055/api/v1/status` |
+| slskd | `http://192.168.0.33:5030/` | `http://vpn:5030/` |
+| Deemix | `http://192.168.0.33:6595/` | `http://vpn:6595/` |
 | Cleanuparr | `https://cleanuparr.media.home/` | `http://cleanuparr:11011/` |
 | Tdarr | `https://tdarr.media.home/` | `http://tdarr:8265/` |
 | Navidrome | `https://navidrome.media.home/` | `http://navidrome:4533/` |

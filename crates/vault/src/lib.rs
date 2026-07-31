@@ -10,6 +10,7 @@ pub mod api;
 pub mod crypto;
 pub mod format;
 pub mod lockout;
+pub mod mlock;
 pub mod rollback;
 pub mod secure_enclave;
 pub mod fprintd;

@@ -23,6 +23,7 @@ pub enum UnlockResult {
 /// In-memory unlocked vault
 pub struct UnlockedVault {
     vault_key: crate::crypto::VaultKey,
+    _key_lock: crate::mlock::LockedMemory, // mlock the vault key to prevent swapping
     contents: VaultContents,
     header: crate::format::VaultHeader,
     file_path: PathBuf,
@@ -306,8 +307,16 @@ impl Vault {
         let header = vault_file.header.clone();
         let file_path = self.config.vault_path.clone();
 
+        // Lock vault key in memory to prevent swapping (best-effort)
+        let key_lock = crate::mlock::LockedMemory::new(vault_key.as_bytes())
+            .unwrap_or_else(|e| {
+                eprintln!("vault: mlock warning: {}", e);
+                crate::mlock::LockedMemory::noop()
+            });
+
         Ok(UnlockedVault {
             vault_key,
+            _key_lock: key_lock,
             contents,
             header,
             file_path,
@@ -434,11 +443,9 @@ mod tests {
 
         let mut unlocked = vault.unlock_with_password(password).unwrap();
 
-        // Add a password
         unlocked.set_password("server1:22".into(), SecretString::from("pass123")).unwrap();
         assert_eq!(unlocked.get_password("server1:22").unwrap().expose_secret(), "pass123");
 
-        // Lock and unlock again
         unlocked.lock();
         let unlocked2 = vault.unlock_with_password(password).unwrap();
         assert_eq!(unlocked2.get_password("server1:22").unwrap().expose_secret(), "pass123");
@@ -457,12 +464,10 @@ mod tests {
         vault.initialize(old_pass).await.unwrap();
         vault.change_password(old_pass, new_pass).await.unwrap();
 
-        // Old password should fail
         assert!(vault.unlock_with_password(old_pass).is_err());
 
-        // New password should work
         let unlocked = vault.unlock_with_password(new_pass).unwrap();
-        assert!(unlocked.get_password("server1:22").is_none()); // empty vault
+        assert!(unlocked.get_password("server1:22").is_none());
     }
 
     #[tokio::test]
@@ -475,25 +480,20 @@ mod tests {
         let password = "correct-password";
         vault.initialize(password).await.unwrap();
 
-        // 3 wrong attempts
         for _ in 0..3 {
             assert!(vault.unlock_with_password("wrong").is_err());
         }
 
-        // 4th should return RateLimited
         assert!(matches!(vault.unlock_with_password("wrong"), Err(VaultError::RateLimited(_))));
 
-        // Wait past the 1-second backoff window
         tokio::time::sleep(std::time::Duration::from_secs(2)).await;
 
-        // Correct password resets lockout
         let unlocked = vault.unlock_with_password(password).unwrap();
         assert!(unlocked.get_password("test").is_none());
 
-        // Counter is reset; wrong attempt should NOT be rate limited
         let result = vault.unlock_with_password("wrong");
         assert!(result.is_err());
         assert!(!matches!(result, Err(VaultError::RateLimited(_))));
     }
-
 }
+
