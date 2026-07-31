@@ -1097,6 +1097,7 @@ dependencies = [
  "multitop-vault",
  "ratatui",
  "secrecy",
+ "tempfile",
  "tokio",
  "tokio-stream",
  "toml",
