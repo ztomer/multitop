@@ -34,6 +34,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::PathBuf;
 use thiserror::Error;
+use zeroize::Zeroize;
 
 /// Vault configuration
 #[derive(Debug, Clone)]
@@ -60,6 +61,8 @@ impl Default for VaultConfig {
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct VaultContents {
     passwords: HashMap<String, String>,
+    /// Canary string embedded in plaintext for integrity verification
+    canary: Option<String>,
 }
 
 impl VaultContents {
@@ -83,19 +86,29 @@ impl VaultContents {
         self.passwords.keys().cloned().collect()
     }
 
-    /// Verify canary string
-    pub fn verify_canary(&self, expected: &str) -> bool {
-        // canary is stored alongside header, not in contents
-        // this is a placeholder check
-        !expected.is_empty()
+    /// Set the canary string (called during initialization)
+    pub fn set_canary(&mut self, canary: String) {
+        self.canary = Some(canary);
+    }
+
+    /// Verify canary string matches the header's canary
+    pub fn verify_canary(&self, header_canary: &str) -> bool {
+        match &self.canary {
+            Some(plaintext_canary) => plaintext_canary == header_canary,
+            None => false, // No canary in plaintext = corruption or old format
+        }
     }
 }
 
 impl Drop for VaultContents {
     fn drop(&mut self) {
-        for (_, v) in self.passwords.drain() {
-            let bytes = v.into_bytes();
-            drop(bytes); // memory freed, best-effort clearing
+        // Zeroize all passwords before deallocation
+        for (_, mut v) in self.passwords.drain() {
+            v.zeroize();
+        }
+        // Zeroize canary if present
+        if let Some(mut canary) = self.canary.take() {
+            canary.zeroize();
         }
     }
 }

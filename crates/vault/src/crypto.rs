@@ -38,8 +38,10 @@ impl VaultKey {
     pub fn derive_signing_key(&self) -> SigningKey {
         let hkdf = Hkdf::<Sha256>::new(None, &self.0);
         let mut okm = [0u8; 32];
+        // HKDF expand with SHA-256 and 32 bytes output should never fail
+        // but we use expect for safety rather than changing the API
         hkdf.expand(b"multitop-vault-signing", &mut okm)
-            .expect("HKDF expand failed");
+            .expect("HKDF expand failed (should never happen with SHA-256)");
         SigningKey::from_bytes(&okm)
     }
 
@@ -52,8 +54,9 @@ impl VaultKey {
     pub fn encryption_key(&self) -> [u8; 32] {
         let hkdf = Hkdf::<Sha256>::new(None, &self.0);
         let mut okm = [0u8; 32];
+        // HKDF expand with SHA-256 and 32 bytes output should never fail
         hkdf.expand(b"vault-aes-gcm-key", &mut okm)
-            .expect("HKDF expand failed");
+            .expect("HKDF expand failed (should never happen with SHA-256)");
         okm
     }
 }
@@ -223,7 +226,10 @@ pub fn generate_salt() -> [u8; 32] {
 /// Get current time in milliseconds
 pub fn now_ms() -> u64 {
     use std::time::{SystemTime, UNIX_EPOCH};
-    SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_millis() as u64
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis() as u64
 }
 
 /// Encrypt vault contents with AES-256-GCM (uses HKDF-derived encryption sub-key)
@@ -282,6 +288,9 @@ pub fn wrap_argon2id(key: &VaultKey, password: &str, salt: &[u8; 32], params: &A
         .encrypt(&nonce, key.as_bytes() as &[u8])
         .map_err(|_| crate::VaultError::EncryptionFailed)?;
 
+    // Zeroize the wrapping key
+    wrapping_key.zeroize();
+
     // Return: nonce(12) || ciphertext(32) || tag(16) = 60 bytes
     let mut result = Vec::with_capacity(12 + ciphertext.len());
     result.extend_from_slice(&nonce);
@@ -309,6 +318,9 @@ pub fn unwrap_argon2id(wrapped: &[u8], password: &str, salt: &[u8; 32], params: 
         .decrypt(&nonce_arr, ciphertext)
         .map_err(|_| crate::VaultError::DecryptionFailed)?;
 
+    // Zeroize the wrapping key
+    wrapping_key.zeroize();
+
     if plaintext.len() != 32 {
         return Err(crate::VaultError::InvalidWrapperData("wrong key size".into()));
     }
@@ -321,6 +333,11 @@ pub fn unwrap_argon2id(wrapped: &[u8], password: &str, salt: &[u8; 32], params: 
 /// Securely overwrite a file with random data + zeros before deletion.
 /// Best-effort on modern SSDs with encryption; use full-disk encryption for real protection.
 pub fn secure_overwrite(path: &std::path::Path) -> std::io::Result<()> {
+    use std::fs::{File, OpenOptions};
+    use std::io::{Seek, Write};
+    #[cfg(unix)]
+    use std::os::unix::fs::OpenOptionsExt;
+
     let metadata = std::fs::metadata(path)?;
     let len = metadata.len() as usize;
 
@@ -330,22 +347,33 @@ pub fn secure_overwrite(path: &std::path::Path) -> std::io::Result<()> {
 
     use rand::RngCore;
 
-    // Pass 1: random data
+    // Open the file once for all passes to avoid TOCTOU
+    #[allow(unused_mut)]
+    let mut open_opts = OpenOptions::new();
+    open_opts.write(true).truncate(false);
+    #[cfg(unix)]
+    open_opts.mode(0o600);
+    
+    let mut file = open_opts.open(path)?;
     let mut rng = rand::thread_rng();
+
+    // Pass 1: random data
     let mut buf = vec![0u8; len];
     rng.fill_bytes(&mut buf);
-    std::fs::write(path, &buf)?;
+    file.seek(std::io::SeekFrom::Start(0))?;
+    file.write_all(&buf)?;
+    file.sync_all()?;
 
     // Pass 2: zeros
     buf.fill(0);
-    std::fs::write(path, &buf)?;
+    file.seek(std::io::SeekFrom::Start(0))?;
+    file.write_all(&buf)?;
+    file.sync_all()?;
 
     // Pass 3: random data
     rng.fill_bytes(&mut buf);
-    std::fs::write(path, &buf)?;
-
-    // Final sync
-    let file = std::fs::OpenOptions::new().write(true).open(path)?;
+    file.seek(std::io::SeekFrom::Start(0))?;
+    file.write_all(&buf)?;
     file.sync_all()?;
 
     Ok(())

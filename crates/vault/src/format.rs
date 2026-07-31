@@ -27,6 +27,13 @@ pub struct VaultHeader {
 }
 
 impl VaultHeader {
+    /// Generate a random canary string
+    pub fn generate_canary() -> String {
+        let mut canary_bytes = [0u8; 16];
+        rand::rngs::OsRng.fill_bytes(&mut canary_bytes);
+        format!("multitop-vault-canary-{}", hex::encode(&canary_bytes[..16]))
+    }
+
     pub fn new(
         ed25519_pk: crate::crypto::Ed25519PublicKey,
         salt: [u8; 32],
@@ -40,10 +47,37 @@ impl VaultHeader {
             return Err(crate::VaultError::WrapperTooLarge(65535));
         }
 
-        // Generate a random canary for integrity checking
-        let mut canary_bytes = [0u8; 16];
-        rand::rngs::OsRng.fill_bytes(&mut canary_bytes);
-        let canary = format!("multitop-vault-canary-{}", hex::encode(&canary_bytes[..16]));
+        let canary = Self::generate_canary();
+
+        Ok(Self {
+            magic: *b"MQV2",
+            version: CURRENT_VERSION,
+            key_version: 0,
+            created_timestamp_ms: now_ms(),
+            counter: 0,
+            salt,
+            argon2_params,
+            wrappers,
+            nonce: [0u8; 12],
+            ed25519_pk,
+            signature: crate::crypto::Ed25519Signature([0u8; 64]),
+            canary,
+        })
+    }
+
+    pub fn new_with_canary(
+        ed25519_pk: crate::crypto::Ed25519PublicKey,
+        salt: [u8; 32],
+        argon2_params: crate::crypto::Argon2Params,
+        wrappers: Vec<crate::crypto::Wrapper>,
+        canary: String,
+    ) -> Result<Self, crate::VaultError> {
+        if wrappers.len() > 8 {
+            return Err(crate::VaultError::TooManyWrappers);
+        }
+        if wrappers.iter().any(|w| w.data.len() > 65535) {
+            return Err(crate::VaultError::WrapperTooLarge(65535));
+        }
 
         Ok(Self {
             magic: *b"MQV2",
@@ -178,6 +212,13 @@ impl VaultHeader {
         let mut wrapper_count = [0u8; 1];
         cursor.read_exact(&mut wrapper_count).map_err(|e| crate::VaultError::ParseError(e.to_string()))?;
         let wrapper_count = wrapper_count[0] as usize;
+
+        // Validate wrapper count (max 8 wrappers allowed)
+        if wrapper_count > 8 {
+            return Err(crate::VaultError::ParseError(format!(
+                "too many wrappers: {wrapper_count} (max 8)"
+            )));
+        }
 
         let mut wrappers = Vec::with_capacity(wrapper_count);
         for _ in 0..wrapper_count {

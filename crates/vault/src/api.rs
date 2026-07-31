@@ -141,8 +141,12 @@ impl Vault {
         // Generate vault key
         let vault_key = crypto::VaultKey::new();
 
-        // Create empty contents
-        let contents = VaultContents::default();
+        // Generate canary first (will be used in both header and contents)
+        let canary = format::VaultHeader::generate_canary();
+
+        // Create empty contents with canary
+        let mut contents = VaultContents::default();
+        contents.set_canary(canary.clone());
 
         // Wrap with Argon2id
         let salt = crypto::generate_salt();
@@ -159,12 +163,13 @@ impl Vault {
             }
         }
 
-        // Build header
-        let header = format::VaultHeader::new(
+        // Build header with canary
+        let header = format::VaultHeader::new_with_canary(
             crypto::Ed25519PublicKey(vault_key.derive_verifying_key().to_bytes()),
             salt,
             params,
             wrappers,
+            canary,
         )?;
 
         // Encrypt contents
@@ -265,7 +270,9 @@ impl Vault {
         // Check rate limiting before attempting password
         let now = now_ms();
         {
-            let lockout = self.lockout.lock().unwrap();
+            let lockout = self.lockout.lock().map_err(|_| {
+                VaultError::Other("lockout mutex poisoned".into())
+            })?;
             lockout.check_lockout(now)?;
         }
 
@@ -448,7 +455,21 @@ pub async fn migrate_if_needed(vault_path: &std::path::Path) -> Result<(), Vault
             // The migration will happen on next unlock with password
             // Store a flag that migration is needed
             let migration_flag = vault_path.with_extension("bin.migrate");
-            std::fs::write(&migration_flag, format!("{}", vault_file.header.version))
+            
+            // Write with restrictive permissions
+            use std::fs::OpenOptions;
+            #[cfg(unix)]
+            use std::os::unix::fs::OpenOptionsExt;
+            
+            #[allow(unused_mut)]
+            let mut open_opts = OpenOptions::new();
+            open_opts.write(true).create(true).truncate(true);
+            #[cfg(unix)]
+            open_opts.mode(0o600);
+            
+            let mut file = open_opts.open(&migration_flag)
+                .map_err(VaultError::Io)?;
+            std::io::Write::write_all(&mut file, format!("{}", vault_file.header.version).as_bytes())
                 .map_err(VaultError::Io)?;
             
             Ok(())

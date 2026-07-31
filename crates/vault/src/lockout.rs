@@ -4,6 +4,7 @@ use std::sync::Mutex;
 
 const MAX_ATTEMPTS_BEFORE_HARD_LOCKOUT: u32 = 10;
 const HARD_LOCKOUT_DURATION_MS: u64 = 300_000; // 5 minutes
+const KEYCHAIN_SERVICE: &str = "multitop-vault-lockout";
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LockoutState {
@@ -12,14 +13,26 @@ pub struct LockoutState {
 }
 
 impl LockoutState {
-    fn lockout_path(vault_path: &Path) -> std::path::PathBuf {
-        let mut p = vault_path.to_path_buf();
-        let ext = format!("{}.lockout", p.extension().map(|e| e.to_str().unwrap_or("bin")).unwrap_or("bin"));
-        p.set_extension(&ext);
-        p
+    fn account_name(vault_path: &Path) -> String {
+        use sha2::{Digest, Sha256};
+        let canonical = std::fs::canonicalize(vault_path)
+            .unwrap_or_else(|_| vault_path.to_path_buf());
+        let hash = Sha256::digest(canonical.to_string_lossy().as_bytes());
+        format!("lockout-{}", hex::encode(hash))
     }
 
     pub fn load(vault_path: &Path) -> Self {
+        // Try keychain first (preferred - can't be trivially deleted)
+        let account = Self::account_name(vault_path);
+        if let Ok(entry) = keyring::Entry::new(KEYCHAIN_SERVICE, &account) {
+            if let Ok(stored) = entry.get_password() {
+                if let Ok(state) = serde_json::from_str(&stored) {
+                    return state;
+                }
+            }
+        }
+
+        // Fallback to file-based storage (legacy)
         let path = Self::lockout_path(vault_path);
         std::fs::read_to_string(&path)
             .ok()
@@ -27,11 +40,28 @@ impl LockoutState {
             .unwrap_or(Self { failed_attempts: 0, lockout_until_epoch_ms: 0 })
     }
 
+    fn lockout_path(vault_path: &Path) -> std::path::PathBuf {
+        let mut p = vault_path.to_path_buf();
+        let ext = format!("{}.lockout", p.extension().map(|e| e.to_str().unwrap_or("bin")).unwrap_or("bin"));
+        p.set_extension(&ext);
+        p
+    }
+
     pub fn save(&self, vault_path: &Path) {
-        let path = Self::lockout_path(vault_path);
-        if let Ok(json) = serde_json::to_string(self) {
-            let _ = std::fs::write(&path, &json);
+        let json = match serde_json::to_string(self) {
+            Ok(j) => j,
+            Err(_) => return,
+        };
+
+        // Save to keychain (preferred - survives file deletion)
+        let account = Self::account_name(vault_path);
+        if let Ok(entry) = keyring::Entry::new(KEYCHAIN_SERVICE, &account) {
+            let _ = entry.set_password(&json);
         }
+
+        // Also save to file as backup
+        let path = Self::lockout_path(vault_path);
+        let _ = std::fs::write(&path, &json);
     }
 
     pub fn on_failure(&mut self, vault_path: &Path, now_ms: u64) {
@@ -82,11 +112,13 @@ impl<'a> LockoutGuard<'a> {
 
 impl Drop for LockoutGuard<'_> {
     fn drop(&mut self) {
-        let mut lockout = self.state.lock().unwrap();
-        if self.succeeded {
-            lockout.on_success(self.vault_path);
-        } else {
-            lockout.on_failure(self.vault_path, self.start_time_ms);
+        // Ignore poison errors - we still want to update state
+        if let Ok(mut lockout) = self.state.lock() {
+            if self.succeeded {
+                lockout.on_success(self.vault_path);
+            } else {
+                lockout.on_failure(self.vault_path, self.start_time_ms);
+            }
         }
     }
 }

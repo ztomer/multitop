@@ -9,6 +9,7 @@
 #![allow(unsafe_code)]
 
 use libc::{mlock, munlock};
+use zeroize::Zeroize;
 
 /// Lock the given memory range to prevent swapping.
 /// Returns Ok(()) on success, or logs a warning and returns Ok(()) on failure
@@ -39,41 +40,58 @@ pub fn munlock_memory(ptr: *const u8, len: usize) -> Result<(), std::io::Error> 
     }
 }
 
-/// A wrapper that locks memory on creation and unlocks on drop.
+/// A wrapper that owns sensitive data, locks it in memory, and zeroizes on drop.
 pub struct LockedMemory {
-    ptr: *const u8,
-    len: usize,
+    data: Vec<u8>,
 }
 
-// SAFETY: LockedMemory only uses the raw pointer for mlock/munlock calls
-// which are thread-safe system calls. The pointer is valid for the lifetime
-// of the LockedMemory instance.
-unsafe impl Send for LockedMemory {}
-unsafe impl Sync for LockedMemory {}
-
 impl LockedMemory {
-    /// Lock the memory for the given slice.
+    /// Lock the memory for the given slice. Copies data into owned Vec.
     pub fn new(slice: &[u8]) -> Result<Self, std::io::Error> {
-        let ptr = slice.as_ptr();
-        let len = slice.len();
+        let mut data = slice.to_vec();
+        let ptr = data.as_ptr();
+        let len = data.len();
         mlock_memory(ptr, len)?;
-        Ok(Self { ptr, len })
+        Ok(Self { data })
+    }
+
+    /// Create a no-op LockedMemory for when mlock fails
+    pub fn noop() -> Self {
+        Self { data: Vec::new() }
+    }
+
+    /// Get a pointer to the locked memory
+    pub fn as_ptr(&self) -> *const u8 {
+        self.data.as_ptr()
+    }
+
+    /// Get the length of the locked memory
+    pub fn len(&self) -> usize {
+        self.data.len()
+    }
+
+    /// Check if this is a no-op (empty) instance
+    pub fn is_empty(&self) -> bool {
+        self.data.is_empty()
     }
 }
 
 impl Drop for LockedMemory {
     fn drop(&mut self) {
-        let _ = munlock_memory(self.ptr, self.len);
+        if !self.data.is_empty() {
+            let ptr = self.data.as_ptr();
+            let len = self.data.len();
+            let _ = munlock_memory(ptr, len);
+        }
+        // Zeroize the data before deallocation
+        self.data.zeroize();
     }
 }
 
-// Provide a no-op fallback for the fallback case
-impl LockedMemory {
-    /// Create a no-op LockedMemory for when mlock fails
-    pub fn noop() -> Self {
-        Self { ptr: std::ptr::null(), len: 0 }
-    }
-}
+// SAFETY: LockedMemory owns its data via Vec, which is Send/Sync.
+// The mlock/munlock calls are thread-safe system calls.
+unsafe impl Send for LockedMemory {}
+unsafe impl Sync for LockedMemory {}
 
 #[cfg(test)]
 mod tests {
@@ -123,7 +141,11 @@ mod tests {
         let locked = LockedMemory::new(&data);
         // Should not panic
         match locked {
-            Ok(_) => (), // Memory locked successfully
+            Ok(m) => {
+                assert_eq!(m.len(), 2048);
+                assert!(!m.is_empty());
+                assert_eq!(m.as_ptr() as usize, m.data.as_ptr() as usize);
+            }
             Err(e) => {
                 // Expected on macOS without root
                 assert!(
@@ -137,20 +159,28 @@ mod tests {
     #[test]
     fn test_locked_memory_noop() {
         let locked = LockedMemory::noop();
-        assert!(locked.ptr.is_null());
-        assert_eq!(locked.len, 0);
+        assert!(locked.is_empty());
+        assert_eq!(locked.len(), 0);
         // Drop should not panic
     }
 
     #[test]
-    fn test_locked_memory_drop() {
+    fn test_locked_memory_drop_zeroizes() {
         let data = [3u8; 1024];
-        {
-            let _locked = LockedMemory::new(&data);
-            // Memory is locked here
-        }
-        // Memory is unlocked here (drop called)
-        // Should not panic
+        let mut locked = LockedMemory::new(&data).unwrap_or_else(|_| LockedMemory::noop());
+        let ptr = locked.as_ptr();
+        let len = locked.len();
+        drop(locked);
+        // After drop, the memory should have been zeroized
+        // We can't safely read freed memory, but we verify the drop didn't panic
+    }
+
+    #[test]
+    fn test_locked_memory_owns_data() {
+        let data = [4u8; 256];
+        let locked = LockedMemory::new(&data).unwrap();
+        // The locked memory should contain a copy, not a reference
+        assert_eq!(&locked.data[..], &data[..]);
     }
 
     #[test]
