@@ -317,3 +317,36 @@ pub fn unwrap_argon2id(wrapped: &[u8], password: &str, salt: &[u8; 32], params: 
     key.copy_from_slice(&plaintext);
     Ok(VaultKey(key))
 }
+
+/// Securely overwrite a file with random data + zeros before deletion.
+/// Best-effort on modern SSDs with encryption; use full-disk encryption for real protection.
+pub fn secure_overwrite(path: &std::path::Path) -> std::io::Result<()> {
+    let metadata = std::fs::metadata(path)?;
+    let len = metadata.len() as usize;
+
+    if len == 0 {
+        return Ok(());
+    }
+
+    use rand::RngCore;
+
+    // Pass 1: random data
+    let mut rng = rand::thread_rng();
+    let mut buf = vec![0u8; len];
+    rng.fill_bytes(&mut buf);
+    std::fs::write(path, &buf)?;
+
+    // Pass 2: zeros
+    buf.fill(0);
+    std::fs::write(path, &buf)?;
+
+    // Pass 3: random data
+    rng.fill_bytes(&mut buf);
+    std::fs::write(path, &buf)?;
+
+    // Final sync
+    let file = std::fs::OpenOptions::new().write(true).open(path)?;
+    file.sync_all()?;
+
+    Ok(())
+}

@@ -374,6 +374,9 @@ impl Vault {
         vault.header.nonce = nonce;
         vault.header.signature = crypto::sign_vault(&vault.vault_key, &vault.header.signed_data(&ciphertext));
 
+        // Securely overwrite old vault file before writing new one
+        crypto::secure_overwrite(&vault.file_path).ok(); // best-effort, ignore errors
+
         // Write
         format::atomic_write_vault(&vault.file_path, &vault.header, &ciphertext)?;
 
