@@ -58,3 +58,51 @@ pub fn refit_line(line: &str, target_cols: usize) -> String {
     }
     line.to_string()
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn refit_header_wide_terminal() {
+        let line = "\u{2500}\u{2500}\u{2500} \u{ff23}\u{ff30}\u{ff30} \u{2500}\u{2500}\u{2500}";
+        let result = refit_header(line, 40).unwrap();
+        assert!(result.contains("\u{ff23}\u{ff30}\u{ff30}"));
+        assert!(result.contains("\u{2500}"));
+    }
+
+    #[test]
+    fn refit_header_narrow_terminal() {
+        let line = "\u{2500}\u{2500}\u{2500} \u{ff23}\u{ff30}\u{ff30} \u{2500}\u{2500}\u{2500}";
+        let result = refit_header(line, 5).unwrap();
+        assert_eq!(result, "\x1b[36;1m\u{ff23}\u{ff30}\u{ff30}\x1b[0m");
+    }
+
+    #[test]
+    fn refit_header_fullwidth_chars() {
+        let line = "\u{2500}\u{2500}\u{2500} \u{ff23}\u{ff30}\u{ff30} \u{2500}\u{2500}\u{2500}";
+        let result = refit_header(line, 20).unwrap();
+        assert!(result.contains("\u{ff23}\u{ff30}\u{ff30}"));
+    }
+
+    #[test]
+    fn refit_line_horizontal_rule() {
+        let line = "\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}";
+        let result = refit_line(line, 20);
+        assert!(result.contains("\u{2500}"));
+        assert!(result.contains("\x1b[90m"));
+    }
+
+    #[test]
+    fn refit_line_plain_text() {
+        let line = "hello world";
+        let result = refit_line(line, 20);
+        assert_eq!(result, "hello world");
+    }
+
+    #[test]
+    fn refit_line_empty() {
+        let result = refit_line("", 20);
+        assert_eq!(result, "");
+    }
+}

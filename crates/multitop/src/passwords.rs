@@ -306,3 +306,123 @@ fn server_key(app: &mut App, key: KeyCode) -> PasswordAction {
     }
     PasswordAction::None
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::app::App;
+    use crate::config::Server;
+    use crossterm::event::KeyCode;
+
+    fn test_server(host: &str) -> Server {
+        Server {
+            host: host.to_string(),
+            port: 22,
+            user: "admin".to_string(),
+            upgrade_cmd: Some("sudo apt update".to_string()),
+        }
+    }
+
+    #[test]
+    fn server_key_draft_field_navigation() {
+        let mut app = App::new(vec![test_server("host1")]);
+        crate::passwords::open(&mut app, 0, false);
+        app.password_manager.as_mut().unwrap().draft = Some(ServerDraft::new(None, None, None));
+
+        crate::passwords::handle_key(&mut app, KeyCode::Tab);
+        assert_eq!(app.password_manager.as_ref().unwrap().draft.as_ref().unwrap().field, 1);
+
+        crate::passwords::handle_key(&mut app, KeyCode::Tab);
+        assert_eq!(app.password_manager.as_ref().unwrap().draft.as_ref().unwrap().field, 2);
+
+        crate::passwords::handle_key(&mut app, KeyCode::Up);
+        assert_eq!(app.password_manager.as_ref().unwrap().draft.as_ref().unwrap().field, 1);
+
+        crate::passwords::handle_key(&mut app, KeyCode::Down);
+        assert_eq!(app.password_manager.as_ref().unwrap().draft.as_ref().unwrap().field, 2);
+    }
+
+    #[test]
+    fn server_key_draft_char_input() {
+        let mut app = App::new(vec![test_server("host1")]);
+        crate::passwords::open(&mut app, 0, false);
+        app.password_manager.as_mut().unwrap().draft = Some(ServerDraft::new(None, None, None));
+
+        crate::passwords::handle_key(&mut app, KeyCode::Char('t'));
+        crate::passwords::handle_key(&mut app, KeyCode::Char('e'));
+        crate::passwords::handle_key(&mut app, KeyCode::Char('s'));
+        crate::passwords::handle_key(&mut app, KeyCode::Char('t'));
+
+        assert_eq!(app.password_manager.as_ref().unwrap().draft.as_ref().unwrap().host, "test");
+    }
+
+    #[test]
+    fn server_key_draft_backspace() {
+        let mut app = App::new(vec![test_server("host1")]);
+        crate::passwords::open(&mut app, 0, false);
+        app.password_manager.as_mut().unwrap().draft = Some(ServerDraft::new(None, None, None));
+        app.password_manager.as_mut().unwrap().draft.as_mut().unwrap().host = "test".to_string();
+
+        crate::passwords::handle_key(&mut app, KeyCode::Backspace);
+        assert_eq!(app.password_manager.as_ref().unwrap().draft.as_ref().unwrap().host, "tes");
+    }
+
+    #[test]
+    fn server_key_draft_enter_valid() {
+        let mut app = App::new(vec![test_server("host1")]);
+        crate::passwords::open(&mut app, 0, false);
+        app.password_manager.as_mut().unwrap().draft = Some(ServerDraft::new(None, None, None));
+        app.password_manager.as_mut().unwrap().draft.as_mut().unwrap().host = "newhost".to_string();
+        app.password_manager.as_mut().unwrap().draft.as_mut().unwrap().user = "user".to_string();
+        app.password_manager.as_mut().unwrap().draft.as_mut().unwrap().port = "22".to_string();
+        app.password_manager.as_mut().unwrap().draft.as_mut().unwrap().upgrade_cmd = "cmd".to_string();
+
+        let action = crate::passwords::handle_key(&mut app, KeyCode::Enter);
+        assert!(matches!(action, PasswordAction::ApplyServers(_) | PasswordAction::SaveServerWithPassword { .. }));
+    }
+
+    #[test]
+    fn server_key_draft_enter_invalid() {
+        let mut app = App::new(vec![test_server("host1")]);
+        crate::passwords::open(&mut app, 0, false);
+        app.password_manager.as_mut().unwrap().draft = Some(ServerDraft::new(None, None, None));
+        app.password_manager.as_mut().unwrap().draft.as_mut().unwrap().host = "host with spaces".to_string();
+
+        let action = crate::passwords::handle_key(&mut app, KeyCode::Enter);
+        assert_eq!(action, PasswordAction::None);
+        assert!(app.password_manager.as_ref().unwrap().notice.is_some());
+        assert!(app.password_manager.as_ref().unwrap().draft.is_some());
+    }
+
+    #[test]
+    fn server_key_draft_esc_cancels() {
+        let mut app = App::new(vec![test_server("host1")]);
+        crate::passwords::open(&mut app, 0, false);
+        app.password_manager.as_mut().unwrap().draft = Some(ServerDraft::new(None, None, None));
+        app.password_manager.as_mut().unwrap().draft.as_mut().unwrap().host = "test".to_string();
+
+        let action = crate::passwords::handle_key(&mut app, KeyCode::Esc);
+        assert_eq!(action, PasswordAction::None);
+        assert!(app.password_manager.as_ref().unwrap().draft.is_none());
+    }
+
+    #[test]
+    fn password_key_sparkline_toggle() {
+        let mut app = App::new(vec![test_server("host1")]);
+        crate::passwords::open(&mut app, 0, false);
+
+        let action = crate::passwords::handle_key(&mut app, KeyCode::Char('p'));
+        assert_eq!(action, PasswordAction::ToggleSparklines);
+    }
+
+    #[test]
+    fn password_key_delete_server_last_one_shows_notice() {
+        let mut app = App::new(vec![test_server("host1")]);
+        crate::passwords::open(&mut app, 0, false);
+
+        let action = crate::passwords::handle_key(&mut app, KeyCode::Char('d'));
+        assert_eq!(action, PasswordAction::None);
+        assert!(app.password_manager.as_ref().unwrap().notice.is_some());
+        assert!(app.password_manager.as_ref().unwrap().notice.as_ref().unwrap().contains("Cannot remove"));
+    }
+}

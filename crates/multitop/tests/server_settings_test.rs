@@ -5,14 +5,28 @@ use crossterm::event::KeyCode;
 use multitop::app::{App, Mode, Msg};
 use multitop::config::Server;
 use multitop::passwords::{self, ConfigSection, PasswordAction};
+use multitop::password_store;
+use std::sync::atomic::{AtomicU16, Ordering};
+
+static PORT_COUNTER: AtomicU16 = AtomicU16::new(10000);
+
+fn next_port() -> u16 {
+    PORT_COUNTER.fetch_add(1, Ordering::Relaxed)
+}
 
 fn test_server(host: &str) -> Server {
     Server {
         host: host.to_string(),
-        port: 22,
+        port: next_port(),
         user: "admin".to_string(),
         upgrade_cmd: Some("sudo apt update".to_string()),
     }
+}
+
+fn setup_mock_store() {
+    password_store::enable_mock_store();
+    password_store::clear_mock_store();
+    password_store::delete_sso().unwrap();
 }
 
 #[test]
@@ -96,6 +110,10 @@ fn test_apply_servers_updates_panels_dynamically() {
 
 #[tokio::test]
 async fn test_save_password_in_upgrade_mode_triggers_upgrade_resume() {
+    password_store::enable_mock_store();
+    password_store::clear_mock_store();
+    password_store::delete_sso().unwrap();
+
     let mut app = App::new(vec![test_server("host1")]);
     app.panels[0].mode = Mode::Upgrade;
 
@@ -141,4 +159,212 @@ fn test_add_and_delete_server_from_passwords_section() {
     };
     assert_eq!(remaining.len(), 1);
     assert_eq!(remaining[0].host, "host2");
+}
+
+#[test]
+fn test_save_server_with_password() {
+    setup_mock_store();
+    let mut app = App::new(vec![test_server("host1")]);
+    let tmp_path = std::env::temp_dir().join(format!("multitop_test_cfg_{}.toml", std::process::id()));
+    app.config_path = Some(tmp_path.clone());
+
+    let (tx, _rx) = tokio::sync::mpsc::channel::<Msg>(10);
+    let mut tasks = multitop::run::Tasks::new(1);
+    let servers = vec![test_server("host1")];
+
+    password_store::enable_mock_store();
+    password_store::clear_mock_store();
+
+    multitop::password_actions::apply(
+        PasswordAction::SaveServerWithPassword {
+            servers: vec![test_server("host1"), test_server("host2")],
+            target_idx: 1,
+            password: "new_password".to_string(),
+        },
+        &mut app,
+        &[test_server("host1"), test_server("host2")],
+        &tx,
+        &mut tasks,
+    );
+
+    assert_eq!(app.panels.len(), 2);
+    assert_eq!(app.panels[1].server.host, "host2");
+    assert_eq!(app.panels[1].sudo_password.as_deref(), Some("new_password"));
+
+    let _ = std::fs::remove_file(tmp_path);
+}
+
+#[test]
+fn test_delete_password_removes_from_keychain() {
+    setup_mock_store();
+    let mut app = App::new(vec![test_server("host1")]);
+    let tmp_path = std::env::temp_dir().join(format!("multitop_test_cfg_{}.toml", std::process::id()));
+    app.config_path = Some(tmp_path.clone());
+
+    let (tx, _rx) = tokio::sync::mpsc::channel::<Msg>(10);
+    let mut tasks = multitop::run::Tasks::new(1);
+
+    // Use the panel's server for password operations
+    let server = app.panels[0].server.clone();
+    password_store::save(&server, "test_pass").unwrap();
+
+    multitop::password_actions::apply(
+        PasswordAction::Delete { panel: 0 },
+        &mut app,
+        &[server.clone()],
+        &tx,
+        &mut tasks,
+    );
+
+    assert_eq!(app.panels[0].sudo_password, None);
+    assert!(!app.panels[0].password_saved);
+
+    let loaded = password_store::load(&server).unwrap();
+    assert_eq!(loaded, None);
+
+    let _ = std::fs::remove_file(tmp_path);
+}
+
+#[test]
+fn test_save_sso_propagates_to_all_panels() {
+    setup_mock_store();
+    let mut app = App::new(vec![test_server("host1"), test_server("host2")]);
+    let tmp_path = std::env::temp_dir().join(format!("multitop_test_cfg_{}.toml", std::process::id()));
+    app.config_path = Some(tmp_path.clone());
+
+    let (tx, _rx) = tokio::sync::mpsc::channel::<Msg>(10);
+    let mut tasks = multitop::run::Tasks::new(2);
+    let servers = vec![test_server("host1"), test_server("host2")];
+
+    multitop::password_actions::apply(
+        PasswordAction::SaveSso { password: "sso_pass".to_string() },
+        &mut app,
+        &servers,
+        &tx,
+        &mut tasks,
+    );
+
+    assert_eq!(app.panels[0].sudo_password.as_deref(), Some("sso_pass"));
+    assert_eq!(app.panels[1].sudo_password.as_deref(), Some("sso_pass"));
+    assert!(app.panels[0].password_saved);
+    assert!(app.panels[1].password_saved);
+
+    let loaded = password_store::load_sso().unwrap();
+    assert_eq!(loaded.as_deref(), Some("sso_pass"));
+
+    let _ = std::fs::remove_file(tmp_path);
+}
+
+#[test]
+fn test_delete_sso_clears_all() {
+    setup_mock_store();
+    password_store::save_sso("sso_pass").unwrap();
+
+    let mut app = App::new(vec![test_server("host1"), test_server("host2")]);
+    let tmp_path = std::env::temp_dir().join(format!("multitop_test_cfg_{}.toml", std::process::id()));
+    app.config_path = Some(tmp_path.clone());
+
+    let (tx, _rx) = tokio::sync::mpsc::channel::<Msg>(10);
+    let mut tasks = multitop::run::Tasks::new(2);
+    let servers = vec![test_server("host1"), test_server("host2")];
+
+    multitop::password_actions::apply(
+        PasswordAction::DeleteSso,
+        &mut app,
+        &servers,
+        &tx,
+        &mut tasks,
+    );
+
+    // SSO deleted from store
+    let loaded = password_store::load_sso().unwrap();
+    assert_eq!(loaded, None);
+
+    let _ = std::fs::remove_file(tmp_path);
+}
+
+#[test]
+fn test_toggle_sparklines_persists_config() {
+    setup_mock_store();
+    let mut app = App::new(vec![test_server("host1")]);
+    let tmp_path = std::env::temp_dir().join(format!("multitop_test_cfg_{}.toml", std::process::id()));
+    app.config_path = Some(tmp_path.clone());
+
+    let (tx, _rx) = tokio::sync::mpsc::channel::<Msg>(10);
+    let mut tasks = multitop::run::Tasks::new(1);
+
+    multitop::password_actions::apply(
+        PasswordAction::ToggleSparklines,
+        &mut app,
+        &[test_server("host1")],
+        &tx,
+        &mut tasks,
+    );
+
+    assert!(app.show_sparklines);
+
+    let _ = std::fs::remove_file(tmp_path);
+}
+
+#[test]
+fn test_save_resume_upgrade_false() {
+    setup_mock_store();
+    let mut app = App::new(vec![test_server("host1")]);
+    let tmp_path = std::env::temp_dir().join(format!("multitop_test_cfg_{}.toml", std::process::id()));
+    app.config_path = Some(tmp_path.clone());
+
+    let (tx, _rx) = tokio::sync::mpsc::channel::<Msg>(10);
+    let mut tasks = multitop::run::Tasks::new(1);
+    let servers = vec![test_server("host1")];
+
+    password_store::enable_mock_store();
+    password_store::clear_mock_store();
+
+    // Panel in Monitor mode, save with resume_upgrade=false
+    multitop::password_actions::apply(
+        PasswordAction::Save {
+            panel: 0,
+            password: "pass".to_string(),
+            resume_upgrade: false,
+        },
+        &mut app,
+        &servers,
+        &tx,
+        &mut tasks,
+    );
+
+    // Should not trigger upgrade (panel stays in Monitor mode)
+    assert_eq!(app.panels[0].mode, Mode::Monitor);
+
+    let _ = std::fs::remove_file(tmp_path);
+}
+
+#[test]
+fn test_apply_servers_preserves_existing_passwords() {
+    setup_mock_store();
+    let mut app = App::new(vec![test_server("host1"), test_server("host2")]);
+    let tmp_path = std::env::temp_dir().join(format!("multitop_test_cfg_{}.toml", std::process::id()));
+    app.config_path = Some(tmp_path.clone());
+    app.panels[0].sudo_password = Some("secret1".to_string());
+    app.panels[0].password_saved = true;
+    app.panels[1].sudo_password = Some("secret2".to_string());
+    app.panels[1].password_saved = true;
+
+    let (tx, _rx) = tokio::sync::mpsc::channel::<Msg>(10);
+    let mut tasks = multitop::run::Tasks::new(2);
+
+    multitop::password_actions::apply(
+        PasswordAction::ApplyServers(vec![test_server("host1"), test_server("host2"), test_server("host3")]),
+        &mut app,
+        &[test_server("host1"), test_server("host2"), test_server("host3")],
+        &tx,
+        &mut tasks,
+    );
+
+    assert_eq!(app.panels.len(), 3);
+    assert_eq!(app.panels[0].sudo_password.as_deref(), Some("secret1"));
+    assert_eq!(app.panels[1].sudo_password.as_deref(), Some("secret2"));
+    assert_eq!(app.panels[2].sudo_password, None); // new server has no password
+
+    let _ = std::fs::remove_file(tmp_path);
 }

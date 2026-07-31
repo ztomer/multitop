@@ -267,3 +267,72 @@ pub fn render_fetch(
 
     out
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use multitop_agent::color::KARE;
+
+    #[test]
+    fn center_header_widths() {
+        // center_header is from multitop_agent::fmt - converts to fullwidth
+        let result = multitop_agent::fmt::center_header("test", 20, &KARE);
+        // Converts ASCII to fullwidth: test -> ｔｅｓｔ
+        assert!(result.contains("ｔｅｓｔ") || result.contains("test"));
+        assert!(result.len() >= 4);
+    }
+
+    #[test]
+    fn pick_lines_crop_center() {
+        let logo = Logo {
+            patterns: vec![],
+            colors: vec![],
+            lines: (0..10).map(|i| format!("line {}", i)).collect(),
+        };
+        let picked = pick_lines(&logo, 4);
+        assert_eq!(picked.len(), 4);
+        // Should pick middle 4 lines (indices 3,4,5,6)
+        assert_eq!(picked[0], "line 3");
+        assert_eq!(picked[3], "line 6");
+    }
+
+    #[test]
+    fn pick_lines_no_crop_when_fits() {
+        let logo = Logo {
+            patterns: vec![],
+            colors: vec![],
+            lines: vec!["a".into(), "b".into()],
+        };
+        let picked = pick_lines(&logo, 5);
+        assert_eq!(picked.len(), 2);
+        assert_eq!(picked[0], "a");
+        assert_eq!(picked[1], "b");
+    }
+
+    #[test]
+    fn load_db_non_empty() {
+        let db = load_db();
+        assert!(!db.logos.is_empty());
+        // Should have common OS logos
+        let has_linux = db.logos.iter().any(|l| l.patterns.iter().any(|p| p == "linux"));
+        assert!(has_linux);
+    }
+
+    #[test]
+    fn render_fetch_produces_output() {
+        let snap = FetchSnapshot {
+            user_host: "user@host".into(),
+            agent_version: "test".into(),
+            os: "Linux".into(),
+            kernel: "6.1.0".into(),
+            uptime: "1h".into(),
+            host_model: "VM".into(),
+            cpu_model: "CPU".into(),
+            memory_str: "1GiB/2GiB".into(),
+            disk_str: "10GiB/20GiB".into(),
+        };
+        let result = render_fetch(&snap, 80, 24, &KARE);
+        assert!(!result.is_empty());
+        assert!(result.iter().any(|l| l.contains("user@host") || l.contains("ｕｓｅｒ＠ｈｏｓｔ")));
+    }
+}
