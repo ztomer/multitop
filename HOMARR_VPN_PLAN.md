@@ -75,6 +75,29 @@ Only values in the homarr `app` table (`href`, `ping_url` columns). They are:
 
 ### Every other URL in the stack (independent, NOT changed)
 
+#### Arr DB interservice URLs (stored in each arr's own SQLite database)
+
+Each arr stores its download-client and indexer URLs in its own database (DownloadClients + Indexers tables). **NONE of these are tile URLs** — they are configured independently through the arr's web UI/API and live in the arr's own DB.
+
+**Confirmed: all use Docker DNS names (`vpn` or `localhost`), NOT the LAN IP, NOT hostnames, NOT tile URLs.**
+
+| Arr DB | Target | URL | Table |
+|--------|--------|-----|-------|
+| sonarr | qbittorrent | `vpn:8081` | DownloadClients |
+| sonarr | prowlarr (17 indexers) | `http://vpn:9696/` | Indexers |
+| radarr | qbittorrent | `vpn:8081` | DownloadClients |
+| radarr | prowlarr (13 indexers) | `http://vpn:9696/` | Indexers |
+| lidarr | qbittorrent | `localhost:8081` | DownloadClients |
+| lidarr | slskd | `http://localhost:5030` | DownloadClients |
+| lidarr | prowlarr (14 indexers) | `http://localhost:9696/` | Indexers (uses `localhost` NOT `vpn`) |
+| lidarr | slskd (indexer) | `http://localhost:5030` | Indexers |
+| readarr | qbittorrent | `vpn:8081` | DownloadClients |
+| readarr | prowlarr (10 indexers) | `http://vpn:9696/` | Indexers |
+
+**Notable inconsistency**: lidarr uses `localhost` for everything (qBittorrent, Prowlarr, Slskd) while sonarr/radarr/readarr use `vpn`. Both resolve correctly because all VPN-mode containers share gluetun's network namespace (`network_mode: service:vpn`), so `localhost` and `vpn` are equivalent. This is a cosmetic inconsistency, not a bug.
+
+**Impact on tile change: ZERO.** These URLs are in the arrs' own databases, configured through their own UI, completely independent of homarr tiles.
+
 #### Docker DNS interservice URLs (compose env vars)
 
 These reference services by Docker DNS name (`sonarr`, `jellyfin`, `vpn`, etc.) — they don't use tile URLs, hostnames, or IPs:
@@ -87,6 +110,10 @@ These reference services by Docker DNS name (`sonarr`, `jellyfin`, `vpn`, etc.) 
 | unpackerr | lidarr | `http://vpn:8686/lidarr` | Compose var `UN_LIDARR_0_URL` |
 | prowlarr | flaresolverr | `http://localhost` | Compose var `FLARESOLVERR_HOST` |
 | sparkyfitness-server | garmin | `http://sparkyfitness-garmin:8000` | Compose var `GARMIN_MICROSERVICE_URL` |
+| cleanuparr | sonarr | `http://sonarr:8989/` | Own DB (arr_instances) |
+| cleanuparr | radarr | `http://radarr:7878/` | Own DB (arr_instances) |
+| cleanuparr | lidarr | `http://vpn:8686/lidarr/` | Own DB (arr_instances) |
+| cleanuparr | qbittorrent | `http://vpn:8081/` | Own DB (download_clients) |
 
 #### OIDC/external hostname URLs (compose env vars)
 

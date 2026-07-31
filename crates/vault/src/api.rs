@@ -2,12 +2,14 @@
 
 use crate::crypto::{self, WrapperType, now_ms};
 use crate::format;
+use crate::lockout::{LockoutGuard, LockoutState};
 use crate::secure_enclave;
 use crate::{VaultConfig, VaultError, VaultContents};
 use secrecy::SecretString;
 use zeroize::Zeroize;
 use std::path::PathBuf;
 use std::sync::Arc;
+use std::sync::Mutex as StdMutex;
 use tokio::sync::Mutex;
 
 
@@ -89,14 +91,17 @@ impl UnlockedVault {
 pub struct Vault {
     config: VaultConfig,
     unlocked: Arc<Mutex<Option<UnlockedVault>>>,
+    lockout: StdMutex<LockoutState>,
 }
 
 impl Vault {
     /// Create new vault manager
     pub fn new(config: VaultConfig) -> Self {
+        let lockout = LockoutState::load(&config.vault_path);
         Self {
             config,
             unlocked: Arc::new(Mutex::new(None)),
+            lockout: StdMutex::new(lockout),
         }
     }
 
@@ -252,6 +257,16 @@ impl Vault {
         crypto::verify_vault_signature(&vault_file.header.ed25519_pk, &vault_file.header.signed_data(&vault_file.ciphertext), &vault_file.header.signature)
             .map_err(|_| VaultError::Corrupted("signature verification failed".into()))?;
 
+        // Check rate limiting before attempting password
+        let now = now_ms();
+        {
+            let lockout = self.lockout.lock().unwrap();
+            lockout.check_lockout(now)?;
+        }
+
+        // Create guard that records failures on drop
+        let mut guard = LockoutGuard::new(&self.lockout, &self.config.vault_path, now);
+
         // Find Argon2id wrapper
         let argon2id_wrapper = vault_file.header.get_wrapper(WrapperType::Argon2id)
             .ok_or_else(|| VaultError::Corrupted("no Argon2id wrapper found".into()))?;
@@ -259,7 +274,10 @@ impl Vault {
         let params = &vault_file.header.argon2_params;
         let vault_key = crypto::unwrap_argon2id(&argon2id_wrapper.data, password, &vault_file.header.salt, params)?;
 
-        self.decrypt_and_load(vault_key, &vault_file)
+        let unlocked = self.decrypt_and_load(vault_key, &vault_file)?;
+
+        guard.mark_success();
+        Ok(unlocked)
     }
 
     /// Decrypt vault contents with key
@@ -431,5 +449,36 @@ mod tests {
         // New password should work
         let unlocked = vault.unlock_with_password(new_pass).unwrap();
         assert!(unlocked.get_password("server1:22").is_none()); // empty vault
+    }
+
+    #[tokio::test]
+    async fn test_rate_limiting_lockout() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("test_vault.bin");
+        let config = fast_vault_config(path.clone());
+        let vault = Vault::new(config);
+
+        let password = "correct-password";
+        vault.initialize(password).await.unwrap();
+
+        // 3 wrong attempts
+        for _ in 0..3 {
+            assert!(vault.unlock_with_password("wrong").is_err());
+        }
+
+        // 4th should return RateLimited
+        assert!(matches!(vault.unlock_with_password("wrong"), Err(VaultError::RateLimited(_))));
+
+        // Wait past the 1-second backoff window
+        tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+
+        // Correct password resets lockout
+        let unlocked = vault.unlock_with_password(password).unwrap();
+        assert!(unlocked.get_password("test").is_none());
+
+        // Counter is reset; wrong attempt should NOT be rate limited
+        let result = vault.unlock_with_password("wrong");
+        assert!(result.is_err());
+        assert!(!matches!(result, Err(VaultError::RateLimited(_))));
     }
 }

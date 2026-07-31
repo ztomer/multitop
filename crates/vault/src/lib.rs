@@ -9,6 +9,7 @@
 pub mod api;
 pub mod crypto;
 pub mod format;
+pub mod lockout;
 pub mod secure_enclave;
 pub mod fprintd;
 
@@ -173,4 +174,7 @@ pub enum VaultError {
 
     #[error("Other error: {0}")]
     Other(String),
+
+    #[error("Rate limited: {0} seconds remaining")]
+    RateLimited(u64),
 }
