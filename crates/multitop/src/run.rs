@@ -92,6 +92,8 @@ async fn event_loop(
     let state = crate::state::load_state(&config_path);
     app.last_update = state.last_update;
     app.upgrade_started_at = state.upgrade_started_at;
+    // Initialize vault if vault.bin exists
+    app.vault = crate::vault::create_vault(&config_path);
     if let Some(ref tname) = initial_theme {
         if let Some(idx) = multitop_agent::color::THEMES
             .iter()
@@ -102,6 +104,7 @@ async fn event_loop(
     }
     let (tx, mut rx) = mpsc::channel::<Msg>(512);
     let mut tasks = Tasks::new(n);
+
     let mut events = crossterm::event::EventStream::new();
 
     let mut dims = ui::agent_dims(terminal.size()?, n);
@@ -243,6 +246,41 @@ fn handle_key(
         return;
     }
 
+    if app.show_vault_password_prompt {
+        match key.code {
+            KeyCode::Enter => {
+                let password = std::mem::take(&mut app.vault_password_input);
+                app.show_vault_password_prompt = false;
+                if !password.is_empty() {
+                    if let Some(ref vault) = app.vault {
+                        match vault.unlock_with_password(&password) {
+                            Ok(unlocked) => {
+                                app.vault_unlocked = Some(unlocked);
+                                app.vault_password_error = None;
+                                app.show_upgrade_modal = true;
+                            }
+                            Err(e) => {
+                                app.vault_password_error = Some(e.to_string());
+                                app.show_vault_password_prompt = true;
+                            }
+                        }
+                    }
+                }
+            }
+            KeyCode::Esc => {
+                app.show_vault_password_prompt = false;
+                app.vault_password_input.clear();
+                app.vault_password_error = None;
+            }
+            KeyCode::Backspace => {
+                app.vault_password_input.pop();
+            }
+            KeyCode::Char(c) => app.vault_password_input.push(c),
+            _ => {}
+        }
+        return;
+    }
+
     if app.password_manager.is_some() {
         let action = crate::passwords::handle_key(app, key.code);
         crate::password_actions::apply(action, app, servers, tx, tasks);
@@ -332,6 +370,11 @@ fn handle_key(
                 } else {
                     app.show_upgrade_output();
                 }
+            } else if app.vault.is_some() && app.vault_unlocked.is_none() {
+                // Vault exists but is locked — prompt for vault password
+                app.show_vault_password_prompt = true;
+                app.vault_password_input.clear();
+                app.vault_password_error = None;
             } else {
                 app.show_upgrade_modal = true;
             }
@@ -375,16 +418,20 @@ fn execute_cmds(
                     tx.clone(),
                 ),
             ),
-            Command::RunUpgrade { panel, gen } => (
-                panel,
-                crate::tasks::spawn_upgrade(
-                    panel,
-                    gen,
-                    servers[panel].clone(),
-                    app.panels[panel].sudo_password.clone(),
-                    tx.clone(),
-                ),
-            ),
+Command::RunUpgrade { panel, gen } => {
+                    // Use the panel's stored sudo password (from keychain)
+                    let password = app.panels[panel].sudo_password.clone();
+                    (
+                        panel,
+                        crate::tasks::spawn_upgrade(
+                            panel,
+                            gen,
+                            servers[panel].clone(),
+                            password,
+                            tx.clone(),
+                        ),
+                    )
+                },
         };
         // Supersede whatever that panel was running, except for upgrade tasks
         // which should continue running in the background until they complete.

@@ -1,5 +1,6 @@
 //! Runtime effects requested by the password portion of Configuration.
 
+use secrecy::SecretString;
 use tokio::sync::mpsc::Sender;
 
 use crate::app::{App, Msg};
@@ -30,6 +31,7 @@ pub fn apply(
                     if let Some(old_panel) = app.panels.iter().find(|p| p.server.host == server.host) {
                         panel.sudo_password = old_panel.sudo_password.clone();
                         panel.password_saved = old_panel.password_saved;
+                        panel.external_password = old_panel.external_password;
                     }
                     new_panels.push(panel);
                 }
@@ -127,6 +129,11 @@ pub fn apply(
             app.panels[panel].sudo_password = Some(password.clone());
             let result = crate::password_store::save(&app.panels[panel].server, &password);
             app.panels[panel].password_saved = result.is_ok();
+            // Also save to vault if unlocked
+            if let Some(ref mut unlocked) = app.vault_unlocked {
+                let key = crate::password_store::account(&app.panels[panel].server);
+                let _ = unlocked.set_password(key, SecretString::new(password.clone().into_boxed_str()));
+            }
             if let Some(manager) = app.password_manager.as_mut() {
                 manager.resume_upgrade = false;
                 manager.notice = Some(match result {

@@ -5,6 +5,8 @@
 //! runtime in `run.rs` does the I/O; this module can be tested without a
 //! terminal or a network.
 
+use secrecy::ExposeSecret;
+
 use crate::config::Server;
 
 pub use crate::panel::{Mode, Panel};
@@ -30,6 +32,11 @@ pub struct App {
     pub last_update: Option<u64>,
     pub upgrade_started_at: Option<u64>,
     pub show_sparklines: bool,
+    pub vault: Option<multitop_vault::Vault>,
+    pub vault_unlocked: Option<multitop_vault::UnlockedVault>,
+    pub show_vault_password_prompt: bool,
+    pub vault_password_input: String,
+    pub vault_password_error: Option<String>,
 }
 
 impl App {
@@ -59,6 +66,11 @@ impl App {
             last_update: None,
             upgrade_started_at: None,
             show_sparklines: false,
+            vault: None,
+            vault_unlocked: None,
+            show_vault_password_prompt: false,
+            vault_password_input: String::new(),
+            vault_password_error: None,
         }
     }
 
@@ -190,6 +202,18 @@ impl App {
     pub fn run_upgrade(&mut self) -> Vec<Command> {
         self.reset_scroll();
         let pal = self.current_theme();
+        // Pre-load vault passwords if vault is unlocked
+        if let Some(ref unlocked) = self.vault_unlocked {
+            for p in &mut self.panels {
+                if p.sudo_password.is_none() {
+                    let key = crate::password_store::account(&p.server);
+                    if let Some(pass) = unlocked.get_password(&key) {
+                        p.sudo_password = Some(pass.expose_secret().to_string());
+                        p.external_password = true;
+                    }
+                }
+            }
+        }
         let mut cmds = Vec::new();
         for i in 0..self.panels.len() {
             let gen = self.bump(i);

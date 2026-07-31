@@ -45,7 +45,7 @@ pub fn is_mock_enabled() -> bool {
     MOCK_STORE.read().unwrap_or_else(|e| e.into_inner()).is_some()
 }
 
-fn account(server: &Server) -> String {
+pub fn account(server: &Server) -> String {
     let user = if server.user.is_empty() {
         "default"
     } else {

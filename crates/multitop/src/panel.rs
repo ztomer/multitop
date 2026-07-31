@@ -33,6 +33,7 @@ pub struct Panel {
     pub scroll_offset: usize,
     pub sudo_password: Option<String>,
     pub password_saved: bool,
+    pub external_password: bool,
 }
 
 impl Panel {
@@ -53,6 +54,7 @@ impl Panel {
             scroll_offset: 0,
             sudo_password: None,
             password_saved: false,
+            external_password: false,
         }
     }
 
@@ -64,6 +66,13 @@ impl Panel {
             }
         }
         self.sudo_password.clone()
+    }
+
+    pub fn set_sudo_password(&mut self, password: String, from_vault: bool) {
+        self.sudo_password = Some(password);
+        if from_vault {
+            self.external_password = true;
+        }
     }
 
     pub fn show_last_frame(&mut self) {
