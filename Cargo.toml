@@ -4,7 +4,7 @@ members = ["crates/agent", "crates/multitop", "crates/vault"]
 exclude = ["fuzz"]
 
 [workspace.package]
-version = "0.20.10"
+version = "0.21.0"
 edition = "2021"
 rust-version = "1.85"
 license = "MIT"
