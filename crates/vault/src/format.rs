@@ -265,11 +265,12 @@ pub fn read_vault_file(path: &std::path::Path) -> Result<VaultFile, crate::Vault
     VaultFile::read(path)
 }
 
-/// Atomically write vault file (tmp + rename + dir fsync)
+/// Atomically write vault file (tmp + rename + dir fsync) with advisory file locking
 pub fn atomic_write_vault(path: &std::path::Path, header: &VaultHeader, ciphertext: &[u8]) -> Result<(), crate::VaultError> {
     use std::fs::{File, OpenOptions};
     #[cfg(unix)]
     use std::os::unix::fs::PermissionsExt;
+    use fs2::FileExt;
 
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent).map_err(crate::VaultError::Io)?;
@@ -281,6 +282,7 @@ pub fn atomic_write_vault(path: &std::path::Path, header: &VaultHeader, cipherte
         }
     }
 
+    // Open the vault file for writing and acquire exclusive lock
     let tmp_path = path.with_extension("bin.tmp");
     #[allow(unused_mut)]
     let mut open_opts = OpenOptions::new();
@@ -289,11 +291,17 @@ pub fn atomic_write_vault(path: &std::path::Path, header: &VaultHeader, cipherte
     open_opts.mode(0o600);
     let mut file = open_opts.open(&tmp_path).map_err(crate::VaultError::Io)?;
 
+    // Acquire exclusive lock on the temp file
+    file.lock_exclusive().map_err(|e| crate::VaultError::Io(std::io::Error::other(e)))?;
+
     let header_bytes = header.to_bytes();
     file.write_all(&header_bytes).map_err(crate::VaultError::Io)?;
     file.write_all(ciphertext).map_err(crate::VaultError::Io)?;
     file.flush().map_err(crate::VaultError::Io)?;
     file.sync_all().map_err(crate::VaultError::Io)?;
+
+    // Release lock before rename (lock is on temp file)
+    file.unlock().map_err(|e| crate::VaultError::Io(std::io::Error::other(e)))?;
 
     std::fs::rename(&tmp_path, path).map_err(crate::VaultError::Io)?;
 
