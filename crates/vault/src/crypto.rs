@@ -148,9 +148,30 @@ fn get_available_memory_kib() -> Option<u64> {
     #[cfg(target_os = "macos")]
     {
         use std::process::Command;
-        let output = Command::new("sysctl").args(["-n", "hw.memsize"]).output().ok()?;
-        let bytes = String::from_utf8(output.stdout).ok()?.trim().parse::<u64>().ok()?;
-        Some(bytes / 1024)
+        // Use vm_page_free_count to get actual available pages instead of total RAM
+        let free_pages = Command::new("sysctl")
+            .args(["-n", "vm.page_free_count"])
+            .output().ok()
+            .and_then(|o| String::from_utf8(o.stdout).ok())
+            .and_then(|s| s.trim().parse::<u64>().ok());
+
+        let page_size = Command::new("sysctl")
+            .args(["-n", "hw.pagesize"])
+            .output().ok()
+            .and_then(|o| String::from_utf8(o.stdout).ok())
+            .and_then(|s| s.trim().parse::<u64>().ok());
+
+        if let (Some(pages), Some(psize)) = (free_pages, page_size) {
+            Some(pages * psize / 1024)
+        } else {
+            // Fallback: use half of total RAM as conservative estimate
+            let total = Command::new("sysctl")
+                .args(["-n", "hw.memsize"])
+                .output().ok()
+                .and_then(|o| String::from_utf8(o.stdout).ok())
+                .and_then(|s| s.trim().parse::<u64>().ok())?;
+            Some(total / 1024 / 2)
+        }
     }
     #[cfg(not(any(target_os = "linux", target_os = "macos")))]
     None
