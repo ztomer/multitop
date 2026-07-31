@@ -159,7 +159,7 @@ sessions.
 | **Full TUI draw (4 panels)** | 0.42 ms / draw (2,381 FPS) |
 | **Memory drift (5 min)** | 0 bytes |
 
-See `PERFORMANCE.md` for full benchmark details, SOTA comparison tables,
+See `docs/performance.md` for full benchmark details, SOTA comparison tables,
 and fuzzing verification results.
 
 ## Requirements
