@@ -67,10 +67,14 @@ impl UnlockedVault {
         self.header.counter += 1;
         self.header.created_timestamp_ms = now_ms();
 
-        let plaintext = serde_json::to_vec(&self.contents)
+        let mut plaintext = serde_json::to_vec(&self.contents)
             .map_err(|e| VaultError::Serialization(e.to_string()))?;
 
         let (ciphertext, nonce) = crypto::encrypt_vault(&self.vault_key, &plaintext)?;
+        
+        // Zeroize plaintext after encryption
+        plaintext.zeroize();
+        
         self.header.nonce = nonce;
 
         // Sign the vault (signs header + ciphertext)
@@ -301,10 +305,16 @@ impl Vault {
 
     /// Decrypt vault contents with key
     fn decrypt_and_load(&self, vault_key: crypto::VaultKey, vault_file: &format::VaultFile) -> Result<UnlockedVault, VaultError> {
-        let plaintext = crypto::decrypt_vault(&vault_key, &vault_file.header.nonce, &vault_file.ciphertext)?;
+        let mut plaintext = crypto::decrypt_vault(&vault_key, &vault_file.header.nonce, &vault_file.ciphertext)?;
 
         let contents: VaultContents = serde_json::from_slice(&plaintext)
-            .map_err(|e| VaultError::Serialization(e.to_string()))?;
+            .map_err(|e| {
+                plaintext.zeroize();
+                VaultError::Serialization(e.to_string())
+            })?;
+
+        // Zeroize the plaintext after parsing
+        plaintext.zeroize();
 
         // Verify canary
         if !contents.verify_canary(&vault_file.header.canary) {

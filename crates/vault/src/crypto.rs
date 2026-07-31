@@ -234,25 +234,27 @@ pub fn now_ms() -> u64 {
 
 /// Encrypt vault contents with AES-256-GCM (uses HKDF-derived encryption sub-key)
 pub fn encrypt_vault(key: &VaultKey, plaintext: &[u8]) -> Result<(Vec<u8>, [u8; 12]), crate::VaultError> {
-    let enc_key = key.encryption_key();
+    let mut enc_key = key.encryption_key();
     let key_arr = GenericArray::clone_from_slice(&enc_key);
     let cipher = Aes256Gcm::new(&key_arr);
     let nonce = Aes256Gcm::generate_nonce(&mut OsRng);
     let ciphertext = cipher
         .encrypt(&nonce, plaintext)
         .map_err(|_| crate::VaultError::EncryptionFailed)?;
+    enc_key.zeroize();
     Ok((ciphertext, nonce.into()))
 }
 
 /// Decrypt vault contents with AES-256-GCM (uses HKDF-derived encryption sub-key)
 pub fn decrypt_vault(key: &VaultKey, nonce: &[u8; 12], ciphertext: &[u8]) -> Result<Vec<u8>, crate::VaultError> {
-    let enc_key = key.encryption_key();
+    let mut enc_key = key.encryption_key();
     let key_arr = GenericArray::clone_from_slice(&enc_key);
     let cipher = Aes256Gcm::new(&key_arr);
     let nonce_arr = GenericArray::clone_from_slice(nonce);
     let plaintext = cipher
         .decrypt(&nonce_arr, ciphertext)
         .map_err(|_| crate::VaultError::DecryptionFailed)?;
+    enc_key.zeroize();
     Ok(plaintext)
 }
 
@@ -260,6 +262,7 @@ pub fn decrypt_vault(key: &VaultKey, nonce: &[u8; 12], ciphertext: &[u8]) -> Res
 pub fn sign_vault(key: &VaultKey, data: &[u8]) -> Ed25519Signature {
     let signing_key = key.derive_signing_key();
     let signature = signing_key.sign(data);
+    // signing_key implements ZeroizeOnDrop, will be zeroized when dropped
     Ed25519Signature(signature.to_bytes())
 }
 
@@ -314,7 +317,7 @@ pub fn unwrap_argon2id(wrapped: &[u8], password: &str, salt: &[u8; 32], params: 
     let ciphertext = &wrapped[12..];
     let key_arr = GenericArray::clone_from_slice(&wrapping_key);
     let cipher = Aes256Gcm::new(&key_arr);
-    let plaintext = cipher
+    let mut plaintext = cipher
         .decrypt(&nonce_arr, ciphertext)
         .map_err(|_| crate::VaultError::DecryptionFailed)?;
 
@@ -322,11 +325,14 @@ pub fn unwrap_argon2id(wrapped: &[u8], password: &str, salt: &[u8; 32], params: 
     wrapping_key.zeroize();
 
     if plaintext.len() != 32 {
+        plaintext.zeroize();
         return Err(crate::VaultError::InvalidWrapperData("wrong key size".into()));
     }
 
     let mut key = [0u8; 32];
     key.copy_from_slice(&plaintext);
+    plaintext.zeroize(); // Zeroize the decrypted plaintext
+
     Ok(VaultKey(key))
 }
 
