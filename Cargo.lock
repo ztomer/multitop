@@ -1118,6 +1118,7 @@ version = "0.1.0"
 dependencies = [
  "aes-gcm",
  "argon2",
+ "core-foundation 0.9.4",
  "dirs",
  "ed25519-dalek",
  "fs2",

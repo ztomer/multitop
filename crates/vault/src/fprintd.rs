@@ -139,11 +139,11 @@ impl FingerprintVerifier {
 
         // Poll for result
         let start = std::time::Instant::now();
-        loop {
+        let result = loop {
             if start.elapsed() >= self.timeout {
-                // Cancel verification
-                let _ = dev_proxy.call_method("VerifyStop", &());
-                return Ok(FingerprintResult::Timeout);
+                // Cancel verification on timeout
+                let _ = dev_proxy.call_method("VerifyStop", &()).await;
+                break FingerprintResult::Timeout;
             }
 
             // Check status
@@ -151,16 +151,24 @@ impl FingerprintVerifier {
                 .map_err(|e| VaultError::FprintdError(format!("GetStatus failed: {e}")))?;
 
             match status.as_str() {
-                "verify-match" => return Ok(FingerprintResult::Verified),
-                "verify-no-match" => return Ok(FingerprintResult::Failed),
-                "verify-fail" => return Ok(FingerprintResult::Failed),
-                "verify-finger-not-set" => return Ok(FingerprintResult::NotEnrolled),
+                "verify-match" => break FingerprintResult::Verified,
+                "verify-no-match" => break FingerprintResult::Failed,
+                "verify-fail" => break FingerprintResult::Failed,
+                "verify-finger-not-set" => break FingerprintResult::NotEnrolled,
+                "verify-retry-scan" => {
+                    // Finger moved or bad scan - continue polling for retry
+                    continue;
+                }
                 _ => {}
             }
 
             // Small delay before polling again
             tokio::time::sleep(Duration::from_millis(200)).await;
-        }
+        };
+
+        // Always stop verification on completion (match, fail, timeout, not enrolled)
+        let _ = dev_proxy.call_method("VerifyStop", &()).await;
+        Ok(result)
     }
 
     /// Quick check if fingerprint is available

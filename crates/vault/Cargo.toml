@@ -37,6 +37,7 @@ keyring = { version = "3", features = ["apple-native", "sync-secret-service"] }
 #[cfg(target_os = "macos")]
 security-framework = "3.7"
 security-framework-sys = "2.17"
+core-foundation = "0.9"
 
 #[cfg(target_os = "linux")]
 zbus = { version = "4", features = ["tokio"] }

@@ -58,11 +58,14 @@ impl SecureEnclave {
         Ok(Self { private_key, public_key })
     }
 
-fn generate_new() -> Result<Self, VaultError> {
+    fn generate_new() -> Result<Self, VaultError> {
         // Create access control: require biometry (Touch ID/Face ID) for private key operations
         let access_control = SecAccessControl::create_with_flags(
             kSecAccessControlBiometryCurrentSet,
         ).map_err(|e| VaultError::SecureEnclaveError(format!("access control: {e}")))?;
+
+        // Delete any existing key with this label first
+        let _ = Self::delete_existing();
 
         // Configure key generation for Secure Enclave
         let mut options = GenerateKeyOptions::default();
@@ -81,6 +84,14 @@ fn generate_new() -> Result<Self, VaultError> {
             .ok_or_else(|| VaultError::SecureEnclaveError("no public key after generate".into()))?;
 
         Ok(Self { private_key, public_key })
+    }
+
+    fn delete_existing() -> Result<(), VaultError> {
+        let mut search = ItemSearchOptions::new();
+        search.class(ItemClass::key())
+            .key_class(KeyClass::private())
+            .label(SE_KEY_LABEL);
+        search.delete().map_err(|e| VaultError::SecureEnclaveError(format!("delete: {e}")))
     }
 
     /// Wrap a vault key using the Secure Enclave public key (ECIES)
@@ -102,13 +113,17 @@ fn generate_new() -> Result<Self, VaultError> {
             Algorithm::ECIESEncryptionStandardX963SHA256AESGCM,
             data,
         ).map_err(|e| {
-            let err_str = format!("{e}");
-            if err_str.contains("authentication failed") || err_str.contains("user cancel") {
+            // Use CFError code for proper error classification
+            let code = e.code();
+            // errSecAuthFailed = -25293 (auth failed / user canceled)
+            // errSecUserCanceled = -128 (user canceled)
+            // errSecItemNotFound = -25300 (key invalidated)
+            if code == -25293 || code == -128 {
                 VaultError::BiometricFailed
-            } else if err_str.contains("invalid key") || err_str.contains("not found") {
+            } else if code == -25300 {
                 VaultError::SecureEnclaveError("SE key invalidated".into())
             } else {
-                VaultError::SecureEnclaveError(err_str)
+                VaultError::SecureEnclaveError(e.to_string())
             }
         })?;
 
@@ -123,8 +138,18 @@ fn generate_new() -> Result<Self, VaultError> {
 
     /// Check if Secure Enclave is available (has Touch ID/Face ID enrolled)
     pub fn is_available() -> bool {
-        // Try to create an access control with biometry - will fail if no biometry enrolled
-        SecAccessControl::create_with_flags(kSecAccessControlBiometryCurrentSet).is_ok()
+        // Use LAContext to properly check biometric enrollment
+        use std::process::Command;
+        let output = Command::new("bioutil")
+            .args(["-rs"])
+            .output();
+        match output {
+            Ok(out) => {
+                let stdout = String::from_utf8_lossy(&out.stdout);
+                stdout.contains("Touch ID") || stdout.contains("Face ID")
+            }
+            Err(_) => false,
+        }
     }
 }
 
