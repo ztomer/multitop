@@ -6,7 +6,7 @@ const MAX_ATTEMPTS_BEFORE_HARD_LOCKOUT: u32 = 10;
 const HARD_LOCKOUT_DURATION_MS: u64 = 300_000; // 5 minutes
 const KEYCHAIN_SERVICE: &str = "multitop-vault-lockout";
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct LockoutState {
     pub failed_attempts: u32,
     pub lockout_until_epoch_ms: u64,
@@ -70,6 +70,32 @@ impl LockoutState {
         let _ = std::fs::write(&path, &json);
     }
 
+    /// Count an attempt before it is made, and persist it immediately.
+    ///
+    /// The deadline is deliberately NOT set here: it is anchored when the
+    /// attempt fails, so a slow KDF cannot consume the backoff window.
+    ///
+    /// Counting up front is what makes the limiter survive the process dying.
+    /// Recording the failure only on the way out meant an attacker who killed
+    /// the process after each guess never accumulated any attempts at all --
+    /// no backoff, no hard lockout, unlimited guesses.
+    pub fn on_attempt(&mut self, vault_path: &Path) {
+        self.failed_attempts += 1;
+        self.save(vault_path);
+    }
+
+    /// Anchor the backoff deadline for an attempt already counted by
+    /// `on_attempt`.
+    pub fn on_failure_recorded(&mut self, vault_path: &Path, now_ms: u64) {
+        if self.failed_attempts >= MAX_ATTEMPTS_BEFORE_HARD_LOCKOUT {
+            self.lockout_until_epoch_ms = now_ms + HARD_LOCKOUT_DURATION_MS;
+        } else if self.failed_attempts >= 3 {
+            let delay_sec = (1u64 << (self.failed_attempts - 3)).min(60);
+            self.lockout_until_epoch_ms = now_ms + (delay_sec * 1000);
+        }
+        self.save(vault_path);
+    }
+
     pub fn on_failure(&mut self, vault_path: &Path, now_ms: u64) {
         self.failed_attempts += 1;
 
@@ -102,7 +128,12 @@ impl LockoutState {
     }
 }
 
-/// Guard that records failures in the lockout state on drop (unless marked success).
+/// Guard that finalises an attempt on drop.
+///
+/// The attempt is already counted by `on_attempt` before the KDF runs, so this
+/// only anchors the backoff deadline (on failure) or clears the counter (on
+/// success). Dying before this drops therefore leaves the attempt counted, not
+/// forgiven.
 pub struct LockoutGuard<'a> {
     state: &'a Mutex<LockoutState>,
     vault_path: &'a Path,
@@ -153,7 +184,7 @@ impl Drop for LockoutGuard<'_> {
                 // itself, and anchoring to the start would let the whole
                 // backoff window elapse before the guesser could even retry —
                 // the early tiers would impose no delay at all.
-                lockout.on_failure(self.vault_path, (self.now)());
+                lockout.on_failure_recorded(self.vault_path, (self.now)());
             }
         }
     }
@@ -330,6 +361,9 @@ mod tests {
         let path = dir.path().join("vault.bin");
         let state = Mutex::new(LockoutState::load(&path));
 
+        // Real usage: the caller counts the attempt before the KDF, the guard
+        // finalises it. The guard no longer increments on its own.
+        state.lock().unwrap().on_attempt(&path);
         {
             let _guard = LockoutGuard::with_clock(&state, &path, || 1000);
             // Guard drops without marking success
@@ -361,6 +395,8 @@ mod tests {
             lockout_until_epoch_ms: 0,
         });
 
+        // The attempt is counted up front (durable), then finalised on drop.
+        state.lock().unwrap().on_attempt(&path);
         {
             let _guard = LockoutGuard::with_clock(&state, &path, || FAILURE_MS);
         }
@@ -408,5 +444,97 @@ mod tests {
         let state = state.lock().unwrap();
         assert_eq!(state.failed_attempts, 0);
         assert_eq!(state.lockout_until_epoch_ms, 0);
+    }
+}
+
+#[cfg(test)]
+mod write_ahead_tests {
+    #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+
+    use super::*;
+    use tempfile::TempDir;
+
+    /// The limiter must survive the process dying mid-attempt.
+    ///
+    /// Failures used to be recorded only when `LockoutGuard` dropped. Under
+    /// SIGKILL or `panic = "abort"` that drop never runs, so an attacker who
+    /// killed the process after each guess accumulated no attempts at all --
+    /// no backoff, no hard lockout, unlimited guesses at the vault.
+    #[test]
+    fn an_attempt_is_durable_before_the_kdf_runs() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("vault.bin");
+
+        let mut state = LockoutState::load(&path);
+        state.on_attempt(&path);
+
+        // Nothing else runs: this is the process being killed mid-attempt.
+        let reloaded = LockoutState::load(&path);
+        assert_eq!(
+            reloaded.failed_attempts, 1,
+            "the attempt must already be on disk before the KDF is run"
+        );
+    }
+
+    /// Repeated kills must still reach the hard lockout.
+    #[test]
+    fn killing_the_process_each_time_still_reaches_the_hard_lockout() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("vault.bin");
+
+        for _ in 0..MAX_ATTEMPTS_BEFORE_HARD_LOCKOUT {
+            // Each iteration is a fresh process that dies before its guard drops.
+            let mut state = LockoutState::load(&path);
+            state.on_attempt(&path);
+        }
+
+        let mut state = LockoutState::load(&path);
+        assert_eq!(state.failed_attempts, MAX_ATTEMPTS_BEFORE_HARD_LOCKOUT);
+
+        // The next completed failure anchors the hard lockout.
+        state.on_failure_recorded(&path, 10_000);
+        assert!(
+            state.check_lockout(10_000).is_err(),
+            "ten counted attempts must lock the vault out"
+        );
+    }
+
+    /// The deadline still must not be anchored before the KDF, or a slow KDF
+    /// consumes the whole window -- the bug fixed earlier.
+    #[test]
+    fn counting_an_attempt_does_not_start_the_backoff_clock() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("vault.bin");
+
+        let mut state = LockoutState::load(&path);
+        state.on_attempt(&path);
+        state.on_attempt(&path);
+        state.on_attempt(&path);
+        assert_eq!(
+            state.lockout_until_epoch_ms, 0,
+            "counting must not set a deadline"
+        );
+
+        // Anchored at the failure, which is much later than the attempt start.
+        state.on_failure_recorded(&path, 9_000);
+        assert_eq!(state.lockout_until_epoch_ms, 10_000);
+        assert!(state.check_lockout(9_000).is_err());
+    }
+
+    /// A success clears everything, so a legitimate user is never penalised for
+    /// attempts they got right.
+    #[test]
+    fn a_success_clears_counted_attempts() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("vault.bin");
+
+        let mut state = LockoutState::load(&path);
+        state.on_attempt(&path);
+        state.on_attempt(&path);
+        state.on_success(&path);
+
+        let reloaded = LockoutState::load(&path);
+        assert_eq!(reloaded.failed_attempts, 0);
+        assert_eq!(reloaded.lockout_until_epoch_ms, 0);
     }
 }

@@ -135,6 +135,13 @@ pub struct Vault {
     config: VaultConfig,
     unlocked: Arc<Mutex<Option<UnlockedVault>>>,
     lockout: StdMutex<LockoutState>,
+    /// Whether `lockout` has been read from the credential store yet.
+    ///
+    /// Loading it eagerly meant constructing a `Vault` hit the OS keychain,
+    /// which happens at app startup -- exactly the launch-time credential
+    /// dialog the caller defers passwords to avoid. It is loaded on the first
+    /// attempt that actually needs it instead.
+    lockout_loaded: std::sync::atomic::AtomicBool,
     /// Clock used for rate-limiting decisions. Injectable so that lockout tests
     /// are deterministic: a real unlock attempt costs an Argon2 KDF plus a
     /// keychain write, which together can exceed the shortest backoff tier, so
@@ -152,11 +159,11 @@ impl Vault {
     /// `new` with an injected clock, for tests that drive lockout timing.
     #[must_use]
     pub fn with_clock(config: VaultConfig, clock: fn() -> u64) -> Self {
-        let lockout = LockoutState::load(&config.vault_path);
         Self {
             config,
             unlocked: Arc::new(Mutex::new(None)),
-            lockout: StdMutex::new(lockout),
+            lockout: StdMutex::new(LockoutState::default()),
+            lockout_loaded: std::sync::atomic::AtomicBool::new(false),
             clock,
         }
     }
@@ -278,6 +285,13 @@ impl Vault {
     /// # Errors
     /// Returns `VaultError::BiometricFailed` if no biometric is available,
     /// the biometric verification fails, or the Secure Enclave key is invalidated.
+    /// # Rate limiting does not apply here, by design
+    ///
+    /// `unlock_with_password` is rate limited; this is not. A failed Touch ID
+    /// or fingerprint is not a password guess, and counting it would push a
+    /// user toward the lockout backoff simply because their sensor was
+    /// unavailable. `test_vault_biometric_failures_do_not_trigger_lockout`
+    /// pins this.
     #[allow(clippy::unused_async, clippy::unused_async_trait_impl)]
     async fn try_unlock_biometric(&self) -> Result<UnlockedVault, VaultError> {
         // Load vault file
@@ -357,6 +371,7 @@ impl Vault {
         .map_err(|_| VaultError::Corrupted("signature verification failed".into()))?;
 
         // Check rate limiting before attempting password
+        self.ensure_lockout_loaded()?;
         let now = (self.clock)();
         {
             let lockout = self
@@ -366,7 +381,19 @@ impl Vault {
             lockout.check_lockout(now)?;
         }
 
-        // Create guard that records failures on drop
+        // Count this attempt BEFORE the KDF runs, and persist it now. If the
+        // process dies at any point after this -- including a SIGKILL aimed at
+        // dodging the limiter -- the attempt still stands.
+        {
+            let mut lockout = self
+                .lockout
+                .lock()
+                .map_err(|_| VaultError::Other("lockout mutex poisoned".into()))?;
+            lockout.on_attempt(&self.config.vault_path);
+        }
+
+        // The guard finalises the attempt: it anchors the backoff deadline on
+        // failure, or clears the counter on success.
         let mut guard =
             LockoutGuard::with_clock(&self.lockout, &self.config.vault_path, self.clock);
 
@@ -402,6 +429,26 @@ impl Vault {
         )?;
 
         Ok(unlocked)
+    }
+
+    /// Read the persisted lockout state, once, on first use.
+    ///
+    /// # Errors
+    /// Returns `VaultError::Other` if the lockout mutex is poisoned.
+    fn ensure_lockout_loaded(&self) -> Result<(), VaultError> {
+        use std::sync::atomic::Ordering;
+        if self.lockout_loaded.swap(true, Ordering::SeqCst) {
+            return Ok(());
+        }
+        let loaded = LockoutState::load(&self.config.vault_path);
+        {
+            let mut lockout = self
+                .lockout
+                .lock()
+                .map_err(|_| VaultError::Other("lockout mutex poisoned".into()))?;
+            *lockout = loaded;
+        }
+        Ok(())
     }
 
     /// Decrypt vault contents with key
