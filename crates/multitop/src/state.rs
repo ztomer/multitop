@@ -71,7 +71,7 @@ mod tests {
         let config_path = temp_dir.join("config.toml");
 
         let state = AppState {
-            last_update: Some(1722000000),
+            last_update: Some(1_722_000_000),
             upgrade_started_at: None,
         };
 
@@ -91,7 +91,7 @@ mod tests {
 
         let state = AppState {
             last_update: None,
-            upgrade_started_at: Some(1723000000),
+            upgrade_started_at: Some(1_723_000_000),
         };
 
         save_state(&config_path, &state).unwrap();

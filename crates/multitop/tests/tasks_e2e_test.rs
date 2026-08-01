@@ -18,15 +18,20 @@ fn test_server(host: &str) -> Server {
     }
 }
 
-fn enable_mock_store() {
+/// Reset the process-global mock store, holding the test guard so a
+/// concurrently running test cannot be wiped out mid-run. Keep the returned
+/// guard alive for the whole test body.
+async fn enable_mock_store() -> tokio::sync::MutexGuard<'static, ()> {
+    let guard = password_store::lock_for_test_async().await;
     password_store::enable_mock_store();
     password_store::clear_mock_store();
     password_store::delete_sso().unwrap();
+    guard
 }
 
 #[tokio::test]
 async fn test_spawn_upgrade_generation_tracking() {
-    enable_mock_store();
+    let _store_guard = enable_mock_store().await;
     let server = test_server("127.0.0.1");
     let (tx, mut rx) = mpsc::channel::<Msg>(100);
 
@@ -43,7 +48,7 @@ async fn test_spawn_upgrade_generation_tracking() {
 
 #[tokio::test]
 async fn test_spawn_upgrade_sets_mode_and_state() {
-    enable_mock_store();
+    let _store_guard = enable_mock_store().await;
     let mut app = App::new(vec![test_server("127.0.0.1")]);
     let (tx, _rx) = mpsc::channel::<Msg>(100);
     let mut tasks = multitop::run::Tasks::new(1);
@@ -70,7 +75,7 @@ async fn test_spawn_upgrade_sets_mode_and_state() {
 
 #[tokio::test]
 async fn test_spawn_upgrade_saves_state_file() {
-    enable_mock_store();
+    let _store_guard = enable_mock_store().await;
     let mut app = App::new(vec![test_server("127.0.0.1")]);
     let tmp_path = std::env::temp_dir().join(format!("multitop_test_state_{}.toml", std::process::id()));
     app.config_path = Some(tmp_path.clone());
@@ -100,7 +105,7 @@ async fn test_spawn_upgrade_saves_state_file() {
 
 #[tokio::test]
 async fn test_task_cancellation_on_panel_switch() {
-    enable_mock_store();
+    let _store_guard = enable_mock_store().await;
     let mut app = App::new(vec![test_server("127.0.0.1"), test_server("127.0.0.2")]);
     let (tx, _rx) = mpsc::channel::<Msg>(100);
     let mut tasks = multitop::run::Tasks::new(2);
@@ -169,7 +174,7 @@ async fn test_task_cancellation_on_panel_switch() {
 
 #[tokio::test]
 async fn test_concurrent_upgrade_generations_isolated() {
-    enable_mock_store();
+    let _store_guard = enable_mock_store().await;
     let server = test_server("127.0.0.1");
     let (tx, mut rx) = mpsc::channel::<Msg>(100);
 

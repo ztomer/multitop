@@ -49,7 +49,7 @@ async fn setup_test_vault(
     let mut unlocked = vault.unlock_with_password(master_password).unwrap();
     for (host, pass) in passwords {
         unlocked
-            .set_password(host, SecretString::from(pass))
+            .set_password(host, &SecretString::from(pass))
             .unwrap();
     }
     unlocked.lock();
@@ -86,7 +86,7 @@ async fn app_with_vault(
     // Pre-unlock the vault for test (bypass password prompt)
     if let Some(ref vault) = app.vault {
         let unlocked = vault.unlock_with_password("test-master").unwrap();
-        app.vault_unlocked = Some(unlocked);
+        app.vault_state = VaultState::Unlocked { vault: Box::new(unlocked), awaiting_biometric: false };
     }
 
     (app, temp_dir)
@@ -112,7 +112,7 @@ mod vault_upgrade_e2e_tests {
         let (mut app, _temp_dir) = app_with_vault(test_servers(), master_pw, vault_passwords).await;
 
         // Verify vault is unlocked
-        assert!(app.vault_unlocked.is_some());
+        assert!(app.vault_unlocked().is_some());
 
         // Run the upgrade flow - this should load vault passwords into panels
         let cmds = app.run_upgrade();
@@ -139,7 +139,7 @@ mod vault_upgrade_e2e_tests {
 
         // Remove vault
         app.vault = None;
-        app.vault_unlocked = None;
+        app.vault_state = VaultState::Locked;
 
         let cmds = app.run_upgrade();
 
@@ -151,6 +151,7 @@ mod vault_upgrade_e2e_tests {
     async fn test_vault_password_fallback_to_keychain() {
         // This test verifies the password store fallback works
         // We need to enable mock store for this test
+        let _store_guard = password_store::lock_for_test_async().await;
         password_store::enable_mock_store();
         password_store::clear_mock_store();
 
@@ -208,7 +209,7 @@ mod vault_upgrade_e2e_tests {
         let cmds = app.run_upgrade();
 
         // Vault should be unlocked and passwords loaded
-        assert!(app.vault_unlocked.is_some());
+        assert!(app.vault_unlocked().is_some());
 
         // Verify vault password was pre-loaded
         assert_eq!(app.panels[0].sudo_password, Some("sudo-pass-1".to_string()));
@@ -235,29 +236,27 @@ async fn test_vault_password_prompt_state_machine() {
 
     // The actual state machine test: simulate password entry flow
     // In real app this happens via UI, here we test the logic
-    app.show_vault_password_prompt = true;
+    app.set_show_vault_password_prompt(true);
     app.vault_password_input = master_pw.to_string();
 
     if let Some(ref vault) = app.vault {
         let password = std::mem::take(&mut app.vault_password_input);
         match vault.unlock_with_password(&password) {
             Ok(unlocked) => {
-                app.vault_unlocked = Some(unlocked);
-                app.vault_password_error = None;
-                app.show_vault_password_prompt = false;
-                app.show_upgrade_modal = true;
+                app.vault_state = VaultState::Unlocked { vault: Box::new(unlocked), awaiting_biometric: false };
+                app.set_show_upgrade_modal(true);
             }
             Err(e) => {
-                app.vault_password_error = Some(e.to_string());
-                app.show_vault_password_prompt = true;
+                app.set_vault_password_error(Some(e.to_string()));
+                app.set_show_vault_password_prompt(true);
             }
         }
     }
 
     // Should now be unlocked
-    assert!(app.vault_unlocked.is_some());
-    assert!(!app.show_vault_password_prompt);
-    assert!(app.show_upgrade_modal);
+    assert!(app.vault_unlocked().is_some());
+    assert!(!app.show_vault_password_prompt());
+    assert!(app.show_upgrade_modal());
 }
 
 #[tokio::test]
@@ -272,10 +271,10 @@ async fn test_vault_failed_unlock_shows_error() {
     let (mut app, _temp_dir) = app_with_vault(test_servers(), master_pw, vault_passwords).await;
 
     // The app was created with pre-unlocked vault, lock it first to test failure
-    app.vault_unlocked = None;
+    app.vault_state = VaultState::Locked;
 
     // Simulate wrong password
-    app.show_vault_password_prompt = true;
+    app.set_show_vault_password_prompt(true);
     app.vault_password_input = "wrong-password".to_string();
 
     if let Some(ref vault) = app.vault {
@@ -283,16 +282,16 @@ async fn test_vault_failed_unlock_shows_error() {
         match vault.unlock_with_password(&password) {
             Ok(_) => panic!("Should have failed"),
             Err(e) => {
-                app.vault_password_error = Some(e.to_string());
-                app.show_vault_password_prompt = true;
+                app.set_vault_password_error(Some(e.to_string()));
+                app.set_show_vault_password_prompt(true);
             }
         }
     }
 
     // Should show error and keep prompt open
-    assert!(app.show_vault_password_prompt);
-    assert!(app.vault_password_error.is_some());
-    assert!(app.vault_unlocked.is_none());
+    assert!(app.show_vault_password_prompt());
+    assert!(app.vault_password_error().is_some());
+    assert!(app.vault_unlocked().is_none());
 }
 
 // ============================================================================
@@ -312,7 +311,7 @@ async fn test_vault_locked_u_key_tries_biometric_first() {
     let (mut app, _temp_dir) =
         app_with_vault(test_servers(), "test-master", HashMap::new()).await;
     // Lock the vault again to simulate a fresh app start.
-    app.vault_unlocked = None;
+    app.vault_state = VaultState::Locked;
 
     let vault_handle = app.begin_vault_unlock();
 
@@ -321,26 +320,25 @@ async fn test_vault_locked_u_key_tries_biometric_first() {
         "a locked vault must hand the caller a handle for the biometric attempt"
     );
     assert!(
-        app.vault_awaiting_biometric,
+        app.vault_awaiting_biometric(),
         "must await biometric before prompting for a password"
     );
     assert!(
-        !app.show_vault_password_prompt,
+        !app.show_vault_password_prompt(),
         "password prompt must not appear while biometrics are being attempted"
     );
 
     // An already-unlocked vault (or no vault) must NOT re-enter the awaiting
     // state and must return None so the handler proceeds to the upgrade modal.
-    app.vault_awaiting_biometric = false; // biometric attempt resolved
-    app.vault_unlocked = Some(
-        app.vault
-            .as_ref()
-            .unwrap()
-            .unlock_with_password("test-master")
-            .unwrap(),
-    );
+    let unlocked = app
+        .vault
+        .as_ref()
+        .unwrap()
+        .unlock_with_password("test-master")
+        .unwrap();
+    app.vault_state = VaultState::Unlocked { vault: Box::new(unlocked), awaiting_biometric: false };
     assert!(app.begin_vault_unlock().is_none());
-    assert!(!app.vault_awaiting_biometric);
+    assert!(!app.vault_awaiting_biometric());
 }
 
 /// Bug b: a successful biometric unlock must land the unlocked vault, dismiss
@@ -352,8 +350,7 @@ async fn test_vault_biometric_success_proceeds_to_modal() {
         app_with_vault(test_servers(), master_pw, HashMap::new()).await;
 
     // Lock the vault again, then simulate the biometric task succeeding.
-    app.vault_unlocked = None;
-    app.vault_awaiting_biometric = true;
+    app.vault_state = VaultState::Unlocking { awaiting_biometric: true };
 
     let unlocked = app
         .vault
@@ -363,17 +360,17 @@ async fn test_vault_biometric_success_proceeds_to_modal() {
         .unwrap();
     app.apply(Msg::VaultUnlocked(unlocked));
 
-    assert!(app.vault_unlocked.is_some(), "vault must be unlocked");
+    assert!(app.vault_unlocked().is_some(), "vault must be unlocked");
     assert!(
-        !app.vault_awaiting_biometric,
+        !app.vault_awaiting_biometric(),
         "awaiting state must clear on success"
     );
     assert!(
-        !app.show_vault_password_prompt,
+        !app.show_vault_password_prompt(),
         "no password prompt after biometric success"
     );
     assert!(
-        app.show_upgrade_modal,
+        app.show_upgrade_modal(),
         "successful unlock must proceed to the upgrade modal"
     );
 }
@@ -383,20 +380,19 @@ async fn test_vault_biometric_success_proceeds_to_modal() {
 #[tokio::test]
 async fn test_vault_biometric_failed_falls_back_to_password() {
     let (mut app, _temp_dir) = app_with_vault(test_servers(), "test-master", HashMap::new()).await;
-    app.vault_unlocked = None;
-    app.vault_awaiting_biometric = true;
+    app.vault_state = VaultState::Unlocking { awaiting_biometric: true };
 
     app.apply(Msg::VaultBiometricFailed);
 
     assert!(
-        !app.vault_awaiting_biometric,
+        !app.vault_awaiting_biometric(),
         "awaiting state must clear on fallback"
     );
     assert!(
-        app.show_vault_password_prompt,
+        app.show_vault_password_prompt(),
         "must offer the password prompt after biometric failure"
     );
-    assert!(app.vault_unlocked.is_none(), "vault must still be locked");
+    assert!(app.vault_unlocked().is_none(), "vault must still be locked");
 }
 
 /// Bug b: real end-to-end of the spawned biometric task. On a machine without
@@ -428,15 +424,15 @@ async fn test_vault_biometric_task_emits_fallback_on_unavailable() {
         .expect("channel must not close");
 
     // Apply the task's outcome to the app.
-    app.vault_awaiting_biometric = true;
+    app.vault_state = VaultState::Unlocking { awaiting_biometric: true };
     app.apply(msg);
 
     assert!(
-        app.show_vault_password_prompt || app.show_upgrade_modal,
+        app.show_vault_password_prompt() || app.show_upgrade_modal(),
         "the task outcome must lead to either the password prompt or the modal"
     );
     assert!(
-        !app.vault_awaiting_biometric,
+        !app.vault_awaiting_biometric(),
         "awaiting state must be cleared by the task outcome"
     );
 }

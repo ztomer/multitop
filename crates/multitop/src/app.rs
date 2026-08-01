@@ -17,15 +17,19 @@ pub use crate::types::{Command, Msg};
 
 pub use multitop_agent::SortBy;
 
-/// High-level application mode (mutually exclusive UI states).
+/// High-level application mode.
+///
+/// Only genuinely mutually exclusive UI states belong here. Sparkline
+/// visibility is a persisted user preference and quitting is a terminal flag —
+/// both are orthogonal to what the UI is currently showing, so they live in
+/// their own fields. Folding them in made opening a modal silently discard the
+/// user's sparkline setting.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum AppMode {
     #[default]
     Running,
     Filtering,
     ShowUpgradeModal,
-    ShowSparklines,
-    ShouldQuit,
 }
 
 /// Vault authentication state machine.
@@ -56,6 +60,10 @@ pub struct App {
     pub vault: Option<Arc<multitop_vault::Vault>>,
     pub vault_state: VaultState,
     pub vault_password_input: String,
+    /// Persisted user preference, independent of `mode`.
+    pub show_sparklines: bool,
+    /// Terminal flag, independent of `mode`.
+    pub should_quit: bool,
 }
 
 impl App {
@@ -85,6 +93,8 @@ impl App {
             vault: None,
             vault_state: VaultState::default(),
             vault_password_input: String::new(),
+            show_sparklines: false,
+            should_quit: false,
         }
     }
 
@@ -130,16 +140,12 @@ impl App {
     /// Check if sparklines should be shown.
     #[must_use]
     pub const fn show_sparklines(&self) -> bool {
-        matches!(self.mode, AppMode::ShowSparklines)
+        self.show_sparklines
     }
 
     /// Toggle sparklines visibility.
-    pub fn toggle_sparklines(&mut self) {
-        self.mode = if self.show_sparklines() {
-            AppMode::Running
-        } else {
-            AppMode::ShowSparklines
-        };
+    pub const fn toggle_sparklines(&mut self) {
+        self.show_sparklines = !self.show_sparklines;
     }
 
     /// Check if upgrade modal should be shown.
@@ -164,11 +170,16 @@ impl App {
     }
 
     /// Set vault password prompt visibility.
+    ///
+    /// Showing the prompt is idempotent: re-asserting it while already
+    /// prompting keeps any error already on display, so callers that set the
+    /// error and then (re)open the prompt do not silently discard it.
     pub fn set_show_vault_password_prompt(&mut self, show: bool) {
-        if show {
-            self.vault_state = VaultState::PasswordPrompt { error: None };
-        } else if matches!(self.vault_state, VaultState::PasswordPrompt { .. }) {
-            self.vault_state = VaultState::Locked;
+        match (show, &self.vault_state) {
+            (true, VaultState::PasswordPrompt { .. }) => {}
+            (true, _) => self.vault_state = VaultState::PasswordPrompt { error: None },
+            (false, VaultState::PasswordPrompt { .. }) => self.vault_state = VaultState::Locked,
+            (false, _) => {}
         }
     }
 
@@ -226,8 +237,8 @@ impl App {
 
     /// Check if should quit.
     #[must_use]
-    pub fn should_quit(&self) -> bool {
-        matches!(self.mode, AppMode::ShouldQuit)
+    pub const fn should_quit(&self) -> bool {
+        self.should_quit
     }
 
     /// Check if filtering.
@@ -442,8 +453,8 @@ impl App {
         self.run_upgrade()
     }
 
-    pub fn quit(&mut self) {
-        self.mode = AppMode::ShouldQuit;
+    pub const fn quit(&mut self) {
+        self.should_quit = true;
     }
 
     /// True when a message is still relevant to the panel it targets.
@@ -601,7 +612,11 @@ impl App {
                 self.mode = AppMode::ShowUpgradeModal;
             }
             Msg::VaultBiometricFailed => {
-                self.vault_state = VaultState::Unlocking { awaiting_biometric: false };
+                // Biometrics unavailable or cancelled: fall back to the password
+                // prompt. `Unlocking { awaiting_biometric: false }` would be a
+                // dead end — no prompt, no modal, nothing for the user to do.
+                self.vault_state = VaultState::PasswordPrompt { error: None };
+                self.vault_password_input.clear();
             }
         }
     }

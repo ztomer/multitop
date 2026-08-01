@@ -34,6 +34,36 @@ pub fn clear_mock_store() {
     }
 }
 
+/// Serializes tests that touch the process-global credential state.
+///
+/// `MOCK_STORE` and `SSO_CACHE` are process-global, and the test harness runs
+/// `#[test]` bodies on parallel threads. A test that resets the store during
+/// setup would otherwise wipe it out from under a concurrently running test —
+/// the resulting failures are nondeterministic and blame the wrong test.
+/// Async-aware so that `#[tokio::test]` bodies can hold the guard across an
+/// `.await` — a `std::sync::Mutex` guard cannot cross one safely.
+static TEST_GUARD: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+
+/// Acquire exclusive access to the global mock store and SSO cache from a
+/// synchronous `#[test]`. Blocks the calling thread.
+///
+/// Hold the returned guard for the whole test body — dropping it early
+/// re-opens the race.
+#[doc(hidden)]
+pub fn lock_for_test() -> tokio::sync::MutexGuard<'static, ()> {
+    TEST_GUARD.blocking_lock()
+}
+
+/// Acquire exclusive access to the global mock store and SSO cache from an
+/// `#[tokio::test]`. Yields rather than blocking the runtime.
+///
+/// Hold the returned guard for the whole test body — dropping it early
+/// re-opens the race.
+#[doc(hidden)]
+pub async fn lock_for_test_async() -> tokio::sync::MutexGuard<'static, ()> {
+    TEST_GUARD.lock().await
+}
+
 pub fn is_mock_enabled() -> bool {
     if cfg!(test)
         || std::env::var("MULTITOP_MOCK_KEYCHAIN").is_ok()
@@ -64,12 +94,18 @@ fn entry(server: &Server) -> Result<Entry, String> {
 
 pub const SSO_ACCOUNT: &str = "__sso_master__";
 
-#[allow(clippy::option_option)]
-static SSO_CACHE: RwLock<Option<Option<String>>> = RwLock::new(None);
+#[derive(Clone, Debug, PartialEq, Eq)]
+enum SsoCacheState {
+    Uncached,
+    NotFound,
+    Found(String),
+}
+
+static SSO_CACHE: RwLock<SsoCacheState> = RwLock::new(SsoCacheState::Uncached);
 
 pub fn clear_sso_cache() {
     let mut cache = SSO_CACHE.write().unwrap_or_else(std::sync::PoisonError::into_inner);
-    *cache = None;
+    *cache = SsoCacheState::Uncached;
 }
 
 /// Load the SSO master password from the credential store.
@@ -80,8 +116,10 @@ pub fn clear_sso_cache() {
 pub fn load_sso() -> Result<Option<String>, String> {
     {
         let cache = SSO_CACHE.read().unwrap_or_else(std::sync::PoisonError::into_inner);
-        if let Some(ref cached) = *cache {
-            return Ok(cached.clone());
+        match &*cache {
+            SsoCacheState::Found(p) => return Ok(Some(p.clone())),
+            SsoCacheState::NotFound => return Ok(None),
+            SsoCacheState::Uncached => {}
         }
     }
 
@@ -97,7 +135,9 @@ pub fn load_sso() -> Result<Option<String>, String> {
     };
 
     let mut cache = SSO_CACHE.write().unwrap_or_else(std::sync::PoisonError::into_inner);
-    *cache = Some(pass.clone());
+    *cache = pass
+        .as_ref()
+        .map_or_else(|| SsoCacheState::NotFound, |p| SsoCacheState::Found(p.clone()));
     drop(cache);
     Ok(pass)
 }
@@ -110,7 +150,7 @@ pub fn load_sso() -> Result<Option<String>, String> {
 pub fn save_sso(password: &str) -> Result<(), String> {
     {
         let mut cache = SSO_CACHE.write().unwrap_or_else(std::sync::PoisonError::into_inner);
-        *cache = Some(Some(password.to_string()));
+        *cache = SsoCacheState::Found(password.to_string());
         drop(cache);
     }
     if is_mock_enabled() {
@@ -136,7 +176,7 @@ pub fn save_sso(password: &str) -> Result<(), String> {
 pub fn delete_sso() -> Result<(), String> {
     {
         let mut cache = SSO_CACHE.write().unwrap_or_else(std::sync::PoisonError::into_inner);
-        *cache = Some(None);
+        *cache = SsoCacheState::NotFound;
         drop(cache);
     }
     if is_mock_enabled() {

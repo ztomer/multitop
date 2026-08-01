@@ -351,9 +351,40 @@ fn aux_done_can_append_a_note() {
 #[test]
 fn quit_sets_the_flag() {
     let mut a = app(1);
-    assert!(!a.should_quit);
+    assert!(!a.should_quit());
     a.quit();
-    assert!(a.should_quit);
+    assert!(a.should_quit());
+}
+
+/// Sparkline visibility is a persisted user preference, not a transient UI
+/// mode: transient states (the upgrade modal, filtering, quitting) must pass
+/// over it without discarding it. Folding all of these into one `AppMode` enum
+/// made opening the modal silently turn sparklines off for good.
+#[test]
+fn transient_ui_states_preserve_the_sparkline_preference() {
+    let mut a = app(1);
+    a.toggle_sparklines();
+    assert!(a.show_sparklines(), "toggle turns sparklines on");
+
+    a.set_show_upgrade_modal(true);
+    assert!(a.show_sparklines(), "opening the modal must not clear it");
+    a.set_show_upgrade_modal(false);
+    assert!(a.show_sparklines(), "closing the modal must not clear it");
+
+    a.set_filtering(true);
+    assert!(a.show_sparklines(), "entering filter mode must not clear it");
+    a.set_filtering(false);
+    assert!(a.show_sparklines(), "leaving filter mode must not clear it");
+
+    let _ = a.confirm_upgrade();
+    assert!(a.show_sparklines(), "confirming an upgrade must not clear it");
+
+    a.quit();
+    assert!(a.show_sparklines(), "quitting must not clear it");
+    assert!(a.should_quit(), "quitting is independent of the view mode");
+
+    a.toggle_sparklines();
+    assert!(!a.show_sparklines(), "toggle still turns them back off");
 }
 
 #[test]

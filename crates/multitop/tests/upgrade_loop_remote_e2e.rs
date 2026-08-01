@@ -48,11 +48,8 @@ fn ssh_server(upgrade_cmd: &str) -> Server {
 async fn collect_messages(rx: mpsc::Receiver<Msg>) -> Vec<Msg> {
     let mut msgs = Vec::new();
     let mut rx = rx;
-    loop {
-        match tokio::time::timeout(Duration::from_secs(15), rx.recv()).await {
-            Ok(Some(msg)) => msgs.push(msg),
-            _ => break,
-        }
+    while let Ok(Some(msg)) = tokio::time::timeout(Duration::from_secs(15), rx.recv()).await {
+        msgs.push(msg);
     }
     msgs
 }
@@ -61,16 +58,11 @@ async fn collect_messages(rx: mpsc::Receiver<Msg>) -> Vec<Msg> {
 async fn collect_until_done(rx: mpsc::Receiver<Msg>) -> Vec<Msg> {
     let mut msgs = Vec::new();
     let mut rx = rx;
-    loop {
-        match tokio::time::timeout(Duration::from_secs(15), rx.recv()).await {
-            Ok(Some(msg)) => {
-                let is_terminal = matches!(msg, Msg::AuxDone { .. } | Msg::Status { .. });
-                msgs.push(msg);
-                if is_terminal {
-                    break;
-                }
-            }
-            _ => break,
+    while let Ok(Some(msg)) = tokio::time::timeout(Duration::from_secs(15), rx.recv()).await {
+        let is_terminal = matches!(msg, Msg::AuxDone { .. } | Msg::Status { .. });
+        msgs.push(msg);
+        if is_terminal {
+            break;
         }
     }
     msgs
@@ -78,7 +70,7 @@ async fn collect_until_done(rx: mpsc::Receiver<Msg>) -> Vec<Msg> {
 
 /// Test R1: Remote basic command
 /// SSH into real host, run `ls -l ; ls -l`.
-#[ignore]
+#[ignore = "requires a reachable SSH host (MULTITOP_TEST_SSH_HOST); run with --ignored"]
 #[tokio::test]
 async fn test_remote_upgrade_basic_command() {
     let server = ssh_server("ls -l ; ls -l");
@@ -136,7 +128,7 @@ async fn test_remote_upgrade_basic_command() {
 
 /// Test R2: Remote upgrade with sudo password
 /// SSH into real host with sudo password, run `ls -l`.
-#[ignore]
+#[ignore = "requires a reachable SSH host (MULTITOP_TEST_SSH_HOST); run with --ignored"]
 #[tokio::test]
 async fn test_remote_upgrade_with_sudo_password() {
     let server = ssh_server("ls -l");
@@ -151,19 +143,12 @@ async fn test_remote_upgrade_with_sudo_password() {
     assert!(has_done, "Expected AuxDone message");
 
     // Check for sudo error tips
-    let tip_lines: Vec<&String> = msgs
-        .iter()
-        .filter_map(|m| {
-            if let Msg::AuxLine { line, .. } = m {
-                Some(line)
-            } else {
-                None
-            }
-        })
-        .filter(|l| l.contains("Tip:"))
-        .collect();
+    let has_tip = msgs.iter().any(|m| match m {
+        Msg::AuxLine { line, .. } => line.contains("Tip:"),
+        _ => false,
+    });
 
-    if !tip_lines.is_empty() {
+    if has_tip {
         // Sudo tip present means password was rejected — still OK, test passed
         eprintln!("Sudo tip received (password may not be authorized on this host)");
     }
@@ -171,7 +156,7 @@ async fn test_remote_upgrade_with_sudo_password() {
 
 /// Test R3: Remote upgrade failure exit code
 /// SSH into real host, run `ls -l ; exit 42`.
-#[ignore]
+#[ignore = "requires a reachable SSH host (MULTITOP_TEST_SSH_HOST); run with --ignored"]
 #[tokio::test]
 async fn test_remote_upgrade_failure_exit_code() {
     let server = ssh_server("ls -l ; exit 42");
@@ -211,7 +196,7 @@ async fn test_remote_upgrade_failure_exit_code() {
 
 /// Test R4: Remote upgrade empty command
 /// SSH into real host, run `true` (exits 0, no output).
-#[ignore]
+#[ignore = "requires a reachable SSH host (MULTITOP_TEST_SSH_HOST); run with --ignored"]
 #[tokio::test]
 async fn test_remote_upgrade_empty_command() {
     let server = ssh_server("true");
@@ -246,7 +231,7 @@ async fn test_remote_upgrade_empty_command() {
 
 /// Test R5: Remote upgrade lock contention
 /// SSH into real host: first upgrade with `sleep 5 && ls -l`, then immediately launch second.
-#[ignore]
+#[ignore = "requires a reachable SSH host (MULTITOP_TEST_SSH_HOST); run with --ignored"]
 #[tokio::test]
 async fn test_remote_upgrade_lock_contention() {
     let server1 = ssh_server("sleep 5 && ls -l");
@@ -294,7 +279,7 @@ async fn test_remote_upgrade_lock_contention() {
 
 /// Test R6: Remote connection failure
 /// SSH into unreachable host (TEST-NET address).
-#[ignore]
+#[ignore = "requires a reachable SSH host (MULTITOP_TEST_SSH_HOST); run with --ignored"]
 #[tokio::test]
 async fn test_remote_upgrade_connection_failure() {
     let server = Server {
@@ -321,7 +306,7 @@ async fn test_remote_upgrade_connection_failure() {
 
 /// Test R7: Remote multiline output ordering
 /// SSH into real host, run sequential echoes with small sleeps.
-#[ignore]
+#[ignore = "requires a reachable SSH host (MULTITOP_TEST_SSH_HOST); run with --ignored"]
 #[tokio::test]
 async fn test_remote_upgrade_multiline_output_ordering() {
     let server = ssh_server("echo STEP_A ; sleep 0.1 ; echo STEP_B ; sleep 0.1 ; echo STEP_C");
@@ -359,7 +344,7 @@ async fn test_remote_upgrade_multiline_output_ordering() {
 
 /// Test R8: Remote stderr captured
 /// SSH into real host, run `echo OUT && echo ERR >&2`.
-#[ignore]
+#[ignore = "requires a reachable SSH host (MULTITOP_TEST_SSH_HOST); run with --ignored"]
 #[tokio::test]
 async fn test_remote_upgrade_stderr_captured() {
     let server = ssh_server("echo OUT ; echo ERR >&2");
@@ -388,7 +373,7 @@ async fn test_remote_upgrade_stderr_captured() {
 
 /// Test R9: Remote large output
 /// SSH into real host, run `seq 1 1000`.
-#[ignore]
+#[ignore = "requires a reachable SSH host (MULTITOP_TEST_SSH_HOST); run with --ignored"]
 #[tokio::test]
 async fn test_remote_upgrade_large_output() {
     let server = ssh_server("seq 1 1000");
@@ -423,7 +408,7 @@ async fn test_remote_upgrade_large_output() {
 
 /// Test R10: Remote upgrade agent deployment
 /// Verifies that a remote host without a cached agent gets the agent deployed.
-#[ignore]
+#[ignore = "requires a reachable SSH host (MULTITOP_TEST_SSH_HOST); run with --ignored"]
 #[tokio::test]
 async fn test_remote_upgrade_agent_deployment() {
     let server = ssh_server("ls -l");

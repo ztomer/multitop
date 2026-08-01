@@ -13,7 +13,7 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 use std::time::Duration;
 
-use multitop::app::{App, Msg};
+use multitop::app::{App, Msg, VaultState};
 use multitop::config::Server;
 use multitop::panel::{Mode, UpgradeState};
 use multitop::password_store;
@@ -33,9 +33,14 @@ fn local_server(upgrade_cmd: &str) -> Server {
 }
 
 /// Enable mock password store for tests (auto-enabled via cfg!(test) but explicit for clarity).
-fn enable_test_mock_store() {
+/// Reset the process-global mock store, holding the test guard so a
+/// concurrently running test cannot be wiped out mid-run. Keep the returned
+/// guard alive for the whole test body.
+async fn enable_test_mock_store() -> tokio::sync::MutexGuard<'static, ()> {
+    let guard = password_store::lock_for_test_async().await;
     password_store::enable_mock_store();
     password_store::clear_mock_store();
+    guard
 }
 
 /// Test helper: collect messages from channel with timeout.
@@ -50,11 +55,9 @@ impl MsgCollector {
 
     async fn collect_all(&mut self) -> Vec<Msg> {
         let mut msgs = Vec::new();
-        loop {
-            match tokio::time::timeout(Duration::from_secs(5), self.rx.recv()).await {
-                Ok(Some(msg)) => msgs.push(msg),
-                _ => break,
-            }
+        while let Ok(Some(msg)) = tokio::time::timeout(Duration::from_secs(5), self.rx.recv()).await
+        {
+            msgs.push(msg);
         }
         msgs
     }
@@ -80,7 +83,7 @@ impl MsgCollector {
 /// Test 1: Single server basic stream
 #[tokio::test]
 async fn test_upgrade_single_server_streams_exact_output() {
-    enable_test_mock_store();
+    let _store_guard = enable_test_mock_store().await;
     let server = local_server("ls -l ; ls -l");
     let (tx, rx) = mpsc::channel::<Msg>(100);
     let handle = spawn_upgrade(0, 1, server, None, tx);
@@ -103,7 +106,7 @@ async fn test_upgrade_single_server_streams_exact_output() {
 /// Test 2: Multi-server concurrent output
 #[tokio::test]
 async fn test_upgrade_multi_server_concurrent_output() {
-    enable_test_mock_store();
+    let _store_guard = enable_test_mock_store().await;
     let (tx, rx) = mpsc::channel::<Msg>(100);
 
     let s1 = local_server("echo UPGRADE_1 ; ls -l");
@@ -154,7 +157,7 @@ async fn test_upgrade_multi_server_concurrent_output() {
 /// Test 3: Failure exit code
 #[tokio::test]
 async fn test_upgrade_failure_reports_nonzero_exit() {
-    enable_test_mock_store();
+    let _store_guard = enable_test_mock_store().await;
     let server = local_server("ls -l ; exit 1");
     let (tx, rx) = mpsc::channel::<Msg>(100);
     let handle = spawn_upgrade(0, 1, server, None, tx);
@@ -236,7 +239,7 @@ async fn test_upgrade_state_machine_roundtrip() {
 /// Test 7: Empty output handled gracefully
 #[tokio::test]
 async fn test_upgrade_empty_output_handled() {
-    enable_test_mock_store();
+    let _store_guard = enable_test_mock_store().await;
     let server = local_server("true");
     let (tx, rx) = mpsc::channel::<Msg>(100);
     let handle = spawn_upgrade(0, 1, server, None, tx);
@@ -259,7 +262,7 @@ async fn test_upgrade_empty_output_handled() {
 /// Test 8: Carriage return cleaning
 #[tokio::test]
 async fn test_upgrade_carriage_return_cleaned() {
-    enable_test_mock_store();
+    let _store_guard = enable_test_mock_store().await;
     let server = local_server("printf 'step1\\rstep2\\rstep3\\n'");
     let (tx, rx) = mpsc::channel::<Msg>(100);
     let handle = spawn_upgrade(0, 1, server, None, tx);
@@ -300,7 +303,7 @@ async fn test_upgrade_vault_password_preloaded() {
     use secrecy::SecretString;
     use tempfile::TempDir;
 
-    enable_test_mock_store();
+    let _store_guard = enable_test_mock_store().await;
     let temp_dir = TempDir::new().unwrap();
     let vault_path = temp_dir.path().join("vault.bin");
     let config_path = temp_dir.path().join("config.toml");
@@ -319,7 +322,7 @@ async fn test_upgrade_vault_password_preloaded() {
     let mut unlocked = vault.unlock_with_password(master_pw).unwrap();
     let key = multitop::password_store::account(&local_server("echo test"));
     unlocked
-        .set_password(key, SecretString::from("sudo-secret-123"))
+        .set_password(key, &SecretString::from("sudo-secret-123"))
         .unwrap();
     unlocked.lock();
 
@@ -327,13 +330,13 @@ async fn test_upgrade_vault_password_preloaded() {
     let mut app = App::new(vec![server]);
     app.vault = Some(std::sync::Arc::new(vault));
     app.config_path = Some(config_path);
-    app.vault_unlocked = Some(
-        app.vault
-            .as_ref()
-            .unwrap()
-            .unlock_with_password(master_pw)
-            .unwrap(),
-    );
+    let unlocked = app
+        .vault
+        .as_ref()
+        .unwrap()
+        .unlock_with_password(master_pw)
+        .unwrap();
+    app.vault_state = VaultState::Unlocked { vault: Box::new(unlocked), awaiting_biometric: false };
 
     let cmds = app.run_upgrade();
     assert!(!cmds.is_empty());
@@ -368,7 +371,7 @@ async fn test_upgrade_vault_password_preloaded() {
 /// Test 6: Lock prevents concurrent (local lock contention)
 #[tokio::test]
 async fn test_upgrade_lock_prevents_concurrent() {
-    enable_test_mock_store();
+    let _store_guard = enable_test_mock_store().await;
     let (tx, rx) = mpsc::channel::<Msg>(100);
 
     // First upgrade holds lock with a sleep
@@ -606,19 +609,19 @@ async fn test_ui_vault_locked_shows_prompt_not_modal() {
 
     let mut app = App::new(vec![local_server("ls -l")]);
     app.vault = Some(std::sync::Arc::new(vault));
-    app.vault_unlocked = None;
+    app.vault_state = VaultState::Locked;
 
     // Simulate pressing 'u' key
     // Per key handler: vault.is_some() && vault_unlocked.is_none() → show vault password prompt
-    if app.vault.is_some() && app.vault_unlocked.is_none() {
-        app.show_vault_password_prompt = true;
+    if app.vault.is_some() && app.vault_unlocked().is_none() {
+        app.set_show_vault_password_prompt(true);
         app.vault_password_input.clear();
-        app.vault_password_error = None;
+        app.set_vault_password_error(None);
     }
 
-    assert!(app.show_vault_password_prompt);
+    assert!(app.show_vault_password_prompt());
     assert!(
-        !app.show_upgrade_modal,
+        !app.show_upgrade_modal(),
         "Should not show upgrade modal when vault is locked"
     );
     let _ = std::fs::remove_dir_all(&temp_dir);
@@ -655,7 +658,7 @@ async fn test_ui_vault_unlocked_after_password_runs_upgrade() {
         .unwrap()
         .unlock_with_password("master-pass")
         .unwrap();
-    app.vault_unlocked = Some(unlocked);
+    app.vault_state = VaultState::Unlocked { vault: Box::new(unlocked), awaiting_biometric: false };
 
     // Now press 'u' — vault is unlocked, so show_upgrade_modal = true
     if app.upgrades_in_flight() {
@@ -666,18 +669,18 @@ async fn test_ui_vault_unlocked_after_password_runs_upgrade() {
         } else {
             app.show_upgrade_output();
         }
-    } else if app.vault.is_some() && app.vault_unlocked.is_none() {
-        app.show_vault_password_prompt = true;
+    } else if app.vault.is_some() && app.vault_unlocked().is_none() {
+        app.set_show_vault_password_prompt(true);
     } else {
-        app.show_upgrade_modal = true;
+        app.set_show_upgrade_modal(true);
     }
 
     assert!(
-        app.show_upgrade_modal,
+        app.show_upgrade_modal(),
         "Should show upgrade modal when vault is unlocked"
     );
     assert!(
-        !app.show_vault_password_prompt,
+        !app.show_vault_password_prompt(),
         "Should not show vault prompt when unlocked"
     );
     let _ = std::fs::remove_dir_all(&temp_dir);
@@ -693,13 +696,13 @@ fn test_ui_upgrade_modal_confirmation_flow() {
 
     let mut app = App::new(vec![local_server("ls -l")]);
     app.config_path = Some(config_path.clone());
-    app.show_upgrade_modal = true;
+    app.set_show_upgrade_modal(true);
 
     // User presses Enter to confirm
     let cmds = app.confirm_upgrade();
     assert!(!cmds.is_empty());
     assert!(app.upgrade_started_at.is_some());
-    assert!(!app.show_upgrade_modal, "Modal should be dismissed");
+    assert!(!app.show_upgrade_modal(), "Modal should be dismissed");
 
     // Verify state.toml written
     let state = multitop::state::load_state(&config_path);
@@ -851,7 +854,7 @@ fn test_ui_returning_to_completed_shows_output() {
             app.show_upgrade_output();
         }
     } else {
-        app.show_upgrade_modal = true;
+        app.set_show_upgrade_modal(true);
     }
 
     assert_eq!(app.panels[0].mode, Mode::Upgrade);
@@ -1042,5 +1045,5 @@ fn test_upgrade_skip_then_u_shows_message_not_modal() {
         app.panels[0].view.join("\n").contains("skipped"),
         "must show the skip message, not the modal"
     );
-    assert!(!app.show_upgrade_modal);
+    assert!(!app.show_upgrade_modal());
 }

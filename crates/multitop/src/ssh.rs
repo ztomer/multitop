@@ -128,7 +128,11 @@ pub fn is_local(server: &Server) -> bool {
     server.host == "localhost" || server.host == "127.0.0.1" || server.port == 0
 }
 
-#[allow(clippy::missing_errors_doc)]
+/// Spawn a local agent process.
+///
+/// # Errors
+///
+/// Returns an error if spawning the local process fails.
 pub fn spawn_local_agent(mode: Mode, sort: SortBy) -> io::Result<Child> {
     let (mut cmd, extra_args) = std::env::current_exe().map_or_else(
         |_| (Command::new("multitop-agent"), vec![]),
@@ -172,7 +176,10 @@ pub fn spawn_local_agent(mode: Mode, sort: SortBy) -> io::Result<Child> {
 /// stdout carries agent frames; stderr is folded in so an SSH failure
 /// (`Permission denied`, `Host key verification failed`) lands in the panel
 /// instead of vanishing.
-#[allow(clippy::missing_errors_doc)]
+///
+/// # Errors
+///
+/// Returns an error if spawning the agent command fails.
 pub async fn spawn_agent(server: &Server, mode: Mode, sort: SortBy) -> io::Result<Child> {
     if is_local(server) {
         return spawn_local_agent(mode, sort);
@@ -282,7 +289,11 @@ fn wrap_with_local_upgrade_lock(inner: &str) -> String {
     )
 }
 
-#[allow(clippy::missing_errors_doc)]
+/// Spawn an upgrade or arbitrary command process.
+///
+/// # Errors
+///
+/// Returns an error if spawning the command process fails.
 pub fn spawn_command(server: &Server, command: &str, password: Option<&str>) -> io::Result<Child> {
     let quoted = sh_quote(command);
     let quoted_escaped = quoted.replace('\'', r"'\''");
@@ -347,7 +358,10 @@ pub fn spawn_command(server: &Server, command: &str, password: Option<&str>) -> 
 }
 
 /// Ship the agent binary for `arch` to the server.
-#[allow(clippy::missing_errors_doc)]
+///
+/// # Errors
+///
+/// Returns an error string if agent binary is missing or upload fails.
 pub async fn upload_agent(server: &Server, arch: Arch, token: &str) -> Result<(), String> {
     let Some(bytes) = arch.binary() else {
         return Err(format!(

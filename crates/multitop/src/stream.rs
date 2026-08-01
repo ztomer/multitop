@@ -13,14 +13,17 @@ use multitop_agent::SortBy;
 const MAX_STDERR_LINES: usize = 8;
 
 pub struct PacketStream {
-    #[allow(clippy::pub_underscore_fields)]
-    pub _child: Child,
+    pub child: Child,
     pub stdout: BufReader<ChildStdout>,
     pub stderr: Lines<BufReader<ChildStderr>>,
     pub pending_header: Option<[u8; 4]>,
 }
 
-#[allow(clippy::missing_panics_doc, clippy::missing_errors_doc, clippy::expect_used)]
+/// Connect to a remote server over SSH and bootstrap the agent if needed.
+///
+/// # Errors
+///
+/// Returns an error string if SSH execution fails or the agent cannot be started.
 pub async fn connect(
     server: &Server,
     mode: Mode,
@@ -38,8 +41,12 @@ pub async fn connect(
                 _ => format!("ssh: {e}"),
             })?;
 
-        let stdout = child.stdout.take().expect("stdout piped");
-        let stderr = child.stderr.take().expect("stderr piped");
+        let Some(stdout) = child.stdout.take() else {
+            return Err("failed to capture stdout".to_string());
+        };
+        let Some(stderr) = child.stderr.take() else {
+            return Err("failed to capture stderr".to_string());
+        };
         let mut stdout = BufReader::new(stdout);
         let mut stderr = BufReader::new(stderr).lines();
 
@@ -61,7 +68,7 @@ pub async fn connect(
 
         if n >= 4 && &first4 == multitop_agent::proto::MAGIC {
             return Ok(PacketStream {
-                _child: child,
+                child,
                 stdout,
                 stderr,
                 pending_header: Some(first4),
@@ -75,7 +82,7 @@ pub async fn connect(
 
         let Some(arch_str) = ssh::parse_need_agent(&line_buf) else {
             return Ok(PacketStream {
-                _child: child,
+                child,
                 stdout,
                 stderr,
                 pending_header: None,
@@ -104,7 +111,11 @@ pub async fn connect(
     unreachable!("loop returns on both attempts")
 }
 
-#[allow(clippy::missing_errors_doc)]
+/// Read next packet from stream.
+///
+/// # Errors
+///
+/// Returns an error if reading from stdout/stderr fails or process exits.
 pub async fn next_packet(
     stream: &mut PacketStream,
     errbuf: &mut Vec<String>,

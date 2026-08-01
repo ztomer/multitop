@@ -117,7 +117,7 @@ mod tests {
     #[test]
     fn test_parse_stored_counter_valid() {
         let result = parse_stored_counter("42:1234567890");
-        assert_eq!(result, Some((42, 1234567890)));
+        assert_eq!(result, Some((42, 1_234_567_890)));
     }
 
     #[test]

@@ -39,7 +39,8 @@ pub fn regions(area: Rect, panels: usize) -> (Vec<Rect>, Rect) {
 
     // For panels >= 3, use a 2-column grid layout
     let grid_cols: u32 = 2;
-    let grid_rows: u32 = u32::try_from(panels).expect("too many panels");
+    // One row per PAIR of panels, not one row per panel.
+    let grid_rows: u32 = u32::try_from(panels.div_ceil(2)).expect("too many panels");
     let v_chunks =
         Layout::vertical(vec![Constraint::Ratio(1, grid_rows); grid_rows as usize]).split(body);
     let mut rects = Vec::with_capacity(panels);

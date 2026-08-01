@@ -93,7 +93,7 @@ mod tests {
 
     #[test]
     fn unixtime_to_str_recent() {
-        let result = unixtime_to_str(1704067200); // 2024-01-01 00:00:00 UTC
+        let result = unixtime_to_str(1_704_067_200); // 2024-01-01 00:00:00 UTC
         assert_eq!(result, "2024-01-01 00:00:00 UTC");
     }
 

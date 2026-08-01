@@ -5,19 +5,22 @@ use multitop::ui;
 use multitop_agent::color;
 use multitop_agent::proc::{Proc, Usage};
 use multitop_agent::proto::{self, Payload};
-use multitop_agent::render::{self, Snapshot};
+use multitop_agent::render::{self, Snapshot, TempUnit};
 use ratatui::backend::TestBackend;
 use ratatui::Terminal;
 use std::time::Instant;
 
-fn sample_snapshot(server_id: usize) -> Snapshot {
+fn sample_snapshot(server_id: u32) -> Snapshot {
     Snapshot {
         host: format!("server-{server_id}.prod.internal (10.0.0.{server_id})"),
-        cpu_pct: 35.4 + (server_id as f64 * 2.5) % 50.0,
-        cores: (0..16)
-            .map(|c| (c, 10.0 + (c as f64 * 5.0) % 80.0, Some(45.0 + c as f64)))
+        cpu_pct: 35.4 + (f64::from(server_id) * 2.5) % 50.0,
+        cores: (0..16u32)
+            .map(|c| {
+                let load = 10.0 + (f64::from(c) * 5.0) % 80.0;
+                (c as usize, load, Some(45.0 + f64::from(c)))
+            })
             .collect(),
-        temp_unit: Default::default(),
+        temp_unit: TempUnit::default(),
         mem: Usage::new(64_000_000_000, 32_000_000_000),
         disk: Usage::new(1_000_000_000_000, 400_000_000_000),
         rx_rate: 100_000.0,
@@ -51,7 +54,7 @@ fn main() {
         std::hint::black_box(decoded);
     }
     let elapsed = start.elapsed();
-    let ns_per_op = elapsed.as_nanos() as f64 / f64::from(iterations);
+    let ns_per_op = elapsed.as_secs_f64() * 1e9 / f64::from(iterations);
     let ops_per_sec = f64::from(iterations) / elapsed.as_secs_f64();
     println!(
         "\n1. Protocol Packet Decoding:\n   Iterations: {iterations}\n   Time: {elapsed:?}"
@@ -69,7 +72,7 @@ fn main() {
         std::hint::black_box(lines);
     }
     let elapsed = start.elapsed();
-    let ns_per_render = elapsed.as_nanos() as f64 / f64::from(render_iters);
+    let ns_per_render = elapsed.as_secs_f64() * 1e9 / f64::from(render_iters);
     println!(
         "\n2. Local Snapshot Rendering (120x40 Ratatui lines):\n   Iterations: {render_iters}\n   Time: {elapsed:?}"
     );
@@ -90,7 +93,7 @@ fn main() {
             })
             .collect();
         let mut app = App::new(servers);
-        for (i, p) in app.panels.iter_mut().enumerate() {
+        for (i, p) in (0u32..).zip(app.panels.iter_mut()) {
             let snap = sample_snapshot(i);
             p.view = render::render(&snap, 80, 24, render::bar_len_for(80), pal);
         }
@@ -108,7 +111,7 @@ fn main() {
                 .unwrap();
         }
         let elapsed = start.elapsed();
-        let ns_per_draw = elapsed.as_nanos() as f64 / f64::from(tui_iters);
+        let ns_per_draw = elapsed.as_secs_f64() * 1e9 / f64::from(tui_iters);
         let fps = f64::from(tui_iters) / elapsed.as_secs_f64();
         println!(
             "\n3. Full TUI Draw ({num_panels} panels @ 160x50 resolution):\n   Latency:    {ns_per_draw:.2} ns / full draw ({:.3} ms)",

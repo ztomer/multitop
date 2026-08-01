@@ -2,7 +2,7 @@
 
 use multitop::{config, run, ssh};
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 const USAGE: &str = "\
@@ -90,35 +90,16 @@ fn require_ssh() -> Result<(), String> {
     }
 }
 
-#[allow(clippy::too_many_lines)]
-fn main() -> ExitCode {
-    let opts = match parse_cli(std::env::args().skip(1)) {
-        Startup::Run(opts) => opts,
-        Startup::Agent(agent_args) => {
-            multitop_agent::run_agent(agent_args);
-            return ExitCode::SUCCESS;
-        }
-        Startup::Print(text) => {
-            println!("{text}");
-            return ExitCode::SUCCESS;
-        }
-        Startup::Fail(e) => {
-            eprintln!("[Error] {e}");
-            return ExitCode::FAILURE;
-        }
-    };
-
+fn resolve_servers(
+    opts: &CliOptions,
+    config_path: &Path,
+) -> Result<(Vec<config::Server>, Option<String>), String> {
     let local_server = config::Server {
         host: "localhost".into(),
         port: 0,
         user: String::new(),
         upgrade_cmd: None,
     };
-
-    let config_path = opts
-        .config_path
-        .clone()
-        .unwrap_or_else(config::default_config_path);
     let mut initial_theme: Option<String> = None;
 
     let mut servers = if opts.local_only {
@@ -126,9 +107,9 @@ fn main() -> ExitCode {
     } else if !opts.remote_hosts.is_empty() {
         let mut list: Vec<config::Server> = opts
             .remote_hosts
-            .into_iter()
+            .iter()
             .map(|h| config::Server {
-                host: h,
+                host: h.clone(),
                 port: 22,
                 user: String::new(),
                 upgrade_cmd: None,
@@ -139,22 +120,7 @@ fn main() -> ExitCode {
         }
         list
     } else {
-        let mut cfg = match config::load(&config_path).map_err(|e| e.0) {
-            Ok(c) => c,
-            Err(e) => {
-                if opts.local {
-                    config::Config {
-                        servers: Vec::new(),
-                        theme: None,
-                        upgrade_history_lines: config::DEFAULT_UPGRADE_HISTORY_LINES,
-                        show_sparklines: false,
-                    }
-                } else {
-                    eprintln!("[Error] {e}");
-                    return ExitCode::FAILURE;
-                }
-            }
-        };
+        let mut cfg = config::load(config_path).map_err(|e| e.0)?;
         initial_theme = cfg.theme;
         if opts.local && !cfg.servers.iter().any(ssh::is_local) {
             cfg.servers.insert(0, local_server);
@@ -177,9 +143,40 @@ fn main() -> ExitCode {
     });
 
     if servers.is_empty() {
-        eprintln!("[Error] No servers to monitor.");
-        return ExitCode::FAILURE;
+        return Err("No servers to monitor.".to_string());
     }
+    Ok((servers, initial_theme))
+}
+
+fn main() -> ExitCode {
+    let opts = match parse_cli(std::env::args().skip(1)) {
+        Startup::Run(opts) => opts,
+        Startup::Agent(agent_args) => {
+            multitop_agent::run_agent(agent_args);
+            return ExitCode::SUCCESS;
+        }
+        Startup::Print(text) => {
+            println!("{text}");
+            return ExitCode::SUCCESS;
+        }
+        Startup::Fail(e) => {
+            eprintln!("[Error] {e}");
+            return ExitCode::FAILURE;
+        }
+    };
+
+    let config_path = opts
+        .config_path
+        .clone()
+        .unwrap_or_else(config::default_config_path);
+
+    let (servers, initial_theme) = match resolve_servers(&opts, &config_path) {
+        Ok(res) => res,
+        Err(e) => {
+            eprintln!("[Error] {e}");
+            return ExitCode::FAILURE;
+        }
+    };
 
     let has_remote = servers.iter().any(|s| !ssh::is_local(s));
     if has_remote {
@@ -225,50 +222,49 @@ mod tests {
     }
 
     #[test]
-    fn no_arguments_uses_default_options() {
-        match cli(&[]) {
-            Startup::Run(opts) => {
-                assert_eq!(opts.config_path, None);
-                assert!(!opts.local);
-                assert!(!opts.local_only);
-                assert!(opts.remote_hosts.is_empty());
-            }
-            _ => panic!("expected Run"),
-        }
+    fn no_arguments_uses_default_options() -> Result<(), String> {
+        let Startup::Run(opts) = cli(&[]) else {
+            return Err("expected Run".into());
+        };
+        assert_eq!(opts.config_path, None);
+        assert!(!opts.local);
+        assert!(!opts.local_only);
+        assert!(opts.remote_hosts.is_empty());
+        Ok(())
     }
 
     #[test]
-    fn config_flag_overrides_the_path() {
+    fn config_flag_overrides_the_path() -> Result<(), String> {
         for flag in ["-c", "--config"] {
-            match cli(&[flag, "/tmp/x.toml"]) {
-                Startup::Run(opts) => {
-                    assert_eq!(opts.config_path, Some(PathBuf::from("/tmp/x.toml")));
-                }
-                _ => panic!("expected Run for {flag}"),
-            }
+            let Startup::Run(opts) = cli(&[flag, "/tmp/x.toml"]) else {
+                return Err(format!("expected Run for {flag}"));
+            };
+            assert_eq!(opts.config_path, Some(PathBuf::from("/tmp/x.toml")));
         }
+        Ok(())
     }
 
     #[test]
-    fn remote_flag_parses_hosts() {
-        match cli(&["--remote", "10.0.0.1,10.0.0.2"]) {
-            Startup::Run(opts) => {
-                assert_eq!(opts.remote_hosts, vec!["10.0.0.1", "10.0.0.2"]);
-            }
-            _ => panic!("expected Run for remote flag"),
-        }
+    fn remote_flag_parses_hosts() -> Result<(), String> {
+        let Startup::Run(opts) = cli(&["--remote", "10.0.0.1,10.0.0.2"]) else {
+            return Err("expected Run for remote flag".into());
+        };
+        assert_eq!(opts.remote_hosts, vec!["10.0.0.1", "10.0.0.2"]);
+        Ok(())
     }
 
     #[test]
-    fn local_flags_parsed() {
-        match cli(&["--local"]) {
-            Startup::Run(opts) => assert!(opts.local && !opts.local_only),
-            _ => panic!("expected Run"),
-        }
-        match cli(&["--local-only"]) {
-            Startup::Run(opts) => assert!(opts.local_only),
-            _ => panic!("expected Run"),
-        }
+    fn local_flags_parsed() -> Result<(), String> {
+        let Startup::Run(opts1) = cli(&["--local"]) else {
+            return Err("expected Run".into());
+        };
+        assert!(opts1.local && !opts1.local_only);
+
+        let Startup::Run(opts2) = cli(&["--local-only"]) else {
+            return Err("expected Run".into());
+        };
+        assert!(opts2.local_only);
+        Ok(())
     }
 
     #[test]
@@ -277,24 +273,24 @@ mod tests {
     }
 
     #[test]
-    fn help_and_version_print_and_exit() {
+    fn help_and_version_print_and_exit() -> Result<(), String> {
         assert!(matches!(cli(&["-h"]), Startup::Print(_)));
         assert!(matches!(cli(&["--help"]), Startup::Print(_)));
-        match cli(&["--version"]) {
-            Startup::Print(t) => assert!(t.contains(env!("CARGO_PKG_VERSION"))),
-            _ => panic!("expected Print"),
-        }
+        let Startup::Print(t) = cli(&["--version"]) else {
+            return Err("expected Print".into());
+        };
+        assert!(t.contains(env!("CARGO_PKG_VERSION")));
+        Ok(())
     }
 
     #[test]
-    fn unknown_argument_is_rejected_with_usage() {
-        match cli(&["--nope"]) {
-            Startup::Fail(e) => {
-                assert!(e.contains("--nope"));
-                assert!(e.contains("USAGE"));
-            }
-            _ => panic!("expected Fail"),
-        }
+    fn unknown_argument_is_rejected_with_usage() -> Result<(), String> {
+        let Startup::Fail(e) = cli(&["--nope"]) else {
+            return Err("expected Fail".into());
+        };
+        assert!(e.contains("--nope"));
+        assert!(e.contains("USAGE"));
+        Ok(())
     }
 
     #[test]

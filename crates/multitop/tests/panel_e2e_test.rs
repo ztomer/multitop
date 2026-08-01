@@ -15,7 +15,16 @@ fn test_server(host: &str) -> Server {
     }
 }
 
-fn enable_mock_store() {
+/// Reset the process-global mock store, holding the test guard so a
+/// concurrently running test cannot be wiped out mid-run. Keep the returned
+/// guard alive for the whole test body.
+fn enable_mock_store() -> tokio::sync::MutexGuard<'static, ()> {
+    let guard = password_store::lock_for_test();
+    reset_store();
+    guard
+}
+
+fn reset_store() {
     password_store::enable_mock_store();
     password_store::clear_mock_store();
     password_store::delete_sso().unwrap();
@@ -33,7 +42,7 @@ fn test_panel_new_initializes_state() {
 
 #[test]
 fn test_ensure_sudo_password_loads_keychain() {
-    enable_mock_store();
+    let _store_guard = enable_mock_store();
     let server = test_server("127.0.0.10");
     password_store::save(&server, "keychain_pass").unwrap();
 
@@ -56,7 +65,7 @@ fn test_ensure_sudo_password_loads_vault() {
 
 #[test]
 fn test_ensure_sudo_password_none() {
-    enable_mock_store();
+    let _store_guard = enable_mock_store();
     let server = test_server("127.0.0.12");
     // No password in keychain or vault
     let mut panel = multitop::app::Panel::new(server);
@@ -68,7 +77,7 @@ fn test_ensure_sudo_password_none() {
 
 #[test]
 fn test_set_sudo_password_session_only() {
-    enable_mock_store();
+    let _store_guard = enable_mock_store();
     let server = test_server("127.0.0.13");
     let mut panel = multitop::app::Panel::new(server);
 
@@ -79,7 +88,7 @@ fn test_set_sudo_password_session_only() {
 
 #[test]
 fn test_set_sudo_password_from_vault() {
-    enable_mock_store();
+    let _store_guard = enable_mock_store();
     let server = test_server("127.0.0.14");
     let mut panel = multitop::app::Panel::new(server);
 
@@ -93,7 +102,7 @@ fn test_set_sudo_password_from_vault() {
 
 #[test]
 fn test_password_saved_flag_sync() {
-    enable_mock_store();
+    let _store_guard = enable_mock_store();
     let server = test_server("127.0.0.15");
     let mut panel = multitop::app::Panel::new(server.clone());
 

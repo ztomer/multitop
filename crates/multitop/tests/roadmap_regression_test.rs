@@ -117,7 +117,7 @@ fn test_state_persistence_roundtrip() {
     let config_path = temp_dir.join("config.toml");
 
     let initial = AppState {
-        last_update: Some(1722000000),
+        last_update: Some(1_722_000_000),
         upgrade_started_at: None,
     };
 

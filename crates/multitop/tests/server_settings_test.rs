@@ -24,7 +24,24 @@ fn test_server(host: &str) -> Server {
     }
 }
 
-fn setup_mock_store() {
+/// Reset the process-global mock store, holding the test guard so a
+/// concurrently running test cannot be wiped out mid-run. Keep the returned
+/// guard alive for the whole test body.
+fn setup_mock_store() -> tokio::sync::MutexGuard<'static, ()> {
+    let guard = password_store::lock_for_test();
+    reset_store();
+    guard
+}
+
+/// `setup_mock_store` for `#[tokio::test]` bodies, which must not block the
+/// runtime thread to take the guard.
+async fn setup_mock_store_async() -> tokio::sync::MutexGuard<'static, ()> {
+    let guard = password_store::lock_for_test_async().await;
+    reset_store();
+    guard
+}
+
+fn reset_store() {
     password_store::enable_mock_store();
     password_store::clear_mock_store();
     password_store::delete_sso().unwrap();
@@ -111,9 +128,7 @@ fn test_apply_servers_updates_panels_dynamically() {
 
 #[tokio::test]
 async fn test_save_password_in_upgrade_mode_triggers_upgrade_resume() {
-    password_store::enable_mock_store();
-    password_store::clear_mock_store();
-    password_store::delete_sso().unwrap();
+    let _store_guard = setup_mock_store_async().await;
 
     let mut app = App::new(vec![test_server("host1")]);
     app.panels[0].mode = Mode::Upgrade;
@@ -164,16 +179,13 @@ fn test_add_and_delete_server_from_passwords_section() {
 
 #[test]
 fn test_save_server_with_password() {
-    setup_mock_store();
+    let _store_guard = setup_mock_store();
     let mut app = App::new(vec![test_server("host1")]);
     let tmp_path = std::env::temp_dir().join(format!("multitop_test_cfg_{}.toml", std::process::id()));
     app.config_path = Some(tmp_path.clone());
 
     let (tx, _rx) = tokio::sync::mpsc::channel::<Msg>(10);
     let mut tasks = multitop::run::Tasks::new(1);
-
-    password_store::enable_mock_store();
-    password_store::clear_mock_store();
 
     multitop::password_actions::apply(
         PasswordAction::SaveServerWithPassword {
@@ -196,7 +208,7 @@ fn test_save_server_with_password() {
 
 #[test]
 fn test_delete_password_removes_from_keychain() {
-    setup_mock_store();
+    let _store_guard = setup_mock_store();
     let mut app = App::new(vec![test_server("host1")]);
     let tmp_path = std::env::temp_dir().join(format!("multitop_test_cfg_{}.toml", std::process::id()));
     app.config_path = Some(tmp_path.clone());
@@ -227,7 +239,7 @@ fn test_delete_password_removes_from_keychain() {
 
 #[test]
 fn test_save_sso_propagates_to_all_panels() {
-    setup_mock_store();
+    let _store_guard = setup_mock_store();
     let mut app = App::new(vec![test_server("host1"), test_server("host2")]);
     let tmp_path = std::env::temp_dir().join(format!("multitop_test_cfg_{}.toml", std::process::id()));
     app.config_path = Some(tmp_path.clone());
@@ -257,7 +269,7 @@ fn test_save_sso_propagates_to_all_panels() {
 
 #[test]
 fn test_delete_sso_clears_all() {
-    setup_mock_store();
+    let _store_guard = setup_mock_store();
     password_store::save_sso("sso_pass").unwrap();
 
     let mut app = App::new(vec![test_server("host1"), test_server("host2")]);
@@ -285,7 +297,7 @@ fn test_delete_sso_clears_all() {
 
 #[test]
 fn test_toggle_sparklines_persists_config() {
-    setup_mock_store();
+    let _store_guard = setup_mock_store();
     let mut app = App::new(vec![test_server("host1")]);
     let tmp_path = std::env::temp_dir().join(format!("multitop_test_cfg_{}.toml", std::process::id()));
     app.config_path = Some(tmp_path.clone());
@@ -301,14 +313,14 @@ fn test_toggle_sparklines_persists_config() {
         &mut tasks,
     );
 
-    assert!(app.show_sparklines);
+    assert!(app.show_sparklines());
 
     let _ = std::fs::remove_file(tmp_path);
 }
 
 #[test]
 fn test_save_resume_upgrade_false() {
-    setup_mock_store();
+    let _store_guard = setup_mock_store();
     let mut app = App::new(vec![test_server("host1")]);
     let tmp_path = std::env::temp_dir().join(format!("multitop_test_cfg_{}.toml", std::process::id()));
     app.config_path = Some(tmp_path.clone());
@@ -316,9 +328,6 @@ fn test_save_resume_upgrade_false() {
     let (tx, _rx) = tokio::sync::mpsc::channel::<Msg>(10);
     let mut tasks = multitop::run::Tasks::new(1);
     let servers = vec![test_server("host1")];
-
-    password_store::enable_mock_store();
-    password_store::clear_mock_store();
 
     // Panel in Monitor mode, save with resume_upgrade=false
     multitop::password_actions::apply(
@@ -341,7 +350,7 @@ fn test_save_resume_upgrade_false() {
 
 #[test]
 fn test_apply_servers_preserves_existing_passwords() {
-    setup_mock_store();
+    let _store_guard = setup_mock_store();
     let mut app = App::new(vec![test_server("host1"), test_server("host2")]);
     let tmp_path = std::env::temp_dir().join(format!("multitop_test_cfg_{}.toml", std::process::id()));
     app.config_path = Some(tmp_path.clone());

@@ -17,7 +17,7 @@ use multitop::render_payload::render_payload;
 use multitop_agent::color;
 use multitop_agent::proc::{Proc, Usage};
 use multitop_agent::proto::Payload;
-use multitop_agent::render::Snapshot;
+use multitop_agent::render::{Snapshot, TempUnit};
 use multitop_agent::SortBy;
 
 fn sample_snapshot() -> Snapshot {
@@ -25,10 +25,13 @@ fn sample_snapshot() -> Snapshot {
         host: "test-host.example.com (10.0.0.1)".into(),
         agent_version: "0.0.0".into(),
         cpu_pct: 42.0,
-        cores: (0..8)
-            .map(|c| (c, (c as f64).mul_add(8.0, 10.0), Some(50.0 + c as f64)))
+        cores: (0..8u32)
+            .map(|c| {
+                let load = f64::from(c).mul_add(8.0, 10.0);
+                (c as usize, load, Some(50.0 + f64::from(c)))
+            })
             .collect(),
-        temp_unit: Default::default(),
+        temp_unit: TempUnit::default(),
         mem: Usage::new(16_000_000_000, 8_000_000_000),
         disk: Usage::new(500_000_000_000, 200_000_000_000),
         rx_rate: 50_000.0,
@@ -61,18 +64,21 @@ fn sample_fetch() -> Payload {
 fn sample_docker() -> Payload {
     Payload::Docker {
         host: "test-host.example.com".into(),
-        rows: (0..20)
-            .map(|i| multitop_agent::docker::Row {
-                name: format!("container-{i}"),
-                status: if i % 3 == 2 {
-                    "Exited (0)".into()
-                } else {
-                    "Up 3 hours".into()
-                },
-                cpu: format!("{:.1}%", i as f64 * 0.5),
-                cpu_pct: i as f64 * 0.5,
-                mem: format!("{}MiB / {}MiB", 64 + i * 8, 256 + i * 16),
-                mem_bytes: (64 + i * 8) << 20,
+        rows: (0..20u32)
+            .map(|i| {
+                let cpu_pct = f64::from(i) * 0.5;
+                multitop_agent::docker::Row {
+                    name: format!("container-{i}"),
+                    status: if i % 3 == 2 {
+                        "Exited (0)".into()
+                    } else {
+                        "Up 3 hours".into()
+                    },
+                    cpu: format!("{cpu_pct:.1}%"),
+                    cpu_pct,
+                    mem: format!("{}MiB / {}MiB", 64 + i * 8, 256 + i * 16),
+                    mem_bytes: u64::from(64 + i * 8) << 20,
+                }
             })
             .collect(),
     }

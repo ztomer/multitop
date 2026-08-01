@@ -538,10 +538,10 @@ mod tests {
             m_kib: 32_768,
             p: 1,
         };
-        let wrappers: Vec<Wrapper> = (0..9)
+        let wrappers: Vec<Wrapper> = (0u8..9)
             .map(|i| {
                 Wrapper::new(
-                    WrapperType::from_u8(i as u8 + 1).unwrap_or(WrapperType::Argon2id),
+                    WrapperType::from_u8(i + 1).unwrap_or(WrapperType::Argon2id),
                     vec![1u8; 10],
                 )
                 .unwrap()
@@ -590,12 +590,12 @@ mod tests {
 
         header.add_wrapper(new_wrapper).unwrap();
         // Should still have only 1 Argon2id wrapper
-        let argon2_wrappers: Vec<_> = header
+        let count = header
             .wrappers
             .iter()
             .filter(|w| w.wrapper_type == WrapperType::Argon2id)
-            .collect();
-        assert_eq!(argon2_wrappers.len(), 1);
+            .count();
+        assert_eq!(count, 1);
     }
 
     #[test]

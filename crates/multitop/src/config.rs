@@ -127,10 +127,11 @@ pub struct Config {
 
 /// Read and validate the server list and config settings.
 ///
+/// Read and validate the server list and config settings.
+///
 /// # Errors
 ///
 /// Returns an error if the config file cannot be read or parsed.
-#[allow(clippy::expect_used)]
 pub fn load(path: &Path) -> Result<Config, ConfigError> {
     let legacy = legacy_config_path();
     let Ok(text) = std::fs::read_to_string(path) else {
@@ -143,14 +144,9 @@ pub fn load(path: &Path) -> Result<Config, ConfigError> {
 /// Parse config text. Split from [`load`] so the validation rules are
 /// testable without touching the filesystem.
 ///
-/// # Panics
-///
-/// Panics if a port value cannot be converted to `u16`.
-///
 /// # Errors
 ///
 /// Returns an error if the text cannot be parsed as TOML.
-#[allow(clippy::unwrap_used, clippy::expect_used)]
 pub fn parse(text: &str) -> Result<Config, ConfigError> {
     // `Value::from_str` parses a bare value; a whole document needs the
     // deserializer entry point.
@@ -187,15 +183,13 @@ pub fn parse(text: &str) -> Result<Config, ConfigError> {
         let user = table
             .get("user")
             .and_then(|v| v.as_str())
-            .unwrap_or("")
-            .to_string();
+            .map_or_else(String::new, String::from);
         validate_user(&user)?;
 
         let port = match table.get("port") {
             None => DEFAULT_PORT,
-            Some(v) => match v.as_integer() {
-#[allow(clippy::unwrap_used)]
-                Some(p) if (1..=65535).contains(&p) => u16::try_from(p).expect("port in valid range"),
+            Some(v) => match v.as_integer().and_then(|p| u16::try_from(p).ok()) {
+                Some(p) if p > 0 => p,
                 _ => return err(format!("Server entry at index {idx} has an invalid 'port'")),
             },
         };
@@ -218,7 +212,8 @@ pub fn parse(text: &str) -> Result<Config, ConfigError> {
         .get("upgrade_history_lines")
         .or_else(|| value.get("history_lines"))
         .and_then(toml::Value::as_integer)
-        .map_or(DEFAULT_UPGRADE_HISTORY_LINES, |v| usize::try_from(v).expect("history lines in valid range"));
+        .and_then(|v| usize::try_from(v).ok())
+        .unwrap_or(DEFAULT_UPGRADE_HISTORY_LINES);
 
     let show_sparklines = value
         .get("show_sparklines")
