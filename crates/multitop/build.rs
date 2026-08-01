@@ -34,16 +34,20 @@ fn main() {
         if !path.is_empty() && Path::new(&path).is_file() {
             println!("cargo:rerun-if-changed={path}");
             let bytes = std::fs::read(&path).expect("read agent binary");
-            write!(src,
+            write!(
+                src,
                 "pub static AGENT_{ident}: Option<&[u8]> = Some(include_bytes!(r\"{path}\"));\n\
                  pub static HASH_{ident}: &str = \"{:016x}\";\n",
                 fnv1a(&bytes)
-            ).expect("write to src");
+            )
+            .expect("write to src");
         } else {
-            write!(src,
+            write!(
+                src,
                 "pub static AGENT_{ident}: Option<&[u8]> = None;\n\
                  pub static HASH_{ident}: &str = \"missing\";\n"
-            ).expect("write to src");
+            )
+            .expect("write to src");
         }
     }
 

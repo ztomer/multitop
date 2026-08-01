@@ -27,7 +27,13 @@ async fn test_local_spawn_command_no_password() {
     let mut child = spawn_command(&server, "echo hello", None).unwrap();
 
     let mut stdout = String::new();
-    child.stdout.as_mut().unwrap().read_to_string(&mut stdout).await.unwrap();
+    child
+        .stdout
+        .as_mut()
+        .unwrap()
+        .read_to_string(&mut stdout)
+        .await
+        .unwrap();
     let status = child.wait().await.unwrap();
 
     assert!(status.success());
@@ -42,7 +48,13 @@ async fn test_local_spawn_command_with_mock_password() {
     let mut child = spawn_command(&server, "echo test", Some(password)).unwrap();
 
     let mut stdout = String::new();
-    child.stdout.as_mut().unwrap().read_to_string(&mut stdout).await.unwrap();
+    child
+        .stdout
+        .as_mut()
+        .unwrap()
+        .read_to_string(&mut stdout)
+        .await
+        .unwrap();
     let status = child.wait().await.unwrap();
 
     assert!(status.success());
@@ -65,7 +77,13 @@ async fn test_local_spawn_command_upgrade_lock_prevents_concurrent() {
 
     // Second should now be able to run (lock released)
     let mut stdout = String::new();
-    child2.stdout.as_mut().unwrap().read_to_string(&mut stdout).await.unwrap();
+    child2
+        .stdout
+        .as_mut()
+        .unwrap()
+        .read_to_string(&mut stdout)
+        .await
+        .unwrap();
     let status = child2.wait().await.unwrap();
 
     // In test mode with mock store, lock is disabled
@@ -80,7 +98,13 @@ async fn test_local_spawn_agent_finds_binary() {
     let mut child = spawn_command(&server, "multitop-agent --help 2>&1 || true", None).unwrap();
 
     let mut stdout = String::new();
-    child.stdout.as_mut().unwrap().read_to_string(&mut stdout).await.unwrap();
+    child
+        .stdout
+        .as_mut()
+        .unwrap()
+        .read_to_string(&mut stdout)
+        .await
+        .unwrap();
     let status = child.wait().await.unwrap();
 
     // Should at least run without "command not found" for multitop-agent

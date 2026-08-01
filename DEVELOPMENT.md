@@ -27,19 +27,79 @@ git push origin v0.22.0
 python3 scripts/release.py v0.22.0
 ```
 
+## Commit Gates
+
+Three gates run on every commit via `.githooks/pre-commit`, and again in CI
+(`.github/workflows/ci.yml`) where they cannot be bypassed:
+
+| Gate | Command |
+|------|---------|
+| No emoji | `python3 tools/check_no_emoji.py` |
+| Formatting | `cargo fmt --all -- --check` |
+| Clippy | `cargo clippy --workspace --all-targets --all-features -- -D warnings` |
+
+Enable the hook after cloning (it is a one-time, per-clone setting):
+
+```bash
+git config core.hooksPath .githooks
+```
+
+Clippy runs with `--all-targets` on purpose: tests and benches inherit the
+workspace lint config, and that is exactly where warnings have accumulated.
+Fix warnings properly — do not silence them with `#[allow]`.
+
+Only the Susan Kare icon set is permitted in place of emoji:
+`→ · ✓ ✗ ⚠ ↔ ↑ ↓`, plus the Mac key glyphs `← ⌘ ⌥ ⌨`.
+
 ## Test Commands
 
 ```bash
-# All tests (single-threaded for mock store)
-cargo test --package multitop -- --test-threads=1
+# Everything
+cargo test --workspace --all-features
 
-# Specific test suites
-cargo test --package multitop --test config_e2e_test -- --test-threads=1
-cargo test --package multitop --test ssh_e2e_test -- --test-threads=1
-cargo test --package multitop --test tasks_e2e_test -- --test-threads=1
-cargo test --package multitop --test panel_e2e_test -- --test-threads=1
-cargo test --package multitop --test server_settings_test -- --test-threads=1
-cargo test --package multitop --lib -- --test-threads=1
+# A single suite
+cargo test --package multitop --test server_settings_test
+```
+
+`--test-threads=1` is no longer required. Tests that touch the process-global
+mock credential store take a guard (`password_store::lock_for_test`, or
+`lock_for_test_async` inside `#[tokio::test]`) for the duration of the test
+body, so they serialize against each other without serializing the whole suite.
+Hold the guard for the entire test — dropping it early re-opens the race.
+
+## Live SSH Tests
+
+The SSH-backed tests are `#[ignore]`d because they need a real reachable host.
+CI never runs them; run them by hand against real machines.
+
+> **Never point a live test at a real upgrade command.** Use a read-only
+> stand-in — `ls -l ; ls -l` — so the tests exercise the full SSH, streaming,
+> locking, and exit-code paths without touching packages on the target. The
+> tests in `upgrade_loop_remote_e2e.rs` already hard-code safe commands
+> (`ls -l`, `true`, `echo`, `seq`) and never read your `config.toml`, so they
+> cannot pick up the real `upgrade_cmd` by accident. Keep it that way: if you
+> add a live test, give it a read-only command.
+
+```bash
+# Point at a host from your ~/.config/multitop/config.toml
+MULTITOP_TEST_SSH_HOST=<host> \
+MULTITOP_TEST_SSH_USER=<user> \
+MULTITOP_TEST_SSH_PORT=22 \
+  cargo test -p multitop --test upgrade_loop_remote_e2e -- --ignored --test-threads=1
+```
+
+`--test-threads=1` *is* needed here: the tests contend on a per-host remote
+lock file, and running them concurrently makes them flap between "ran" and
+"lock prevented execution".
+
+The live telemetry benchmark needs the Linux agent embedded in the binary, so
+run `./build.sh` first or it fails with "No x86_64 agent was built into this
+binary":
+
+```bash
+./build.sh
+BENCH_DURATION_SECS=60 BENCH_REMOTE_HOST=<host> BENCH_REMOTE_USER=<user> \
+  cargo bench --bench remote_ssh_bench
 ```
 
 ## Build

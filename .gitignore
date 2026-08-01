@@ -1,3 +1,6 @@
 /target
 .DS_Store
+
+# Agent/assistant working directories — local tooling state, never shared.
 .claude/
+.opencode/

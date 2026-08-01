@@ -98,7 +98,9 @@ impl VaultContents {
     /// Verify canary string matches the header's canary
     #[must_use]
     pub fn verify_canary(&self, header_canary: &str) -> bool {
-        self.canary.as_ref().is_some_and(|plaintext_canary| plaintext_canary == header_canary)
+        self.canary
+            .as_ref()
+            .is_some_and(|plaintext_canary| plaintext_canary == header_canary)
     }
 }
 

@@ -230,7 +230,7 @@ impl SecureEnclave {
 
 #[cfg(test)]
 mod tests {
-#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+    #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
     #[cfg(not(target_os = "macos"))]
     use super::*;

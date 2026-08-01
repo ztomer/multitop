@@ -51,7 +51,9 @@ impl SparklineHistory {
                     7
                 } else {
                     #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
-                    { idx as usize }
+                    {
+                        idx as usize
+                    }
                 };
                 BARS[idx_usize]
             })
@@ -61,7 +63,7 @@ impl SparklineHistory {
 
 #[cfg(test)]
 mod tests {
-#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+    #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
     use super::*;
 

@@ -275,7 +275,10 @@ fn handle_key(
                         match vault.unlock_with_password(&password) {
                             Ok(unlocked) => {
                                 app.set_vault_password_error(None);
-                                app.vault_state = VaultState::Unlocked { vault: Box::new(unlocked), awaiting_biometric: false };
+                                app.vault_state = VaultState::Unlocked {
+                                    vault: Box::new(unlocked),
+                                    awaiting_biometric: false,
+                                };
                                 app.set_show_upgrade_modal(true);
                             }
                             Err(e) => {

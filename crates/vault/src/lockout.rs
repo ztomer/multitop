@@ -48,8 +48,7 @@ impl LockoutState {
         let mut p = vault_path.to_path_buf();
         let ext = format!(
             "{}.lockout",
-            p.extension()
-                .map_or("bin", |e| e.to_str().unwrap_or("bin"))
+            p.extension().map_or("bin", |e| e.to_str().unwrap_or("bin"))
         );
         p.set_extension(&ext);
         p
@@ -108,16 +107,32 @@ pub struct LockoutGuard<'a> {
     state: &'a Mutex<LockoutState>,
     vault_path: &'a Path,
     succeeded: bool,
-    start_time_ms: u64,
+    /// Read when the guard drops, so the backoff is anchored to the moment the
+    /// attempt FAILED. Injectable so tests do not depend on the wall clock.
+    now: fn() -> u64,
 }
 
 impl<'a> LockoutGuard<'a> {
-    pub const fn new(state: &'a Mutex<LockoutState>, vault_path: &'a Path, now_ms: u64) -> Self {
+    pub fn new(state: &'a Mutex<LockoutState>, vault_path: &'a Path) -> Self {
         Self {
             state,
             vault_path,
             succeeded: false,
-            start_time_ms: now_ms,
+            now: crate::crypto::now_ms,
+        }
+    }
+
+    /// `new` with a fixed clock, for tests that assert on exact deadlines.
+    pub const fn with_clock(
+        state: &'a Mutex<LockoutState>,
+        vault_path: &'a Path,
+        now: fn() -> u64,
+    ) -> Self {
+        Self {
+            state,
+            vault_path,
+            succeeded: false,
+            now,
         }
     }
 
@@ -133,7 +148,12 @@ impl Drop for LockoutGuard<'_> {
             if self.succeeded {
                 lockout.on_success(self.vault_path);
             } else {
-                lockout.on_failure(self.vault_path, self.start_time_ms);
+                // Anchor the backoff to NOW (the failure), not to when the
+                // attempt began. The Argon2 KDF can take longer than the delay
+                // itself, and anchoring to the start would let the whole
+                // backoff window elapse before the guesser could even retry —
+                // the early tiers would impose no delay at all.
+                lockout.on_failure(self.vault_path, (self.now)());
             }
         }
     }
@@ -141,7 +161,7 @@ impl Drop for LockoutGuard<'_> {
 
 #[cfg(test)]
 mod tests {
-#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+    #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
     use super::*;
     use crate::VaultError;
@@ -311,12 +331,64 @@ mod tests {
         let state = Mutex::new(LockoutState::load(&path));
 
         {
-            let _guard = LockoutGuard::new(&state, &path, 1000);
+            let _guard = LockoutGuard::with_clock(&state, &path, || 1000);
             // Guard drops without marking success
         }
 
         let state = state.lock().unwrap();
         assert_eq!(state.failed_attempts, 1);
+    }
+
+    /// The backoff must start when the attempt FAILS, not when it began.
+    ///
+    /// A password attempt is dominated by the Argon2 KDF, which can take longer
+    /// than the first backoff tiers (1s, 2s). Anchoring the deadline to the
+    /// start of the attempt meant the window could already be over by the time
+    /// the guesser was able to retry, so the early tiers imposed no delay at
+    /// all — the rate limiter silently did nothing on slower machines and
+    /// under load.
+    #[test]
+    fn guard_anchors_backoff_to_failure_time_not_attempt_start() {
+        // The attempt starts at t=1000 and fails at t=9000 — a KDF far slower
+        // than the 1s tier this third failure earns.
+        const ATTEMPT_START_MS: u64 = 1000;
+        const FAILURE_MS: u64 = 9000;
+
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("vault.bin");
+        let state = Mutex::new(LockoutState {
+            failed_attempts: 2,
+            lockout_until_epoch_ms: 0,
+        });
+
+        {
+            let _guard = LockoutGuard::with_clock(&state, &path, || FAILURE_MS);
+        }
+
+        let (attempts, until, locked_on_retry) = {
+            let locked = state.lock().unwrap();
+            (
+                locked.failed_attempts,
+                locked.lockout_until_epoch_ms,
+                locked.check_lockout(FAILURE_MS).is_err(),
+            )
+        };
+
+        assert_eq!(attempts, 3);
+        assert_eq!(
+            until,
+            FAILURE_MS + 1000,
+            "third failure earns a 1s backoff measured from the failure"
+        );
+        // The whole point: a retry right after the slow attempt is still locked.
+        assert!(
+            locked_on_retry,
+            "an immediate retry must still be rate limited"
+        );
+        assert!(
+            until > ATTEMPT_START_MS + 1000,
+            "anchoring to the attempt start would have already expired"
+        );
     }
 
     #[test]
@@ -329,7 +401,7 @@ mod tests {
         });
 
         {
-            let mut guard = LockoutGuard::new(&state, &path, 1000);
+            let mut guard = LockoutGuard::with_clock(&state, &path, || 1000);
             guard.mark_success();
         }
 

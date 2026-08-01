@@ -213,7 +213,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let remote_user = env::var("BENCH_REMOTE_USER").unwrap_or_else(|_| "ztomer".to_string());
 
     println!("============================================================");
-    println!("   multitop Remote SSH Telemetry PacketStream Benchmark           ");
+    println!("   multitop Remote SSH Telemetry Stream Benchmark           ");
     println!("============================================================");
     println!("Target Remote Server: {remote_user}@{remote_host}");
     println!(
@@ -221,7 +221,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         duration_secs,
         duration_secs / 60
     );
-    println!("Protocol:            b\"MTOP\" Binary Telemetry PacketStream over SSH");
+    println!("Protocol:            b\"MTOP\" Binary Telemetry Stream over SSH");
     println!("============================================================\n");
 
     let server = Server {
@@ -248,7 +248,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         conn_elapsed.as_secs_f64() * 1000.0
     );
 
-    println!("[2/3] PacketStreaming live telemetry packets over SSH pipe...");
+    println!("[2/3] Streaming live telemetry packets over SSH pipe...");
     println!("--------------------------------------------------------------------------------------------------");
     println!("Elapsed   | Packets | Decoded | Bytes Recv | Bandwidth  | Avg Pkt Size | Inter-Packet Delay | Client RSS ");
     println!("--------------------------------------------------------------------------------------------------");

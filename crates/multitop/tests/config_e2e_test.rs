@@ -116,11 +116,20 @@ fn test_config_save_theme_show_sparklines() {
         "theme = \"{}\"\nshow_sparklines = {}\nupgrade_history_lines = 5000\n\n{}",
         config.theme.as_ref().unwrap(),
         config.show_sparklines,
-        config.servers.iter().map(|s| format!(
-            "[[servers]]\nhost = \"{}\"\nport = {}\nuser = \"{}\"{}",
-            s.host, s.port, s.user,
-            s.upgrade_cmd.as_ref().map_or(String::new(), |c| format!("\nupgrade_cmd = \"{c}\""))
-        )).collect::<Vec<_>>().join("\n\n")
+        config
+            .servers
+            .iter()
+            .map(|s| format!(
+                "[[servers]]\nhost = \"{}\"\nport = {}\nuser = \"{}\"{}",
+                s.host,
+                s.port,
+                s.user,
+                s.upgrade_cmd
+                    .as_ref()
+                    .map_or(String::new(), |c| format!("\nupgrade_cmd = \"{c}\""))
+            ))
+            .collect::<Vec<_>>()
+            .join("\n\n")
     );
     fs::write(&config_path, toml).unwrap();
 

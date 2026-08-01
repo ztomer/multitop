@@ -1,0 +1,50 @@
+#!/usr/bin/env bash
+# Structural commit gates — these run on every commit, so nobody has to
+# "remember to run the check". CI enforces the same three, so bypassing with
+# --no-verify only defers the failure.
+#
+#   1. no emoji in the staged content
+#   2. cargo fmt is clean
+#   3. cargo clippy is clean at -D warnings, all targets, all features
+#
+# Clippy covers --all-targets because tests and benches carry the same lint
+# config as src, and that is exactly where warnings have accumulated before.
+
+set -euo pipefail
+
+repo_root="$(git rev-parse --show-toplevel)"
+cd "$repo_root"
+. "$repo_root/tui/lib.sh"
+
+log="$(mktemp -t multitop-precommit)"
+trap 'rm -f "$log"' EXIT
+
+# Cargo may be missing from the environment a GUI git client hands us; say so
+# plainly rather than failing with "command not found".
+command -v cargo >/dev/null 2>&1 || die "cargo not on PATH — cannot run the fmt/clippy gates"
+command -v python3 >/dev/null 2>&1 || die "python3 not on PATH — cannot run the emoji gate"
+
+section "pre-commit gates"
+
+info "checking for emoji"
+if ! python3 tools/check_no_emoji.py --staged >"$log" 2>&1; then
+    cat "$log" >&2
+    die "emoji are a failure state — remove them (permitted: → · ✓ ✗ ⚠ ↔ ↑ ↓)"
+fi
+ok "no emoji"
+
+info "checking formatting"
+if ! cargo fmt --all -- --check >"$log" 2>&1; then
+    cat "$log" >&2
+    die "formatting is dirty — run: cargo fmt --all"
+fi
+ok "formatting clean"
+
+info "running clippy (all targets, all features, -D warnings)"
+if ! cargo clippy --workspace --all-targets --all-features -- -D warnings >"$log" 2>&1; then
+    tail -60 "$log" >&2
+    die "clippy is not clean — fix the warnings, do not add #[allow]"
+fi
+ok "clippy clean"
+
+printf '\n'

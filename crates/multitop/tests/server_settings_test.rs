@@ -5,8 +5,8 @@
 use crossterm::event::KeyCode;
 use multitop::app::{App, Mode, Msg};
 use multitop::config::Server;
-use multitop::passwords::{self, ConfigSection, PasswordAction};
 use multitop::password_store;
+use multitop::passwords::{self, ConfigSection, PasswordAction};
 use std::sync::atomic::{AtomicU16, Ordering};
 
 static PORT_COUNTER: AtomicU16 = AtomicU16::new(10000);
@@ -181,7 +181,8 @@ fn test_add_and_delete_server_from_passwords_section() {
 fn test_save_server_with_password() {
     let _store_guard = setup_mock_store();
     let mut app = App::new(vec![test_server("host1")]);
-    let tmp_path = std::env::temp_dir().join(format!("multitop_test_cfg_{}.toml", std::process::id()));
+    let tmp_path =
+        std::env::temp_dir().join(format!("multitop_test_cfg_{}.toml", std::process::id()));
     app.config_path = Some(tmp_path.clone());
 
     let (tx, _rx) = tokio::sync::mpsc::channel::<Msg>(10);
@@ -210,7 +211,8 @@ fn test_save_server_with_password() {
 fn test_delete_password_removes_from_keychain() {
     let _store_guard = setup_mock_store();
     let mut app = App::new(vec![test_server("host1")]);
-    let tmp_path = std::env::temp_dir().join(format!("multitop_test_cfg_{}.toml", std::process::id()));
+    let tmp_path =
+        std::env::temp_dir().join(format!("multitop_test_cfg_{}.toml", std::process::id()));
     app.config_path = Some(tmp_path.clone());
 
     let (tx, _rx) = tokio::sync::mpsc::channel::<Msg>(10);
@@ -241,7 +243,8 @@ fn test_delete_password_removes_from_keychain() {
 fn test_save_sso_propagates_to_all_panels() {
     let _store_guard = setup_mock_store();
     let mut app = App::new(vec![test_server("host1"), test_server("host2")]);
-    let tmp_path = std::env::temp_dir().join(format!("multitop_test_cfg_{}.toml", std::process::id()));
+    let tmp_path =
+        std::env::temp_dir().join(format!("multitop_test_cfg_{}.toml", std::process::id()));
     app.config_path = Some(tmp_path.clone());
 
     let (tx, _rx) = tokio::sync::mpsc::channel::<Msg>(10);
@@ -249,7 +252,9 @@ fn test_save_sso_propagates_to_all_panels() {
     let servers = vec![test_server("host1"), test_server("host2")];
 
     multitop::password_actions::apply(
-        PasswordAction::SaveSso { password: "sso_pass".to_string() },
+        PasswordAction::SaveSso {
+            password: "sso_pass".to_string(),
+        },
         &mut app,
         &servers,
         &tx,
@@ -273,7 +278,8 @@ fn test_delete_sso_clears_all() {
     password_store::save_sso("sso_pass").unwrap();
 
     let mut app = App::new(vec![test_server("host1"), test_server("host2")]);
-    let tmp_path = std::env::temp_dir().join(format!("multitop_test_cfg_{}.toml", std::process::id()));
+    let tmp_path =
+        std::env::temp_dir().join(format!("multitop_test_cfg_{}.toml", std::process::id()));
     app.config_path = Some(tmp_path.clone());
 
     let (tx, _rx) = tokio::sync::mpsc::channel::<Msg>(10);
@@ -299,7 +305,8 @@ fn test_delete_sso_clears_all() {
 fn test_toggle_sparklines_persists_config() {
     let _store_guard = setup_mock_store();
     let mut app = App::new(vec![test_server("host1")]);
-    let tmp_path = std::env::temp_dir().join(format!("multitop_test_cfg_{}.toml", std::process::id()));
+    let tmp_path =
+        std::env::temp_dir().join(format!("multitop_test_cfg_{}.toml", std::process::id()));
     app.config_path = Some(tmp_path.clone());
 
     let (tx, _rx) = tokio::sync::mpsc::channel::<Msg>(10);
@@ -322,7 +329,8 @@ fn test_toggle_sparklines_persists_config() {
 fn test_save_resume_upgrade_false() {
     let _store_guard = setup_mock_store();
     let mut app = App::new(vec![test_server("host1")]);
-    let tmp_path = std::env::temp_dir().join(format!("multitop_test_cfg_{}.toml", std::process::id()));
+    let tmp_path =
+        std::env::temp_dir().join(format!("multitop_test_cfg_{}.toml", std::process::id()));
     app.config_path = Some(tmp_path.clone());
 
     let (tx, _rx) = tokio::sync::mpsc::channel::<Msg>(10);
@@ -352,7 +360,8 @@ fn test_save_resume_upgrade_false() {
 fn test_apply_servers_preserves_existing_passwords() {
     let _store_guard = setup_mock_store();
     let mut app = App::new(vec![test_server("host1"), test_server("host2")]);
-    let tmp_path = std::env::temp_dir().join(format!("multitop_test_cfg_{}.toml", std::process::id()));
+    let tmp_path =
+        std::env::temp_dir().join(format!("multitop_test_cfg_{}.toml", std::process::id()));
     app.config_path = Some(tmp_path.clone());
     app.panels[0].sudo_password = Some("secret1".to_string());
     app.panels[0].password_saved = true;
@@ -363,9 +372,17 @@ fn test_apply_servers_preserves_existing_passwords() {
     let mut tasks = multitop::run::Tasks::new(2);
 
     multitop::password_actions::apply(
-        PasswordAction::ApplyServers(vec![test_server("host1"), test_server("host2"), test_server("host3")]),
+        PasswordAction::ApplyServers(vec![
+            test_server("host1"),
+            test_server("host2"),
+            test_server("host3"),
+        ]),
         &mut app,
-        &[test_server("host1"), test_server("host2"), test_server("host3")],
+        &[
+            test_server("host1"),
+            test_server("host2"),
+            test_server("host3"),
+        ],
         &tx,
         &mut tasks,
     );

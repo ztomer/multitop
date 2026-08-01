@@ -1,9 +1,9 @@
 //! Panel state integration tests.
 
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
-use multitop::app::{Mode};
+use multitop::app::Mode;
 use multitop::config::Server;
-use multitop::panel::{UpgradeState};
+use multitop::panel::UpgradeState;
 use multitop::password_store;
 
 fn test_server(host: &str) -> Server {

@@ -40,7 +40,10 @@ pub fn load_state(config_path: &Path) -> AppState {
 #[allow(clippy::expect_used)]
 fn insert_opt_u64(table: &mut toml::Table, key: &str, val: Option<u64>) {
     if let Some(v) = val {
-        table.insert(key.to_string(), toml::Value::Integer(i64::try_from(v).expect("u64 fits in i64")));
+        table.insert(
+            key.to_string(),
+            toml::Value::Integer(i64::try_from(v).expect("u64 fits in i64")),
+        );
     }
 }
 
@@ -60,7 +63,7 @@ pub fn save_state(config_path: &Path, state: &AppState) -> Result<(), String> {
 
 #[cfg(test)]
 mod tests {
-#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+    #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
     use super::*;
 

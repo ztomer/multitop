@@ -37,9 +37,16 @@ pub enum AppMode {
 pub enum VaultState {
     #[default]
     Locked,
-    Unlocking { awaiting_biometric: bool },
-    Unlocked { vault: Box<multitop_vault::UnlockedVault>, awaiting_biometric: bool },
-    PasswordPrompt { error: Option<String> },
+    Unlocking {
+        awaiting_biometric: bool,
+    },
+    Unlocked {
+        vault: Box<multitop_vault::UnlockedVault>,
+        awaiting_biometric: bool,
+    },
+    PasswordPrompt {
+        error: Option<String>,
+    },
 }
 
 pub struct App {
@@ -130,7 +137,9 @@ impl App {
     /// proceeds straight to the upgrade modal.
     pub fn begin_vault_unlock(&mut self) -> Option<Arc<multitop_vault::Vault>> {
         if self.vault.is_some() && matches!(self.vault_state, VaultState::Locked) {
-            self.vault_state = VaultState::Unlocking { awaiting_biometric: true };
+            self.vault_state = VaultState::Unlocking {
+                awaiting_biometric: true,
+            };
             self.vault_password_input.clear();
             return self.vault.clone();
         }
@@ -186,8 +195,15 @@ impl App {
     /// Check if vault is awaiting biometric authentication.
     #[must_use]
     pub const fn vault_awaiting_biometric(&self) -> bool {
-        matches!(self.vault_state, VaultState::Unlocking { awaiting_biometric: true }
-            | VaultState::Unlocked { awaiting_biometric: true, .. })
+        matches!(
+            self.vault_state,
+            VaultState::Unlocking {
+                awaiting_biometric: true
+            } | VaultState::Unlocked {
+                awaiting_biometric: true,
+                ..
+            }
+        )
     }
 
     /// Get vault password input.
@@ -462,7 +478,11 @@ impl App {
         self.panels.get(panel).is_some_and(|p| p.gen == gen)
     }
 
-    #[allow(clippy::too_many_lines, clippy::cast_possible_truncation, clippy::cast_precision_loss)]
+    #[allow(
+        clippy::too_many_lines,
+        clippy::cast_possible_truncation,
+        clippy::cast_precision_loss
+    )]
     pub fn apply(&mut self, msg: Msg) {
         match msg {
             Msg::Packet {
@@ -608,7 +628,10 @@ impl App {
                 }
             }
             Msg::VaultUnlocked(unlocked) => {
-                self.vault_state = VaultState::Unlocked { vault: Box::new(unlocked), awaiting_biometric: false };
+                self.vault_state = VaultState::Unlocked {
+                    vault: Box::new(unlocked),
+                    awaiting_biometric: false,
+                };
                 self.mode = AppMode::ShowUpgradeModal;
             }
             Msg::VaultBiometricFailed => {

@@ -15,6 +15,20 @@
 //!
 //! For local testing with SSH, use `MULTITOP_TEST_SSH_HOST=127.0.0.1` and
 //! ensure sshd is running locally.
+//!
+//! # Never run a real upgrade command here
+//!
+//! These tests run against real machines, so every `upgrade_cmd` below is a
+//! read-only stand-in — `ls -l ; ls -l`, `true`, `echo`, `seq` — chosen to
+//! exercise the full SSH, streaming, locking, and exit-code paths without
+//! touching packages on the target. The tests build their `Server` values from
+//! the environment only and never read `config.toml`, so a real `upgrade_cmd`
+//! (`apt upgrade`, `./update_sys.sh`, ...) cannot leak in by accident.
+//! Any test added here must keep that property.
+//!
+//! Run with `--test-threads=1`: the tests contend on a per-host remote lock
+//! file, and running them concurrently makes them flap between "ran" and
+//! "lock prevented execution".
 
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 use std::env;
@@ -220,13 +234,23 @@ async fn test_remote_upgrade_empty_command() {
     // `true` produces no stdout, but shell wrapper/lock messages may appear as AuxLine via stderr
     let stdout_lines: Vec<_> = msgs
         .iter()
-        .filter_map(|m| if let Msg::AuxLine { line, .. } = m { Some(line) } else { None })
+        .filter_map(|m| {
+            if let Msg::AuxLine { line, .. } = m {
+                Some(line)
+            } else {
+                None
+            }
+        })
         .filter(|l| !l.contains("Upgrade already in progress"))
         .collect();
     // Most systems won't produce output from `true` itself; the test verifies the
     // command completes successfully, not that output is zero.
-    assert!(stdout_lines.iter().all(|l| !l.contains("total") && !l.contains("drwx")),
-        "Should not have ls-like output for `true`");
+    assert!(
+        stdout_lines
+            .iter()
+            .all(|l| !l.contains("total") && !l.contains("drwx")),
+        "Should not have ls-like output for `true`"
+    );
 }
 
 /// Test R5: Remote upgrade lock contention

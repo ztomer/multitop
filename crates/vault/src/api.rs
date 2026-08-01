@@ -57,7 +57,11 @@ impl UnlockedVault {
     /// Returns `VaultError::Io` if saving the vault fails,
     /// `VaultError::Serialization` if the contents cannot be serialized,
     /// or other encryption-related errors.
-    pub fn set_password(&mut self, host: String, password: &SecretString) -> Result<(), VaultError> {
+    pub fn set_password(
+        &mut self,
+        host: String,
+        password: &SecretString,
+    ) -> Result<(), VaultError> {
         self.contents.set(host, password);
         self.save()?;
         Ok(())
@@ -131,17 +135,29 @@ pub struct Vault {
     config: VaultConfig,
     unlocked: Arc<Mutex<Option<UnlockedVault>>>,
     lockout: StdMutex<LockoutState>,
+    /// Clock used for rate-limiting decisions. Injectable so that lockout tests
+    /// are deterministic: a real unlock attempt costs an Argon2 KDF plus a
+    /// keychain write, which together can exceed the shortest backoff tier, so
+    /// a wall-clock test races against its own setup cost.
+    clock: fn() -> u64,
 }
 
 impl Vault {
     /// Create new vault manager
     #[must_use]
     pub fn new(config: VaultConfig) -> Self {
+        Self::with_clock(config, now_ms)
+    }
+
+    /// `new` with an injected clock, for tests that drive lockout timing.
+    #[must_use]
+    pub fn with_clock(config: VaultConfig, clock: fn() -> u64) -> Self {
         let lockout = LockoutState::load(&config.vault_path);
         Self {
             config,
             unlocked: Arc::new(Mutex::new(None)),
             lockout: StdMutex::new(lockout),
+            clock,
         }
     }
 
@@ -341,7 +357,7 @@ impl Vault {
         .map_err(|_| VaultError::Corrupted("signature verification failed".into()))?;
 
         // Check rate limiting before attempting password
-        let now = now_ms();
+        let now = (self.clock)();
         {
             let lockout = self
                 .lockout
@@ -351,7 +367,8 @@ impl Vault {
         }
 
         // Create guard that records failures on drop
-        let mut guard = LockoutGuard::new(&self.lockout, &self.config.vault_path, now);
+        let mut guard =
+            LockoutGuard::with_clock(&self.lockout, &self.config.vault_path, self.clock);
 
         // Find Argon2id wrapper
         let argon2id_wrapper = vault_file
@@ -569,15 +586,15 @@ impl Vault {
 }
 
 /// Run upgrade/migration if needed
-    ///
-    /// # Errors
-    /// Returns `VaultError` if vault file cannot be read, migration flag cannot be written,
-    /// or unsupported vault version is detected.
-    #[allow(clippy::unused_async, clippy::unused_async_trait_impl)]
-    pub async fn migrate_if_needed(vault_path: &std::path::Path) -> Result<(), VaultError> {
-        use std::fs::OpenOptions;
-        #[cfg(unix)]
-        use std::os::unix::fs::OpenOptionsExt;
+///
+/// # Errors
+/// Returns `VaultError` if vault file cannot be read, migration flag cannot be written,
+/// or unsupported vault version is detected.
+#[allow(clippy::unused_async, clippy::unused_async_trait_impl)]
+pub async fn migrate_if_needed(vault_path: &std::path::Path) -> Result<(), VaultError> {
+    use std::fs::OpenOptions;
+    #[cfg(unix)]
+    use std::os::unix::fs::OpenOptionsExt;
     if !vault_path.exists() {
         return Ok(());
     }
@@ -617,12 +634,31 @@ impl Vault {
 
 #[cfg(test)]
 mod tests {
-#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+    #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
     use super::*;
     use crate::crypto::Argon2Params;
     use secrecy::ExposeSecret;
     use tempfile::TempDir;
+
+    // A controllable clock for lockout tests. Thread-local because the test
+    // harness gives each test its own thread, so tests cannot disturb one
+    // another's time even when run in parallel.
+    thread_local! {
+        static TEST_CLOCK_MS: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
+    }
+
+    fn test_clock() -> u64 {
+        TEST_CLOCK_MS.with(std::cell::Cell::get)
+    }
+
+    fn set_clock(ms: u64) {
+        TEST_CLOCK_MS.with(|c| c.set(ms));
+    }
+
+    fn advance_clock(ms: u64) {
+        TEST_CLOCK_MS.with(|c| c.set(c.get() + ms));
+    }
 
     fn fast_vault_config(path: std::path::PathBuf) -> VaultConfig {
         VaultConfig {
@@ -691,7 +727,13 @@ mod tests {
         let dir = TempDir::new().unwrap();
         let path = dir.path().join("test_vault.bin");
         let config = fast_vault_config(path.clone());
-        let vault = Vault::new(config);
+
+        // Drive time explicitly. A real attempt costs an Argon2 KDF plus a
+        // keychain write — together often more than the 1s first backoff tier —
+        // so a wall-clock version of this test races its own setup cost and
+        // flaps between "rate limited" and "window already expired".
+        let vault = Vault::with_clock(config, test_clock);
+        set_clock(1_000_000);
 
         let password = "correct-password";
         vault.initialize(password).await.unwrap();
@@ -700,16 +742,19 @@ mod tests {
             assert!(vault.unlock_with_password("wrong").is_err());
         }
 
+        // The third failure earns a 1s backoff; a retry inside it is refused.
         assert!(matches!(
             vault.unlock_with_password("wrong"),
             Err(VaultError::RateLimited(_))
         ));
 
-        tokio::time::sleep(std::time::Duration::from_secs(2)).await;
-
+        // Past the backoff window, the correct password works again.
+        advance_clock(2000);
         let unlocked = vault.unlock_with_password(password).unwrap();
         assert!(unlocked.get_password("test").is_none());
 
+        // A success resets the counter, so the next failure is a plain
+        // wrong-password error rather than another rate limit.
         let result = vault.unlock_with_password("wrong");
         assert!(result.is_err());
         assert!(!matches!(result, Err(VaultError::RateLimited(_))));
@@ -906,9 +951,9 @@ mod tests {
 
         {
             let mut unlocked = vault.unlock_with_password("password").unwrap();
-unlocked
-            .set_password("server1:22".into(), &SecretString::from("pass1"))
-            .unwrap();
+            unlocked
+                .set_password("server1:22".into(), &SecretString::from("pass1"))
+                .unwrap();
         }
 
         // Unlock again and check password persisted

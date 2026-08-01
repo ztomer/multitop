@@ -86,7 +86,10 @@ async fn app_with_vault(
     // Pre-unlock the vault for test (bypass password prompt)
     if let Some(ref vault) = app.vault {
         let unlocked = vault.unlock_with_password("test-master").unwrap();
-        app.vault_state = VaultState::Unlocked { vault: Box::new(unlocked), awaiting_biometric: false };
+        app.vault_state = VaultState::Unlocked {
+            vault: Box::new(unlocked),
+            awaiting_biometric: false,
+        };
     }
 
     (app, temp_dir)
@@ -243,7 +246,10 @@ async fn test_vault_password_prompt_state_machine() {
         let password = std::mem::take(&mut app.vault_password_input);
         match vault.unlock_with_password(&password) {
             Ok(unlocked) => {
-                app.vault_state = VaultState::Unlocked { vault: Box::new(unlocked), awaiting_biometric: false };
+                app.vault_state = VaultState::Unlocked {
+                    vault: Box::new(unlocked),
+                    awaiting_biometric: false,
+                };
                 app.set_show_upgrade_modal(true);
             }
             Err(e) => {
@@ -308,8 +314,7 @@ async fn test_vault_failed_unlock_shows_error() {
 /// `begin_vault_unlock()` path used by the `u` key handler.
 #[tokio::test]
 async fn test_vault_locked_u_key_tries_biometric_first() {
-    let (mut app, _temp_dir) =
-        app_with_vault(test_servers(), "test-master", HashMap::new()).await;
+    let (mut app, _temp_dir) = app_with_vault(test_servers(), "test-master", HashMap::new()).await;
     // Lock the vault again to simulate a fresh app start.
     app.vault_state = VaultState::Locked;
 
@@ -336,7 +341,10 @@ async fn test_vault_locked_u_key_tries_biometric_first() {
         .unwrap()
         .unlock_with_password("test-master")
         .unwrap();
-    app.vault_state = VaultState::Unlocked { vault: Box::new(unlocked), awaiting_biometric: false };
+    app.vault_state = VaultState::Unlocked {
+        vault: Box::new(unlocked),
+        awaiting_biometric: false,
+    };
     assert!(app.begin_vault_unlock().is_none());
     assert!(!app.vault_awaiting_biometric());
 }
@@ -346,11 +354,12 @@ async fn test_vault_locked_u_key_tries_biometric_first() {
 #[tokio::test]
 async fn test_vault_biometric_success_proceeds_to_modal() {
     let master_pw = "test-master";
-    let (mut app, _temp_dir) =
-        app_with_vault(test_servers(), master_pw, HashMap::new()).await;
+    let (mut app, _temp_dir) = app_with_vault(test_servers(), master_pw, HashMap::new()).await;
 
     // Lock the vault again, then simulate the biometric task succeeding.
-    app.vault_state = VaultState::Unlocking { awaiting_biometric: true };
+    app.vault_state = VaultState::Unlocking {
+        awaiting_biometric: true,
+    };
 
     let unlocked = app
         .vault
@@ -380,7 +389,9 @@ async fn test_vault_biometric_success_proceeds_to_modal() {
 #[tokio::test]
 async fn test_vault_biometric_failed_falls_back_to_password() {
     let (mut app, _temp_dir) = app_with_vault(test_servers(), "test-master", HashMap::new()).await;
-    app.vault_state = VaultState::Unlocking { awaiting_biometric: true };
+    app.vault_state = VaultState::Unlocking {
+        awaiting_biometric: true,
+    };
 
     app.apply(Msg::VaultBiometricFailed);
 
@@ -424,7 +435,9 @@ async fn test_vault_biometric_task_emits_fallback_on_unavailable() {
         .expect("channel must not close");
 
     // Apply the task's outcome to the app.
-    app.vault_state = VaultState::Unlocking { awaiting_biometric: true };
+    app.vault_state = VaultState::Unlocking {
+        awaiting_biometric: true,
+    };
     app.apply(msg);
 
     assert!(

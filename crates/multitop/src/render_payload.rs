@@ -30,7 +30,7 @@ pub fn render_payload(
 
 #[cfg(test)]
 mod tests {
-#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+    #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
     #[test]
     fn dispatch_monitor_produces_output() {

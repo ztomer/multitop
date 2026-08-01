@@ -109,7 +109,7 @@ mod tests {
         assert_eq!(Arch::from_uname(""), None);
     }
 
-#[test]
+    #[test]
     fn arch_hash_label_consistency() {
         for arch in [Arch::X86_64, Arch::Aarch64] {
             assert_eq!(arch.label(), arch.label());

@@ -4,9 +4,9 @@
 use multitop::app::{App, Mode, Msg};
 use multitop::config::Server;
 use multitop::panel::UpgradeState;
-use multitop::tasks::spawn_upgrade;
 use multitop::password_store;
 use multitop::state;
+use multitop::tasks::spawn_upgrade;
 use tokio::sync::mpsc;
 
 fn test_server(host: &str) -> Server {
@@ -39,7 +39,9 @@ async fn test_spawn_upgrade_generation_tracking() {
 
     let msg = rx.recv().await.unwrap();
     match msg {
-        Msg::AuxBegin { panel: 0, gen: 42, .. } => {}
+        Msg::AuxBegin {
+            panel: 0, gen: 42, ..
+        } => {}
         other => panic!("Expected AuxBegin with gen=42, got {other:?}"),
     }
 
@@ -77,7 +79,8 @@ async fn test_spawn_upgrade_sets_mode_and_state() {
 async fn test_spawn_upgrade_saves_state_file() {
     let _store_guard = enable_mock_store().await;
     let mut app = App::new(vec![test_server("127.0.0.1")]);
-    let tmp_path = std::env::temp_dir().join(format!("multitop_test_state_{}.toml", std::process::id()));
+    let tmp_path =
+        std::env::temp_dir().join(format!("multitop_test_state_{}.toml", std::process::id()));
     app.config_path = Some(tmp_path.clone());
 
     let (tx, _rx) = mpsc::channel::<Msg>(100);

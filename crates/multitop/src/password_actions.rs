@@ -138,7 +138,8 @@ pub fn apply(
             app.panels[panel].password_saved = result.is_ok();
             // Also save to vault if unlocked
             if let Some(ref mut unlocked) = app.vault_unlocked_mut() {
-                let _ = unlocked.set_password(key, &SecretString::new(password.clone().into_boxed_str()));
+                let _ = unlocked
+                    .set_password(key, &SecretString::new(password.clone().into_boxed_str()));
             }
             if let Some(manager) = app.password_manager.as_mut() {
                 manager.resume_upgrade = false;

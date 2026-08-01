@@ -267,7 +267,10 @@ impl FingerprintVerifier {
     ///
     /// # Errors
     /// Always returns `VaultError::PlatformNotSupported` on non-Linux platforms.
-    pub fn with_device(_device_path: String, _finger: String) -> impl std::future::Future<Output = Result<Self, VaultError>> {
+    pub fn with_device(
+        _device_path: String,
+        _finger: String,
+    ) -> impl std::future::Future<Output = Result<Self, VaultError>> {
         std::future::ready(Err(VaultError::PlatformNotSupported(
             "fprintd only on Linux".into(),
         )))
@@ -277,7 +280,9 @@ impl FingerprintVerifier {
     ///
     /// # Errors
     /// Always returns `VaultError::PlatformNotSupported` on non-Linux platforms.
-    pub fn verify(&self) -> impl std::future::Future<Output = Result<FingerprintResult, VaultError>> {
+    pub fn verify(
+        &self,
+    ) -> impl std::future::Future<Output = Result<FingerprintResult, VaultError>> {
         std::future::ready(Err(VaultError::PlatformNotSupported(
             "fprintd only on Linux".into(),
         )))
@@ -296,7 +301,9 @@ impl FingerprintVerifier {
     ///
     /// # Errors
     /// Always returns `VaultError::PlatformNotSupported` on non-Linux platforms.
-    pub fn list_fingers(&self) -> impl std::future::Future<Output = Result<Vec<String>, VaultError>> {
+    pub fn list_fingers(
+        &self,
+    ) -> impl std::future::Future<Output = Result<Vec<String>, VaultError>> {
         std::future::ready(Err(VaultError::PlatformNotSupported(
             "fprintd only on Linux".into(),
         )))
@@ -316,7 +323,7 @@ pub fn check_fprintd() -> impl std::future::Future<Output = Result<Vec<String>, 
 
 #[cfg(test)]
 mod tests {
-#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+    #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
     use super::*;
 

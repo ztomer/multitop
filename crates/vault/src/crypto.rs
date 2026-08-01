@@ -154,7 +154,7 @@ impl Argon2Params {
 
     /// Create from config values.
     ///
-/// Values are clamped to valid ranges:
+    /// Values are clamped to valid ranges:
     /// - `t` (iterations): 1–20
     /// - `m_kib` (memory): 32 MiB – 4 GiB
     /// - `p` (parallelism): 1–8
@@ -509,7 +509,7 @@ pub fn secure_overwrite(path: &std::path::Path) -> std::io::Result<()> {
 
 #[cfg(test)]
 mod tests {
-#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+    #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
     use super::*;
     use crate::VaultError;

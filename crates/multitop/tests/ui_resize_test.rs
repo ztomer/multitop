@@ -108,7 +108,11 @@ fn sparkline_renders_truncated_on_narrow_split_panel() {
     }
 
     // Full 30-sample histories for both panels (memory and CPU).
-    for hist in app.sparklines_mem.iter_mut().chain(app.sparklines_cpu.iter_mut()) {
+    for hist in app
+        .sparklines_mem
+        .iter_mut()
+        .chain(app.sparklines_cpu.iter_mut())
+    {
         for v in 0..30u16 {
             hist.push(f32::from(v) / 29.0 * 100.0);
         }

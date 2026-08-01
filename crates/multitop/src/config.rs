@@ -63,8 +63,10 @@ fn config_home() -> PathBuf {
     if let Some(dir) = std::env::var_os("XDG_CONFIG_HOME").filter(|s| !s.is_empty()) {
         return PathBuf::from(dir);
     }
-    std::env::var_os("HOME")
-        .map_or_else(|| PathBuf::from(".config"), |home| PathBuf::from(home).join(".config"))
+    std::env::var_os("HOME").map_or_else(
+        || PathBuf::from(".config"),
+        |home| PathBuf::from(home).join(".config"),
+    )
 }
 
 /// Validate that a user name contains no whitespace.

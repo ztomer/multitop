@@ -1,0 +1,54 @@
+name: CI
+
+# The same three gates the pre-commit hook runs, enforced where they cannot be
+# bypassed with --no-verify.
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  gates:
+    name: fmt / clippy / no-emoji
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - uses: Swatinem/rust-cache@v2
+
+      # Checks every tracked file, not just a diff: a gate that only looks at
+      # what changed lets pre-existing violations sit forever.
+      - name: No emoji
+        run: python3 tools/check_no_emoji.py
+
+      - name: Formatting
+        run: cargo fmt --all -- --check
+
+      # --all-targets because tests and benches carry the same lint config as
+      # src and are where warnings have accumulated before.
+      - name: Clippy
+        run: cargo clippy --workspace --all-targets --all-features -- -D warnings
+
+  test:
+    name: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+
+      # The SSH-backed tests are #[ignore]d and stay that way here: CI has no
+      # reachable host. They are run manually against real machines — see
+      # DEVELOPMENT.md.
+      - name: Test
+        run: cargo test --workspace --all-features
+
+      - name: Benches build
+        run: cargo bench --no-run

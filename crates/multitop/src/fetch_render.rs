@@ -314,7 +314,10 @@ mod tests {
         let db = load_db();
         assert!(!db.logos.is_empty());
         // Should have common OS logos
-        let has_linux = db.logos.iter().any(|l| l.patterns.iter().any(|p| p == "linux"));
+        let has_linux = db
+            .logos
+            .iter()
+            .any(|l| l.patterns.iter().any(|p| p == "linux"));
         assert!(has_linux);
     }
 
@@ -333,6 +336,8 @@ mod tests {
         };
         let result = render_fetch(&snap, 80, 24, &KARE);
         assert!(!result.is_empty());
-        assert!(result.iter().any(|l| l.contains("user@host") || l.contains("ｕｓｅｒ＠ｈｏｓｔ")));
+        assert!(result
+            .iter()
+            .any(|l| l.contains("user@host") || l.contains("ｕｓｅｒ＠ｈｏｓｔ")));
     }
 }

@@ -142,7 +142,11 @@ pub fn spawn_docker(
 }
 
 #[must_use]
-#[allow(clippy::missing_panics_doc, clippy::too_many_lines, clippy::expect_used)]
+#[allow(
+    clippy::missing_panics_doc,
+    clippy::too_many_lines,
+    clippy::expect_used
+)]
 pub fn spawn_upgrade(
     idx: usize,
     gen: u64,

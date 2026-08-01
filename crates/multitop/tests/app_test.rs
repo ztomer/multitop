@@ -372,12 +372,18 @@ fn transient_ui_states_preserve_the_sparkline_preference() {
     assert!(a.show_sparklines(), "closing the modal must not clear it");
 
     a.set_filtering(true);
-    assert!(a.show_sparklines(), "entering filter mode must not clear it");
+    assert!(
+        a.show_sparklines(),
+        "entering filter mode must not clear it"
+    );
     a.set_filtering(false);
     assert!(a.show_sparklines(), "leaving filter mode must not clear it");
 
     let _ = a.confirm_upgrade();
-    assert!(a.show_sparklines(), "confirming an upgrade must not clear it");
+    assert!(
+        a.show_sparklines(),
+        "confirming an upgrade must not clear it"
+    );
 
     a.quit();
     assert!(a.show_sparklines(), "quitting must not clear it");

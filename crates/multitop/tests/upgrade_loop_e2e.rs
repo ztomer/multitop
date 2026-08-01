@@ -336,7 +336,10 @@ async fn test_upgrade_vault_password_preloaded() {
         .unwrap()
         .unlock_with_password(master_pw)
         .unwrap();
-    app.vault_state = VaultState::Unlocked { vault: Box::new(unlocked), awaiting_biometric: false };
+    app.vault_state = VaultState::Unlocked {
+        vault: Box::new(unlocked),
+        awaiting_biometric: false,
+    };
 
     let cmds = app.run_upgrade();
     assert!(!cmds.is_empty());
@@ -658,7 +661,10 @@ async fn test_ui_vault_unlocked_after_password_runs_upgrade() {
         .unwrap()
         .unlock_with_password("master-pass")
         .unwrap();
-    app.vault_state = VaultState::Unlocked { vault: Box::new(unlocked), awaiting_biometric: false };
+    app.vault_state = VaultState::Unlocked {
+        vault: Box::new(unlocked),
+        awaiting_biometric: false,
+    };
 
     // Now press 'u' — vault is unlocked, so show_upgrade_modal = true
     if app.upgrades_in_flight() {
@@ -946,7 +952,10 @@ fn test_upgrade_skip_server_reaches_terminal_state() {
 
     let cmds = app.run_upgrade();
 
-    assert!(cmds.is_empty(), "no RunUpgrade command for a skipped server");
+    assert!(
+        cmds.is_empty(),
+        "no RunUpgrade command for a skipped server"
+    );
     let p = &app.panels[0];
     assert_eq!(p.upgrade_state, UpgradeState::DONE, "skip must be terminal");
     assert!(

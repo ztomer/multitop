@@ -42,7 +42,8 @@ pub fn draw_upgrade_modal(f: &mut Frame, app: &App) {
     f.render_widget(ratatui::widgets::Clear, popup_rect);
 
     let last_up = app
-        .last_update.map_or_else(|| "Never".to_string(), unixtime_to_str);
+        .last_update
+        .map_or_else(|| "Never".to_string(), unixtime_to_str);
     let interrupted = app
         .upgrade_started_at
         .is_some_and(|started| app.last_update.is_none_or(|lu| started > lu));
@@ -157,12 +158,10 @@ pub fn draw_vault_awaiting_biometric(f: &mut Frame) {
             Style::default().fg(Color::White),
         )]),
         Line::from(""),
-        Line::from(vec![
-            Span::styled(
-                "  Cancel the system prompt to use the vault password instead.",
-                Style::default().fg(Color::DarkGray),
-            ),
-        ]),
+        Line::from(vec![Span::styled(
+            "  Cancel the system prompt to use the vault password instead.",
+            Style::default().fg(Color::DarkGray),
+        )]),
     ];
 
     let paragraph = Paragraph::new(lines).block(block);

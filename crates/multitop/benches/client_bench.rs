@@ -56,9 +56,7 @@ fn main() {
     let elapsed = start.elapsed();
     let ns_per_op = elapsed.as_secs_f64() * 1e9 / f64::from(iterations);
     let ops_per_sec = f64::from(iterations) / elapsed.as_secs_f64();
-    println!(
-        "\n1. Protocol Packet Decoding:\n   Iterations: {iterations}\n   Time: {elapsed:?}"
-    );
+    println!("\n1. Protocol Packet Decoding:\n   Iterations: {iterations}\n   Time: {elapsed:?}");
     println!("   Latency:    {ns_per_op:.2} ns / packet");
     println!("   Throughput: {ops_per_sec:.0} packets / sec");
 

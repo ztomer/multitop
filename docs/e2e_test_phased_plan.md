@@ -10,27 +10,27 @@
 
 | Module | Existing Tests | Status |
 |--------|----------------|--------|
-| `ansi.rs` | 18 inline | ✅ Complete |
-| `sparkline.rs` | 1 inline | ✅ Complete |
-| `state.rs` | 2 inline | ✅ Complete |
-| `password_store.rs` | 1 inline (mock) | ✅ Complete |
-| `fetch_render.rs` | 14 in `fetch_render_test.rs` | ✅ Complete |
-| `app.rs` | 26 in `app_test.rs` | ✅ Complete |
-| `ui.rs` (layout) | 14 in `ui_test.rs` | ✅ Complete |
-| `passwords.rs` | 5 in `server_settings_test.rs` | ⚠️ Partial |
-| `password_actions.rs` | 4 in `server_settings_test.rs` + `e2e_password_upgrade_test.rs` | ⚠️ Partial |
-| `ssh.rs` | 2 in `app_test.rs` (`is_local`, `cleanup_old_agents`) | ❌ Major gaps |
-| `config.rs` | 1 in `app_test.rs` (`save_servers`) | ❌ Major gaps |
-| `tasks.rs` | `spawn_upgrade` in E2E tests | ❌ Missing `spawn_fetch`, `spawn_docker`, `spawn_monitor` |
-| `panel.rs` | 0 | ❌ No tests |
-| `modals.rs` | 0 | ❌ No tests |
-| `config_ui.rs` | 0 | ❌ No tests |
-| `ssh_opts.rs` | 0 | ❌ No tests |
-| `fmt.rs` | 1 in `app_test.rs` | ❌ Major gaps |
-| `render_payload.rs` | 0 | ❌ No tests |
-| `refit.rs` | 0 | ❌ No tests |
-| `vault.rs` | 7 in `vault_upgrade_e2e.rs` | ✅ Complete |
-| `upgrade_loop` | 21 in `upgrade_loop_e2e.rs` + 10 ignored in `upgrade_loop_remote_e2e.rs` | ✅ Complete |
+| `ansi.rs` | 18 inline | ✓ Complete |
+| `sparkline.rs` | 1 inline | ✓ Complete |
+| `state.rs` | 2 inline | ✓ Complete |
+| `password_store.rs` | 1 inline (mock) | ✓ Complete |
+| `fetch_render.rs` | 14 in `fetch_render_test.rs` | ✓ Complete |
+| `app.rs` | 26 in `app_test.rs` | ✓ Complete |
+| `ui.rs` (layout) | 14 in `ui_test.rs` | ✓ Complete |
+| `passwords.rs` | 5 in `server_settings_test.rs` | ⚠ Partial |
+| `password_actions.rs` | 4 in `server_settings_test.rs` + `e2e_password_upgrade_test.rs` | ⚠ Partial |
+| `ssh.rs` | 2 in `app_test.rs` (`is_local`, `cleanup_old_agents`) | ✗ Major gaps |
+| `config.rs` | 1 in `app_test.rs` (`save_servers`) | ✗ Major gaps |
+| `tasks.rs` | `spawn_upgrade` in E2E tests | ✗ Missing `spawn_fetch`, `spawn_docker`, `spawn_monitor` |
+| `panel.rs` | 0 | ✗ No tests |
+| `modals.rs` | 0 | ✗ No tests |
+| `config_ui.rs` | 0 | ✗ No tests |
+| `ssh_opts.rs` | 0 | ✗ No tests |
+| `fmt.rs` | 1 in `app_test.rs` | ✗ Major gaps |
+| `render_payload.rs` | 0 | ✗ No tests |
+| `refit.rs` | 0 | ✗ No tests |
+| `vault.rs` | 7 in `vault_upgrade_e2e.rs` | ✓ Complete |
+| `upgrade_loop` | 21 in `upgrade_loop_e2e.rs` + 10 ignored in `upgrade_loop_remote_e2e.rs` | ✓ Complete |
 
 ---
 
@@ -287,7 +287,7 @@ Phase 7 (property/CI) ◄──────────────────�
 - [ ] Line coverage ≥ 80% on `crates/multitop/src/**/*.rs`
 - [ ] No `#[ignore]` tests except `upgrade_loop_remote_e2e.rs`
 - [ ] Property tests run in CI
-- [ ] Gap analysis doc updated with ✅/❌ status per module
+- [ ] Gap analysis doc updated with ✓/✗ status per module
 
 ---
 
