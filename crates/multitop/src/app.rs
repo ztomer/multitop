@@ -74,6 +74,14 @@ pub struct App {
     pub vault: Option<Arc<multitop_vault::Vault>>,
     pub vault_state: VaultState,
     pub vault_password_input: String,
+    /// Last-wins token for asynchronous vault operations.
+    ///
+    /// Biometric prompts and Argon2 verifications run off-thread and cannot be
+    /// aborted, so cancelling one only stops the app waiting for it -- the task
+    /// still finishes and still sends its result. Bumping this on every start
+    /// and every cancel lets a stale result be discarded, instead of unlocking
+    /// the vault and opening the upgrade modal after the user backed out.
+    pub vault_epoch: u64,
     /// Per-host upgrade history, keyed by `password_store::account`. Shown in
     /// each panel's Upgrade view so the user can see what a host did last time
     /// before deciding to run it again.
@@ -111,6 +119,7 @@ impl App {
             vault: None,
             vault_state: VaultState::default(),
             vault_password_input: String::new(),
+            vault_epoch: 0,
             host_updates: std::collections::BTreeMap::new(),
             show_sparklines: false,
             should_quit: false,
@@ -147,13 +156,14 @@ impl App {
     /// caller to attempt `unlock_biometric(false)` on; a `None` return means
     /// there is no vault to unlock (or it is already unlocked), so the caller
     /// proceeds straight to the upgrade modal.
-    pub fn begin_vault_unlock(&mut self) -> Option<Arc<multitop_vault::Vault>> {
+    pub fn begin_vault_unlock(&mut self) -> Option<(Arc<multitop_vault::Vault>, u64)> {
         if self.vault.is_some() && matches!(self.vault_state, VaultState::Locked) {
+            let epoch = self.bump_vault_epoch();
             self.vault_state = VaultState::Unlocking {
                 awaiting_biometric: true,
             };
             self.vault_password_input.clear();
-            return self.vault.clone();
+            return self.vault.clone().map(|v| (v, epoch));
         }
         None
     }
@@ -219,11 +229,13 @@ impl App {
     }
 
     /// Enter the "verifying password" state.
-    pub fn set_vault_unlocking(&mut self) {
+    pub fn set_vault_unlocking(&mut self) -> u64 {
+        let epoch = self.bump_vault_epoch();
         self.vault_state = VaultState::Unlocking {
             awaiting_biometric: false,
         };
         self.vault_password_input.clear();
+        epoch
     }
 
     /// Give up on an in-flight biometric attempt.
@@ -232,15 +244,29 @@ impl App {
     /// a task that never reports leaves the app unusable -- not even quit works.
     pub fn cancel_vault_biometric(&mut self) {
         if self.vault_awaiting_biometric() {
+            self.bump_vault_epoch();
             self.vault_state = VaultState::Locked;
             self.vault_password_input.clear();
         }
+    }
+
+    /// Invalidate any in-flight vault operation and return the new token.
+    fn bump_vault_epoch(&mut self) -> u64 {
+        self.vault_epoch = self.vault_epoch.wrapping_add(1);
+        self.vault_epoch
+    }
+
+    /// True when a result belongs to the operation currently in force.
+    #[must_use]
+    pub const fn vault_epoch_current(&self, epoch: u64) -> bool {
+        self.vault_epoch == epoch
     }
 
     /// Stop waiting on an in-flight password verification. The blocking task
     /// still finishes; its result is ignored because the state has moved on.
     pub fn cancel_vault_verify(&mut self) {
         if self.vault_verifying() {
+            self.bump_vault_epoch();
             self.vault_state = VaultState::Locked;
         }
     }
@@ -270,6 +296,7 @@ impl App {
         if self.vault.is_some() || self.config_path.is_none() {
             return false;
         }
+        self.bump_vault_epoch();
         self.vault_password_input.clear();
         self.vault_state = VaultState::Creating { error: None };
         true
@@ -925,7 +952,10 @@ impl App {
                     self.panels[panel].pinned_lines = pinned;
                 }
             }
-            Msg::VaultCreated(unlocked) => {
+            Msg::VaultCreated { epoch, unlocked } => {
+                if !self.vault_epoch_current(epoch) {
+                    return;
+                }
                 if let Some(ref path) = self.config_path {
                     self.vault = crate::vault::create_vault(path).map(Arc::new);
                 }
@@ -943,22 +973,34 @@ impl App {
                     );
                 }
             }
-            Msg::VaultUnlockFailed(error) => {
+            Msg::VaultUnlockFailed { epoch, error } => {
+                if !self.vault_epoch_current(epoch) {
+                    return;
+                }
                 // Back to the prompt with the reason, rather than silently
                 // dropping the user somewhere with no explanation.
                 self.vault_state = VaultState::PasswordPrompt { error: Some(error) };
             }
-            Msg::VaultCreateFailed(error) => {
+            Msg::VaultCreateFailed { epoch, error } => {
+                if !self.vault_epoch_current(epoch) {
+                    return;
+                }
                 self.vault_state = VaultState::Creating { error: Some(error) };
             }
-            Msg::VaultUnlocked(unlocked) => {
+            Msg::VaultUnlocked { epoch, unlocked } => {
+                if !self.vault_epoch_current(epoch) {
+                    return;
+                }
                 self.vault_state = VaultState::Unlocked {
-                    vault: Box::new(unlocked),
+                    vault: unlocked,
                     awaiting_biometric: false,
                 };
                 self.mode = AppMode::ShowUpgradeModal;
             }
-            Msg::VaultBiometricFailed => {
+            Msg::VaultBiometricFailed { epoch } => {
+                if !self.vault_epoch_current(epoch) {
+                    return;
+                }
                 // Biometrics unavailable or cancelled: fall back to the password
                 // prompt. `Unlocking { awaiting_biometric: false }` would be a
                 // dead end — no prompt, no modal, nothing for the user to do.

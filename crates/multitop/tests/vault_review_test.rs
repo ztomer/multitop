@@ -137,8 +137,11 @@ async fn a_failed_unlock_returns_to_the_prompt_with_the_reason() {
     let mut h = H::new();
     h.app.set_vault_unlocking();
 
-    h.app
-        .apply(Msg::VaultUnlockFailed("incorrect password".into()));
+    let epoch = h.app.vault_epoch;
+    h.app.apply(Msg::VaultUnlockFailed {
+        epoch,
+        error: "incorrect password".into(),
+    });
 
     assert!(h.app.show_vault_password_prompt(), "back to the prompt");
     assert_eq!(
@@ -159,7 +162,11 @@ async fn seeding_a_vault_reports_failures() {
     let mut h = H::new();
     h.app.panels[0].sudo_password = Some("secret".into());
     let before = h.app.panels[0].view.len();
-    h.app.apply(Msg::VaultCreateFailed("disk full".into()));
+    let epoch = h.app.vault_epoch;
+    h.app.apply(Msg::VaultCreateFailed {
+        epoch,
+        error: "disk full".into(),
+    });
     assert!(
         h.app.vault_creating(),
         "a failed creation returns to the prompt"
@@ -168,5 +175,73 @@ async fn seeding_a_vault_reports_failures() {
         h.app.panels[0].view.len(),
         before,
         "a failed creation must not announce success"
+    );
+}
+
+/// Round 2, and a bug introduced by round 1's own fix. Cancelling a biometric
+/// prompt only stops the app *waiting*; the spawned task cannot be aborted and
+/// still delivers its result. Without a last-wins token, a late success
+/// unlocked the vault and opened the upgrade confirm modal after the user had
+/// backed out -- a destructive action arriving from an attempt they cancelled.
+#[tokio::test]
+async fn a_cancelled_biometric_result_is_discarded_when_it_lands() {
+    let mut h = H::new();
+    h.app.vault = None;
+    h.app.vault_state = VaultState::Unlocking {
+        awaiting_biometric: true,
+    };
+    let stale = h.app.vault_epoch;
+
+    h.key(KeyCode::Esc);
+    assert!(!h.app.vault_awaiting_biometric(), "cancelled");
+
+    // The task finishes afterwards and reports against the old token.
+    h.app.apply(Msg::VaultBiometricFailed { epoch: stale });
+
+    assert!(
+        !h.app.show_vault_password_prompt(),
+        "a cancelled attempt must not pop a prompt afterwards"
+    );
+    assert!(
+        !h.app.show_upgrade_modal(),
+        "and must not open the upgrade modal"
+    );
+}
+
+/// The same guard must not discard a result the user is still waiting for.
+#[tokio::test]
+async fn a_current_biometric_result_is_still_honoured() {
+    let mut h = H::new();
+    h.app.vault_state = VaultState::Unlocking {
+        awaiting_biometric: true,
+    };
+    let current = h.app.vault_epoch;
+
+    h.app.apply(Msg::VaultBiometricFailed { epoch: current });
+
+    assert!(
+        h.app.show_vault_password_prompt(),
+        "a live attempt must still fall back to the password prompt"
+    );
+}
+
+/// Cancelling a password verification has the same hazard: Argon2 finishes on
+/// its own thread regardless.
+#[tokio::test]
+async fn a_cancelled_password_verification_is_discarded_when_it_lands() {
+    let mut h = H::new();
+    let stale = h.app.set_vault_unlocking();
+
+    h.key(KeyCode::Esc);
+    assert!(!h.app.vault_verifying(), "cancelled");
+
+    h.app.apply(Msg::VaultUnlockFailed {
+        epoch: stale,
+        error: "wrong".into(),
+    });
+
+    assert!(
+        !h.app.show_vault_password_prompt(),
+        "a cancelled verification must not reopen the prompt"
     );
 }

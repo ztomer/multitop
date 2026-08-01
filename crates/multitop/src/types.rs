@@ -52,15 +52,33 @@ pub enum Msg {
     /// password whose save triggered the creation.
     /// The file now exists on disk, so the app reopens it itself rather than
     /// shipping a `Vault` through the channel (it holds no `Debug`).
-    VaultCreated(Box<multitop_vault::UnlockedVault>),
+    ///
+    /// The `epoch` is the vault-operation token in force when the attempt
+    /// started. A result whose epoch is stale belongs to an attempt the user
+    /// has since cancelled and is discarded.
+    VaultCreated {
+        epoch: u64,
+        unlocked: Box<multitop_vault::UnlockedVault>,
+    },
     /// Creating the vault failed; the message is shown on the prompt.
-    VaultCreateFailed(String),
+    VaultCreateFailed {
+        epoch: u64,
+        error: String,
+    },
     /// A password unlock attempt finished unsuccessfully. Carries the reason so
     /// the prompt can show it.
-    VaultUnlockFailed(String),
+    VaultUnlockFailed {
+        epoch: u64,
+        error: String,
+    },
     /// The vault was unlocked by biometric (Touch ID / fingerprint).
-    VaultUnlocked(multitop_vault::UnlockedVault),
+    VaultUnlocked {
+        epoch: u64,
+        unlocked: Box<multitop_vault::UnlockedVault>,
+    },
     /// Biometric unlock was unavailable or cancelled; the TUI falls back to
     /// the vault password prompt.
-    VaultBiometricFailed,
+    VaultBiometricFailed {
+        epoch: u64,
+    },
 }

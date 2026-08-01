@@ -368,7 +368,10 @@ async fn test_vault_biometric_success_proceeds_to_modal() {
         .unwrap()
         .unlock_with_password(master_pw)
         .unwrap();
-    app.apply(Msg::VaultUnlocked(unlocked));
+    app.apply(Msg::VaultUnlocked {
+        epoch: app.vault_epoch,
+        unlocked: Box::new(unlocked),
+    });
 
     assert!(app.vault_unlocked().is_some(), "vault must be unlocked");
     assert!(
@@ -394,7 +397,9 @@ async fn test_vault_biometric_failed_falls_back_to_password() {
         awaiting_biometric: true,
     };
 
-    app.apply(Msg::VaultBiometricFailed);
+    app.apply(Msg::VaultBiometricFailed {
+        epoch: app.vault_epoch,
+    });
 
     assert!(
         !app.vault_awaiting_biometric(),
@@ -421,10 +426,15 @@ async fn test_vault_biometric_task_emits_fallback_on_unavailable() {
     let handle = tokio::spawn(async move {
         match vault.unlock_biometric().await {
             Ok((unlocked, _)) => {
-                let _ = tx2.send(Msg::VaultUnlocked(unlocked)).await;
+                let _ = tx2
+                    .send(Msg::VaultUnlocked {
+                        epoch: 0,
+                        unlocked: Box::new(unlocked),
+                    })
+                    .await;
             }
             Err(_) => {
-                let _ = tx2.send(Msg::VaultBiometricFailed).await;
+                let _ = tx2.send(Msg::VaultBiometricFailed { epoch: 0 }).await;
             }
         }
     });

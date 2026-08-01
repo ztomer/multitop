@@ -309,6 +309,7 @@ pub fn handle_key(
                     };
                     return;
                 }
+                let epoch = app.vault_epoch;
                 let Some(path) = app.vault_path() else {
                     app.vault_state = VaultState::Creating {
                         error: Some("No config directory to create the vault in".into()),
@@ -326,10 +327,19 @@ pub fn handle_key(
                         // vault is immediately usable and can take the password
                         // whose save started all this.
                         Ok(()) => match vault.unlock_with_password(&master) {
-                            Ok(unlocked) => Msg::VaultCreated(Box::new(unlocked)),
-                            Err(e) => Msg::VaultCreateFailed(e.to_string()),
+                            Ok(unlocked) => Msg::VaultCreated {
+                                epoch,
+                                unlocked: Box::new(unlocked),
+                            },
+                            Err(e) => Msg::VaultCreateFailed {
+                                epoch,
+                                error: e.to_string(),
+                            },
                         },
-                        Err(e) => Msg::VaultCreateFailed(e.to_string()),
+                        Err(e) => Msg::VaultCreateFailed {
+                            epoch,
+                            error: e.to_string(),
+                        },
                     };
                     let _ = tx2.send(msg).await;
                 });
@@ -360,12 +370,18 @@ pub fn handle_key(
                         // here froze the entire UI -- no redraw, no keys, no
                         // messages -- until it finished. Hand it to a blocking
                         // thread and let the result come back as a message.
-                        app.set_vault_unlocking();
+                        let epoch = app.set_vault_unlocking();
                         let tx2 = tx.clone();
                         tokio::task::spawn_blocking(move || {
                             let msg = match vault.unlock_with_password(&password) {
-                                Ok(unlocked) => Msg::VaultUnlocked(unlocked),
-                                Err(e) => Msg::VaultUnlockFailed(e.to_string()),
+                                Ok(unlocked) => Msg::VaultUnlocked {
+                                    epoch,
+                                    unlocked: Box::new(unlocked),
+                                },
+                                Err(e) => Msg::VaultUnlockFailed {
+                                    epoch,
+                                    error: e.to_string(),
+                                },
                             };
                             let _ = tx2.blocking_send(msg);
                         });
@@ -488,7 +504,7 @@ pub fn handle_key(
                 // all of them, so say so in the pane instead of opening a
                 // modal that cannot do anything.
                 app.note_nothing_to_upgrade();
-            } else if let Some(vault) = app.begin_vault_unlock() {
+            } else if let Some((vault, epoch)) = app.begin_vault_unlock() {
                 // Vault exists but is locked. Try Touch ID / fingerprint first;
                 // the password prompt appears only if biometrics are unavailable
                 // or cancelled (a `VaultBiometricFailed` message).
@@ -500,8 +516,11 @@ pub fn handle_key(
                     let attempt =
                         tokio::time::timeout(BIOMETRIC_TIMEOUT, vault.unlock_biometric()).await;
                     let msg = match attempt {
-                        Ok(Ok((unlocked, _))) => Msg::VaultUnlocked(unlocked),
-                        Ok(Err(_)) | Err(_) => Msg::VaultBiometricFailed,
+                        Ok(Ok((unlocked, _))) => Msg::VaultUnlocked {
+                            epoch,
+                            unlocked: Box::new(unlocked),
+                        },
+                        Ok(Err(_)) | Err(_) => Msg::VaultBiometricFailed { epoch },
                     };
                     let _ = tx2.send(msg).await;
                 });
