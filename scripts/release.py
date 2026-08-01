@@ -65,7 +65,87 @@ def gh(*args, **kw):
     return subprocess.run(["gh"] + list(args), **kw)
 
 
+def github_token() -> str:
+    """A token with push access to the tap.
+
+    Prefer the environment, but fall back to the `gh` CLI's own credential.
+    `gh auth login` commonly stores the token in the system keyring with no
+    env var set at all, and without this fallback the tap push failed with an
+    opaque auth error at the very last step of the release.
+    """
+    env = os.environ.get("GITHUB_TOKEN") or os.environ.get("GH_TOKEN")
+    if env:
+        return env
+    r = check("gh", "auth", "token")
+    return r.stdout.strip() if r.returncode == 0 else ""
+
+
 # ---------------------------------------------------------------------------
+
+
+def step_cut(tag: str):
+    """Bump the version, commit, tag, and push — the steps that used to be
+    copy-pasted out of RELEASE.md by hand.
+
+    Doing it by hand is how v0.21.0 and v0.22.0 ended up tagged but never
+    released, and how Cargo.lock drifted from Cargo.toml.
+    """
+    version = tag.lstrip("v")
+
+    r = check("git", "status", "--porcelain")
+    if r.stdout.strip():
+        die("working tree is dirty — commit or stash before cutting a release")
+
+    branch = check("git", "rev-parse", "--abbrev-ref", "HEAD").stdout.strip()
+
+    root = Path(__file__).resolve().parent.parent
+    manifest = root / "Cargo.toml"
+    content = manifest.read_text()
+
+    new_content, n = re.subn(
+        r'(?m)^(version = ")[^"]+(")', f"\\g<1>{version}\\g<2>", content, count=1
+    )
+    if n != 1:
+        die("could not find the workspace version line in Cargo.toml")
+
+    if new_content == content:
+        ok(f"Cargo.toml already at {version}")
+    else:
+        manifest.write_text(new_content)
+        ok(f"Cargo.toml bumped to {version}")
+
+    # Refresh Cargo.lock so it does not drift from the manifest. A stale lock
+    # breaks any --locked build (CI, Homebrew) with a confusing error.
+    info("refreshing Cargo.lock")
+    r = check("cargo", "metadata", "--format-version", "1", "--offline", cwd=str(root))
+    if r.returncode != 0:
+        r = check("cargo", "metadata", "--format-version", "1", cwd=str(root))
+    if r.returncode != 0:
+        die("cargo metadata failed — cannot refresh Cargo.lock")
+
+    r = check("git", "status", "--porcelain")
+    if r.stdout.strip():
+        check("git", "add", "Cargo.toml", "Cargo.lock", check=True)
+        r = check("git", "commit", "-m", f"chore: release {tag}")
+        if r.returncode != 0:
+            die(f"commit failed (pre-commit gates?): {r.stdout}{r.stderr}")
+        ok(f"committed version bump {tag}")
+    else:
+        ok("nothing to commit — version already recorded")
+
+    r = check("git", "tag", "-l", tag)
+    if tag in r.stdout.split():
+        ok(f"tag {tag} already exists")
+    else:
+        check("git", "tag", "-a", tag, "-m", f"Release {version}", check=True)
+        ok(f"tagged {tag}")
+
+    info(f"pushing {branch} and {tag}")
+    if check("git", "push", "origin", branch).returncode != 0:
+        die(f"failed to push {branch}")
+    if check("git", "push", "origin", tag).returncode != 0:
+        die(f"failed to push {tag}")
+    ok(f"pushed {branch} and {tag}")
 
 
 def step_verify_tag(tag: str):
@@ -80,20 +160,33 @@ def step_verify_tag(tag: str):
     ok(f"tag {tag} verified")
 
 
-def step_release_notes(tag: str) -> str:
-    # Find previous tag
+def previous_ref(tag: str) -> str:
+    """The point users are actually upgrading FROM.
+
+    That is the last *published* release, not the last tag. Tags get created
+    for versions that are then never released (it has happened twice in this
+    repo), and anchoring to the newest tag silently drops every change between
+    the last real release and that dead tag — exactly the changes a user
+    upgrading via Homebrew is about to receive.
+    """
+    r = gh("api", f"repos/{REPO}/releases/latest", "--jq", ".tag_name")
+    latest = r.stdout.strip()
+    if r.returncode == 0 and latest and latest != tag:
+        # Guard against a release whose tag is no longer in this clone.
+        if check("git", "rev-parse", "--verify", f"{latest}^{{commit}}").returncode == 0:
+            return latest
+
     r = check("git", "tag", "-l", "--sort=-version:refname")
-    tags = [t for t in r.stdout.strip().split() if t.startswith("v")]
-    prev = None
-    for t in tags:
-        if t != tag:
-            prev = t
-            break
+    for t in r.stdout.strip().split():
+        if t.startswith("v") and t != tag:
+            return t
 
-    if not prev:
-        prev = check("git", "rev-list", "--max-parents=1", "HEAD").stdout.strip()
+    return check("git", "rev-list", "--max-parents=1", "HEAD").stdout.strip()
 
-    info(f"building release notes (since {prev})")
+
+def step_release_notes(tag: str) -> str:
+    prev = previous_ref(tag)
+    info(f"building release notes (since {prev}, the last published release)")
 
     # Main commit summaries
     r = check("git", "log", "--oneline", f"{prev}..HEAD", "--format=- %s")
@@ -148,7 +241,7 @@ def step_homebrew(tag: str, sha256: str):
     try:
         clone = tmp / "tap"
         if not clone.is_dir():
-            token = os.environ.get("GITHUB_TOKEN") or os.environ.get("GH_TOKEN") or ""
+            token = github_token()
             clone_url = (
                 f"https://oauth2:{token}@github.com/{TAP_REPO}.git" if token else f"https://github.com/{TAP_REPO}.git"
             )
@@ -190,7 +283,7 @@ def step_homebrew(tag: str, sha256: str):
         check("git", "-C", str(clone), "add", FORMULA_PATH, check=True)
         check("git", "-C", str(clone), "commit", "-m", f"multitop: update to {tag}", check=True)
         # Re-set origin URL to use token for push
-        token = os.environ.get("GITHUB_TOKEN") or os.environ.get("GH_TOKEN") or ""
+        token = github_token()
         if token:
             push_url = f"https://oauth2:{token}@github.com/{TAP_REPO}.git"
             check("git", "-C", str(clone), "remote", "set-url", "origin", push_url, check=True)
@@ -206,12 +299,16 @@ def step_homebrew(tag: str, sha256: str):
 
 
 def main():
-    if len(sys.argv) < 2:
-        print(f"Usage: {sys.argv[0]} <tag>", file=sys.stderr)
-        print(f"  eg:  {sys.argv[0]} v0.10.0", file=sys.stderr)
+    args = [a for a in sys.argv[1:] if not a.startswith("--")]
+    flags = {a for a in sys.argv[1:] if a.startswith("--")}
+
+    if not args or flags - {"--cut"}:
+        print(f"Usage: {sys.argv[0]} <version> [--cut]", file=sys.stderr)
+        print(f"  eg:  {sys.argv[0]} v0.23.0 --cut   bump, commit, tag, push, release", file=sys.stderr)
+        print(f"       {sys.argv[0]} v0.23.0         release an already-pushed tag", file=sys.stderr)
         sys.exit(1)
 
-    tag = sys.argv[1]
+    tag = args[0]
     if not tag.startswith("v"):
         tag = "v" + tag
     if not re.match(r"^v\d+\.\d+\.\d+$", tag):
@@ -222,12 +319,14 @@ def main():
         if not shutil.which(cmd):
             die(f"required command not found: {cmd}")
 
-    if not os.environ.get("GITHUB_TOKEN") and not os.environ.get("GH_TOKEN"):
-        r = check("gh", "auth", "status")
-        if r.returncode != 0:
-            die("not authenticated with gh (run: gh auth login)")
+    if not github_token():
+        die("no GitHub token available (run: gh auth login)")
 
     print(f"\n  Release multitop {tag}\n{'─' * 48}\n")
+
+    if "--cut" in flags:
+        step_cut(tag)
+        print()
 
     step_verify_tag(tag)
 

@@ -4,3 +4,7 @@
 # Agent/assistant working directories — local tooling state, never shared.
 .claude/
 .opencode/
+
+# Python bytecode from tooling scripts.
+__pycache__/
+*.pyc

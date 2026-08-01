@@ -6,7 +6,7 @@ Internal documentation for contributors and maintainers.
 
 | Topic | Document |
 |-------|----------|
-| **Release Process** | [RELEASE.md](../RELEASE.md) |
+| **Release Process** | [RELEASE.md](RELEASE.md) |
 | **E2E Test Gaps** | [docs/e2e_test_gaps.md](docs/e2e_test_gaps.md) |
 | **E2E Test Phased Plan** | [docs/e2e_test_phased_plan.md](docs/e2e_test_phased_plan.md) |
 | **Upgrade E2E Test Plan** | [docs/upgrade_e2e_test_plan.md](docs/upgrade_e2e_test_plan.md) |
@@ -16,16 +16,16 @@ Internal documentation for contributors and maintainers.
 
 ## Release Workflow
 
-See [RELEASE.md](../RELEASE.md) for the complete automated release process:
+See [RELEASE.md](RELEASE.md) for details. Cutting a release is one command —
+it bumps the version, refreshes `Cargo.lock`, commits, tags, pushes, publishes
+the GitHub release, and updates the Homebrew tap:
 
 ```bash
-# Bump version, tag, and run automation
-sed -i '' 's/version = "0.21.0"/version = "0.22.0"/' Cargo.toml
-git add Cargo.toml && git commit -m "chore: bump version to 0.22.0"
-git tag -a v0.22.0 -m "Release 0.22.0"
-git push origin v0.22.0
-python3 scripts/release.py v0.22.0
+python3 scripts/release.py v0.23.0 --cut
 ```
+
+Do not run the steps by hand: that is how `v0.21.0` and `v0.22.0` ended up
+tagged but never released, with Homebrew left on `v0.20.10`.
 
 ## Commit Gates
 
