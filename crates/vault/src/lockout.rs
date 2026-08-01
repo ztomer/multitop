@@ -54,6 +54,20 @@ impl LockoutState {
         p
     }
 
+    /// Persist the limiter state.
+    ///
+    /// # Accepted limitations
+    ///
+    /// Write failures are swallowed. If both the keychain and the file write
+    /// fail, the limiter silently degrades rather than blocking a legitimate
+    /// unlock -- failing closed on a transient keychain hiccup would lock the
+    /// user out of their own vault, which is the worse outcome for a
+    /// single-user desktop tool.
+    ///
+    /// Deleting BOTH the keychain entry and the file resets the counter. The
+    /// keychain is checked first precisely because it is the harder of the two
+    /// to remove, and anyone who can read it already has the stored passwords
+    /// themselves, so the limiter is not the last line of defence there.
     pub fn save(&self, vault_path: &Path) {
         let Ok(json) = serde_json::to_string(self) else {
             return;
@@ -128,6 +142,12 @@ impl LockoutState {
         self.save(vault_path);
     }
 
+    /// Clear the limiter after a correct password.
+    ///
+    /// Note the ordering consequence: `on_attempt` counts before the KDF runs,
+    /// so a process that dies between a *successful* unlock and this call
+    /// leaves one phantom failure behind. That errs toward locking rather than
+    /// admitting, and a later success clears it.
     pub fn on_success(&mut self, vault_path: &Path) {
         self.failed_attempts = 0;
         self.lockout_until_epoch_ms = 0;
