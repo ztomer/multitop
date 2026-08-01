@@ -389,7 +389,7 @@ impl Vault {
                 .lockout
                 .lock()
                 .map_err(|_| VaultError::Other("lockout mutex poisoned".into()))?;
-            lockout.on_attempt(&self.config.vault_path);
+            lockout.on_attempt(&self.config.vault_path, now);
         }
 
         // The guard finalises the attempt: it anchors the backoff deadline on

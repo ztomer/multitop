@@ -70,29 +70,48 @@ impl LockoutState {
         let _ = std::fs::write(&path, &json);
     }
 
-    /// Count an attempt before it is made, and persist it immediately.
+    /// The backoff deadline earned by the current attempt count, measured from
+    /// `now_ms`.
+    fn backoff_deadline(&self, now_ms: u64) -> u64 {
+        if self.failed_attempts >= MAX_ATTEMPTS_BEFORE_HARD_LOCKOUT {
+            now_ms + HARD_LOCKOUT_DURATION_MS
+        } else if self.failed_attempts >= 3 {
+            let delay_sec = (1u64 << (self.failed_attempts - 3)).min(60);
+            now_ms + (delay_sec * 1000)
+        } else {
+            0
+        }
+    }
+
+    /// Count an attempt before it is made, persist it, and arm the backoff
+    /// immediately.
     ///
-    /// The deadline is deliberately NOT set here: it is anchored when the
-    /// attempt fails, so a slow KDF cannot consume the backoff window.
-    ///
-    /// Counting up front is what makes the limiter survive the process dying.
-    /// Recording the failure only on the way out meant an attacker who killed
-    /// the process after each guess never accumulated any attempts at all --
-    /// no backoff, no hard lockout, unlimited guesses.
-    pub fn on_attempt(&mut self, vault_path: &Path) {
+    /// Both halves matter, and an earlier version did only the first. Counting
+    /// up front is what makes the limiter survive the process dying: recording
+    /// the failure on the way out meant an attacker who killed the process
+    /// after each guess accumulated nothing at all. But a durable count with no
+    /// deadline is toothless -- `check_lockout` consults the deadline, so
+    /// twenty counted attempts still let the twenty-first straight through. The
+    /// deadline has to be in force from the moment the attempt starts.
+    pub fn on_attempt(&mut self, vault_path: &Path, now_ms: u64) {
         self.failed_attempts += 1;
+        self.lockout_until_epoch_ms = self
+            .backoff_deadline(now_ms)
+            .max(self.lockout_until_epoch_ms);
         self.save(vault_path);
     }
 
-    /// Anchor the backoff deadline for an attempt already counted by
-    /// `on_attempt`.
+    /// Re-anchor the deadline for an attempt already counted by `on_attempt`,
+    /// now that the real failure time is known.
+    ///
+    /// The failure is necessarily later than the attempt start, so this only
+    /// moves the deadline further out, never earlier. That keeps a slow KDF
+    /// from consuming its own backoff window while leaving the provisional
+    /// deadline in force if the process dies first.
     pub fn on_failure_recorded(&mut self, vault_path: &Path, now_ms: u64) {
-        if self.failed_attempts >= MAX_ATTEMPTS_BEFORE_HARD_LOCKOUT {
-            self.lockout_until_epoch_ms = now_ms + HARD_LOCKOUT_DURATION_MS;
-        } else if self.failed_attempts >= 3 {
-            let delay_sec = (1u64 << (self.failed_attempts - 3)).min(60);
-            self.lockout_until_epoch_ms = now_ms + (delay_sec * 1000);
-        }
+        self.lockout_until_epoch_ms = self
+            .backoff_deadline(now_ms)
+            .max(self.lockout_until_epoch_ms);
         self.save(vault_path);
     }
 
@@ -363,7 +382,7 @@ mod tests {
 
         // Real usage: the caller counts the attempt before the KDF, the guard
         // finalises it. The guard no longer increments on its own.
-        state.lock().unwrap().on_attempt(&path);
+        state.lock().unwrap().on_attempt(&path, 1000);
         {
             let _guard = LockoutGuard::with_clock(&state, &path, || 1000);
             // Guard drops without marking success
@@ -396,7 +415,7 @@ mod tests {
         });
 
         // The attempt is counted up front (durable), then finalised on drop.
-        state.lock().unwrap().on_attempt(&path);
+        state.lock().unwrap().on_attempt(&path, ATTEMPT_START_MS);
         {
             let _guard = LockoutGuard::with_clock(&state, &path, || FAILURE_MS);
         }
@@ -466,7 +485,7 @@ mod write_ahead_tests {
         let path = dir.path().join("vault.bin");
 
         let mut state = LockoutState::load(&path);
-        state.on_attempt(&path);
+        state.on_attempt(&path, 1_000);
 
         // Nothing else runs: this is the process being killed mid-attempt.
         let reloaded = LockoutState::load(&path);
@@ -485,7 +504,7 @@ mod write_ahead_tests {
         for _ in 0..MAX_ATTEMPTS_BEFORE_HARD_LOCKOUT {
             // Each iteration is a fresh process that dies before its guard drops.
             let mut state = LockoutState::load(&path);
-            state.on_attempt(&path);
+            state.on_attempt(&path, 1_000);
         }
 
         let mut state = LockoutState::load(&path);
@@ -499,26 +518,29 @@ mod write_ahead_tests {
         );
     }
 
-    /// The deadline still must not be anchored before the KDF, or a slow KDF
-    /// consumes the whole window -- the bug fixed earlier.
+    /// Counting arms the backoff immediately (a durable count with no deadline
+    /// is toothless), and the failure may only push it further out.
     #[test]
-    fn counting_an_attempt_does_not_start_the_backoff_clock() {
+    fn counting_arms_the_backoff_and_failure_only_extends_it() {
         let dir = TempDir::new().unwrap();
         let path = dir.path().join("vault.bin");
 
         let mut state = LockoutState::load(&path);
-        state.on_attempt(&path);
-        state.on_attempt(&path);
-        state.on_attempt(&path);
+        state.on_attempt(&path, 1_000);
+        state.on_attempt(&path, 1_000);
+        state.on_attempt(&path, 1_000);
         assert_eq!(
-            state.lockout_until_epoch_ms, 0,
-            "counting must not set a deadline"
+            state.lockout_until_epoch_ms, 2_000,
+            "the third attempt must block from the moment it starts"
         );
 
-        // Anchored at the failure, which is much later than the attempt start.
+        // Re-anchored at the failure, which is much later than the start.
         state.on_failure_recorded(&path, 9_000);
         assert_eq!(state.lockout_until_epoch_ms, 10_000);
-        assert!(state.check_lockout(9_000).is_err());
+
+        // And never moved earlier by a late or duplicate call.
+        state.on_failure_recorded(&path, 1_000);
+        assert_eq!(state.lockout_until_epoch_ms, 10_000);
     }
 
     /// A success clears everything, so a legitimate user is never penalised for
@@ -529,12 +551,116 @@ mod write_ahead_tests {
         let path = dir.path().join("vault.bin");
 
         let mut state = LockoutState::load(&path);
-        state.on_attempt(&path);
-        state.on_attempt(&path);
+        state.on_attempt(&path, 1_000);
+        state.on_attempt(&path, 1_000);
         state.on_success(&path);
 
         let reloaded = LockoutState::load(&path);
         assert_eq!(reloaded.failed_attempts, 0);
         assert_eq!(reloaded.lockout_until_epoch_ms, 0);
+    }
+}
+
+#[cfg(test)]
+mod kill_resistance_tests {
+    #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+
+    use super::*;
+    use tempfile::TempDir;
+
+    /// An attacker who kills the process after every guess must still be rate
+    /// limited.
+    ///
+    /// Two earlier versions of this failed. First the attempt was recorded only
+    /// in `LockoutGuard::drop`, which a kill skips, so nothing accumulated at
+    /// all. Then the count was made durable but the deadline was still written
+    /// only on the way out, so twenty counted attempts left `check_lockout`
+    /// waving every one of them through. Both are covered here because the
+    /// assertions are about what the attacker gets, not about the fields.
+    #[test]
+    fn killing_the_process_every_attempt_is_still_rate_limited() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("vault.bin");
+
+        let mut allowed = 0;
+        let mut refused = 0;
+        let mut t = 1_000u64;
+
+        // Retry as fast as a script can, always dying before the guard runs.
+        for _ in 0..40 {
+            let mut state = LockoutState::load(&path);
+            if state.check_lockout(t).is_ok() {
+                allowed += 1;
+                state.on_attempt(&path, t);
+            } else {
+                refused += 1;
+            }
+            t += 50;
+        }
+
+        // The exact count depends on where backoff tiers fall in the window;
+        // what matters is that the attacker is throttled hard, not the number.
+        assert!(
+            refused >= 30,
+            "the limiter must refuse most of a process-killing attacker's tries, \
+             refused {refused} of 40"
+        );
+        assert!(
+            allowed <= 5,
+            "only a handful should get through in a 2s window, got {allowed}"
+        );
+    }
+
+    /// The hard lockout is reachable the same way over a longer campaign, so
+    /// patience does not defeat it either.
+    #[test]
+    fn a_patient_process_killing_attacker_still_hits_the_hard_lockout() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("vault.bin");
+
+        let mut t = 1_000u64;
+        let mut allowed = 0;
+        for _ in 0..400 {
+            let mut state = LockoutState::load(&path);
+            if state.check_lockout(t).is_ok() {
+                allowed += 1;
+                state.on_attempt(&path, t);
+            }
+            t += 1_000;
+        }
+
+        let state = LockoutState::load(&path);
+        assert!(
+            state.failed_attempts >= MAX_ATTEMPTS_BEFORE_HARD_LOCKOUT,
+            "attempts must accumulate across kills"
+        );
+        assert!(
+            state.check_lockout(t).is_err(),
+            "the hard lockout must be in force at the end"
+        );
+        assert!(
+            allowed < 40,
+            "a 400-second campaign must not yield 400 guesses, got {allowed}"
+        );
+    }
+
+    /// The limiter must not punish a legitimate user: a correct password clears
+    /// everything, including a provisional deadline armed by its own attempt.
+    #[test]
+    fn a_correct_password_clears_the_provisional_deadline() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("vault.bin");
+
+        let mut state = LockoutState::load(&path);
+        for _ in 0..4 {
+            state.on_attempt(&path, 1_000);
+        }
+        assert!(state.check_lockout(1_000).is_err(), "armed");
+
+        state.on_success(&path);
+        assert!(
+            LockoutState::load(&path).check_lockout(1_000).is_ok(),
+            "a success must leave the user unblocked"
+        );
     }
 }
