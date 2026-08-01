@@ -347,8 +347,7 @@ pub fn handle_key(
             KeyCode::Esc => {
                 // Declining leaves the password in the OS credential store,
                 // which still works; only the encrypted vault is skipped.
-                app.vault_state = VaultState::Locked;
-                app.vault_password_input_mut().clear();
+                app.cancel_vault_creation();
             }
             KeyCode::Backspace => {
                 app.vault_password_input_mut().pop();

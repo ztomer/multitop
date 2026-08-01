@@ -245,3 +245,30 @@ async fn a_cancelled_password_verification_is_discarded_when_it_lands() {
         "a cancelled verification must not reopen the prompt"
     );
 }
+
+/// Round 4. The same cancel race as round 2, missed in the creation path:
+/// Enter spawns the creation and the prompt stays up, so Esc can land while the
+/// work is in flight. Without a token bump the late result matched, and a vault
+/// was created and seeded with every known password after the user declined.
+#[tokio::test]
+async fn a_declined_vault_creation_is_not_created_anyway() {
+    let mut h = H::new();
+    h.app.config_path = Some(std::path::PathBuf::from("/tmp/multitop-x/config.toml"));
+    assert!(h.app.begin_vault_creation());
+    let stale = h.app.vault_epoch;
+
+    // The user changes their mind while creation is already running.
+    h.key(KeyCode::Esc);
+    assert!(!h.app.vault_creating(), "declined");
+
+    // The spawned creation finishes afterwards.
+    h.app.apply(Msg::VaultCreateFailed {
+        epoch: stale,
+        error: "too late".into(),
+    });
+
+    assert!(
+        !h.app.vault_creating(),
+        "a declined creation must not reopen the prompt"
+    );
+}

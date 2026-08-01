@@ -271,6 +271,19 @@ impl App {
         }
     }
 
+    /// Decline vault creation, including one already being created off-thread.
+    ///
+    /// Enter spawns the creation and the prompt stays up, so Esc can land while
+    /// the work is in flight. Without bumping the token, the late `VaultCreated`
+    /// matched and the vault was created and seeded after the user declined.
+    pub fn cancel_vault_creation(&mut self) {
+        if self.vault_creating() {
+            self.bump_vault_epoch();
+            self.vault_state = VaultState::Locked;
+            self.vault_password_input.clear();
+        }
+    }
+
     /// True while the user is choosing a master password for a brand new vault.
     #[must_use]
     pub const fn vault_creating(&self) -> bool {
