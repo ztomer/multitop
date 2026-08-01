@@ -1008,8 +1008,17 @@ fn test_upgrade_skip_message_persists_across_views() {
 
     app.show_upgrade_output();
     assert_eq!(app.panels[0].mode, Mode::Upgrade);
+    // The Upgrade pane now always opens with a status header, so the previous
+    // output follows it rather than being the whole view. The message itself
+    // must still survive intact.
+    let view = &app.panels[0].view;
+    assert!(
+        view.len() > msg.len(),
+        "expected a status header above the previous output"
+    );
     assert_eq!(
-        app.panels[0].view, msg,
+        &view[view.len() - msg.len()..],
+        msg.as_slice(),
         "skip message must persist across view switches"
     );
 }

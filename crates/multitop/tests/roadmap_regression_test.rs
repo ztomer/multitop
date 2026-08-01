@@ -119,6 +119,7 @@ fn test_state_persistence_roundtrip() {
     let initial = AppState {
         last_update: Some(1_722_000_000),
         upgrade_started_at: None,
+        hosts: std::collections::BTreeMap::new(),
     };
 
     state::save_state(&config_path, &initial).expect("save state");

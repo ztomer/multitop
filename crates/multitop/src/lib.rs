@@ -21,4 +21,5 @@ pub mod stream;
 pub mod tasks;
 pub mod types;
 pub mod ui;
+pub mod upgrade_view;
 pub mod vault;

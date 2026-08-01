@@ -1,0 +1,344 @@
+//! The two-press `u` flow.
+//!
+//! Pressing `u` once switches into the Upgrade view and does nothing else;
+//! pressing it again starts the run. These tests drive the real key handler,
+//! because the property being protected is a *sequence* — testing the `App`
+//! methods individually would not catch the sequence regressing.
+//!
+//! The rule this pins down: the behaviour of the first press must not depend on
+//! whether an upgrade has ever run. It used to, which is how `u` could jump
+//! straight to the confirm modal on a fresh start but show the pane once an
+//! upgrade had happened.
+
+#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+
+use std::sync::Arc;
+
+use crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
+use tokio::sync::{mpsc, watch};
+
+use multitop::app::{App, Mode, Msg};
+use multitop::config::Server;
+use multitop::run::{handle_key, Tasks};
+use multitop::state::HostUpdate;
+
+fn server(host: &str, cmd: Option<&str>) -> Server {
+    Server {
+        host: host.to_string(),
+        port: 22,
+        user: "admin".to_string(),
+        upgrade_cmd: cmd.map(str::to_string),
+    }
+}
+
+struct Harness {
+    app: App,
+    servers: Vec<Server>,
+    tasks: Tasks,
+    tx: mpsc::Sender<Msg>,
+    /// Messages the key handler emitted, so a test can assert that a press
+    /// which should be inert really did not queue any work.
+    rx: mpsc::Receiver<Msg>,
+    dims_rx: Arc<watch::Receiver<(u16, u16)>>,
+}
+
+impl Harness {
+    fn new(servers: Vec<Server>) -> Self {
+        let app = App::new(servers.clone());
+        let (tx, rx) = mpsc::channel::<Msg>(64);
+        let (dims_tx, drx) = watch::channel((80u16, 24u16));
+        // The receiver keeps working after the sender goes; nothing here resizes.
+        drop(dims_tx);
+        Self {
+            tasks: Tasks::new(servers.len()),
+            app,
+            servers,
+            tx,
+            rx,
+            dims_rx: Arc::new(drx),
+        }
+    }
+
+    fn press(&mut self, c: char) {
+        handle_key(
+            KeyEvent {
+                code: KeyCode::Char(c),
+                modifiers: KeyModifiers::NONE,
+                kind: KeyEventKind::Press,
+                state: crossterm::event::KeyEventState::NONE,
+            },
+            &mut self.app,
+            &self.servers,
+            (80, 24),
+            Arc::clone(&self.dims_rx),
+            &self.tx,
+            &mut self.tasks,
+        );
+    }
+
+    /// Messages emitted so far, without blocking.
+    fn emitted(&mut self) -> Vec<Msg> {
+        let mut out = Vec::new();
+        while let Ok(m) = self.rx.try_recv() {
+            out.push(m);
+        }
+        out
+    }
+
+    fn pane_text(&self, panel: usize) -> String {
+        strip_ansi(&self.app.panels[panel].view.join("\n"))
+    }
+}
+
+fn strip_ansi(s: &str) -> String {
+    let mut out = String::new();
+    let mut chars = s.chars();
+    while let Some(c) = chars.next() {
+        if c == '\u{1b}' {
+            for c2 in chars.by_ref() {
+                if c2 == 'm' {
+                    break;
+                }
+            }
+        } else {
+            out.push(c);
+        }
+    }
+    out
+}
+
+// ---------------------------------------------------------------------------
+// 1. First press switches to the pane, and starts nothing.
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn first_press_switches_to_the_upgrade_pane() {
+    let mut h = Harness::new(vec![server("web-01", Some("apt upgrade"))]);
+    assert_eq!(h.app.panels[0].mode, Mode::Monitor);
+
+    h.press('u');
+
+    assert_eq!(h.app.panels[0].mode, Mode::Upgrade);
+    assert!(
+        !h.app.show_upgrade_modal(),
+        "the first press must not open the confirm modal"
+    );
+    assert!(
+        !h.app.upgrades_in_flight(),
+        "the first press must not start an upgrade"
+    );
+    assert!(
+        h.emitted().is_empty(),
+        "the first press must not queue any work"
+    );
+}
+
+/// The regression that motivated this work: the first press used to behave
+/// differently depending on whether an upgrade had run before.
+#[tokio::test]
+async fn first_press_is_the_same_before_and_after_an_upgrade_has_run() {
+    let mut fresh = Harness::new(vec![server("web-01", Some("apt upgrade"))]);
+    fresh.press('u');
+    let fresh_mode = fresh.app.panels[0].mode;
+    let fresh_modal = fresh.app.show_upgrade_modal();
+
+    let mut used = Harness::new(vec![server("web-01", Some("apt upgrade"))]);
+    used.app.panels[0].upgrade_state = multitop::panel::UpgradeState::DONE;
+    used.app.panels[0].last_upgrade = vec!["previous output".to_string()];
+    used.press('u');
+
+    assert_eq!(
+        fresh_mode, used.app.panels[0].mode,
+        "first press must land in the same view either way"
+    );
+    assert_eq!(
+        fresh_modal,
+        used.app.show_upgrade_modal(),
+        "first press must never open the modal, upgraded before or not"
+    );
+}
+
+#[tokio::test]
+async fn first_press_reaches_the_pane_from_every_other_view() {
+    for entry in ['d', 'f', 's'] {
+        let mut h = Harness::new(vec![server("web-01", Some("apt upgrade"))]);
+        h.press(entry);
+        h.press('u');
+        assert_eq!(
+            h.app.panels[0].mode,
+            Mode::Upgrade,
+            "u from '{entry}' must reach the Upgrade pane"
+        );
+        assert!(!h.app.show_upgrade_modal(), "from '{entry}'");
+    }
+}
+
+// ---------------------------------------------------------------------------
+// 2. The pane tells the user what they need to decide.
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn pane_shows_the_command_and_history_for_each_host() {
+    let mut h = Harness::new(vec![
+        server("web-01", Some("apt update && apt upgrade -y")),
+        server("db-02", Some("dnf upgrade -y")),
+    ]);
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_secs();
+    h.app.host_updates.insert(
+        multitop::password_store::account(&h.servers[0]),
+        HostUpdate {
+            started_at: Some(now - 86_400 * 3 - 30),
+            finished_at: Some(now - 86_400 * 3),
+            success: true,
+        },
+    );
+
+    h.press('u');
+
+    // The host name itself comes from the panel banner that `ui::draw` writes
+    // over view[0], not from the pane body — see `upgrade_view::header`. What
+    // the body must get right is the per-host detail.
+    let web = h.pane_text(0);
+    assert!(web.contains("apt update && apt upgrade -y"), "{web}");
+    assert!(web.contains("3 days ago"), "{web}");
+    assert!(web.contains("ok"), "{web}");
+
+    // Each pane shows its OWN host, not a shared summary.
+    let db = h.pane_text(1);
+    assert!(db.contains("dnf upgrade -y"), "{db}");
+    assert!(db.contains("never"), "db-02 has no history: {db}");
+    assert!(
+        !db.contains("apt update"),
+        "panes must not leak each other's commands: {db}"
+    );
+}
+
+#[tokio::test]
+async fn pane_explains_a_host_with_no_upgrade_cmd() {
+    let mut h = Harness::new(vec![server("web-01", None)]);
+    h.press('u');
+
+    let text = h.pane_text(0);
+    assert!(text.contains("not configured"), "{text}");
+    assert!(text.contains("host is skipped"), "{text}");
+    assert!(
+        text.contains("set upgrade_cmd in config.toml"),
+        "must show how to fix it: {text}"
+    );
+}
+
+#[tokio::test]
+async fn pane_warns_about_an_interrupted_previous_run() {
+    let mut h = Harness::new(vec![server("web-01", Some("apt upgrade"))]);
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_secs();
+    h.app.host_updates.insert(
+        multitop::password_store::account(&h.servers[0]),
+        HostUpdate {
+            started_at: Some(now - 3600),
+            finished_at: None,
+            success: false,
+        },
+    );
+
+    h.press('u');
+
+    let text = h.pane_text(0);
+    assert!(text.contains("interrupted"), "{text}");
+    assert!(text.contains("never finished"), "{text}");
+}
+
+// ---------------------------------------------------------------------------
+// 3. Second press starts the run.
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn second_press_opens_the_confirm_modal() {
+    let mut h = Harness::new(vec![server("web-01", Some("apt upgrade"))]);
+    h.press('u');
+    assert!(!h.app.show_upgrade_modal());
+
+    h.press('u');
+    assert!(
+        h.app.show_upgrade_modal(),
+        "the second press must ask for confirmation"
+    );
+    assert!(
+        !h.app.upgrades_in_flight(),
+        "still nothing running until the modal is confirmed"
+    );
+}
+
+#[tokio::test]
+async fn confirming_after_two_presses_starts_the_upgrade() {
+    let mut h = Harness::new(vec![server("web-01", Some("apt upgrade"))]);
+    h.press('u');
+    h.press('u');
+    h.press('y');
+
+    assert!(!h.app.show_upgrade_modal(), "modal closes on confirm");
+    assert!(
+        h.app.upgrades_in_flight(),
+        "confirming must actually start the upgrade"
+    );
+    assert!(
+        h.app.upgrade_started_at.is_some(),
+        "the start time is recorded so an interrupted run can be detected"
+    );
+}
+
+#[tokio::test]
+async fn second_press_with_nothing_configured_does_not_open_a_modal() {
+    let mut h = Harness::new(vec![server("web-01", None), server("db-02", None)]);
+    h.press('u');
+    h.press('u');
+
+    assert!(
+        !h.app.show_upgrade_modal(),
+        "a modal whose only outcome is skipping every host is not worth showing"
+    );
+    let text = h.pane_text(0);
+    assert!(text.contains("nothing to run"), "{text}");
+}
+
+#[tokio::test]
+async fn presses_are_ignored_while_an_upgrade_is_running() {
+    let mut h = Harness::new(vec![server("web-01", Some("apt upgrade"))]);
+    h.press('u');
+    h.press('u');
+    h.press('y');
+    assert!(h.app.upgrades_in_flight());
+
+    h.press('u');
+    assert!(
+        !h.app.show_upgrade_modal(),
+        "u must not re-arm an upgrade that is already running"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// 4. The flow is reversible and repeatable.
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn s_leaves_the_pane_and_u_returns_to_it() {
+    let mut h = Harness::new(vec![server("web-01", Some("apt upgrade"))]);
+    h.press('u');
+    assert_eq!(h.app.panels[0].mode, Mode::Upgrade);
+
+    h.press('s');
+    assert_eq!(h.app.panels[0].mode, Mode::Monitor);
+
+    // Back in, and still only arming on the second press.
+    h.press('u');
+    assert_eq!(h.app.panels[0].mode, Mode::Upgrade);
+    assert!(
+        !h.app.show_upgrade_modal(),
+        "re-entering the pane must not skip straight to the modal"
+    );
+}

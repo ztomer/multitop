@@ -103,6 +103,7 @@ async fn event_loop(
     }
     let state = crate::state::load_state(&config_path);
     app.last_update = state.last_update;
+    app.host_updates = state.hosts;
     app.upgrade_started_at = state.upgrade_started_at;
     // Initialize vault if vault.bin exists
     app.vault = crate::vault::create_vault(&config_path).map(std::sync::Arc::new);
@@ -229,8 +230,13 @@ fn panel_at_pos(x: u16, y: u16, total_area: Rect, panel_count: usize) -> usize {
     0
 }
 
+/// Dispatch one key press.
+///
+/// Public so integration tests can drive the real key path rather than calling
+/// the `App` methods it happens to reach today — the `u` flow is a sequence of
+/// presses, and testing the pieces would not catch the sequence regressing.
 #[allow(clippy::too_many_lines, clippy::needless_pass_by_value)]
-fn handle_key(
+pub fn handle_key(
     key: KeyEvent,
     app: &mut App,
     servers: &[Server],
@@ -382,16 +388,24 @@ fn handle_key(
         KeyCode::Char('f' | 'F') => app.toggle_fetch(),
         KeyCode::Char('d' | 'D') => app.toggle_docker(),
         KeyCode::Char('s' | 'S') => app.switch_stats(),
+        // `u` is deliberately two presses, and the rule does not depend on
+        // whether an upgrade has run before:
+        //
+        //   not in the Upgrade view  ->  switch to it, change nothing else
+        //   already in it            ->  start (vault, then confirm modal)
+        //
+        // The first press is always inert, so the user always sees each host's
+        // command, history and credential state before anything can happen.
         KeyCode::Char('u' | 'U') => {
             if app.upgrades_in_flight() {
-                // Upgrade already running — don't interrupt
-            } else if app.had_upgrade() {
-                if app.in_upgrade() {
-                    let cmds = app.run_upgrade();
-                    execute_cmds(cmds, app, servers, dims, tx, tasks);
-                } else {
-                    app.show_upgrade_output();
-                }
+                // Upgrade already running — don't interrupt.
+            } else if !app.in_upgrade() {
+                app.enter_upgrade_view();
+            } else if !app.upgrade_runnable() {
+                // Every host lacks an upgrade_cmd. Confirming could only skip
+                // all of them, so say so in the pane instead of opening a
+                // modal that cannot do anything.
+                app.note_nothing_to_upgrade();
             } else if let Some(vault) = app.begin_vault_unlock() {
                 // Vault exists but is locked. Try Touch ID / fingerprint first;
                 // the password prompt appears only if biometrics are unavailable

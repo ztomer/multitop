@@ -173,6 +173,7 @@ pub fn apply(
                     let state = crate::state::AppState {
                         last_update: app.last_update,
                         upgrade_started_at: app.upgrade_started_at,
+                        hosts: app.host_updates.clone(),
                     };
                     let _ = crate::state::save_state(path, &state);
                 }

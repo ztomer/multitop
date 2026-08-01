@@ -271,7 +271,12 @@ fn upgrade_with_command_is_scheduled() {
     let cmds = a.run_upgrade();
     assert_eq!(cmds.len(), 1);
     assert!(matches!(cmds[0], Command::RunUpgrade { panel: 0, .. }));
-    assert!(text(&a.panels[0]).contains("Upgrade running"));
+    // The running state is shown by the pane's status header. It used to be a
+    // line 0 "Upgrade running..." message, which `ui::draw` overwrote with the
+    // host banner on every frame — the user never actually saw it.
+    let running = text(&a.panels[0]);
+    assert!(running.contains("running"), "{running}");
+    assert!(running.contains("do not quit"), "{running}");
     assert!(text(&a.panels[1]).contains("No upgrade_cmd"));
 }
 

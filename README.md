@@ -59,8 +59,14 @@ Each panel shows:
 Additional views accessible via keys:
 
 - **Docker view** (`d`) — container list with CPU/memory usage, sorted by load
-- **Upgrade view** (`u`) — live streaming output of each server's `upgrade_cmd`
+- **Update view** (`u`) — per-server update status; press `u` again to run
 - **Configuration screen** (`p`) — manage passwords, vault, and server entries
+
+The update view is deliberately two presses. The first switches to it and
+starts nothing, showing for each server what command would run, when it last
+ran and how that went, whether a sudo password is ready, and — for a server
+with no `upgrade_cmd` — what to add to the config. Only the second press asks
+for confirmation and runs, so you always see what you are about to do first.
 
 The stats stream keeps running underneath the Docker and upgrade views, so
 returning with **s** is instant rather than reconnecting.
@@ -74,7 +80,7 @@ returning with **s** is instant rather than reconnecting.
 | **m** | Sort processes / Docker containers by Memory usage |
 | **d** | Toggle the Docker view on all panels |
 | **s** | Back to live stats |
-| **u** | Run each server's configured `upgrade_cmd` |
+| **u** | Show the update status view; press again to run the updates |
 | **p** | Open Configuration: manage passwords, vault, and servers |
 | **t** | Cycle the active theme |
 
@@ -113,7 +119,7 @@ Multitop includes an encrypted vault for sudo passwords with biometric unlock:
 
 ### Vault Integration
 
-- **Upgrade flow**: Press `u` → if vault locked, biometric prompt → fallback to master password → passwords auto-loaded into panels
+- **Upgrade flow**: Press `u` to open the update view → press `u` again → if the vault is locked, biometric prompt → fallback to master password → confirm modal → passwords auto-loaded into panels
 - **Config screen** (`p`): Tab to **Vault** tab → unlock/lock, change master password, view status
 - **Priority**: Vault passwords take precedence over OS keychain entries
 

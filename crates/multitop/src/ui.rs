@@ -230,7 +230,16 @@ pub fn keybar_line(
         Span::styled("etch", f_lbl),
         Span::styled("  ", label),
         Span::styled("U", u_hi),
-        Span::styled("pgrade", u_lbl),
+        // In the Upgrade view the same key starts the run, so say which of the
+        // two it will do rather than leaving the second press undiscoverable.
+        Span::styled(
+            if active_mode == crate::app::Mode::Upgrade {
+                "pgrade: run"
+            } else {
+                "pgrade"
+            },
+            u_lbl,
+        ),
         Span::styled("  ", label),
     ];
     let left_width: usize = left_spans.iter().map(|s| s.content.len()).sum();

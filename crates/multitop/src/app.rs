@@ -67,6 +67,10 @@ pub struct App {
     pub vault: Option<Arc<multitop_vault::Vault>>,
     pub vault_state: VaultState,
     pub vault_password_input: String,
+    /// Per-host upgrade history, keyed by `password_store::account`. Shown in
+    /// each panel's Upgrade view so the user can see what a host did last time
+    /// before deciding to run it again.
+    pub host_updates: std::collections::BTreeMap<String, crate::state::HostUpdate>,
     /// Persisted user preference, independent of `mode`.
     pub show_sparklines: bool,
     /// Terminal flag, independent of `mode`.
@@ -100,6 +104,7 @@ impl App {
             vault: None,
             vault_state: VaultState::default(),
             vault_password_input: String::new(),
+            host_updates: std::collections::BTreeMap::new(),
             show_sparklines: false,
             should_quit: false,
         }
@@ -373,18 +378,71 @@ impl App {
     /// Show the last upgrade output without re-running upgrades.
     pub fn show_upgrade_output(&mut self) {
         self.reset_scroll();
+        for i in 0..self.panels.len() {
+            self.panels[i].mode = Mode::Upgrade;
+            let view = self.upgrade_pane(i, false);
+            self.panels[i].view = view;
+        }
+    }
+
+    /// The Upgrade pane for one panel: a status header, then whatever output
+    /// the last run produced.
+    ///
+    /// The header is always present — before, during and after a run — so the
+    /// pane has one shape and `u` always means the same thing in it.
+    fn upgrade_pane(&self, panel: usize, running: bool) -> Vec<String> {
         let pal = self.current_theme();
+        let Some(p) = self.panels.get(panel) else {
+            return Vec::new();
+        };
+
+        let credential = if p.external_password || p.password_saved {
+            crate::upgrade_view::Credential::Stored
+        } else if p.sudo_password.is_some() {
+            crate::upgrade_view::Credential::Session
+        } else {
+            crate::upgrade_view::Credential::Missing
+        };
+
+        let status = crate::upgrade_view::Status {
+            server: &p.server,
+            record: self.host_update(panel),
+            credential,
+            running,
+        };
+
+        let mut out = crate::upgrade_view::header(&status, pal, Self::now_secs(), 0);
+        out.extend(p.last_upgrade.iter().cloned());
+        out
+    }
+
+    /// Second `u` with no host configured to upgrade: there is nothing to
+    /// confirm, so explain that in the pane rather than opening a modal whose
+    /// only possible outcome is skipping everything.
+    pub fn note_nothing_to_upgrade(&mut self) {
+        let pal = self.current_theme();
+        let note = format!(
+            "{}\u{26a0} No host has an upgrade_cmd \u{2014} nothing to run.{}",
+            pal.meter_high(),
+            pal.reset
+        );
         for p in &mut self.panels {
-            p.mode = Mode::Upgrade;
-            p.view = if p.last_upgrade.is_empty() {
-                vec![format!(
-                    "{}\u{2192} No previous upgrade output{}",
-                    pal.meter_mid(),
-                    pal.reset
-                )]
-            } else {
-                p.last_upgrade.clone()
-            };
+            if p.view.last() != Some(&note) {
+                p.view.push(note.clone());
+            }
+        }
+    }
+
+    /// First `u`: put every panel into the Upgrade view without starting
+    /// anything. This is the screen the user reads before deciding to press
+    /// `u` again, so it must have no side effects.
+    pub fn enter_upgrade_view(&mut self) {
+        self.reset_scroll();
+        for i in 0..self.panels.len() {
+            self.panels[i].mode = Mode::Upgrade;
+            let running = self.panels[i].upgrade_state == crate::panel::UpgradeState::STARTED;
+            let view = self.upgrade_pane(i, running);
+            self.panels[i].view = view;
         }
     }
 
@@ -405,6 +463,8 @@ impl App {
             }
         }
         let mut cmds = Vec::new();
+        let mut started = Vec::new();
+        let mut skipped = Vec::new();
         for i in 0..self.panels.len() {
             let gen = self.bump(i);
             let p = &mut self.panels[i];
@@ -413,58 +473,107 @@ impl App {
             if p.server.upgrade_cmd.is_some() {
                 p.upgrade_state = crate::panel::UpgradeState::STARTED;
                 p.upgrade_gen = gen;
-                p.view = vec![
-                    format!(
-                        "{}\u{2192} Upgrade running...{}",
-                        pal.meter_mid(),
-                        pal.reset
-                    ),
-                    format!(
-                        "{}\u{2192} Do not exit (Q) until upgrade completes{}",
-                        pal.meter_mid(),
-                        pal.reset
-                    ),
-                ];
+                p.last_upgrade.clear();
+                started.push(i);
                 cmds.push(Command::RunUpgrade { panel: i, gen });
             } else {
-                let msg = format!(
-                    "{}No upgrade_cmd configured for {} — skipped{}\n",
+                // One line, naming the host. The pane header already carries the
+                // "set upgrade_cmd in config.toml" guidance, so the old second
+                // hint line here would just be the same advice twice in a panel
+                // that may only be forty columns wide.
+                p.upgrade_state = crate::panel::UpgradeState::DONE;
+                p.upgrade_gen = gen;
+                p.last_upgrade = vec![format!(
+                    "{}No upgrade_cmd configured for {} \u{2014} skipped{}",
                     pal.meter_high(),
                     p.server.host,
                     pal.reset
-                );
-                let hint = format!(
-                    "{}Set upgrade_cmd in the config to enable updates for this server{}",
-                    pal.muted(),
-                    pal.reset
-                );
-                p.upgrade_state = crate::panel::UpgradeState::DONE;
-                p.upgrade_gen = gen;
-                p.last_upgrade = vec![msg.clone(), hint.clone()];
-                p.view = vec![msg, hint];
+                )];
+                skipped.push(i);
             }
         }
+
+        // Rebuild both kinds of panel through the same header the pane always
+        // shows. Done after the loop because building the header needs `&self`
+        // while the loop holds `&mut self.panels`.
+        //
+        // This also stops the skip message from being swallowed: it used to sit
+        // at view[0], which `ui::draw` overwrites with the host banner on every
+        // frame, so the user only ever saw the follow-up hint.
+        for i in started {
+            let view = self.upgrade_pane(i, true);
+            self.panels[i].view = view;
+        }
+        for i in skipped {
+            let view = self.upgrade_pane(i, false);
+            self.panels[i].view = view;
+        }
         cmds
+    }
+
+    /// Unix seconds now.
+    fn now_secs() -> u64 {
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs()
+    }
+
+    /// Write the whole runtime state, including per-host records, to disk.
+    fn persist_state(&self) {
+        if let Some(ref path) = self.config_path {
+            let state = crate::state::AppState {
+                last_update: self.last_update,
+                upgrade_started_at: self.upgrade_started_at,
+                hosts: self.host_updates.clone(),
+            };
+            let _ = crate::state::save_state(path, &state);
+        }
+    }
+
+    /// The last recorded upgrade for a panel's host.
+    #[must_use]
+    pub fn host_update(&self, panel: usize) -> crate::state::HostUpdate {
+        self.panels
+            .get(panel)
+            .map_or_else(crate::state::HostUpdate::default, |p| {
+                self.host_updates
+                    .get(&crate::password_store::account(&p.server))
+                    .copied()
+                    .unwrap_or_default()
+            })
+    }
+
+    /// True when at least one host has an `upgrade_cmd` to run. With none, an
+    /// upgrade could only skip every panel, so there is nothing to confirm.
+    #[must_use]
+    pub fn upgrade_runnable(&self) -> bool {
+        self.panels.iter().any(|p| p.server.upgrade_cmd.is_some())
     }
 
     /// Confirm upgrade from modal and execute `run_upgrade`.
     pub fn confirm_upgrade(&mut self) -> Vec<Command> {
         self.mode = AppMode::Running;
-        let has_upgrade = self.panels.iter().any(|p| p.server.upgrade_cmd.is_some());
-        if has_upgrade {
-            self.upgrade_started_at = Some(
-                std::time::SystemTime::now()
-                    .duration_since(std::time::UNIX_EPOCH)
-                    .unwrap_or_default()
-                    .as_secs(),
-            );
-            if let Some(ref path) = self.config_path {
-                let state = crate::state::AppState {
-                    last_update: self.last_update,
-                    upgrade_started_at: self.upgrade_started_at,
-                };
-                let _ = crate::state::save_state(path, &state);
+        if self.upgrade_runnable() {
+            let now = Self::now_secs();
+            self.upgrade_started_at = Some(now);
+            // Mark each runnable host as started with no finish time. If the
+            // app dies mid-upgrade this is what is left on disk, and it is
+            // exactly how an interrupted run is detected next time.
+            for p in &self.panels {
+                if p.server.upgrade_cmd.is_some() {
+                    let key = crate::password_store::account(&p.server);
+                    self.host_updates.insert(
+                        key,
+                        crate::state::HostUpdate {
+                            started_at: Some(now),
+                            finished_at: None,
+                            success: false,
+                        },
+                    );
+                }
             }
+            self.persist_state();
         }
         self.run_upgrade()
     }
@@ -606,22 +715,21 @@ impl App {
                     && self.panels[panel].upgrade_gen == gen
                 {
                     self.panels[panel].upgrade_state = crate::panel::UpgradeState::DONE;
+                    let now = Self::now_secs();
+
+                    // Record this host's outcome regardless of how the others
+                    // fared — the panel shows its own history, and a failure on
+                    // one host must not erase another host's success.
+                    let key = crate::password_store::account(&self.panels[panel].server);
+                    let entry = self.host_updates.entry(key).or_default();
+                    entry.finished_at = Some(now);
+                    entry.success = success;
+
                     if success && !self.upgrades_in_flight() {
-                        self.last_update = Some(
-                            std::time::SystemTime::now()
-                                .duration_since(std::time::UNIX_EPOCH)
-                                .unwrap_or_default()
-                                .as_secs(),
-                        );
+                        self.last_update = Some(now);
                         self.upgrade_started_at = None;
-                        if let Some(ref path) = self.config_path {
-                            let state = crate::state::AppState {
-                                last_update: self.last_update,
-                                upgrade_started_at: None,
-                            };
-                            let _ = crate::state::save_state(path, &state);
-                        }
                     }
+                    self.persist_state();
                 }
                 if let Some(note) = note {
                     self.panels[panel].view.push(note);
