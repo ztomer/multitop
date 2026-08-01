@@ -38,6 +38,7 @@ pub struct Server {
 
 impl Server {
     /// SSH destination, `user@host` when a user is configured.
+    #[must_use]
     pub fn target(&self) -> std::borrow::Cow<'_, str> {
         if self.user.is_empty() {
             std::borrow::Cow::Borrowed(&self.host)
@@ -47,11 +48,13 @@ impl Server {
     }
 }
 
+#[must_use]
 pub fn default_config_path() -> PathBuf {
     config_home().join("multitop/config.toml")
 }
 
 /// Location the project used before it was renamed, so we can point at it.
+#[must_use]
 pub fn legacy_config_path() -> PathBuf {
     config_home().join("monitor/config.toml")
 }
@@ -120,12 +123,9 @@ pub struct Config {
 /// Read and validate the server list and config settings.
 pub fn load(path: &Path) -> Result<Config, ConfigError> {
     let legacy = legacy_config_path();
-    let text = match std::fs::read_to_string(path) {
-        Ok(t) => t,
-        Err(_) => {
-            let legacy = legacy.exists().then_some(legacy);
-            return Err(missing_config_message(path, legacy.as_deref()));
-        }
+    let text = if let Ok(t) = std::fs::read_to_string(path) { t } else {
+        let legacy = legacy.exists().then_some(legacy);
+        return Err(missing_config_message(path, legacy.as_deref()));
     };
     parse(&text)
 }
@@ -197,13 +197,12 @@ pub fn parse(text: &str) -> Result<Config, ConfigError> {
     let upgrade_history_lines = value
         .get("upgrade_history_lines")
         .or_else(|| value.get("history_lines"))
-        .and_then(|v| v.as_integer())
-        .map(|v| v as usize)
-        .unwrap_or(DEFAULT_UPGRADE_HISTORY_LINES);
+        .and_then(toml::Value::as_integer)
+        .map_or(DEFAULT_UPGRADE_HISTORY_LINES, |v| v as usize);
 
     let show_sparklines = value
         .get("show_sparklines")
-        .and_then(|v| v.as_bool())
+        .and_then(toml::Value::as_bool)
         .unwrap_or(false);
 
     Ok(Config {
@@ -232,7 +231,7 @@ pub fn save_theme(path: &Path, theme_name: &str) {
     let _ = std::fs::write(path, new_content);
 }
 
-/// Save show_sparklines preference back to the TOML configuration file.
+/// Save `show_sparklines` preference back to the TOML configuration file.
 pub fn save_show_sparklines(path: &Path, show: bool) {
     let Ok(content) = std::fs::read_to_string(path) else {
         return;
@@ -279,6 +278,7 @@ pub fn save_servers(path: &Path, servers: &[Server]) -> Result<(), String> {
 }
 
 /// Parse standard SSH config file (~/.ssh/config) for Host blocks.
+#[must_use]
 pub fn parse_ssh_config(text: &str) -> Vec<Server> {
     let mut servers = Vec::new();
     let mut current_host: Option<String> = None;

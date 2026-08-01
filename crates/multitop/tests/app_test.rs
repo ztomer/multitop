@@ -1,3 +1,4 @@
+#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 use multitop::app::*;
 use multitop::config::Server;
 use multitop::fmt::{error_line, header_line, status_line};
@@ -370,19 +371,19 @@ fn local_server_deduplication() {
     let s1 = Server {
         host: "127.0.0.1".into(),
         port: 0,
-        user: "".into(),
+        user: String::new(),
         upgrade_cmd: None,
     };
     let s2 = Server {
         host: "localhost".into(),
         port: 22,
-        user: "".into(),
+        user: String::new(),
         upgrade_cmd: None,
     };
     let s3 = Server {
         host: "192.168.0.33".into(),
         port: 22,
-        user: "".into(),
+        user: String::new(),
         upgrade_cmd: None,
     };
 

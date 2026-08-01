@@ -28,6 +28,7 @@ pub struct VaultHeader {
 
 impl VaultHeader {
     /// Generate a random canary string
+    #[must_use]
     pub fn generate_canary() -> String {
         let mut canary_bytes = [0u8; 16];
         rand::rngs::OsRng.fill_bytes(&mut canary_bytes);
@@ -95,6 +96,7 @@ impl VaultHeader {
         })
     }
 
+    #[must_use]
     pub fn get_wrapper(
         &self,
         wrapper_type: crate::crypto::WrapperType,
@@ -138,11 +140,13 @@ impl VaultHeader {
         Ok(())
     }
 
+    #[must_use]
     pub fn has_wrapper(&self, wrapper_type: crate::crypto::WrapperType) -> bool {
         self.get_wrapper(wrapper_type).is_some()
     }
 
     /// Data that gets signed (header without signature + ciphertext)
+    #[must_use]
     pub fn signed_data(&self, ciphertext: &[u8]) -> Vec<u8> {
         let mut data = Vec::new();
         self.write_header_without_sig(&mut data)
@@ -177,6 +181,7 @@ impl VaultHeader {
         Ok(())
     }
 
+    #[must_use]
     pub fn to_bytes(&self) -> Vec<u8> {
         let mut buf = Vec::new();
         self.write_header_without_sig(&mut buf)
@@ -424,6 +429,8 @@ pub fn atomic_write_vault(
 
 #[cfg(test)]
 mod tests {
+#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+
     use super::*;
     use crate::crypto::*;
     use crate::VaultError;
@@ -489,13 +496,6 @@ mod tests {
 
     #[test]
     fn test_vault_header_new_wrapper_too_large() {
-        let key = VaultKey::new();
-        let salt = generate_salt();
-        let params = Argon2Params {
-            t: 1,
-            m_kib: 32_768,
-            p: 1,
-        };
         // Wrapper::new will fail with 65536 bytes, so we can't create the wrapper
         let result_wrapper = Wrapper::new(WrapperType::Argon2id, vec![1u8; 65536]);
         assert!(result_wrapper.is_err());
@@ -516,7 +516,7 @@ mod tests {
 
         header.add_wrapper(new_wrapper).unwrap();
         assert!(header.get_wrapper(WrapperType::SecureEnclave).is_some());
-        assert!(header.wrappers.len() == 2);
+        assert_eq!(header.wrappers.len(), 2);
     }
 
     #[test]
@@ -537,16 +537,7 @@ mod tests {
     #[test]
     fn test_vault_header_add_wrapper_too_many() {
         let mut header = make_test_header();
-        // Add 7 more wrappers with different types (total 8)
-        // We need to use different WrapperType values
-        for i in 1..=7u8 {
-            // Create a wrapper with a unique data pattern to avoid duplicates
-            let wrapper = Wrapper::new(WrapperType::Argon2id, vec![i; 10]).unwrap();
-            // This will replace the existing Argon2id wrapper, so we won't exceed 8
-            // We need to test with actual different types
-        }
 
-        // Actually, let's test the case where we try to exceed 8 wrappers
         // The issue is that add_wrapper replaces existing types
         // So we need to test with types that don't exist yet
         // But we only have 3 types: SecureEnclave(1), Tpm2(2), Argon2id(3)

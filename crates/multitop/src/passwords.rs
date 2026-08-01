@@ -37,7 +37,7 @@ impl ServerDraft {
         }
     }
 
-    fn active_field(&mut self) -> &mut String {
+    const fn active_field(&mut self) -> &mut String {
         match self.field {
             0 => &mut self.host,
             1 => &mut self.user,
@@ -79,7 +79,8 @@ pub struct PasswordManager {
 }
 
 impl PasswordManager {
-    pub fn new(selected: usize, resume_upgrade: bool) -> Self {
+    #[must_use]
+    pub const fn new(selected: usize, resume_upgrade: bool) -> Self {
         Self {
             section: ConfigSection::Passwords,
             selected,
@@ -183,10 +184,10 @@ fn password_key(app: &mut App, key: KeyCode) -> PasswordAction {
     match key {
         KeyCode::Esc | KeyCode::Char('e' | 'E') => app.password_manager = None,
         KeyCode::Up | KeyCode::Char('k' | 'K') => {
-            manager.selected = manager.selected.saturating_sub(1)
+            manager.selected = manager.selected.saturating_sub(1);
         }
         KeyCode::Down | KeyCode::Char('j' | 'J') => {
-            manager.selected = (manager.selected + 1).min(app.panels.len().saturating_sub(1))
+            manager.selected = (manager.selected + 1).min(app.panels.len().saturating_sub(1));
         }
         KeyCode::Char('s' | 'S') | KeyCode::Enter => {
             manager.editing = true;
@@ -218,9 +219,8 @@ fn password_key(app: &mut App, key: KeyCode) -> PasswordAction {
                     .collect();
                 servers.remove(manager.selected);
                 return PasswordAction::ApplyServers(servers);
-            } else {
-                manager.notice = Some("Cannot remove the last remaining server.".to_string());
             }
+            manager.notice = Some("Cannot remove the last remaining server.".to_string());
         }
         _ => {}
     }
@@ -278,10 +278,10 @@ fn server_key(app: &mut App, key: KeyCode) -> PasswordAction {
     match key {
         KeyCode::Esc | KeyCode::Char('e' | 'E') => app.password_manager = None,
         KeyCode::Up | KeyCode::Char('k' | 'K') => {
-            manager.selected = manager.selected.saturating_sub(1)
+            manager.selected = manager.selected.saturating_sub(1);
         }
         KeyCode::Down | KeyCode::Char('j' | 'J') => {
-            manager.selected = (manager.selected + 1).min(app.panels.len().saturating_sub(1))
+            manager.selected = (manager.selected + 1).min(app.panels.len().saturating_sub(1));
         }
         KeyCode::Char('a' | 'A') => manager.draft = Some(ServerDraft::new(None, None, None)),
         KeyCode::Enter => {
@@ -291,7 +291,7 @@ fn server_key(app: &mut App, key: KeyCode) -> PasswordAction {
                     Some(&panel.server),
                     panel.sudo_password.as_deref(),
                 )
-            })
+            });
         }
         KeyCode::Char('d' | 'D') if app.panels.len() > 1 => {
             let mut servers: Vec<Server> = app
@@ -309,6 +309,8 @@ fn server_key(app: &mut App, key: KeyCode) -> PasswordAction {
 
 #[cfg(test)]
 mod tests {
+#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+
     use super::*;
     use crate::app::App;
     use crate::config::Server;

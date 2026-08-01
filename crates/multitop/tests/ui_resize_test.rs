@@ -1,3 +1,4 @@
+#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 use ratatui::backend::TestBackend;
 use ratatui::Terminal;
 
@@ -90,4 +91,67 @@ fn agent_dims_recalculate_consistently_on_resize() {
     let (cols2, rows2) = agent_dims(sz_resized, 4);
     assert_eq!(cols2, 78);
     assert_eq!(rows2, 29);
+}
+
+/// Bug c: with a full 30-sample history on a narrow split panel, the sparkline
+/// must be TRUNCATED to the available header width and still render — it must
+/// not be dropped entirely (the pre-fix behavior, which made sparklines
+/// invisible on anything but a maximally wide header).
+#[test]
+fn sparkline_renders_truncated_on_narrow_split_panel() {
+    let mut app = App::new(sample_servers(2));
+    app.show_sparklines = true;
+
+    for p in &mut app.panels {
+        p.view = vec![" CPU [####....] 50%".into(), " MEM [########..] 80%".into()];
+        p.mode = Mode::Monitor;
+    }
+
+    // Full 30-sample histories for both panels (memory and CPU).
+    for hist in app.sparklines_mem.iter_mut().chain(app.sparklines_cpu.iter_mut()) {
+        for v in 0..30 {
+            hist.push((v as f32) / 29.0 * 100.0);
+        }
+    }
+
+    let backend = TestBackend::new(45, 12);
+    let mut terminal = Terminal::new(backend).unwrap();
+    terminal.draw(|f| draw(f, &app)).unwrap();
+
+    let buf = terminal.backend().buffer().clone();
+    // Panel 1 header occupies row 0; look for a sparkline block glyph in it.
+    let header_row: String = (0..buf.area.width)
+        .map(|x| buf.cell((x, 0)).map_or(" ", ratatui::buffer::Cell::symbol))
+        .collect();
+    let has_sparkline_glyph = "▁▂▃▄▅▆▇█".chars().any(|c| header_row.contains(c));
+    assert!(
+        has_sparkline_glyph,
+        "sparkline must render (truncated) on a 45-col split panel; got: {header_row:?}"
+    );
+
+    // And the header must not overflow the panel width.
+    let stripped = multitop_agent::color::strip_ansi(&header_row);
+    let visible: String = stripped.chars().filter(|c| *c != ' ').collect();
+    assert!(
+        visible.chars().count() <= 43,
+        "header must fit inside the 45-col panel; got {} visible chars",
+        visible.chars().count()
+    );
+}
+
+/// Bug c finding #6: `reset_scroll()` must reset EVERY panel's scroll, not just
+/// the selected one (upgrade/fetch/docker views switch all panels at once).
+#[test]
+fn reset_scroll_clears_all_panels_not_just_selected() {
+    let mut app = App::new(sample_servers(3));
+    app.selected_panel = 1;
+    for (i, p) in app.panels.iter_mut().enumerate() {
+        p.scroll_offset = 5 + i;
+    }
+
+    app.reset_scroll();
+
+    for (i, p) in app.panels.iter().enumerate() {
+        assert_eq!(p.scroll_offset, 0, "panel {i} scroll must reset");
+    }
 }

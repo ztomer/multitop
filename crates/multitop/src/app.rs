@@ -6,6 +6,7 @@
 //! terminal or a network.
 
 use secrecy::ExposeSecret;
+use std::sync::Arc;
 
 use crate::config::Server;
 
@@ -32,9 +33,10 @@ pub struct App {
     pub last_update: Option<u64>,
     pub upgrade_started_at: Option<u64>,
     pub show_sparklines: bool,
-    pub vault: Option<multitop_vault::Vault>,
+    pub vault: Option<Arc<multitop_vault::Vault>>,
     pub vault_unlocked: Option<multitop_vault::UnlockedVault>,
     pub show_vault_password_prompt: bool,
+    pub vault_awaiting_biometric: bool,
     pub vault_password_input: String,
     pub vault_password_error: Option<String>,
 }
@@ -42,7 +44,7 @@ pub struct App {
 impl App {
     pub fn new(servers: Vec<Server>) -> Self {
         let count = servers.len();
-        App {
+        Self {
             panels: servers.into_iter().map(Panel::new).collect(),
             selected_panel: 0,
             should_quit: false,
@@ -69,23 +71,53 @@ impl App {
             vault: None,
             vault_unlocked: None,
             show_vault_password_prompt: false,
+            vault_awaiting_biometric: false,
             vault_password_input: String::new(),
             vault_password_error: None,
         }
     }
 
+    #[must_use]
     pub fn upgrades_in_flight(&self) -> bool {
         self.panels
             .iter()
             .any(|p| p.upgrade_state == crate::panel::UpgradeState::STARTED)
     }
 
+    #[must_use]
     pub fn had_upgrade(&self) -> bool {
         self.panels
             .iter()
             .any(|p| p.upgrade_state != crate::panel::UpgradeState::NIL)
     }
 
+    /// Hosts that an upgrade will skip because no `upgrade_cmd` is configured.
+    /// Surfaced in the confirm modal so the user knows before running.
+    #[must_use]
+    pub fn upgrade_skip_hosts(&self) -> Vec<String> {
+        self.panels
+            .iter()
+            .filter(|p| p.server.upgrade_cmd.is_none())
+            .map(|p| p.server.host.clone())
+            .collect()
+    }
+
+    /// Start unlocking a locked vault. On a locked vault this enters the
+    /// awaiting-biometric state and returns the shared vault handle for the
+    /// caller to attempt `unlock_biometric(false)` on; a `None` return means
+    /// there is no vault to unlock (or it is already unlocked), so the caller
+    /// proceeds straight to the upgrade modal.
+    pub fn begin_vault_unlock(&mut self) -> Option<Arc<multitop_vault::Vault>> {
+        if self.vault.is_some() && self.vault_unlocked.is_none() {
+            self.vault_awaiting_biometric = true;
+            self.vault_password_error = None;
+            self.vault_password_input.clear();
+            return self.vault.clone();
+        }
+        None
+    }
+
+    #[must_use]
     pub fn filtered_indices(&self) -> Vec<usize> {
         if self.filter_query.trim().is_empty() {
             (0..self.panels.len()).collect()
@@ -109,14 +141,17 @@ impl App {
         p.gen
     }
 
+    #[must_use]
     pub fn in_docker(&self) -> bool {
         self.panels.iter().any(|p| p.mode == Mode::Docker)
     }
 
+    #[must_use]
     pub fn in_fetch(&self) -> bool {
         self.panels.iter().any(|p| p.mode == Mode::Fetch)
     }
 
+    #[must_use]
     pub fn in_upgrade(&self) -> bool {
         self.panels.iter().any(|p| p.mode == Mode::Upgrade)
     }
@@ -220,31 +255,38 @@ impl App {
             let p = &mut self.panels[i];
             p.mode = Mode::Upgrade;
             p.ensure_sudo_password();
-            match p.server.upgrade_cmd.is_some() {
-                true => {
-                    p.upgrade_state = crate::panel::UpgradeState::STARTED;
-                    p.upgrade_gen = gen;
-                    p.view = vec![
-                        format!(
-                            "{}\u{2192} Upgrade running...{}",
-                            pal.meter_mid(),
-                            pal.reset
-                        ),
-                        format!(
-                            "{}\u{2192} Do not exit (Q) until upgrade completes{}",
-                            pal.meter_mid(),
-                            pal.reset
-                        ),
-                    ];
-                    cmds.push(Command::RunUpgrade { panel: i, gen });
-                }
-                false => {
-                    p.view = vec![format!(
-                        "{}No upgrade_cmd configured for this server{}\n",
+            if p.server.upgrade_cmd.is_some() {
+                p.upgrade_state = crate::panel::UpgradeState::STARTED;
+                p.upgrade_gen = gen;
+                p.view = vec![
+                    format!(
+                        "{}\u{2192} Upgrade running...{}",
                         pal.meter_mid(),
                         pal.reset
-                    )];
-                }
+                    ),
+                    format!(
+                        "{}\u{2192} Do not exit (Q) until upgrade completes{}",
+                        pal.meter_mid(),
+                        pal.reset
+                    ),
+                ];
+                cmds.push(Command::RunUpgrade { panel: i, gen });
+            } else {
+                let msg = format!(
+                    "{}No upgrade_cmd configured for {} — skipped{}\n",
+                    pal.meter_high(),
+                    p.server.host,
+                    pal.reset
+                );
+                let hint = format!(
+                    "{}Set upgrade_cmd in the config to enable updates for this server{}",
+                    pal.muted(),
+                    pal.reset
+                );
+                p.upgrade_state = crate::panel::UpgradeState::DONE;
+                p.upgrade_gen = gen;
+                p.last_upgrade = vec![msg.clone(), hint.clone()];
+                p.view = vec![msg, hint];
             }
         }
         cmds
@@ -272,7 +314,7 @@ impl App {
         self.run_upgrade()
     }
 
-    pub fn quit(&mut self) {
+    pub const fn quit(&mut self) {
         self.should_quit = true;
     }
 
@@ -425,6 +467,20 @@ impl App {
                     self.panels[panel].view.push(note);
                 }
             }
+            Msg::VaultUnlocked(unlocked) => {
+                self.vault_awaiting_biometric = false;
+                self.show_vault_password_prompt = false;
+                self.vault_password_input.clear();
+                self.vault_password_error = None;
+                self.vault_unlocked = Some(unlocked);
+                self.show_upgrade_modal = true;
+            }
+            Msg::VaultBiometricFailed => {
+                self.vault_awaiting_biometric = false;
+                self.show_vault_password_prompt = true;
+                self.vault_password_input.clear();
+                self.vault_password_error = None;
+            }
         }
     }
 
@@ -466,16 +522,17 @@ impl App {
     }
 
     pub fn reset_scroll(&mut self) {
-        if self.selected_panel < self.panels.len() {
-            self.panels[self.selected_panel].scroll_offset = 0;
+        for panel in &mut self.panels {
+            panel.scroll_offset = 0;
         }
     }
 
-    pub fn cycle_theme(&mut self) {
+    pub const fn cycle_theme(&mut self) {
         self.theme_idx = (self.theme_idx + 1) % multitop_agent::color::THEMES.len();
     }
 
-    pub fn current_theme(&self) -> &'static multitop_agent::color::Palette {
+    #[must_use]
+    pub const fn current_theme(&self) -> &'static multitop_agent::color::Palette {
         &multitop_agent::color::THEMES[self.theme_idx]
     }
 

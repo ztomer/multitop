@@ -1,3 +1,4 @@
+#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 use multitop::fetch_render;
 use multitop_agent::color::{strip_ansi, ANSI};
 use multitop_agent::fetch::FetchSnapshot;
@@ -68,7 +69,7 @@ fn os_ubuntu_gets_circle_logo() {
     // Ubuntu logo has ".-/+" and "ossssoo" patterns
     let p = logo_line(&out, 1);
     assert!(
-        p.contains("+") || p.contains("/"),
+        p.contains('+') || p.contains('/'),
         "Ubuntu logo should have circle shapes: {p}"
     );
 }
@@ -104,7 +105,7 @@ fn os_debian_gets_swirl_logo() {
     );
     let p = logo_line(&out, 1);
     assert!(
-        p.contains("$") || p.contains(",") || p.contains("_"),
+        p.contains('$') || p.contains(',') || p.contains('_'),
         "Debian logo should have swirl characters: {p}"
     );
 }
@@ -119,7 +120,7 @@ fn os_fedora_gets_infinity_logo() {
     );
     let p = logo_line(&out, 1);
     assert!(
-        p.contains("'") || p.contains(":"),
+        p.contains('\'') || p.contains(':'),
         "Fedora logo should have infinity shapes: {p}"
     );
 }
@@ -130,7 +131,7 @@ fn os_arch_gets_arch_logo() {
     let p = logo_line(&out, 1);
     // Arch logo starts with backtick-tick shapes from neofetch: "                   -`"
     assert!(
-        p.contains("`") || p.contains("'") || p.contains("-"),
+        p.contains('`') || p.contains('\'') || p.contains('-'),
         "Arch logo should have mountain shapes: {p}"
     );
 }
@@ -145,7 +146,7 @@ fn os_freebsd_gets_beastie_logo() {
     );
     let p = logo_line(&out, 1);
     assert!(
-        p.contains("`"),
+        p.contains('`'),
         "FreeBSD logo should have backtick shapes: {p}"
     );
 }
@@ -183,7 +184,7 @@ fn os_generic_linux_gets_tux_logo() {
     let out = fetch_render::render_fetch(&snap("Linux", "6.6.0-generic"), 80, 24, &ANSI);
     let p = logo_line(&out, 1);
     assert!(
-        p.contains("#"),
+        p.contains('#'),
         "Generic Linux Tux logo should have hash marks: {p}"
     );
 }
@@ -207,7 +208,7 @@ fn os_endeavouros_gets_arch_derived_logo() {
     let has_mountain = plain_lines
         .iter()
         .skip(1)
-        .any(|l| l.contains("`") || l.contains("'") || l.contains("-"));
+        .any(|l| l.contains('`') || l.contains('\'') || l.contains('-'));
     assert!(has_mountain, "EndeavourOS logo should have mountain shapes");
 }
 
@@ -265,7 +266,7 @@ fn alignment_label_column_is_fixed_width() {
     let detail_lines: Vec<&str> = plain_lines[1..]
         .iter()
         .filter(|l| l.contains(" : "))
-        .map(|s| s.as_str())
+        .map(std::string::String::as_str)
         .collect();
     for line in &detail_lines {
         // Each detail line should have a " : " separator
@@ -292,7 +293,7 @@ fn alignment_colon_position_is_consistent() {
     let detail_lines: Vec<&str> = plain_lines[1..]
         .iter()
         .filter(|l| l.contains(" : "))
-        .map(|s| s.as_str())
+        .map(std::string::String::as_str)
         .collect();
     if detail_lines.len() >= 2 {
         let col_pos = |l: &str| -> usize { l.split(" : ").next().unwrap_or("").chars().count() };
@@ -313,7 +314,7 @@ fn alignment_each_line_starts_with_space_prefix() {
     let plain_lines = plain(&out);
     // Skip header (index 0) and color bar (last)
     for (i, line) in plain_lines.iter().enumerate().skip(1) {
-        if line.contains("\x1b") || line.trim().is_empty() {
+        if line.contains('\x1b') || line.trim().is_empty() {
             continue;
         }
         // Every content line should start with a space

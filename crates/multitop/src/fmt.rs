@@ -19,6 +19,7 @@ pub fn header_line(text: impl std::fmt::Display) -> String {
 }
 
 /// Convert a Unix timestamp (seconds since epoch) to `YYYY-MM-DD HH:MM:SS UTC`.
+#[must_use]
 pub fn unixtime_to_str(secs: u64) -> String {
     let days = secs / 86400;
     let rem_secs = secs % 86400;

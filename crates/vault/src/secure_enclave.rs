@@ -155,6 +155,7 @@ impl SecureEnclave {
     }
 
     /// Check if Secure Enclave is available (has Touch ID/Face ID enrolled)
+    #[must_use]
     pub fn is_available() -> bool {
         // Use LAContext to properly check biometric enrollment
         use std::process::Command;
@@ -177,6 +178,7 @@ pub fn get_secure_enclave() -> Result<SecureEnclave, VaultError> {
 
 /// Check if Secure Enclave is available on this system
 #[cfg(target_os = "macos")]
+#[must_use]
 pub fn is_available() -> bool {
     SecureEnclave::is_available()
 }
@@ -213,6 +215,8 @@ impl SecureEnclave {
 
 #[cfg(test)]
 mod tests {
+#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+
     #[cfg(not(target_os = "macos"))]
     use super::*;
 

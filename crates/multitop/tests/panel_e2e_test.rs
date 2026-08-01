@@ -1,13 +1,10 @@
 //! Panel state integration tests.
 
-use multitop::app::{App, Mode, Msg};
+#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+use multitop::app::{Mode};
 use multitop::config::Server;
 use multitop::panel::{UpgradeState};
 use multitop::password_store;
-use multitop::vault::{try_load_vault_password};
-use multitop_vault::{Vault, VaultConfig};
-use secrecy::SecretString;
-use tempfile::TempDir;
 
 fn test_server(host: &str) -> Server {
     Server {
@@ -52,7 +49,7 @@ fn test_ensure_sudo_password_loads_vault() {
     // Vault integration is tested in vault_upgrade_e2e.rs
     // This test just verifies the function exists and compiles
     let server = test_server("127.0.0.11");
-    let mut panel = multitop::app::Panel::new(server);
+    let panel = multitop::app::Panel::new(server);
     // try_load_vault_password requires an unlocked vault, skip actual test here
     assert_eq!(panel.sudo_password, None);
 }

@@ -1,11 +1,12 @@
 //! Automated E2E Integration Tests for Password Persistence & Upgrade Execution Flow
 //!
 //! Validates:
-//! 1. Setting and deleting passwords via PasswordManager, persisting to OS credential store.
+//! 1. Setting and deleting passwords via `PasswordManager`, persisting to OS credential store.
 //! 2. Automatic loading of stored passwords during App/Panel initialization.
-//! 3. Execution of upgrade tasks (spawn_upgrade) using stored passwords to stream command output.
+//! 3. Execution of upgrade tasks (`spawn_upgrade`) using stored passwords to stream command output.
 //! 4. In-stream guidance tip generation when sudo authentication is missing.
 
+#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 use multitop::app::{App, Msg};
 use multitop::config::Server;
 use multitop::passwords::{self, ConfigSection, PasswordAction};

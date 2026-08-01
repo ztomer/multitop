@@ -17,44 +17,64 @@ use zeroize::{Zeroize, ZeroizeOnDrop};
 pub struct VaultKey([u8; 32]);
 
 impl VaultKey {
-    /// Generate a new random vault key
+    /// Generate a new random vault key.
+    ///
+    /// # Panics
+    /// Panics if the system RNG fails (extremely unlikely).
+    #[must_use]
     pub fn new() -> Self {
         let mut key = [0u8; 32];
         thread_rng().fill_bytes(&mut key);
         Self(key)
     }
 
-    /// Create from raw bytes
-    pub fn from_bytes(bytes: [u8; 32]) -> Self {
+    /// Create from raw bytes.
+    #[must_use]
+    pub const fn from_bytes(bytes: [u8; 32]) -> Self {
         Self(bytes)
     }
 
-    /// Expose the raw bytes (use sparingly)
-    pub fn as_bytes(&self) -> &[u8; 32] {
+    /// Expose the raw bytes (use sparingly).
+    #[must_use]
+    pub const fn as_bytes(&self) -> &[u8; 32] {
         &self.0
     }
 
-    /// Derive Ed25519 signing key from vault key via HKDF
+    /// Derive Ed25519 signing key from vault key via HKDF.
+    ///
+    /// # Panics
+    /// Panics if HKDF expand fails (should never happen with SHA-256 and 32-byte output).
+    #[must_use]
     pub fn derive_signing_key(&self) -> SigningKey {
         let hkdf = Hkdf::<Sha256>::new(None, &self.0);
         let mut okm = [0u8; 32];
         // HKDF expand with SHA-256 and 32 bytes output should never fail
         // but we use expect for safety rather than changing the API
+        #[allow(clippy::expect_used)]
         hkdf.expand(b"multitop-vault-signing", &mut okm)
             .expect("HKDF expand failed (should never happen with SHA-256)");
         SigningKey::from_bytes(&okm)
     }
 
-    /// Derive Ed25519 verifying key from vault key
+    /// Derive Ed25519 verifying key from vault key.
+    ///
+    /// # Panics
+    /// Panics if HKDF expand fails in `derive_signing_key`.
+    #[must_use]
     pub fn derive_verifying_key(&self) -> VerifyingKey {
         self.derive_signing_key().verifying_key()
     }
 
-    /// Derive AES-256-GCM encryption sub-key via HKDF (key separation from signing key)
+    /// Derive AES-256-GCM encryption sub-key via HKDF (key separation from signing key).
+    ///
+    /// # Panics
+    /// Panics if HKDF expand fails (should never happen with SHA-256 and 32-byte output).
+    #[must_use]
     pub fn encryption_key(&self) -> [u8; 32] {
         let hkdf = Hkdf::<Sha256>::new(None, &self.0);
         let mut okm = [0u8; 32];
         // HKDF expand with SHA-256 and 32 bytes output should never fail
+        #[allow(clippy::expect_used)]
         hkdf.expand(b"vault-aes-gcm-key", &mut okm)
             .expect("HKDF expand failed (should never happen with SHA-256)");
         okm
@@ -74,7 +94,8 @@ impl Default for VaultKey {
 pub struct Ed25519PublicKey(#[serde(with = "serde_bytes")] pub [u8; 32]);
 
 impl Ed25519PublicKey {
-    pub fn as_bytes(&self) -> &[u8; 32] {
+    #[must_use]
+    pub const fn as_bytes(&self) -> &[u8; 32] {
         &self.0
     }
 }
@@ -86,7 +107,8 @@ impl Ed25519PublicKey {
 pub struct Ed25519Signature(#[serde(with = "serde_bytes")] pub [u8; 64]);
 
 impl Ed25519Signature {
-    pub fn as_bytes(&self) -> &[u8; 64] {
+    #[must_use]
+    pub const fn as_bytes(&self) -> &[u8; 64] {
         &self.0
     }
 }
@@ -106,7 +128,11 @@ impl Default for Argon2Params {
 }
 
 impl Argon2Params {
-    /// Auto-detect reasonable parameters for current hardware
+    /// Auto-detect reasonable parameters for current hardware.
+    ///
+    /// # Panics
+    /// Panics if system memory detection fails and falls back to defaults.
+    #[must_use]
     pub fn auto_detect() -> Self {
         let mem_kib = get_available_memory_kib().unwrap_or(8_388_608); // 8 GiB default
         let target_mib = (mem_kib / 1024 / 4).clamp(64, 1024);
@@ -119,28 +145,41 @@ impl Argon2Params {
         };
         Self {
             t,
+            // target_mib <= 1024, so target_mib * 1024 <= 1_048_576 fits in u32
+            #[allow(clippy::cast_possible_truncation)]
             m_kib: (target_mib * 1024) as u32,
             p: 4,
         }
     }
 
-    /// Create from config values
+    /// Create from config values.
+    ///
+/// Values are clamped to valid ranges:
+    /// - `t` (iterations): 1–20
+    /// - `m_kib` (memory): 32 MiB – 4 GiB
+    /// - `p` (parallelism): 1–8
+    #[must_use]
     pub fn from_config(t: u8, m_mib: u32, p: u8) -> Self {
         Self {
             t: t.clamp(1, 20),
+            // m_mib <= 4096, so m_mib * 1024 <= 4_194_304 fits in u32
             m_kib: (m_mib * 1024).clamp(32_768, 4_194_304),
             p: p.clamp(1, 8),
         }
     }
 
-    /// Estimated time in milliseconds
-    pub fn estimated_ms(&self) -> u64 {
+    /// Estimated time in milliseconds.
+    #[must_use]
+    pub const fn estimated_ms(&self) -> u64 {
         (self.m_kib as u64 / 1024) * self.t as u64 / self.p as u64 / 2
     }
 
-    /// Create Argon2 instance
+    /// Create Argon2 instance.
+    ///
+    /// # Errors
+    /// Returns `VaultError::Argon2Params` if the Argon2 parameters are invalid.
     pub fn to_argon2(&self) -> Result<argon2::Argon2<'static>, crate::VaultError> {
-        let params = Params::new(self.m_kib, self.t as u32, self.p as u32, None)
+        let params = Params::new(self.m_kib, u32::from(self.t), u32::from(self.p), None)
             .map_err(|e| crate::VaultError::Argon2Params(e.to_string()))?;
         Ok(Argon2::new(
             argon2::Algorithm::Argon2id,
@@ -211,11 +250,12 @@ pub enum WrapperType {
 }
 
 impl WrapperType {
-    pub fn from_u8(v: u8) -> Option<Self> {
+    #[must_use]
+    pub const fn from_u8(v: u8) -> Option<Self> {
         match v {
-            0x01 => Some(WrapperType::SecureEnclave),
-            0x02 => Some(WrapperType::Tpm2),
-            0x03 => Some(WrapperType::Argon2id),
+            0x01 => Some(Self::SecureEnclave),
+            0x02 => Some(Self::Tpm2),
+            0x03 => Some(Self::Argon2id),
             _ => None,
         }
     }
@@ -229,6 +269,10 @@ pub struct Wrapper {
 }
 
 impl Wrapper {
+    /// Create a new wrapper.
+    ///
+    /// # Errors
+    /// Returns `VaultError::WrapperTooLarge` if `data` exceeds 65,535 bytes.
     pub fn new(wrapper_type: WrapperType, data: Vec<u8>) -> Result<Self, crate::VaultError> {
         if data.len() > 65535 {
             return Err(crate::VaultError::WrapperTooLarge(data.len()));
@@ -237,23 +281,35 @@ impl Wrapper {
     }
 }
 
-/// Generate a random salt
+/// Generate a random salt.
+#[must_use]
 pub fn generate_salt() -> [u8; 32] {
     let mut salt = [0u8; 32];
     thread_rng().fill_bytes(&mut salt);
     salt
 }
 
-/// Get current time in milliseconds
+/// Get current time in milliseconds.
+#[must_use]
 pub fn now_ms() -> u64 {
     use std::time::{SystemTime, UNIX_EPOCH};
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_millis() as u64
+        .map_or(0, duration_millis_to_u64)
 }
 
-/// Encrypt vault contents with AES-256-GCM (uses HKDF-derived encryption sub-key)
+/// Convert a Duration to milliseconds as u64.
+/// Fits for billions of years — well beyond any practical concern.
+#[allow(clippy::cast_precision_loss)]
+#[must_use]
+fn duration_millis_to_u64(d: std::time::Duration) -> u64 {
+    u64::try_from(d.as_millis()).unwrap_or(u64::MAX)
+}
+
+/// Encrypt vault contents with AES-256-GCM (uses HKDF-derived encryption sub-key).
+///
+/// # Errors
+/// Returns `VaultError::EncryptionFailed` if encryption fails.
 pub fn encrypt_vault(
     key: &VaultKey,
     plaintext: &[u8],
@@ -269,7 +325,10 @@ pub fn encrypt_vault(
     Ok((ciphertext, nonce.into()))
 }
 
-/// Decrypt vault contents with AES-256-GCM (uses HKDF-derived encryption sub-key)
+/// Decrypt vault contents with AES-256-GCM (uses HKDF-derived encryption sub-key).
+///
+/// # Errors
+/// Returns `VaultError::DecryptionFailed` if decryption fails.
 pub fn decrypt_vault(
     key: &VaultKey,
     nonce: &[u8; 12],
@@ -286,7 +345,8 @@ pub fn decrypt_vault(
     Ok(plaintext)
 }
 
-/// Sign vault data with Ed25519
+/// Sign vault data with Ed25519.
+#[must_use]
 pub fn sign_vault(key: &VaultKey, data: &[u8]) -> Ed25519Signature {
     let signing_key = key.derive_signing_key();
     let signature = signing_key.sign(data);
@@ -294,7 +354,11 @@ pub fn sign_vault(key: &VaultKey, data: &[u8]) -> Ed25519Signature {
     Ed25519Signature(signature.to_bytes())
 }
 
-/// Verify vault signature
+/// Verify vault signature.
+///
+/// # Errors
+/// Returns `VaultError::InvalidPublicKey` if the public key is invalid,
+/// or `VaultError::SignatureVerificationFailed` if the signature doesn't match.
 pub fn verify_vault_signature(
     pk: &Ed25519PublicKey,
     data: &[u8],
@@ -308,7 +372,12 @@ pub fn verify_vault_signature(
         .map_err(|_| crate::VaultError::SignatureVerificationFailed)
 }
 
-/// Wrap vault key with Argon2id(password)
+/// Wrap vault key with Argon2id(password).
+///
+/// # Errors
+/// Returns `VaultError::Argon2Params` if parameters are invalid,
+/// `VaultError::Argon2Error` if hashing fails, or `VaultError::EncryptionFailed`
+/// if encryption fails.
 pub fn wrap_argon2id(
     key: &VaultKey,
     password: &str,
@@ -339,7 +408,13 @@ pub fn wrap_argon2id(
     Ok(result)
 }
 
-/// Unwrap vault key from Argon2id wrapped form
+/// Unwrap vault key from Argon2id wrapped form.
+///
+/// # Errors
+/// Returns `VaultError::InvalidWrapperData` if the wrapped data is malformed,
+/// `VaultError::Argon2Params` if parameters are invalid,
+/// `VaultError::Argon2Error` if hashing fails, or `VaultError::DecryptionFailed`
+/// if decryption fails.
 pub fn unwrap_argon2id(
     wrapped: &[u8],
     password: &str,
@@ -383,23 +458,25 @@ pub fn unwrap_argon2id(
 
 /// Securely overwrite a file with random data + zeros before deletion.
 /// Best-effort on modern SSDs with encryption; use full-disk encryption for real protection.
+///
+/// # Errors
+/// Returns `std::io::Error` if the file cannot be opened, written, or synced.
 pub fn secure_overwrite(path: &std::path::Path) -> std::io::Result<()> {
-    use std::fs::{File, OpenOptions};
+    use std::fs::OpenOptions;
     use std::io::{Seek, Write};
     #[cfg(unix)]
     use std::os::unix::fs::OpenOptionsExt;
 
     let metadata = std::fs::metadata(path)?;
+    // file size fits in usize on 64-bit platforms (target for this crate)
+    #[allow(clippy::cast_possible_truncation)]
     let len = metadata.len() as usize;
 
     if len == 0 {
         return Ok(());
     }
 
-    use rand::RngCore;
-
     // Open the file once for all passes to avoid TOCTOU
-    #[allow(unused_mut)]
     let mut open_opts = OpenOptions::new();
     open_opts.write(true).truncate(false);
     #[cfg(unix)]
@@ -432,6 +509,8 @@ pub fn secure_overwrite(path: &std::path::Path) -> std::io::Result<()> {
 
 #[cfg(test)]
 mod tests {
+#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+
     use super::*;
     use crate::VaultError;
     use tempfile::TempDir;

@@ -1,3 +1,4 @@
+#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 use multitop::app::App;
 use multitop::config::Server;
 use multitop::ui;
@@ -50,11 +51,10 @@ fn main() {
         std::hint::black_box(decoded);
     }
     let elapsed = start.elapsed();
-    let ns_per_op = elapsed.as_nanos() as f64 / iterations as f64;
-    let ops_per_sec = iterations as f64 / elapsed.as_secs_f64();
+    let ns_per_op = elapsed.as_nanos() as f64 / f64::from(iterations);
+    let ops_per_sec = f64::from(iterations) / elapsed.as_secs_f64();
     println!(
-        "\n1. Protocol Packet Decoding:\n   Iterations: {iterations}\n   Time: {:?}",
-        elapsed
+        "\n1. Protocol Packet Decoding:\n   Iterations: {iterations}\n   Time: {elapsed:?}"
     );
     println!("   Latency:    {ns_per_op:.2} ns / packet");
     println!("   Throughput: {ops_per_sec:.0} packets / sec");
@@ -69,15 +69,14 @@ fn main() {
         std::hint::black_box(lines);
     }
     let elapsed = start.elapsed();
-    let ns_per_render = elapsed.as_nanos() as f64 / render_iters as f64;
+    let ns_per_render = elapsed.as_nanos() as f64 / f64::from(render_iters);
     println!(
-        "\n2. Local Snapshot Rendering (120x40 Ratatui lines):\n   Iterations: {render_iters}\n   Time: {:?}",
-        elapsed
+        "\n2. Local Snapshot Rendering (120x40 Ratatui lines):\n   Iterations: {render_iters}\n   Time: {elapsed:?}"
     );
     println!("   Latency:    {ns_per_render:.2} ns / frame");
     println!(
         "   Throughput: {:.0} frames / sec",
-        render_iters as f64 / elapsed.as_secs_f64()
+        f64::from(render_iters) / elapsed.as_secs_f64()
     );
 
     // 3. Benchmark Full TUI Layout Drawing (1, 4, 8, 16 panels)
@@ -109,8 +108,8 @@ fn main() {
                 .unwrap();
         }
         let elapsed = start.elapsed();
-        let ns_per_draw = elapsed.as_nanos() as f64 / tui_iters as f64;
-        let fps = tui_iters as f64 / elapsed.as_secs_f64();
+        let ns_per_draw = elapsed.as_nanos() as f64 / f64::from(tui_iters);
+        let fps = f64::from(tui_iters) / elapsed.as_secs_f64();
         println!(
             "\n3. Full TUI Draw ({num_panels} panels @ 160x50 resolution):\n   Latency:    {ns_per_draw:.2} ns / full draw ({:.3} ms)",
             ns_per_draw / 1_000_000.0

@@ -17,6 +17,7 @@ use crate::config::Server;
 pub use crate::ssh_opts::*;
 
 /// Remote cache path for a given build of the agent.
+#[must_use]
 pub fn agent_path(hash: &str) -> String {
     format!("$HOME/.cache/multitop/agent-{hash}")
 }
@@ -33,6 +34,7 @@ pub fn agent_path(hash: &str) -> String {
 /// paying an extra round trip whenever the guess is wrong.
 use multitop_agent::SortBy;
 
+#[must_use]
 pub fn bootstrap_script(mode: Mode, display_ip: &str, sort: SortBy) -> String {
     format!(
         "LC_ALL=C; LANG=C; export LC_ALL LANG\n\
@@ -58,6 +60,7 @@ pub fn bootstrap_script(mode: Mode, display_ip: &str, sort: SortBy) -> String {
 ///
 /// `token` makes the staging name unique so two panels bootstrapping the same
 /// host cannot have one `mv` the file another is still writing.
+#[must_use]
 pub fn upload_command(hash: &str, token: &str) -> String {
     let dir = "~/.cache/multitop";
     let final_path = format!("{dir}/agent-{hash}");
@@ -69,9 +72,10 @@ pub fn upload_command(hash: &str, token: &str) -> String {
 
 /// Shell command that removes stale agent binaries from the cache directory.
 ///
-/// Keeps only the current x86_64 and aarch64 agent hashes, removing everything
+/// Keeps only the current `x86_64` and aarch64 agent hashes, removing everything
 /// else that matches the `agent-*` pattern. Safe to run concurrently — each
 /// `rm` targets a specific file, not the directory.
+#[must_use]
 pub fn cleanup_old_agents_command() -> String {
     let keep = [HASH_X86_64, HASH_AARCH64];
     let keep_patterns: Vec<String> = keep
@@ -103,6 +107,7 @@ fn ssh_command(server: &Server) -> Command {
     cmd
 }
 
+#[must_use]
 pub fn ssh_command_tty(server: &Server) -> Command {
     let mut cmd = Command::new("ssh");
     cmd.env("LC_ALL", "C").env("LANG", "C");
@@ -117,6 +122,7 @@ pub fn ssh_command_tty(server: &Server) -> Command {
     cmd
 }
 
+#[must_use]
 pub fn is_local(server: &Server) -> bool {
     server.host == "localhost" || server.host == "127.0.0.1" || server.port == 0
 }
@@ -211,7 +217,7 @@ fn wrap_with_upgrade_lock(inner: &str) -> String {
     let lockdir = "~/.cache/multitop/upgrade.lock";
     format!(
         "mkdir -p ~/.cache/multitop 2>/dev/null; \
-         LOCK={ldir}; \
+         LOCK={lockdir}; \
          [ -e \"$LOCK\" ] && [ ! -d \"$LOCK\" ] && rm -f \"$LOCK\" 2>/dev/null; \
          if mkdir \"$LOCK\" 2>/dev/null; then \
            LOCK_OK=1; \
@@ -229,9 +235,7 @@ fn wrap_with_upgrade_lock(inner: &str) -> String {
          else \
            echo \"Upgrade already in progress on this server\" >&2; \
            exit 1; \
-         fi",
-        ldir = lockdir,
-        inner = inner
+         fi"
     )
 }
 
@@ -270,8 +274,7 @@ fn wrap_with_local_upgrade_lock(inner: &str) -> String {
          else \
            echo \"Upgrade already in progress on this machine\" >&2; \
            exit 1; \
-         fi",
-        inner = inner
+         fi"
     )
 }
 
@@ -388,6 +391,7 @@ pub async fn upload_agent(server: &Server, arch: Arch, token: &str) -> Result<()
 }
 
 /// True when at least one architecture was compiled in.
+#[must_use]
 pub fn any_agent_embedded() -> bool {
     AGENT_X86_64.is_some() || AGENT_AARCH64.is_some()
 }

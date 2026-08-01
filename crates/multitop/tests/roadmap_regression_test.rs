@@ -7,6 +7,7 @@
 //! 4. Sparkline history updates for Memory (`M:`) and CPU (`C:`) in panel header.
 //! 5. Consistent `user@host` display across panel titles.
 
+#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 use multitop::app::{App, Msg};
 use multitop::config::Server;
 use multitop::password_store::{self, clear_mock_store, enable_mock_store};
@@ -161,7 +162,7 @@ fn test_username_consistency_across_panes() {
     let server_no_user = Server {
         host: "bare-host".to_string(),
         port: 22,
-        user: "".to_string(),
+        user: String::new(),
         upgrade_cmd: None,
     };
 

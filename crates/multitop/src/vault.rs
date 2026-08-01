@@ -12,6 +12,7 @@ pub enum VaultState {
     Unlocked,
 }
 
+#[must_use]
 pub fn create_vault(config_path: &std::path::Path) -> Option<Vault> {
     let vault_dir = config_path.parent()?;
     let vault_path = vault_dir.join("vault.bin");
@@ -34,6 +35,7 @@ pub fn try_load_vault_password(panel: &mut Panel, unlocked: &UnlockedVault) {
     }
 }
 
+#[must_use]
 pub fn host_key(panel: &Panel) -> String {
     password_store::account(&panel.server)
 }

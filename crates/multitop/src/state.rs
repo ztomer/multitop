@@ -8,6 +8,7 @@ pub struct AppState {
     pub upgrade_started_at: Option<u64>,
 }
 
+#[must_use]
 pub fn state_file_path(config_path: &Path) -> PathBuf {
     config_path.with_file_name("state.toml")
 }
@@ -15,10 +16,11 @@ pub fn state_file_path(config_path: &Path) -> PathBuf {
 fn get_opt_u64(val: &toml::Value, key: &str) -> Option<u64> {
     val.as_table()
         .and_then(|t| t.get(key))
-        .and_then(|v| v.as_integer())
+        .and_then(toml::Value::as_integer)
         .map(|n| n as u64)
 }
 
+#[must_use]
 pub fn load_state(config_path: &Path) -> AppState {
     let path = state_file_path(config_path);
     let Ok(text) = std::fs::read_to_string(&path) else {
@@ -52,6 +54,8 @@ pub fn save_state(config_path: &Path, state: &AppState) -> Result<(), String> {
 
 #[cfg(test)]
 mod tests {
+#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+
     use super::*;
 
     #[test]

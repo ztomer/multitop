@@ -21,6 +21,7 @@ pub const MIN_AGENT_COLS: u16 = 40;
 pub const MIN_AGENT_ROWS: u16 = 4;
 
 /// Split the screen into one region per panel plus the key bar.
+#[must_use]
 pub fn regions(area: Rect, panels: usize) -> (Vec<Rect>, Rect) {
     let [body, keybar] =
         Layout::vertical([Constraint::Min(0), Constraint::Length(KEYBAR_H)]).areas(area);
@@ -57,6 +58,7 @@ pub fn regions(area: Rect, panels: usize) -> (Vec<Rect>, Rect) {
 }
 
 /// The panel size to tell the agent about, so its frames arrive pre-fitted.
+#[must_use]
 pub fn agent_dims(size: Size, panels: usize) -> (u16, u16) {
     if panels == 0 {
         return (MIN_AGENT_COLS, MIN_AGENT_ROWS);
@@ -78,6 +80,7 @@ pub use crate::refit::{refit_header, refit_line};
 
 /// Show the tail when there is more content than room, optionally pinning
 /// the header (line 0) so the server name stays visible. Supports scrolling via `scroll_offset`.
+#[must_use]
 pub fn visible(
     lines: &[String],
     height: usize,
@@ -91,7 +94,7 @@ pub fn visible(
     if lines.len() <= height {
         let mut out = lines.to_vec();
         if !out.is_empty() && target_cols > 0 {
-            for line in out.iter_mut() {
+            for line in &mut out {
                 *line = refit_line(line, target_cols);
             }
         }
@@ -137,6 +140,7 @@ pub fn visible(
     out
 }
 
+#[must_use]
 pub fn keybar_line(
     sort: multitop_agent::SortBy,
     theme: &multitop_agent::color::Palette,
@@ -331,23 +335,19 @@ pub fn draw(f: &mut Frame, app: &App) {
                 let mem_bar = app
                     .sparklines_mem
                     .get(idx)
-                    .map(|s| s.render_bar())
+                    .map(|s| s.render_bar_limited(left_rule_len.saturating_sub(2)))
                     .unwrap_or_default();
                 let cpu_bar = app
                     .sparklines_cpu
                     .get(idx)
-                    .map(|s| s.render_bar())
+                    .map(|s| s.render_bar_limited(right_rule_len.saturating_sub(2)))
                     .unwrap_or_default();
 
                 let (left_str, mem_used_len) =
                     if app.show_sparklines && !mem_bar.is_empty() && left_rule_len >= 3 {
                         let text = format!("M:{mem_bar}");
                         let len = text.chars().count();
-                        if len <= left_rule_len {
-                            (format!("\x1b[36;1m{text}\x1b[0m"), len)
-                        } else {
-                            (String::new(), 0)
-                        }
+                        (format!("\x1b[36;1m{text}\x1b[0m"), len)
                     } else {
                         (String::new(), 0)
                     };
@@ -356,11 +356,7 @@ pub fn draw(f: &mut Frame, app: &App) {
                     if app.show_sparklines && !cpu_bar.is_empty() && right_rule_len >= 3 {
                         let text = format!("C:{cpu_bar}");
                         let len = text.chars().count();
-                        if len <= right_rule_len {
-                            (format!("\x1b[33;1m{text}\x1b[0m"), len)
-                        } else {
-                            (String::new(), 0)
-                        }
+                        (format!("\x1b[33;1m{text}\x1b[0m"), len)
                     } else {
                         (String::new(), 0)
                     };
@@ -392,8 +388,7 @@ pub fn draw(f: &mut Frame, app: &App) {
         .panels
         .get(app.selected_panel)
         .or_else(|| app.panels.first())
-        .map(|p| p.mode)
-        .unwrap_or(crate::app::Mode::Monitor);
+        .map_or(crate::app::Mode::Monitor, |p| p.mode);
 
     f.render_widget(
         Paragraph::new(keybar_line(app.sort, theme, keybar.width, active_mode))
@@ -401,7 +396,9 @@ pub fn draw(f: &mut Frame, app: &App) {
         keybar,
     );
 
-    if app.show_vault_password_prompt {
+    if app.vault_awaiting_biometric {
+        crate::modals::draw_vault_awaiting_biometric(f);
+    } else if app.show_vault_password_prompt {
         crate::modals::draw_vault_password_prompt(f, app);
     } else if app.show_upgrade_modal {
         crate::modals::draw_upgrade_modal(f, app);

@@ -39,13 +39,13 @@ pub enum FingerprintResult {
 impl std::fmt::Display for FingerprintResult {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            FingerprintResult::Verified => write!(f, "verified"),
-            FingerprintResult::Failed => write!(f, "failed"),
-            FingerprintResult::Timeout => write!(f, "timeout"),
-            FingerprintResult::NotEnrolled => write!(f, "not enrolled"),
-            FingerprintResult::Busy => write!(f, "busy"),
-            FingerprintResult::Cancelled => write!(f, "cancelled"),
-            FingerprintResult::Error => write!(f, "error"),
+            Self::Verified => write!(f, "verified"),
+            Self::Failed => write!(f, "failed"),
+            Self::Timeout => write!(f, "timeout"),
+            Self::NotEnrolled => write!(f, "not enrolled"),
+            Self::Busy => write!(f, "busy"),
+            Self::Cancelled => write!(f, "cancelled"),
+            Self::Error => write!(f, "error"),
         }
     }
 }
@@ -267,7 +267,8 @@ impl FingerprintVerifier {
             "fprintd only on Linux".into(),
         ))
     }
-    pub fn with_timeout(self, _timeout: Duration) -> Self {
+    #[must_use]
+    pub const fn with_timeout(self, _timeout: Duration) -> Self {
         self
     }
     pub async fn is_available() -> bool {
@@ -289,6 +290,8 @@ pub async fn check_fprintd() -> Result<Vec<String>, VaultError> {
 
 #[cfg(test)]
 mod tests {
+#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+
     use super::*;
 
     #[test]

@@ -5,6 +5,8 @@
 //! corresponding slot is `None` and the binary still builds — you just cannot
 //! monitor a host of that architecture, and the panel says so.
 
+#![allow(clippy::expect_used)]
+
 use std::path::Path;
 
 /// FNV-1a. The hash keys the remote cache filename; it needs to change when
@@ -12,7 +14,7 @@ use std::path::Path;
 fn fnv1a(bytes: &[u8]) -> u64 {
     let mut h: u64 = 0xcbf2_9ce4_8422_2325;
     for b in bytes {
-        h ^= *b as u64;
+        h ^= u64::from(*b);
         h = h.wrapping_mul(0x0000_0100_0000_01b3);
     }
     h

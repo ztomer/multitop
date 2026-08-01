@@ -1,5 +1,6 @@
 //! Regression tests for the full-screen configuration and password workflow.
 
+#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 use crossterm::event::KeyCode;
 use multitop::app::App;
 use multitop::config::Server;
@@ -67,12 +68,12 @@ fn server_editor_creates_a_configured_server() {
 
 #[test]
 fn test_parse_ssh_config_multi_alias() {
-    let ssh_config = r#"
+    let ssh_config = r"
 Host web db app
     HostName 192.168.1.100
     User admin
     Port 2222
-"#;
+";
     let servers = multitop::config::parse_ssh_config(ssh_config);
     assert_eq!(servers.len(), 1);
     assert_eq!(servers[0].host, "192.168.1.100");

@@ -1,6 +1,7 @@
 //! Config & SSH config parsing integration tests.
 
-use multitop::config::{Config, load, parse, parse_ssh_config, save_servers, Server, validate_host, validate_user};
+#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+use multitop::config::{load, parse, parse_ssh_config, save_servers, Server};
 use multitop::ssh::is_local;
 use std::fs;
 use tempfile::TempDir;
@@ -118,7 +119,7 @@ fn test_config_save_theme_show_sparklines() {
         config.servers.iter().map(|s| format!(
             "[[servers]]\nhost = \"{}\"\nport = {}\nuser = \"{}\"{}",
             s.host, s.port, s.user,
-            s.upgrade_cmd.as_ref().map_or(String::new(), |c| format!("\nupgrade_cmd = \"{}\"", c))
+            s.upgrade_cmd.as_ref().map_or(String::new(), |c| format!("\nupgrade_cmd = \"{c}\""))
         )).collect::<Vec<_>>().join("\n\n")
     );
     fs::write(&config_path, toml).unwrap();
@@ -130,7 +131,7 @@ fn test_config_save_theme_show_sparklines() {
 
 #[test]
 fn test_ssh_config_parse_multiple_hosts() {
-    let ssh_config = r#"
+    let ssh_config = r"
 Host server1
     HostName 192.168.1.10
     User admin
@@ -143,9 +144,9 @@ Host server2
 
 Host *
     User default
-"#;
+";
     let servers = parse_ssh_config(ssh_config);
-    eprintln!("Parsed servers: {:?}", servers);
+    eprintln!("Parsed servers: {servers:?}");
     // Wildcard hosts are skipped, so only 2 concrete hosts
     assert_eq!(servers.len(), 2);
     assert_eq!(servers[0].host, "192.168.1.10");
@@ -158,14 +159,14 @@ Host *
 
 #[test]
 fn test_ssh_config_parse_wildcards() {
-    let ssh_config = r#"
+    let ssh_config = r"
 Host *.example.com
     User wildcard_user
     Port 22
 
 Host *
     User default_user
-"#;
+";
     let servers = parse_ssh_config(ssh_config);
     // Wildcard hosts without HostName are skipped
     assert_eq!(servers.len(), 0);
@@ -173,7 +174,7 @@ Host *
 
 #[test]
 fn test_ssh_config_parse_real_file() {
-    let ssh_config = r#"
+    let ssh_config = r"
 # Comment
 Host github.com
     HostName github.com
@@ -185,7 +186,7 @@ Host myserver
     HostName 10.0.0.5
     User deploy
     Port 22
-"#;
+";
     let servers = parse_ssh_config(ssh_config);
     assert_eq!(servers.len(), 2);
     assert_eq!(servers[0].host, "github.com");
@@ -203,8 +204,8 @@ fn test_config_path_precedence() {
     let default = default_config_path();
     let legacy = legacy_config_path();
 
-    eprintln!("default: {:?}", default);
-    eprintln!("legacy: {:?}", legacy);
+    eprintln!("default: {default:?}");
+    eprintln!("legacy: {legacy:?}");
 
     assert!(default.to_string_lossy().contains("multitop"));
     assert!(legacy.to_string_lossy().contains("monitor")); // old name

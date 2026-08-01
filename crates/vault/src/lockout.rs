@@ -21,6 +21,7 @@ impl LockoutState {
         format!("lockout-{}", hex::encode(hash))
     }
 
+    #[must_use]
     pub fn load(vault_path: &Path) -> Self {
         // Try keychain first (preferred - can't be trivially deleted)
         let account = Self::account_name(vault_path);
@@ -48,8 +49,7 @@ impl LockoutState {
         let ext = format!(
             "{}.lockout",
             p.extension()
-                .map(|e| e.to_str().unwrap_or("bin"))
-                .unwrap_or("bin")
+                .map_or("bin", |e| e.to_str().unwrap_or("bin"))
         );
         p.set_extension(&ext);
         p
@@ -91,7 +91,7 @@ impl LockoutState {
         self.save(vault_path);
     }
 
-    pub fn check_lockout(&self, now_ms: u64) -> Result<(), crate::VaultError> {
+    pub const fn check_lockout(&self, now_ms: u64) -> Result<(), crate::VaultError> {
         if now_ms < self.lockout_until_epoch_ms {
             let remaining = (self.lockout_until_epoch_ms - now_ms).div_ceil(1000);
             return Err(crate::VaultError::RateLimited(remaining));
@@ -109,7 +109,7 @@ pub struct LockoutGuard<'a> {
 }
 
 impl<'a> LockoutGuard<'a> {
-    pub fn new(state: &'a Mutex<LockoutState>, vault_path: &'a Path, now_ms: u64) -> Self {
+    pub const fn new(state: &'a Mutex<LockoutState>, vault_path: &'a Path, now_ms: u64) -> Self {
         Self {
             state,
             vault_path,
@@ -118,7 +118,7 @@ impl<'a> LockoutGuard<'a> {
         }
     }
 
-    pub fn mark_success(&mut self) {
+    pub const fn mark_success(&mut self) {
         self.succeeded = true;
     }
 }
@@ -138,6 +138,8 @@ impl Drop for LockoutGuard<'_> {
 
 #[cfg(test)]
 mod tests {
+#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+
     use super::*;
     use crate::VaultError;
     use tempfile::TempDir;

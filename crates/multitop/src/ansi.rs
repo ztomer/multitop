@@ -84,6 +84,7 @@ fn apply_sgr_params(mut style: Style, params: &[u16]) -> Style {
 }
 
 /// Parse one line of ANSI-coloured text into styled spans.
+#[must_use]
 pub fn line_to_spans(input: &str) -> Line<'static> {
     let mut spans: Vec<Span<'static>> = Vec::new();
     let mut style = Style::default();
@@ -138,7 +139,7 @@ pub fn line_to_spans(input: &str) -> Line<'static> {
             if c.is_ascii_digit() {
                 sgr_code = sgr_code
                     .saturating_mul(10)
-                    .saturating_add((c as u8 - b'0') as u16);
+                    .saturating_add(u16::from(c as u8 - b'0'));
                 has_digits = true;
                 reset_bare = false;
             } else if c == ';' {

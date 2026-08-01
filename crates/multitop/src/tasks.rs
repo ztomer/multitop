@@ -11,6 +11,7 @@ use crate::stream::{connect, next_packet};
 
 use multitop_agent::SortBy;
 
+#[must_use]
 pub fn spawn_fetch(
     idx: usize,
     gen: u64,
@@ -72,6 +73,7 @@ pub fn spawn_fetch(
 }
 
 /// One-shot: renders the Docker view for a panel.
+#[must_use]
 pub fn spawn_docker(
     idx: usize,
     gen: u64,
@@ -140,6 +142,7 @@ pub fn spawn_docker(
 }
 
 /// One-shot: runs the server's `upgrade_cmd`, streaming its output.
+#[must_use]
 pub fn spawn_upgrade(
     idx: usize,
     gen: u64,
@@ -186,9 +189,10 @@ pub fn spawn_upgrade(
                 line = stdout_lines.next_line() => {
                     match line {
                         Ok(Some(line)) => {
+                            let line = line.trim_end_matches('\n').trim_end_matches('\r');
                             for part in line.split('\r') {
                                 let clean = part.trim_end_matches('\r');
-                                if !clean.is_empty() {
+                                if !clean.trim().is_empty() {
                                     let lower = clean.to_lowercase();
                                     if lower.contains("sudo") && (lower.contains("terminal") || lower.contains("password") || lower.contains("pre-authorized") || lower.contains("tty") || lower.contains("prompt on")) {
                                         sudo_help = true;
@@ -203,6 +207,7 @@ pub fn spawn_upgrade(
                     }
                 }
                 Ok(Some(line)) = stderr_lines.next_line() => {
+                    let line = line.trim_end_matches('\n').trim_end_matches('\r');
                     for part in line.split('\r') {
                         let clean = part.trim_end_matches('\r');
                         let trimmed = clean.trim();

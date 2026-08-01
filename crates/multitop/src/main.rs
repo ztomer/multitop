@@ -220,7 +220,7 @@ mod tests {
     use super::*;
 
     fn cli(args: &[&str]) -> Startup {
-        parse_cli(args.iter().map(|s| s.to_string()))
+        parse_cli(args.iter().map(std::string::ToString::to_string))
     }
 
     #[test]
@@ -241,7 +241,7 @@ mod tests {
         for flag in ["-c", "--config"] {
             match cli(&[flag, "/tmp/x.toml"]) {
                 Startup::Run(opts) => {
-                    assert_eq!(opts.config_path, Some(PathBuf::from("/tmp/x.toml")))
+                    assert_eq!(opts.config_path, Some(PathBuf::from("/tmp/x.toml")));
                 }
                 _ => panic!("expected Run for {flag}"),
             }

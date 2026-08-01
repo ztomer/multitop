@@ -1,6 +1,7 @@
 //! Comprehensive integration tests for Server Settings Manager,
 //! keybar visual flare, hotkeys ('e'), and upgrade flow.
 
+#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 use crossterm::event::KeyCode;
 use multitop::app::{App, Mode, Msg};
 use multitop::config::Server;
@@ -170,7 +171,6 @@ fn test_save_server_with_password() {
 
     let (tx, _rx) = tokio::sync::mpsc::channel::<Msg>(10);
     let mut tasks = multitop::run::Tasks::new(1);
-    let servers = vec![test_server("host1")];
 
     password_store::enable_mock_store();
     password_store::clear_mock_store();
@@ -211,7 +211,7 @@ fn test_delete_password_removes_from_keychain() {
     multitop::password_actions::apply(
         PasswordAction::Delete { panel: 0 },
         &mut app,
-        &[server.clone()],
+        std::slice::from_ref(&server),
         &tx,
         &mut tasks,
     );

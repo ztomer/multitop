@@ -3,7 +3,7 @@ use multitop::ui::{
 };
 use ratatui::layout::{Rect, Size};
 
-fn size(w: u16, h: u16) -> Size {
+const fn size(w: u16, h: u16) -> Size {
     Size {
         width: w,
         height: h,

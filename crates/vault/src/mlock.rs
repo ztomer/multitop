@@ -14,18 +14,20 @@ use zeroize::Zeroize;
 /// Lock the given memory range to prevent swapping.
 /// Returns Ok(()) on success, or logs a warning and returns Ok(()) on failure
 /// (best-effort: we don't want to crash if mlock is unavailable).
+///
+/// # Errors
+///
+/// Returns an error only if the `mlock` system call fails with an error other
+/// than `ENOMEM` or `EPERM` (which are treated as best-effort failures).
 pub fn mlock_memory(ptr: *const u8, len: usize) -> Result<(), std::io::Error> {
-    let ret = unsafe { mlock(ptr as *const libc::c_void, len) };
+    let ret = unsafe { mlock(ptr.cast::<libc::c_void>(), len) };
     if ret == 0 {
         Ok(())
     } else {
         let err = std::io::Error::last_os_error();
         match err.raw_os_error() {
-            Some(libc::ENOMEM) | Some(libc::EPERM) => {
-                eprintln!(
-                    "vault: mlock failed ({}), continuing without memory lock",
-                    err
-                );
+            Some(libc::ENOMEM | libc::EPERM) => {
+                eprintln!("vault: mlock failed ({err}), continuing without memory lock");
                 Ok(())
             }
             _ => Err(err),
@@ -34,8 +36,12 @@ pub fn mlock_memory(ptr: *const u8, len: usize) -> Result<(), std::io::Error> {
 }
 
 /// Unlock the given memory range.
+///
+/// # Errors
+///
+/// Returns an error if the `munlock` system call fails.
 pub fn munlock_memory(ptr: *const u8, len: usize) -> Result<(), std::io::Error> {
-    let ret = unsafe { munlock(ptr as *const libc::c_void, len) };
+    let ret = unsafe { munlock(ptr.cast::<libc::c_void>(), len) };
     if ret == 0 {
         Ok(())
     } else {
@@ -51,30 +57,34 @@ pub struct LockedMemory {
 impl LockedMemory {
     /// Lock the memory for the given slice. Copies data into owned Vec.
     pub fn new(slice: &[u8]) -> Result<Self, std::io::Error> {
-        let mut data = slice.to_vec();
+        let data = slice.to_vec();
         let ptr = data.as_ptr();
         let len = data.len();
         mlock_memory(ptr, len)?;
         Ok(Self { data })
     }
 
-    /// Create a no-op LockedMemory for when mlock fails
-    pub fn noop() -> Self {
+    /// Create a no-op `LockedMemory` for when mlock fails
+    #[must_use]
+    pub const fn noop() -> Self {
         Self { data: Vec::new() }
     }
 
     /// Get a pointer to the locked memory
-    pub fn as_ptr(&self) -> *const u8 {
+    #[must_use]
+    pub const fn as_ptr(&self) -> *const u8 {
         self.data.as_ptr()
     }
 
     /// Get the length of the locked memory
-    pub fn len(&self) -> usize {
+    #[must_use]
+    pub const fn len(&self) -> usize {
         self.data.len()
     }
 
     /// Check if this is a no-op (empty) instance
-    pub fn is_empty(&self) -> bool {
+    #[must_use]
+    pub const fn is_empty(&self) -> bool {
         self.data.is_empty()
     }
 }
@@ -98,6 +108,8 @@ unsafe impl Sync for LockedMemory {}
 
 #[cfg(test)]
 mod tests {
+#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+
     use super::*;
 
     #[test]
@@ -170,9 +182,7 @@ mod tests {
     #[test]
     fn test_locked_memory_drop_zeroizes() {
         let data = [3u8; 1024];
-        let mut locked = LockedMemory::new(&data).unwrap_or_else(|_| LockedMemory::noop());
-        let ptr = locked.as_ptr();
-        let len = locked.len();
+        let locked = LockedMemory::new(&data).unwrap_or_else(|_| LockedMemory::noop());
         drop(locked);
         // After drop, the memory should have been zeroized
         // We can't safely read freed memory, but we verify the drop didn't panic

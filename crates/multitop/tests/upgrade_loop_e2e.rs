@@ -1,7 +1,7 @@
 //! Automated E2E Integration Tests for the Full Upgrade Execution Loop
 //!
 //! Validates the complete upgrade flow:
-//! 1. spawn_upgrade spawns local processes, streams output via Msg channel
+//! 1. `spawn_upgrade` spawns local processes, streams output via Msg channel
 //! 2. App state machine correctly processes AuxBegin/AuxLine/AuxDone messages
 //! 3. Output collection, carriage return cleaning, exit status reporting
 //!
@@ -10,6 +10,7 @@
 //! Run local tests: `cargo test --test upgrade_loop_e2e`
 //! Run remote tests: `cargo test --test upgrade_loop_remote_e2e -- --ignored`
 
+#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 use std::time::Duration;
 
 use multitop::app::{App, Msg};
@@ -43,7 +44,7 @@ struct MsgCollector {
 }
 
 impl MsgCollector {
-    fn new(rx: mpsc::Receiver<Msg>) -> Self {
+    const fn new(rx: mpsc::Receiver<Msg>) -> Self {
         Self { rx }
     }
 
@@ -324,7 +325,7 @@ async fn test_upgrade_vault_password_preloaded() {
 
     let server = local_server("echo test");
     let mut app = App::new(vec![server]);
-    app.vault = Some(vault);
+    app.vault = Some(std::sync::Arc::new(vault));
     app.config_path = Some(config_path);
     app.vault_unlocked = Some(
         app.vault
@@ -576,7 +577,7 @@ fn test_ui_second_u_while_in_flight_is_noop() {
     // The key handler would NOT call run_upgrade() again
     if app.upgrades_in_flight() {
         // no-op path
-        assert!(app.panels[0].upgrade_state == UpgradeState::STARTED);
+        assert_eq!(app.panels[0].upgrade_state, UpgradeState::STARTED);
         assert_eq!(app.panels[0].upgrade_gen, gen);
     } else {
         panic!("Should be in flight");
@@ -604,7 +605,7 @@ async fn test_ui_vault_locked_shows_prompt_not_modal() {
     let _ = vault.initialize("master-pass").await;
 
     let mut app = App::new(vec![local_server("ls -l")]);
-    app.vault = Some(vault);
+    app.vault = Some(std::sync::Arc::new(vault));
     app.vault_unlocked = None;
 
     // Simulate pressing 'u' key
@@ -645,7 +646,7 @@ async fn test_ui_vault_unlocked_after_password_runs_upgrade() {
     let _ = vault.initialize("master-pass").await;
 
     let mut app = App::new(vec![local_server("ls -l")]);
-    app.vault = Some(vault);
+    app.vault = Some(std::sync::Arc::new(vault));
 
     // Simulate vault unlock
     let unlocked = app
@@ -743,7 +744,7 @@ fn test_ui_switching_panes_during_upgrade_preserves_task() {
     assert!(app.upgrades_in_flight(), "Both panels still in-flight");
 }
 
-/// Test 18: No upgrade_cmd → message shown without command
+/// Test 18: No `upgrade_cmd` → message shown without command
 #[test]
 fn test_ui_no_upgrade_cmd_shows_message_without_command() {
     let mut app = App::new(vec![Server {
@@ -913,4 +914,133 @@ fn test_ui_u_during_flight_after_switching_away_is_noop() {
     );
     assert_eq!(app.panels[0].upgrade_state, UpgradeState::STARTED);
     assert_eq!(app.panels[0].upgrade_gen, gen);
+}
+
+// ============================================================================
+// Bug a regressions: "No output on <host> on updater"
+// A server without `upgrade_cmd` was silently skipped: the panel got a single
+// dim line, `upgrade_state` stayed NIL, `last_upgrade` stayed empty, and the
+// confirm modal never disclosed the skip. Now the skip is an explicit
+// terminal state that persists and is surfaced before running.
+// ============================================================================
+
+/// A server with `upgrade_cmd: None` (as created by `-r <host>` or a config
+/// with `upgrade_cmd` commented out).
+fn no_upgrade_server(host: &str) -> Server {
+    Server {
+        host: host.to_string(),
+        port: 22,
+        user: String::new(),
+        upgrade_cmd: None,
+    }
+}
+
+/// Bug a: skipped server must reach a terminal DONE state with a visible,
+/// host-specific message — not a dead NIL state that reads as "no output".
+#[test]
+fn test_upgrade_skip_server_reaches_terminal_state() {
+    let mut app = App::new(vec![no_upgrade_server("192.168.0.90")]);
+
+    let cmds = app.run_upgrade();
+
+    assert!(cmds.is_empty(), "no RunUpgrade command for a skipped server");
+    let p = &app.panels[0];
+    assert_eq!(p.upgrade_state, UpgradeState::DONE, "skip must be terminal");
+    assert!(
+        p.upgrade_gen > 0,
+        "skip must record the generation it was decided at"
+    );
+    assert!(!p.last_upgrade.is_empty(), "skip message must be persisted");
+    let view = p.view.join("\n");
+    assert!(view.contains("192.168.0.90"), "message must name the host");
+    assert!(view.contains("skipped"), "message must say it was skipped");
+    assert!(
+        view.contains("upgrade_cmd"),
+        "message must point at the missing upgrade_cmd"
+    );
+}
+
+/// Bug a: with a mix of configured and skipped servers, only the configured
+/// one gets a `RunUpgrade` command and the skipped one reaches DONE.
+#[test]
+fn test_upgrade_mixed_servers_only_configured_run() {
+    let mut app = App::new(vec![
+        local_server("apt update && apt upgrade -y"),
+        no_upgrade_server("192.168.0.90"),
+    ]);
+
+    let cmds = app.run_upgrade();
+    assert_eq!(cmds.len(), 1, "only the configured server runs");
+    let Command::RunUpgrade { panel, .. } = cmds[0] else {
+        panic!("Expected RunUpgrade for configured server");
+    };
+    assert_eq!(panel, 0);
+    assert_eq!(app.panels[0].upgrade_state, UpgradeState::STARTED);
+    assert_eq!(app.panels[1].upgrade_state, UpgradeState::DONE);
+    assert!(
+        app.panels[1].view.join("\n").contains("192.168.0.90"),
+        "skipped panel must still show why it was skipped"
+    );
+}
+
+/// Bug a: the skip message must survive a switch to monitor and back — the
+/// user must never land on a blank panel after the updater.
+#[test]
+fn test_upgrade_skip_message_persists_across_views() {
+    let mut app = App::new(vec![no_upgrade_server("192.168.0.90")]);
+    app.run_upgrade();
+    let msg = app.panels[0].last_upgrade.clone();
+
+    app.switch_stats();
+    assert_eq!(app.panels[0].mode, Mode::Monitor);
+
+    app.show_upgrade_output();
+    assert_eq!(app.panels[0].mode, Mode::Upgrade);
+    assert_eq!(
+        app.panels[0].view, msg,
+        "skip message must persist across view switches"
+    );
+}
+
+/// Bug a: the confirm modal data helper must list exactly the hosts that will
+/// be skipped, so the user learns about them before running.
+#[test]
+fn test_upgrade_skip_hosts_helper_lists_unconfigured() {
+    let app = App::new(vec![
+        local_server("apt update"),
+        no_upgrade_server("192.168.0.90"),
+        no_upgrade_server("192.168.0.158"),
+    ]);
+
+    assert_eq!(
+        app.upgrade_skip_hosts(),
+        vec!["192.168.0.90".to_string(), "192.168.0.158".to_string()]
+    );
+}
+
+/// Bug a: skip + completed upgrade round-trip. After a run where a server was
+/// skipped, pressing `u` again (after switching to stats) shows the persisted
+/// skip message instead of re-showing the confirm modal or a blank panel.
+#[test]
+fn test_upgrade_skip_then_u_shows_message_not_modal() {
+    let mut app = App::new(vec![no_upgrade_server("192.168.0.90")]);
+    app.run_upgrade();
+    app.switch_stats();
+    assert!(!app.in_upgrade());
+
+    // Replicate the key handler decision for 'u'.
+    if app.upgrades_in_flight() {
+        panic!("no upgrade in flight for a skipped server");
+    } else if app.had_upgrade() {
+        assert!(!app.in_upgrade(), "not in upgrade view after switch_stats");
+        app.show_upgrade_output();
+    } else {
+        panic!("had_upgrade must be true: the skip is the recorded outcome");
+    }
+
+    assert!(
+        app.panels[0].view.join("\n").contains("skipped"),
+        "must show the skip message, not the modal"
+    );
+    assert!(!app.show_upgrade_modal);
 }

@@ -37,9 +37,10 @@ pub struct Panel {
 }
 
 impl Panel {
+    #[must_use]
     pub fn new(server: Server) -> Self {
         let pal = &multitop_agent::color::ANSI;
-        Panel {
+        Self {
             server,
             mode: Mode::Monitor,
             gen: 0,

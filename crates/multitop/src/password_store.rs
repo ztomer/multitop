@@ -14,7 +14,7 @@ static MOCK_STORE: RwLock<Option<HashMap<String, String>>> = RwLock::new(None);
 
 /// Enable in-memory mock store explicitly.
 pub fn enable_mock_store() {
-    let mut store = MOCK_STORE.write().unwrap_or_else(|e| e.into_inner());
+    let mut store = MOCK_STORE.write().unwrap_or_else(std::sync::PoisonError::into_inner);
     if store.is_none() {
         *store = Some(HashMap::new());
     }
@@ -22,13 +22,13 @@ pub fn enable_mock_store() {
 
 /// Disable in-memory mock store explicitly.
 pub fn disable_mock_store() {
-    let mut store = MOCK_STORE.write().unwrap_or_else(|e| e.into_inner());
+    let mut store = MOCK_STORE.write().unwrap_or_else(std::sync::PoisonError::into_inner);
     *store = None;
 }
 
 /// Clear in-memory mock store contents.
 pub fn clear_mock_store() {
-    let mut store = MOCK_STORE.write().unwrap_or_else(|e| e.into_inner());
+    let mut store = MOCK_STORE.write().unwrap_or_else(std::sync::PoisonError::into_inner);
     if let Some(map) = store.as_mut() {
         map.clear();
     }
@@ -44,10 +44,11 @@ pub fn is_mock_enabled() -> bool {
     }
     MOCK_STORE
         .read()
-        .unwrap_or_else(|e| e.into_inner())
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
         .is_some()
 }
 
+#[must_use]
 pub fn account(server: &Server) -> String {
     let user = if server.user.is_empty() {
         "default"
@@ -66,13 +67,13 @@ pub const SSO_ACCOUNT: &str = "__sso_master__";
 static SSO_CACHE: RwLock<Option<Option<String>>> = RwLock::new(None);
 
 pub fn clear_sso_cache() {
-    let mut cache = SSO_CACHE.write().unwrap_or_else(|e| e.into_inner());
+    let mut cache = SSO_CACHE.write().unwrap_or_else(std::sync::PoisonError::into_inner);
     *cache = None;
 }
 
 pub fn load_sso() -> Result<Option<String>, String> {
     {
-        let cache = SSO_CACHE.read().unwrap_or_else(|e| e.into_inner());
+        let cache = SSO_CACHE.read().unwrap_or_else(std::sync::PoisonError::into_inner);
         if let Some(ref cached) = *cache {
             return Ok(cached.clone());
         }
@@ -80,7 +81,7 @@ pub fn load_sso() -> Result<Option<String>, String> {
 
     let pass = if is_mock_enabled() {
         enable_mock_store();
-        let store = MOCK_STORE.read().unwrap_or_else(|e| e.into_inner());
+        let store = MOCK_STORE.read().unwrap_or_else(std::sync::PoisonError::into_inner);
         store.as_ref().and_then(|map| map.get(SSO_ACCOUNT).cloned())
     } else {
         let entry = match Entry::new(SERVICE, SSO_ACCOUNT) {
@@ -90,19 +91,19 @@ pub fn load_sso() -> Result<Option<String>, String> {
         entry.get_password().ok()
     };
 
-    let mut cache = SSO_CACHE.write().unwrap_or_else(|e| e.into_inner());
+    let mut cache = SSO_CACHE.write().unwrap_or_else(std::sync::PoisonError::into_inner);
     *cache = Some(pass.clone());
     Ok(pass)
 }
 
 pub fn save_sso(password: &str) -> Result<(), String> {
     {
-        let mut cache = SSO_CACHE.write().unwrap_or_else(|e| e.into_inner());
+        let mut cache = SSO_CACHE.write().unwrap_or_else(std::sync::PoisonError::into_inner);
         *cache = Some(Some(password.to_string()));
     }
     if is_mock_enabled() {
         enable_mock_store();
-        let mut store = MOCK_STORE.write().unwrap_or_else(|e| e.into_inner());
+        let mut store = MOCK_STORE.write().unwrap_or_else(std::sync::PoisonError::into_inner);
         if let Some(map) = store.as_mut() {
             map.insert(SSO_ACCOUNT.to_string(), password.to_string());
         }
@@ -116,12 +117,12 @@ pub fn save_sso(password: &str) -> Result<(), String> {
 
 pub fn delete_sso() -> Result<(), String> {
     {
-        let mut cache = SSO_CACHE.write().unwrap_or_else(|e| e.into_inner());
+        let mut cache = SSO_CACHE.write().unwrap_or_else(std::sync::PoisonError::into_inner);
         *cache = Some(None);
     }
     if is_mock_enabled() {
         enable_mock_store();
-        let mut store = MOCK_STORE.write().unwrap_or_else(|e| e.into_inner());
+        let mut store = MOCK_STORE.write().unwrap_or_else(std::sync::PoisonError::into_inner);
         if let Some(map) = store.as_mut() {
             map.remove(SSO_ACCOUNT);
         }
@@ -140,7 +141,7 @@ pub fn delete_sso() -> Result<(), String> {
 pub fn load(server: &Server) -> Result<Option<String>, String> {
     let server_pass = if is_mock_enabled() {
         enable_mock_store();
-        let store = MOCK_STORE.read().unwrap_or_else(|e| e.into_inner());
+        let store = MOCK_STORE.read().unwrap_or_else(std::sync::PoisonError::into_inner);
         let key = account(server);
         store.as_ref().and_then(|map| map.get(&key).cloned())
     } else {
@@ -161,7 +162,7 @@ pub fn load(server: &Server) -> Result<Option<String>, String> {
 pub fn save(server: &Server, password: &str) -> Result<(), String> {
     if is_mock_enabled() {
         enable_mock_store();
-        let mut store = MOCK_STORE.write().unwrap_or_else(|e| e.into_inner());
+        let mut store = MOCK_STORE.write().unwrap_or_else(std::sync::PoisonError::into_inner);
         if let Some(map) = store.as_mut() {
             map.insert(account(server), password.to_string());
         }
@@ -176,7 +177,7 @@ pub fn save(server: &Server, password: &str) -> Result<(), String> {
 pub fn delete(server: &Server) -> Result<(), String> {
     if is_mock_enabled() {
         enable_mock_store();
-        let mut store = MOCK_STORE.write().unwrap_or_else(|e| e.into_inner());
+        let mut store = MOCK_STORE.write().unwrap_or_else(std::sync::PoisonError::into_inner);
         if let Some(map) = store.as_mut() {
             map.remove(&account(server));
         }
@@ -191,6 +192,8 @@ pub fn delete(server: &Server) -> Result<(), String> {
 
 #[cfg(test)]
 mod tests {
+#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+
     use super::*;
 
     #[test]

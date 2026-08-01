@@ -1,5 +1,6 @@
 //! Local SSH command execution tests (using 127.0.0.1 for local path).
 
+#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 use multitop::config::Server;
 use multitop::password_store;
 use multitop::ssh::spawn_command;

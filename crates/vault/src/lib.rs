@@ -56,7 +56,7 @@ impl Default for VaultConfig {
     }
 }
 
-/// In-memory password store backed by HashMap
+/// In-memory password store backed by `HashMap`
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct VaultContents {
     passwords: HashMap<String, String>,
@@ -66,6 +66,7 @@ pub struct VaultContents {
 
 impl VaultContents {
     /// Get a password
+    #[must_use]
     pub fn get(&self, host: &str) -> Option<SecretString> {
         self.passwords
             .get(host)
@@ -84,6 +85,7 @@ impl VaultContents {
     }
 
     /// List all hosts
+    #[must_use]
     pub fn hosts(&self) -> Vec<String> {
         self.passwords.keys().cloned().collect()
     }
@@ -94,6 +96,7 @@ impl VaultContents {
     }
 
     /// Verify canary string matches the header's canary
+    #[must_use]
     pub fn verify_canary(&self, header_canary: &str) -> bool {
         match &self.canary {
             Some(plaintext_canary) => plaintext_canary == header_canary,

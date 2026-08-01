@@ -47,8 +47,9 @@ pub struct Tasks {
 }
 
 impl Tasks {
+    #[must_use]
     pub fn new(n: usize) -> Self {
-        Tasks {
+        Self {
             monitors: (0..n).map(|_| None).collect(),
             aux: (0..n).map(|_| None).collect(),
             aux_is_upgrade: (0..n).map(|_| false).collect(),
@@ -96,7 +97,7 @@ async fn event_loop(
     app.last_update = state.last_update;
     app.upgrade_started_at = state.upgrade_started_at;
     // Initialize vault if vault.bin exists
-    app.vault = crate::vault::create_vault(&config_path);
+    app.vault = crate::vault::create_vault(&config_path).map(std::sync::Arc::new);
     if let Some(ref tname) = initial_theme {
         if let Some(idx) = multitop_agent::color::THEMES
             .iter()
@@ -187,7 +188,7 @@ async fn event_loop(
                 }
                 dirty = true;
             }
-            _ = resize_wait, if resize_at.is_some() => {
+            () = resize_wait, if resize_at.is_some() => {
                 resize_at = None;
                 let new_dims = ui::agent_dims(terminal.size()?, n);
                 if new_dims != dims {
@@ -235,21 +236,19 @@ fn handle_key(
         return;
     }
 
+    // While the biometric prompt is up, ignore other keys. The outcome arrives
+    // as a `VaultUnlocked` / `VaultBiometricFailed` message.
+    if app.vault_awaiting_biometric {
+        return;
+    }
+
     if app.show_upgrade_modal {
         match key.code {
-            KeyCode::Char('u')
-            | KeyCode::Char('U')
-            | KeyCode::Char('y')
-            | KeyCode::Char('Y')
-            | KeyCode::Enter => {
+            KeyCode::Char('u' | 'U' | 'y' | 'Y') | KeyCode::Enter => {
                 let cmds = app.confirm_upgrade();
                 execute_cmds(cmds, app, servers, dims, tx, tasks);
             }
-            KeyCode::Esc
-            | KeyCode::Char('q')
-            | KeyCode::Char('Q')
-            | KeyCode::Char('n')
-            | KeyCode::Char('N') => {
+            KeyCode::Esc | KeyCode::Char('q' | 'Q' | 'n' | 'N') => {
                 app.show_upgrade_modal = false;
             }
             _ => {}
@@ -299,7 +298,7 @@ fn handle_key(
     }
 
     match key.code {
-        KeyCode::Esc | KeyCode::Char('q') | KeyCode::Char('Q') => {
+        KeyCode::Esc | KeyCode::Char('q' | 'Q') => {
             app.quit();
             return;
         }
@@ -307,7 +306,7 @@ fn handle_key(
             app.quit();
             return;
         }
-        KeyCode::Char('e') | KeyCode::Char('E') => {
+        KeyCode::Char('e' | 'E') => {
             crate::passwords::open(app, app.selected_panel, false);
             return;
         }
@@ -316,23 +315,23 @@ fn handle_key(
             app.selected_panel = idx;
             return;
         }
-        KeyCode::Char('c') | KeyCode::Char('C') => {
+        KeyCode::Char('c' | 'C') => {
             let old_sort = app.sort;
             app.sort = SortBy::Cpu;
             if old_sort != app.sort {
-                restart_all_agents(app, servers, dims_rx.clone(), tx, tasks);
+                restart_all_agents(app, servers, dims_rx, tx, tasks);
             }
             return;
         }
-        KeyCode::Char('m') | KeyCode::Char('M') => {
+        KeyCode::Char('m' | 'M') => {
             let old_sort = app.sort;
             app.sort = SortBy::Mem;
             if old_sort != app.sort {
-                restart_all_agents(app, servers, dims_rx.clone(), tx, tasks);
+                restart_all_agents(app, servers, dims_rx, tx, tasks);
             }
             return;
         }
-        KeyCode::Char('t') | KeyCode::Char('T') => {
+        KeyCode::Char('t' | 'T') => {
             app.cycle_theme();
             if let Some(ref path) = app.config_path {
                 crate::config::save_theme(path, app.current_theme().name);
@@ -340,11 +339,11 @@ fn handle_key(
             app.rerender_all(dims);
             return;
         }
-        KeyCode::Up | KeyCode::Char('k') | KeyCode::Char('K') => {
+        KeyCode::Up | KeyCode::Char('k' | 'K') => {
             app.scroll_up(1);
             return;
         }
-        KeyCode::Down | KeyCode::Char('j') | KeyCode::Char('J') => {
+        KeyCode::Down | KeyCode::Char('j' | 'J') => {
             app.scroll_down(1);
             return;
         }
@@ -368,10 +367,10 @@ fn handle_key(
     }
 
     let cmds = match key.code {
-        KeyCode::Char('f') | KeyCode::Char('F') => app.toggle_fetch(),
-        KeyCode::Char('d') | KeyCode::Char('D') => app.toggle_docker(),
-        KeyCode::Char('s') | KeyCode::Char('S') => app.switch_stats(),
-        KeyCode::Char('u') | KeyCode::Char('U') => {
+        KeyCode::Char('f' | 'F') => app.toggle_fetch(),
+        KeyCode::Char('d' | 'D') => app.toggle_docker(),
+        KeyCode::Char('s' | 'S') => app.switch_stats(),
+        KeyCode::Char('u' | 'U') => {
             if app.upgrades_in_flight() {
                 // Upgrade already running — don't interrupt
             } else if app.had_upgrade() {
@@ -381,11 +380,21 @@ fn handle_key(
                 } else {
                     app.show_upgrade_output();
                 }
-            } else if app.vault.is_some() && app.vault_unlocked.is_none() {
-                // Vault exists but is locked — prompt for vault password
-                app.show_vault_password_prompt = true;
-                app.vault_password_input.clear();
-                app.vault_password_error = None;
+            } else if let Some(vault) = app.begin_vault_unlock() {
+                // Vault exists but is locked. Try Touch ID / fingerprint first;
+                // the password prompt appears only if biometrics are unavailable
+                // or cancelled (a `VaultBiometricFailed` message).
+                let tx2 = tx.clone();
+                tokio::spawn(async move {
+                    match vault.unlock_biometric(false).await {
+                        Ok((unlocked, _)) => {
+                            let _ = tx2.send(Msg::VaultUnlocked(unlocked)).await;
+                        }
+                        Err(_) => {
+                            let _ = tx2.send(Msg::VaultBiometricFailed).await;
+                        }
+                    }
+                });
             } else {
                 app.show_upgrade_modal = true;
             }

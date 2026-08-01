@@ -16,6 +16,7 @@
 //! For local testing with SSH, use `MULTITOP_TEST_SSH_HOST=127.0.0.1` and
 //! ensure sshd is running locally.
 
+#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 use std::env;
 use std::time::Duration;
 
@@ -56,7 +57,7 @@ async fn collect_messages(rx: mpsc::Receiver<Msg>) -> Vec<Msg> {
     msgs
 }
 
-/// Collect messages until first AuxDone or Status is received.
+/// Collect messages until first `AuxDone` or Status is received.
 async fn collect_until_done(rx: mpsc::Receiver<Msg>) -> Vec<Msg> {
     let mut msgs = Vec::new();
     let mut rx = rx;
@@ -288,7 +289,7 @@ async fn test_remote_upgrade_lock_contention() {
             false
         }
     });
-    eprintln!("Lock contention detected: {}", has_lock_error);
+    eprintln!("Lock contention detected: {has_lock_error}");
 }
 
 /// Test R6: Remote connection failure

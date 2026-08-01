@@ -81,6 +81,7 @@ pub fn check_counter(
 }
 
 /// Parse a stored counter value string
+#[must_use]
 pub fn parse_stored_counter(stored: &str) -> Option<(u32, u64)> {
     let parts: Vec<&str> = stored.split(':').collect();
     if parts.len() != 2 {
@@ -93,6 +94,8 @@ pub fn parse_stored_counter(stored: &str) -> Option<(u32, u64)> {
 
 #[cfg(test)]
 mod tests {
+#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+
     use super::*;
 
     #[test]
@@ -154,6 +157,6 @@ mod tests {
         };
         let msg = err.to_string();
         assert!(msg.contains("10"));
-        assert!(msg.contains("5"));
+        assert!(msg.contains('5'));
     }
 }

@@ -1,3 +1,4 @@
+#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 use multitop::config::Server;
 use multitop::ssh::Mode;
 use multitop::stream::{connect, next_packet};
@@ -20,7 +21,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("============================================================");
     println!("   multitop Remote SSH Telemetry Stream Benchmark           ");
     println!("============================================================");
-    println!("Target Remote Server: {}@{}", remote_user, remote_host);
+    println!("Target Remote Server: {remote_user}@{remote_host}");
     println!(
         "Duration:            {} seconds ({} minutes)",
         duration_secs,
@@ -38,12 +39,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     println!("[1/3] Establishing SSH connection & bootstrapping remote agent...");
     let conn_start = Instant::now();
-    let notify = |msg: String| println!("   --> SSH Status: {}", msg);
+    let notify = |msg: String| println!("   --> SSH Status: {msg}");
 
     let mut stream = match connect(&server, Mode::Monitor, SortBy::Cpu, notify).await {
         Ok(s) => s,
         Err(e) => {
-            eprintln!("FAILED to connect over SSH to {}: {}", remote_host, e);
+            eprintln!("FAILED to connect over SSH to {remote_host}: {e}");
             return Ok(());
         }
     };
@@ -127,10 +128,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     let elapsed_sec = start_time.elapsed().as_secs_f64();
                     let bw_kib = (total_bytes as f64 / 1024.0) / elapsed_sec;
                     let avg_pkt = total_bytes.checked_div(total_packets).unwrap_or(0);
-                    let avg_delay = if !delays_ms.is_empty() {
-                        delays_ms.iter().sum::<f64>() / delays_ms.len() as f64
-                    } else {
+                    let avg_delay = if delays_ms.is_empty() {
                         0.0
+                    } else {
+                        delays_ms.iter().sum::<f64>() / delays_ms.len() as f64
                     };
 
                     let client_rss_mib = get_client_rss_mib();
@@ -156,7 +157,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 break;
             }
             Ok(Err(e)) => {
-                eprintln!("Packet decode error over SSH: {}", e);
+                eprintln!("Packet decode error over SSH: {e}");
             }
             Err(_) => {
                 // Timeout after 5s without packet
@@ -170,24 +171,23 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let elapsed_total = start_time.elapsed().as_secs_f64();
     let avg_bw_kib = (total_bytes as f64 / 1024.0) / elapsed_total;
     let avg_pkt_size = total_bytes.checked_div(total_packets).unwrap_or(0);
-    let avg_delay = if !delays_ms.is_empty() {
-        delays_ms.iter().sum::<f64>() / delays_ms.len() as f64
-    } else {
+    let avg_delay = if delays_ms.is_empty() {
         0.0
+    } else {
+        delays_ms.iter().sum::<f64>() / delays_ms.len() as f64
     };
 
     println!("--------------------------------------------------------------------------------------------------");
     println!("\n[3/3] Final Sustained Benchmark Summary:");
     println!("============================================================");
-    println!("Total Test Duration:       {:.2} seconds", elapsed_total);
+    println!("Total Test Duration:       {elapsed_total:.2} seconds");
     println!(
         "SSH Connection Time:       {:.2} ms",
         conn_elapsed.as_secs_f64() * 1000.0
     );
-    println!("Total Packets Received:    {}", total_packets);
+    println!("Total Packets Received:    {total_packets}");
     println!(
-        "Packets Decoded Cleanly:   {} (100.0% success rate)",
-        decoded_packets
+        "Packets Decoded Cleanly:   {decoded_packets} (100.0% success rate)"
     );
     println!(
         "Total Telemetry Data:      {} KiB ({:.2} MiB)",
@@ -200,12 +200,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         avg_bw_kib * 8.0
     );
     println!(
-        "Packet Size Range:         min {} B, avg {} B, max {} B",
-        min_pkt_size, avg_pkt_size, max_pkt_size
+        "Packet Size Range:         min {min_pkt_size} B, avg {avg_pkt_size} B, max {max_pkt_size} B"
     );
     println!(
-        "Average Inter-Packet Delay: {:.2} ms (sampling interval ~2.0s)",
-        avg_delay
+        "Average Inter-Packet Delay: {avg_delay:.2} ms (sampling interval ~2.0s)"
     );
     println!(
         "Final Client Memory (RSS): {:.2} MiB (zero memory growth)",

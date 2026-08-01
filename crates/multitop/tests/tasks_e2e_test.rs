@@ -1,12 +1,12 @@
 //! Task spawning integration tests.
 
+#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 use multitop::app::{App, Mode, Msg};
 use multitop::config::Server;
 use multitop::panel::UpgradeState;
 use multitop::tasks::spawn_upgrade;
 use multitop::password_store;
 use multitop::state;
-use multitop_agent::SortBy;
 use tokio::sync::mpsc;
 
 fn test_server(host: &str) -> Server {
@@ -35,7 +35,7 @@ async fn test_spawn_upgrade_generation_tracking() {
     let msg = rx.recv().await.unwrap();
     match msg {
         Msg::AuxBegin { panel: 0, gen: 42, .. } => {}
-        other => panic!("Expected AuxBegin with gen=42, got {:?}", other),
+        other => panic!("Expected AuxBegin with gen=42, got {other:?}"),
     }
 
     let _ = handle.await;

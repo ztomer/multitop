@@ -28,6 +28,16 @@ pub struct UnlockedVault {
     file_path: PathBuf,
 }
 
+impl std::fmt::Debug for UnlockedVault {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        // Deliberately redacted: never print the vault key or stored secrets.
+        f.debug_struct("UnlockedVault")
+            .field("hosts", &self.contents.hosts())
+            .field("file_path", &self.file_path)
+            .finish_non_exhaustive()
+    }
+}
+
 impl Drop for UnlockedVault {
     fn drop(&mut self) {
         self.vault_key.zeroize();
@@ -36,11 +46,17 @@ impl Drop for UnlockedVault {
 
 impl UnlockedVault {
     /// Get password for a host
+    #[must_use]
     pub fn get_password(&self, host: &str) -> Option<SecretString> {
         self.contents.get(host)
     }
 
     /// Set password for a host
+    ///
+    /// # Errors
+    /// Returns `VaultError::Io` if saving the vault fails,
+    /// `VaultError::Serialization` if the contents cannot be serialized,
+    /// or other encryption-related errors.
     pub fn set_password(&mut self, host: String, password: SecretString) -> Result<(), VaultError> {
         self.contents.set(host, password);
         self.save()?;
@@ -48,6 +64,10 @@ impl UnlockedVault {
     }
 
     /// Remove password for a host
+    ///
+    /// # Errors
+    /// Returns `VaultError::Io` if saving the vault fails,
+    /// or other encryption-related errors.
     pub fn remove_password(&mut self, host: &str) -> Result<bool, VaultError> {
         let removed = self.contents.remove(host);
         if removed {
@@ -57,11 +77,17 @@ impl UnlockedVault {
     }
 
     /// List all hosts with passwords
+    #[must_use]
     pub fn hosts(&self) -> Vec<String> {
         self.contents.hosts()
     }
 
     /// Save vault to disk (encrypts and writes atomically)
+    ///
+    /// # Errors
+    /// Returns `VaultError::Io` if writing the vault file fails,
+    /// `VaultError::Serialization` if contents cannot be serialized,
+    /// or encryption-related errors.
     pub fn save(&mut self) -> Result<(), VaultError> {
         self.header.counter += 1;
         self.header.created_timestamp_ms = now_ms();
@@ -109,6 +135,7 @@ pub struct Vault {
 
 impl Vault {
     /// Create new vault manager
+    #[must_use]
     pub fn new(config: VaultConfig) -> Self {
         let lockout = LockoutState::load(&config.vault_path);
         Self {
@@ -124,11 +151,18 @@ impl Vault {
     }
 
     /// Get vault path
-    pub fn path(&self) -> &PathBuf {
+    pub const fn path(&self) -> &PathBuf {
         &self.config.vault_path
     }
 
     /// Initialize a new vault with the system password
+    ///
+    /// # Errors
+    /// Returns `VaultError::AlreadyExists` if the vault already exists,
+    /// `VaultError::Io` if directory creation or file writing fails,
+    /// `VaultError::Serialization` if contents cannot be serialized,
+    /// or encryption-related errors.
+    #[allow(clippy::unused_async)]
     pub async fn initialize(&self, system_password: &str) -> Result<(), VaultError> {
         if self.exists() {
             return Err(VaultError::AlreadyExists("Vault already exists".into()));
@@ -198,7 +232,11 @@ impl Vault {
     }
 
     /// Unlock vault with biometric (Touch ID / fingerprint)
-    /// Falls back to password if biometric fails or unavailable
+    ///
+    /// # Errors
+    /// Returns `VaultError::BiometricFailed` if biometric is unavailable and
+    /// `password_fallback` is false, or if biometric fails and password fallback
+    /// also fails. Returns `VaultError::Io` if password prompting fails.
     pub async fn unlock_biometric(
         &self,
         password_fallback: bool,
@@ -222,6 +260,11 @@ impl Vault {
     }
 
     /// Try to unlock with biometric only (no password fallback)
+    ///
+    /// # Errors
+    /// Returns `VaultError::BiometricFailed` if no biometric is available,
+    /// the biometric verification fails, or the Secure Enclave key is invalidated.
+    #[allow(clippy::unused_async)]
     async fn try_unlock_biometric(&self) -> Result<UnlockedVault, VaultError> {
         // Load vault file
         let vault_file = format::read_vault_file(&self.config.vault_path)?;
@@ -247,7 +290,7 @@ impl Vault {
                     }
                     Err(e) => {
                         // Key invalidated (macOS update, etc.) - fall through
-                        eprintln!("Secure Enclave error: {:?}", e);
+                        eprintln!("Secure Enclave error: {e:?}");
                     }
                 }
             }
@@ -277,6 +320,15 @@ impl Vault {
     }
 
     /// Unlock vault with password
+    ///
+    /// # Errors
+    /// Returns `VaultError::Corrupted` if signature verification fails,
+    /// `VaultError::LockedOut` if the vault is rate-limited,
+    /// `VaultError::Argon2Error` if key unwrapping fails,
+    /// `VaultError::DecryptionFailed` if decryption fails,
+    /// `VaultError::Serialization` if contents cannot be parsed,
+    /// `VaultError::Corrupted` if canary verification fails,
+    /// or `VaultError::RollbackDetected` if rollback is detected.
     pub fn unlock_with_password(&self, password: &str) -> Result<UnlockedVault, VaultError> {
         let vault_file = format::read_vault_file(&self.config.vault_path)?;
 
@@ -329,6 +381,11 @@ impl Vault {
     }
 
     /// Decrypt vault contents with key
+    ///
+    /// # Errors
+    /// Returns `VaultError::DecryptionFailed` if decryption fails,
+    /// `VaultError::Serialization` if contents cannot be parsed,
+    /// or `VaultError::Corrupted` if canary verification fails.
     fn decrypt_and_load(
         &self,
         vault_key: crypto::VaultKey,
@@ -356,10 +413,13 @@ impl Vault {
         let file_path = self.config.vault_path.clone();
 
         // Lock vault key in memory to prevent swapping (best-effort)
-        let key_lock = crate::mlock::LockedMemory::new(vault_key.as_bytes()).unwrap_or_else(|e| {
-            eprintln!("vault: mlock warning: {}", e);
-            crate::mlock::LockedMemory::noop()
-        });
+        let key_lock = match crate::mlock::LockedMemory::new(vault_key.as_bytes()) {
+            Ok(lock) => lock,
+            Err(e) => {
+                eprintln!("vault: mlock warning: {e}");
+                crate::mlock::LockedMemory::noop()
+            }
+        };
 
         Ok(UnlockedVault {
             vault_key,
@@ -371,6 +431,9 @@ impl Vault {
     }
 
     /// Get cached unlocked vault or unlock
+    ///
+    /// # Errors
+    /// Returns `VaultError` if biometric unlock fails and password fallback fails.
     pub async fn get_unlocked(&self) -> Result<UnlockedVault, VaultError> {
         let mut unlocked = self.unlocked.lock().await;
         if let Some(vault) = unlocked.take() {
@@ -392,6 +455,11 @@ impl Vault {
     }
 
     /// Add a biometric wrapper to existing vault (re-bind)
+    ///
+    /// # Errors
+    /// Returns `VaultError` if unlock fails, Secure Enclave is unavailable,
+    /// or saving the vault fails.
+    #[allow(clippy::unused_async)]
     pub async fn rebind_biometric(&self, password: &str) -> Result<(), VaultError> {
         let mut vault = self.unlock_with_password(password)?;
 
@@ -411,6 +479,11 @@ impl Vault {
     }
 
     /// Change vault password
+    ///
+    /// # Errors
+    /// Returns `VaultError` if old password is wrong, new password encryption fails,
+    /// or writing the vault fails.
+    #[allow(clippy::unused_async)]
     pub async fn change_password(
         &self,
         old_password: &str,
@@ -451,6 +524,9 @@ impl Vault {
     }
 
     /// Delete vault file
+    ///
+    /// # Errors
+    /// Returns `VaultError::Io` if the vault file cannot be deleted.
     pub fn delete(&self) -> Result<(), VaultError> {
         if self.exists() {
             std::fs::remove_file(&self.config.vault_path).map_err(VaultError::Io)?;
@@ -459,6 +535,11 @@ impl Vault {
     }
 
     /// Complete pending migration after unlock
+    ///
+    /// # Errors
+    /// Returns `VaultError` if migration flag cannot be read, old password is wrong,
+    /// or re-saving the vault fails.
+    #[allow(clippy::unused_async)]
     pub async fn complete_migration(&self, password: &str) -> Result<(), VaultError> {
         let migration_flag = self.config.vault_path.with_extension("bin.migrate");
         if !migration_flag.exists() {
@@ -488,7 +569,14 @@ impl Vault {
 }
 
 /// Run upgrade/migration if needed
-pub async fn migrate_if_needed(vault_path: &std::path::Path) -> Result<(), VaultError> {
+    ///
+    /// # Errors
+    /// Returns `VaultError` if vault file cannot be read, migration flag cannot be written,
+    /// or unsupported vault version is detected.
+    pub async fn migrate_if_needed(vault_path: &std::path::Path) -> Result<(), VaultError> {
+        use std::fs::OpenOptions;
+        #[cfg(unix)]
+        use std::os::unix::fs::OpenOptionsExt;
     if !vault_path.exists() {
         return Ok(());
     }
@@ -505,11 +593,6 @@ pub async fn migrate_if_needed(vault_path: &std::path::Path) -> Result<(), Vault
             // The migration will happen on next unlock with password
             // Store a flag that migration is needed
             let migration_flag = vault_path.with_extension("bin.migrate");
-
-            // Write with restrictive permissions
-            use std::fs::OpenOptions;
-            #[cfg(unix)]
-            use std::os::unix::fs::OpenOptionsExt;
 
             #[allow(unused_mut)]
             let mut open_opts = OpenOptions::new();
@@ -533,6 +616,8 @@ pub async fn migrate_if_needed(vault_path: &std::path::Path) -> Result<(), Vault
 
 #[cfg(test)]
 mod tests {
+#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+
     use super::*;
     use crate::crypto::Argon2Params;
     use secrecy::ExposeSecret;
@@ -744,7 +829,7 @@ mod tests {
     async fn test_vault_delete_nonexistent() {
         let dir = TempDir::new().unwrap();
         let path = dir.path().join("nonexistent.bin");
-        let config = fast_vault_config(path.clone());
+        let config = fast_vault_config(path);
         let vault = Vault::new(config);
 
         // Should not error
@@ -848,7 +933,7 @@ mod tests {
             let host = format!("server{i}:22");
             let pass = format!("pass{i}");
             unlocked
-                .set_password(host.into(), SecretString::from(pass.as_str()))
+                .set_password(host, SecretString::from(pass.as_str()))
                 .unwrap();
         }
 
@@ -881,7 +966,7 @@ mod tests {
                 let host = format!("server{i}:22");
                 let pass = format!("pass{i}");
                 unlocked
-                    .set_password(host.into(), SecretString::from(pass.as_str()))
+                    .set_password(host, SecretString::from(pass.as_str()))
                     .unwrap();
             }));
         }

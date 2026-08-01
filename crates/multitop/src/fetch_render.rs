@@ -80,7 +80,7 @@ fn parse_db(bytes: &[u8]) -> LogoDb {
     LogoDb { logos }
 }
 
-fn color_for(ci: u8, pal: &Palette) -> &'static str {
+const fn color_for(ci: u8, pal: &Palette) -> &'static str {
     match ci {
         1 => pal.red,
         2 => pal.green,
@@ -160,15 +160,16 @@ fn find_logo<'a>(
 /// Crop the center `target` lines of a logo when we don't have room for all of it.
 fn pick_lines(logo: &Logo, target: usize) -> Vec<&str> {
     if logo.lines.len() <= target {
-        return logo.lines.iter().map(|s| s.as_str()).collect();
+        return logo.lines.iter().map(std::string::String::as_str).collect();
     }
     let start = (logo.lines.len() - target) / 2;
     logo.lines[start..start + target]
         .iter()
-        .map(|s| s.as_str())
+        .map(std::string::String::as_str)
         .collect()
 }
 
+#[must_use]
 pub fn render_fetch(
     snap: &FetchSnapshot,
     cols: usize,
@@ -287,7 +288,7 @@ mod tests {
         let logo = Logo {
             patterns: vec![],
             colors: vec![],
-            lines: (0..10).map(|i| format!("line {}", i)).collect(),
+            lines: (0..10).map(|i| format!("line {i}")).collect(),
         };
         let picked = pick_lines(&logo, 4);
         assert_eq!(picked.len(), 4);

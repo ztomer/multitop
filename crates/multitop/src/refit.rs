@@ -1,6 +1,7 @@
 //! Refitting lines and headers dynamically to panel width.
 
-/// Reflow line 0 header if target_cols differs from the line's pre-rendered width.
+/// Reflow line 0 header if `target_cols` differs from the line's pre-rendered width.
+#[must_use]
 pub fn refit_header(line: &str, target_cols: usize) -> Option<String> {
     if !line.contains('\u{2500}') {
         return None;
@@ -43,6 +44,7 @@ pub fn refit_header(line: &str, target_cols: usize) -> Option<String> {
     ))
 }
 
+#[must_use]
 pub fn refit_line(line: &str, target_cols: usize) -> String {
     if target_cols == 0 {
         return line.to_string();
@@ -61,6 +63,8 @@ pub fn refit_line(line: &str, target_cols: usize) -> String {
 
 #[cfg(test)]
 mod tests {
+#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+
     use super::*;
 
     #[test]

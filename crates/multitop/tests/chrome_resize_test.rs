@@ -5,6 +5,7 @@
 //! channel every frame and re-render at the current size. These tests verify
 //! that every layer of this path is wired correctly.
 
+#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -25,7 +26,7 @@ fn sample_snapshot() -> Snapshot {
         agent_version: "0.0.0".into(),
         cpu_pct: 42.0,
         cores: (0..8)
-            .map(|c| (c, 10.0 + c as f64 * 8.0, Some(50.0 + c as f64)))
+            .map(|c| (c, (c as f64).mul_add(8.0, 10.0), Some(50.0 + c as f64)))
             .collect(),
         temp_unit: Default::default(),
         mem: Usage::new(16_000_000_000, 8_000_000_000),

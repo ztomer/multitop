@@ -8,6 +8,7 @@ use multitop_agent::SortBy;
 /// Dispatch a received packet to the correct renderer at the given dimensions.
 ///
 /// Extracted so the resize → re-render path can be tested without SSH.
+#[must_use]
 pub fn render_payload(
     payload: &Payload,
     dims: (u16, u16),
@@ -29,7 +30,7 @@ pub fn render_payload(
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
     #[test]
     fn dispatch_monitor_produces_output() {

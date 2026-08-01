@@ -9,7 +9,7 @@ pub enum Command {
 }
 
 /// Messages produced by the background tasks.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Debug)]
 pub enum Msg {
     Packet {
         panel: usize,
@@ -48,4 +48,9 @@ pub enum Msg {
         note: Option<String>,
         success: bool,
     },
+    /// The vault was unlocked by biometric (Touch ID / fingerprint).
+    VaultUnlocked(multitop_vault::UnlockedVault),
+    /// Biometric unlock was unavailable or cancelled; the TUI falls back to
+    /// the vault password prompt.
+    VaultBiometricFailed,
 }
