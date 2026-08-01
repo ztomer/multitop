@@ -56,9 +56,8 @@ impl LockoutState {
     }
 
     pub fn save(&self, vault_path: &Path) {
-        let json = match serde_json::to_string(self) {
-            Ok(j) => j,
-            Err(_) => return,
+        let Ok(json) = serde_json::to_string(self) else {
+            return;
         };
 
         // Save to keychain (preferred - survives file deletion)
@@ -91,6 +90,10 @@ impl LockoutState {
         self.save(vault_path);
     }
 
+    /// Check if the vault is currently rate-limited.
+    ///
+    /// # Errors
+    /// Returns `VaultError::RateLimited` if the lockout period has not expired.
     pub const fn check_lockout(&self, now_ms: u64) -> Result<(), crate::VaultError> {
         if now_ms < self.lockout_until_epoch_ms {
             let remaining = (self.lockout_until_epoch_ms - now_ms).div_ceil(1000);

@@ -19,6 +19,7 @@ struct LogoDb {
 
 static LOGO_DB: OnceLock<LogoDb> = OnceLock::new();
 
+#[allow(clippy::expect_used)]
 fn load_db() -> &'static LogoDb {
     LOGO_DB.get_or_init(|| {
         let compressed = include_bytes!("../data/logos.bin.zst");
@@ -88,7 +89,6 @@ const fn color_for(ci: u8, pal: &Palette) -> &'static str {
         4 => pal.blue,
         5 => pal.purple,
         6 => pal.cyan,
-        7 => pal.white,
         _ => pal.white,
     }
 }
@@ -114,7 +114,6 @@ fn strip_color_markers(bytes: &[u8]) -> String {
             if i < s_bytes.len() && s_bytes[i] == b'}' {
                 i += 1;
                 last = i;
-                continue;
             }
         } else {
             i += 1;

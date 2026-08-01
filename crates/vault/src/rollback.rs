@@ -25,6 +25,9 @@ pub fn store_counter(vault_path: &Path, counter: u32, created_ts: u64) {
 /// Verify that the vault's counter has not regressed.
 /// Returns Ok(()) if the counter is >= the stored counter, or if no stored
 /// counter exists (first unlock). Returns Err on rollback detection.
+///
+/// # Errors
+/// Returns `VaultError::RollbackDetected` if the counter or timestamp has regressed.
 pub fn check_counter(
     vault_path: &Path,
     counter: u32,
@@ -36,9 +39,8 @@ pub fn check_counter(
         return Ok(());
     }
 
-    let entry = match keyring::Entry::new(SERVICE, &account(vault_path)) {
-        Ok(e) => e,
-        Err(_) => return Ok(()), // No keychain available, skip
+    let Ok(entry) = keyring::Entry::new(SERVICE, &account(vault_path)) else {
+        return Ok(()); // No keychain available, skip
     };
 
     let stored = match entry.get_password() {

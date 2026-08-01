@@ -8,6 +8,7 @@ use crate::config::Server;
 use crate::passwords::PasswordAction;
 use crate::run::Tasks;
 
+#[allow(clippy::too_many_lines)]
 pub fn apply(
     action: PasswordAction,
     app: &mut App,
@@ -31,7 +32,7 @@ pub fn apply(
                     if let Some(old_panel) =
                         app.panels.iter().find(|p| p.server.host == server.host)
                     {
-                        panel.sudo_password = old_panel.sudo_password.clone();
+                        panel.sudo_password.clone_from(&old_panel.sudo_password);
                         panel.password_saved = old_panel.password_saved;
                         panel.external_password = old_panel.external_password;
                     }
@@ -141,7 +142,7 @@ pub fn apply(
             if let Some(ref mut unlocked) = app.vault_unlocked {
                 let key = crate::password_store::account(&app.panels[panel].server);
                 let _ = unlocked
-                    .set_password(key, SecretString::new(password.clone().into_boxed_str()));
+                    .set_password(key, &SecretString::new(password.clone().into_boxed_str()));
             }
             if let Some(manager) = app.password_manager.as_mut() {
                 manager.resume_upgrade = false;

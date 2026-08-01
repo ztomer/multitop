@@ -22,6 +22,7 @@ pub const MIN_AGENT_ROWS: u16 = 4;
 
 /// Split the screen into one region per panel plus the key bar.
 #[must_use]
+#[allow(clippy::unwrap_used, clippy::missing_panics_doc, clippy::expect_used)]
 pub fn regions(area: Rect, panels: usize) -> (Vec<Rect>, Rect) {
     let [body, keybar] =
         Layout::vertical([Constraint::Min(0), Constraint::Length(KEYBAR_H)]).areas(area);
@@ -38,7 +39,7 @@ pub fn regions(area: Rect, panels: usize) -> (Vec<Rect>, Rect) {
 
     // For panels >= 3, use a 2-column grid layout
     let grid_cols: u32 = 2;
-    let grid_rows: u32 = (panels as u32).div_ceil(2);
+    let grid_rows: u32 = u32::try_from(panels).expect("too many panels");
     let v_chunks =
         Layout::vertical(vec![Constraint::Ratio(1, grid_rows); grid_rows as usize]).split(body);
     let mut rects = Vec::with_capacity(panels);
@@ -59,6 +60,7 @@ pub fn regions(area: Rect, panels: usize) -> (Vec<Rect>, Rect) {
 
 /// The panel size to tell the agent about, so its frames arrive pre-fitted.
 #[must_use]
+#[allow(clippy::unwrap_used, clippy::missing_panics_doc, clippy::expect_used)]
 pub fn agent_dims(size: Size, panels: usize) -> (u16, u16) {
     if panels == 0 {
         return (MIN_AGENT_COLS, MIN_AGENT_ROWS);
@@ -67,7 +69,7 @@ pub fn agent_dims(size: Size, panels: usize) -> (u16, u16) {
     let (grid_cols, grid_rows) = match panels {
         1 => (1u16, 1u16),
         2 => (1u16, 2u16),
-        n => (2u16, (n as u16).div_ceil(2)),
+        n => (2u16, u16::try_from(n).expect("too many panels").div_ceil(2)),
     };
     let cols = (size.width / grid_cols)
         .saturating_sub(SIDE_MARGIN * 2)
@@ -141,12 +143,14 @@ pub fn visible(
 }
 
 #[must_use]
+#[allow(clippy::too_many_lines)]
 pub fn keybar_line(
     sort: multitop_agent::SortBy,
     theme: &multitop_agent::color::Palette,
     keybar_width: u16,
     active_mode: crate::app::Mode,
 ) -> Line<'static> {
+    const SPACES: &str = "                                                                                                                                                                                                                                                                ";
     let label = Style::default().fg(Color::DarkGray);
     let active = Style::default().fg(Color::White);
     let inactive = Style::default().fg(Color::DarkGray);
@@ -211,7 +215,6 @@ pub fn keybar_line(
     } else {
         label
     };
-
     let left_spans = [
         Span::styled("ESC / ", label),
         Span::styled("Q", key_hi),
@@ -235,7 +238,6 @@ pub fn keybar_line(
         multitop_agent::SortBy::Mem => (active, inactive),
         multitop_agent::SortBy::Cpu => (inactive, active),
     };
-
     let theme_name_padded = format!("{:<11}", theme.name);
     let badge_spans = [
         Span::styled("[", sort_label),
@@ -262,9 +264,7 @@ pub fn keybar_line(
         Span::styled("]", sort_label),
     ];
     let badge_width: usize = badge_spans.iter().map(|s| s.content.len()).sum();
-
     let pad = (keybar_width as usize).saturating_sub(left_width + badge_width);
-    const SPACES: &str = "                                                                                                                                                                                                                                                                ";
     let pad_str = if pad <= SPACES.len() {
         &SPACES[..pad]
     } else {
@@ -276,6 +276,7 @@ pub fn keybar_line(
     spans.extend(badge_spans);
     Line::from(spans)
 }
+#[allow(clippy::too_many_lines)]
 pub fn draw(f: &mut Frame, app: &App) {
     if app.password_manager.is_some() {
         crate::config_ui::draw(f, app);

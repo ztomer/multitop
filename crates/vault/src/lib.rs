@@ -74,7 +74,7 @@ impl VaultContents {
     }
 
     /// Set a password
-    pub fn set(&mut self, host: String, password: SecretString) {
+    pub fn set(&mut self, host: String, password: &SecretString) {
         self.passwords
             .insert(host, password.expose_secret().to_string());
     }
@@ -98,10 +98,7 @@ impl VaultContents {
     /// Verify canary string matches the header's canary
     #[must_use]
     pub fn verify_canary(&self, header_canary: &str) -> bool {
-        match &self.canary {
-            Some(plaintext_canary) => plaintext_canary == header_canary,
-            None => false, // No canary in plaintext = corruption or old format
-        }
+        self.canary.as_ref().is_some_and(|plaintext_canary| plaintext_canary == header_canary)
     }
 }
 

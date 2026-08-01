@@ -32,17 +32,18 @@ impl SparklineHistory {
     /// bar. Zero-value samples render as the lowest visible block so idle bars
     /// are not invisible whitespace.
     #[must_use]
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss, clippy::cast_precision_loss)]
     pub fn render_bar_limited(&self, max_chars: usize) -> String {
+        const BARS: &[char] = &['▁', '▂', '▃', '▄', '▅', '▆', '▇', '█'];
         if self.samples.is_empty() || max_chars == 0 {
             return String::new();
         }
-        const BARS: &[char] = &['▁', '▂', '▃', '▄', '▅', '▆', '▇', '█'];
         let start = self.samples.len().saturating_sub(max_chars);
         self.samples
             .iter()
             .skip(start)
             .map(|&v| {
-                let idx = ((v / 100.0) * 7.0).round() as usize;
+                let idx = (((v / 100.0) * 7.0).round() as i64) as usize;
                 BARS[idx.min(7)]
             })
             .collect()

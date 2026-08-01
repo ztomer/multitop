@@ -30,6 +30,10 @@ pub struct SecureEnclave {
 impl SecureEnclave {
     /// Get or create the Secure Enclave key pair for vault wrapping.
     /// The private key is protected by biometric authentication (Touch ID/Face ID).
+    /// Get or create the Secure Enclave key pair for vault wrapping.
+    ///
+    /// # Errors
+    /// Returns `VaultError::SecureEnclaveError` if key generation or lookup fails.
     pub fn get_or_create() -> Result<Self, VaultError> {
         // Try to load existing key
         if let Ok(se) = Self::load_existing() {
@@ -111,6 +115,9 @@ impl SecureEnclave {
     }
 
     /// Wrap a vault key using the Secure Enclave public key (ECIES)
+    ///
+    /// # Errors
+    /// Returns `VaultError::SecureEnclaveError` if encryption fails.
     pub fn wrap_key(&self, vault_key: &VaultKey) -> Result<Wrapper, VaultError> {
         // ECIES encryption: public key encrypts, private key decrypts (with Touch ID)
         let data = vault_key.as_bytes();
@@ -123,6 +130,11 @@ impl SecureEnclave {
     }
 
     /// Unwrap a vault key using the Secure Enclave private key (triggers Touch ID)
+    ///
+    /// # Errors
+    /// Returns `VaultError::SecureEnclaveError` if decryption fails,
+    /// `VaultError::BiometricFailed` if the user cancels authentication,
+    /// or `VaultError::InvalidWrapperData` if the decrypted key size is invalid.
     pub fn unwrap_key(&self, wrapper: &Wrapper) -> Result<VaultKey, VaultError> {
         let data = &wrapper.data;
         let decrypted = self
@@ -171,6 +183,9 @@ impl SecureEnclave {
 }
 
 /// Create or get the Secure Enclave wrapper
+///
+/// # Errors
+/// Returns `VaultError::SecureEnclaveError` if key creation or lookup fails.
 #[cfg(target_os = "macos")]
 pub fn get_secure_enclave() -> Result<SecureEnclave, VaultError> {
     SecureEnclave::get_or_create()

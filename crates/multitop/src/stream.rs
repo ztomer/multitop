@@ -13,13 +13,14 @@ use multitop_agent::SortBy;
 const MAX_STDERR_LINES: usize = 8;
 
 pub struct PacketStream {
+    #[allow(clippy::pub_underscore_fields)]
     pub _child: Child,
     pub stdout: BufReader<ChildStdout>,
     pub stderr: Lines<BufReader<ChildStderr>>,
     pub pending_header: Option<[u8; 4]>,
 }
 
-/// Start the remote agent, uploading it first if the host has no cached copy.
+#[allow(clippy::missing_panics_doc, clippy::missing_errors_doc, clippy::expect_used)]
 pub async fn connect(
     server: &Server,
     mode: Mode,
@@ -103,6 +104,7 @@ pub async fn connect(
     unreachable!("loop returns on both attempts")
 }
 
+#[allow(clippy::missing_errors_doc)]
 pub async fn next_packet(
     stream: &mut PacketStream,
     errbuf: &mut Vec<String>,

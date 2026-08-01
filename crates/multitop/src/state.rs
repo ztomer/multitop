@@ -17,7 +17,7 @@ fn get_opt_u64(val: &toml::Value, key: &str) -> Option<u64> {
     val.as_table()
         .and_then(|t| t.get(key))
         .and_then(toml::Value::as_integer)
-        .map(|n| n as u64)
+        .and_then(|n| u64::try_from(n).ok())
 }
 
 #[must_use]
@@ -37,12 +37,18 @@ pub fn load_state(config_path: &Path) -> AppState {
     }
 }
 
+#[allow(clippy::expect_used)]
 fn insert_opt_u64(table: &mut toml::Table, key: &str, val: Option<u64>) {
     if let Some(v) = val {
-        table.insert(key.to_string(), toml::Value::Integer(v as i64));
+        table.insert(key.to_string(), toml::Value::Integer(i64::try_from(v).expect("u64 fits in i64")));
     }
 }
 
+/// Save the application state to a TOML file.
+///
+/// # Errors
+///
+/// Returns an error if the file cannot be written.
 pub fn save_state(config_path: &Path, state: &AppState) -> Result<(), String> {
     let path = state_file_path(config_path);
     let mut table = toml::Table::new();

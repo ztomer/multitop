@@ -251,41 +251,67 @@ pub async fn check_fprintd() -> Result<Vec<String>, VaultError> {
 pub struct FingerprintVerifier;
 
 #[cfg(not(target_os = "linux"))]
+#[cfg(not(target_os = "linux"))]
 impl FingerprintVerifier {
-    pub async fn new() -> Result<Self, VaultError> {
-        Err(VaultError::PlatformNotSupported(
+    /// Create a new fingerprint verifier.
+    ///
+    /// # Errors
+    /// Always returns `VaultError::PlatformNotSupported` on non-Linux platforms.
+    pub fn new() -> impl std::future::Future<Output = Result<Self, VaultError>> {
+        std::future::ready(Err(VaultError::PlatformNotSupported(
             "fprintd only on Linux".into(),
-        ))
+        )))
     }
-    pub async fn with_device(_device_path: String, _finger: String) -> Result<Self, VaultError> {
-        Err(VaultError::PlatformNotSupported(
+
+    /// Create a verifier for a specific device and finger.
+    ///
+    /// # Errors
+    /// Always returns `VaultError::PlatformNotSupported` on non-Linux platforms.
+    pub fn with_device(_device_path: String, _finger: String) -> impl std::future::Future<Output = Result<Self, VaultError>> {
+        std::future::ready(Err(VaultError::PlatformNotSupported(
             "fprintd only on Linux".into(),
-        ))
+        )))
     }
-    pub async fn verify(&self) -> Result<FingerprintResult, VaultError> {
-        Err(VaultError::PlatformNotSupported(
+
+    /// Verify a fingerprint.
+    ///
+    /// # Errors
+    /// Always returns `VaultError::PlatformNotSupported` on non-Linux platforms.
+    pub fn verify(&self) -> impl std::future::Future<Output = Result<FingerprintResult, VaultError>> {
+        std::future::ready(Err(VaultError::PlatformNotSupported(
             "fprintd only on Linux".into(),
-        ))
+        )))
     }
+
     #[must_use]
     pub const fn with_timeout(self, _timeout: Duration) -> Self {
         self
     }
-    pub async fn is_available() -> bool {
-        false
+
+    pub fn is_available() -> impl std::future::Future<Output = bool> {
+        std::future::ready(false)
     }
-    pub async fn list_fingers(&self) -> Result<Vec<String>, VaultError> {
-        Err(VaultError::PlatformNotSupported(
+
+    /// List enrolled fingers.
+    ///
+    /// # Errors
+    /// Always returns `VaultError::PlatformNotSupported` on non-Linux platforms.
+    pub fn list_fingers(&self) -> impl std::future::Future<Output = Result<Vec<String>, VaultError>> {
+        std::future::ready(Err(VaultError::PlatformNotSupported(
             "fprintd only on Linux".into(),
-        ))
+        )))
     }
 }
 
+/// Check if fprintd is available and list enrolled fingers.
+///
+/// # Errors
+/// Always returns `VaultError::PlatformNotSupported` on non-Linux platforms.
 #[cfg(not(target_os = "linux"))]
-pub async fn check_fprintd() -> Result<Vec<String>, VaultError> {
-    Err(VaultError::PlatformNotSupported(
+pub fn check_fprintd() -> impl std::future::Future<Output = Result<Vec<String>, VaultError>> {
+    std::future::ready(Err(VaultError::PlatformNotSupported(
         "fprintd only on Linux".into(),
-    ))
+    )))
 }
 
 #[cfg(test)]

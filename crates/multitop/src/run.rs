@@ -24,6 +24,11 @@ pub(super) const RECONNECT_BACKOFF: [u64; 4] = [2, 5, 10, 20];
 
 use std::path::PathBuf;
 
+/// Run the multitop application.
+///
+/// # Errors
+///
+/// Returns an error if the terminal cannot be initialized or the event loop fails.
 pub async fn run(
     servers: Vec<Server>,
     config_path: PathBuf,
@@ -77,6 +82,7 @@ impl Tasks {
 
 use multitop_agent::SortBy;
 
+#[allow(clippy::too_many_lines)]
 async fn event_loop(
     terminal: &mut ratatui::DefaultTerminal,
     servers: Vec<Server>,
@@ -221,6 +227,7 @@ fn panel_at_pos(x: u16, y: u16, total_area: Rect, panel_count: usize) -> usize {
     0
 }
 
+#[allow(clippy::too_many_lines, clippy::needless_pass_by_value)]
 fn handle_key(
     key: KeyEvent,
     app: &mut App,
@@ -468,6 +475,7 @@ fn execute_cmds(
     }
 }
 
+#[allow(clippy::needless_pass_by_value)]
 fn restart_all_agents(
     app: &App,
     servers: &[Server],

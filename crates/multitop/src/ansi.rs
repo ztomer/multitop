@@ -27,14 +27,14 @@ fn apply_sgr_params(mut style: Style, params: &[u16]) -> Style {
             36 => style = style.fg(Color::Cyan),
             37 => style = style.fg(Color::Gray),
             38 if i + 4 < params.len() && params[i + 1] == 2 => {
-                let r = params[i + 2] as u8;
-                let g = params[i + 3] as u8;
-                let b = params[i + 4] as u8;
+                let r = u8::try_from(params[i + 2]).unwrap_or(0);
+                let g = u8::try_from(params[i + 3]).unwrap_or(0);
+                let b = u8::try_from(params[i + 4]).unwrap_or(0);
                 style = style.fg(Color::Rgb(r, g, b));
                 i += 4;
             }
             38 if i + 2 < params.len() && params[i + 1] == 5 => {
-                let idx = params[i + 2] as u8;
+                let idx = u8::try_from(params[i + 2]).unwrap_or(0);
                 style = style.fg(Color::Indexed(idx));
                 i += 2;
             }
@@ -48,14 +48,14 @@ fn apply_sgr_params(mut style: Style, params: &[u16]) -> Style {
             46 => style = style.bg(Color::Cyan),
             47 => style = style.bg(Color::Gray),
             48 if i + 4 < params.len() && params[i + 1] == 2 => {
-                let r = params[i + 2] as u8;
-                let g = params[i + 3] as u8;
-                let b = params[i + 4] as u8;
+                let r = u8::try_from(params[i + 2]).unwrap_or(0);
+                let g = u8::try_from(params[i + 3]).unwrap_or(0);
+                let b = u8::try_from(params[i + 4]).unwrap_or(0);
                 style = style.bg(Color::Rgb(r, g, b));
                 i += 4;
             }
             48 if i + 2 < params.len() && params[i + 1] == 5 => {
-                let idx = params[i + 2] as u8;
+                let idx = u8::try_from(params[i + 2]).unwrap_or(0);
                 style = style.bg(Color::Indexed(idx));
                 i += 2;
             }

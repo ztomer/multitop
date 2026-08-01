@@ -43,19 +43,19 @@ enum Startup {
 }
 
 fn parse_cli<I: IntoIterator<Item = String>>(argv: I) -> Startup {
-    let mut args = argv.into_iter();
+    let mut iter = argv.into_iter();
     let mut opts = CliOptions::default();
-    while let Some(arg) = args.next() {
+    while let Some(arg) = iter.next() {
         match arg.as_str() {
             "-h" | "--help" => return Startup::Print(USAGE.to_string()),
             "-V" | "--version" => {
                 return Startup::Print(format!("multitop {}", env!("CARGO_PKG_VERSION")))
             }
-            "-c" | "--config" => match args.next() {
+            "-c" | "--config" => match iter.next() {
                 Some(p) => opts.config_path = Some(PathBuf::from(p)),
                 None => return Startup::Fail("--config requires a path".into()),
             },
-            "-r" | "--remote" => match args.next() {
+            "-r" | "--remote" => match iter.next() {
                 Some(remotes) => {
                     for h in remotes.split(',') {
                         let trimmed = h.trim();
@@ -69,7 +69,7 @@ fn parse_cli<I: IntoIterator<Item = String>>(argv: I) -> Startup {
             "--local" => opts.local = true,
             "--local-only" => opts.local_only = true,
             "--agent" => {
-                let rest: Vec<String> = args.collect();
+                let rest: Vec<String> = iter.collect();
                 return Startup::Agent(rest);
             }
             other => return Startup::Fail(format!("Unknown argument '{other}'\n\n{USAGE}")),
@@ -90,6 +90,7 @@ fn require_ssh() -> Result<(), String> {
     }
 }
 
+#[allow(clippy::too_many_lines)]
 fn main() -> ExitCode {
     let opts = match parse_cli(std::env::args().skip(1)) {
         Startup::Run(opts) => opts,

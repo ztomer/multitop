@@ -15,6 +15,7 @@ pub use crate::types::{Command, Msg};
 
 pub use multitop_agent::SortBy;
 
+#[allow(clippy::struct_excessive_bools)]
 pub struct App {
     pub panels: Vec<Panel>,
     pub selected_panel: usize,
@@ -323,6 +324,7 @@ impl App {
         self.panels.get(panel).is_some_and(|p| p.gen == gen)
     }
 
+    #[allow(clippy::too_many_lines, clippy::cast_possible_truncation, clippy::cast_precision_loss)]
     pub fn apply(&mut self, msg: Msg) {
         match msg {
             Msg::Packet {

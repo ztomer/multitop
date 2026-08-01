@@ -6,6 +6,7 @@
 //! cache misses does the local side upload, which costs two more round trips
 //! and then never happens again for that build.
 
+use std::fmt::Write;
 use std::io;
 use std::path::Path;
 use std::process::Stdio;
@@ -86,7 +87,7 @@ pub fn cleanup_old_agents_command() -> String {
     let mut cmd = String::from("cd ~/.cache/multitop 2>/dev/null && for f in agent-*; do\n");
     cmd.push_str("  case \"$f\" in\n");
     for pattern in &keep_patterns {
-        cmd.push_str(&format!("    {pattern}) continue ;;\n"));
+        let _ = writeln!(cmd, "    {pattern}) continue ;;");
     }
     cmd.push_str("    agent-*) rm -f \"$f\" ;;\n");
     cmd.push_str("  esac\ndone");
@@ -127,29 +128,31 @@ pub fn is_local(server: &Server) -> bool {
     server.host == "localhost" || server.host == "127.0.0.1" || server.port == 0
 }
 
+#[allow(clippy::missing_errors_doc)]
 pub fn spawn_local_agent(mode: Mode, sort: SortBy) -> io::Result<Child> {
-    let (mut cmd, extra_args) = if let Ok(exe) = std::env::current_exe() {
-        let parent = exe.parent().unwrap_or(Path::new(""));
-        let grand = parent.parent().unwrap_or(Path::new(""));
-        let name = exe.file_name().and_then(|n| n.to_str()).unwrap_or("");
+    let (mut cmd, extra_args) = std::env::current_exe().map_or_else(
+        |_| (Command::new("multitop-agent"), vec![]),
+        |exe| {
+            let parent = exe.parent().unwrap_or_else(|| Path::new(""));
+            let grand = parent.parent().unwrap_or_else(|| Path::new(""));
+            let name = exe.file_name().and_then(|n| n.to_str()).unwrap_or("");
 
-        if name == "multitop" || (name.starts_with("multitop") && !name.contains("test")) {
-            (Command::new(exe), vec!["--agent".to_string()])
-        } else if parent.join("multitop-agent").is_file() {
-            (Command::new(parent.join("multitop-agent")), vec![])
-        } else if grand.join("multitop-agent").is_file() {
-            (Command::new(grand.join("multitop-agent")), vec![])
-        } else if grand.join("multitop").is_file() {
-            (
-                Command::new(grand.join("multitop")),
-                vec!["--agent".to_string()],
-            )
-        } else {
-            (Command::new("multitop-agent"), vec![])
-        }
-    } else {
-        (Command::new("multitop-agent"), vec![])
-    };
+            if name == "multitop" || (name.starts_with("multitop") && !name.contains("test")) {
+                (Command::new(exe), vec!["--agent".to_string()])
+            } else if parent.join("multitop-agent").is_file() {
+                (Command::new(parent.join("multitop-agent")), vec![])
+            } else if grand.join("multitop-agent").is_file() {
+                (Command::new(grand.join("multitop-agent")), vec![])
+            } else if grand.join("multitop").is_file() {
+                (
+                    Command::new(grand.join("multitop")),
+                    vec!["--agent".to_string()],
+                )
+            } else {
+                (Command::new("multitop-agent"), vec![])
+            }
+        },
+    );
 
     if !extra_args.is_empty() {
         cmd.args(extra_args);
@@ -169,6 +172,7 @@ pub fn spawn_local_agent(mode: Mode, sort: SortBy) -> io::Result<Child> {
 /// stdout carries agent frames; stderr is folded in so an SSH failure
 /// (`Permission denied`, `Host key verification failed`) lands in the panel
 /// instead of vanishing.
+#[allow(clippy::missing_errors_doc)]
 pub async fn spawn_agent(server: &Server, mode: Mode, sort: SortBy) -> io::Result<Child> {
     if is_local(server) {
         return spawn_local_agent(mode, sort);
@@ -278,6 +282,7 @@ fn wrap_with_local_upgrade_lock(inner: &str) -> String {
     )
 }
 
+#[allow(clippy::missing_errors_doc)]
 pub fn spawn_command(server: &Server, command: &str, password: Option<&str>) -> io::Result<Child> {
     let quoted = sh_quote(command);
     let quoted_escaped = quoted.replace('\'', r"'\''");
@@ -342,6 +347,7 @@ pub fn spawn_command(server: &Server, command: &str, password: Option<&str>) -> 
 }
 
 /// Ship the agent binary for `arch` to the server.
+#[allow(clippy::missing_errors_doc)]
 pub async fn upload_agent(server: &Server, arch: Arch, token: &str) -> Result<(), String> {
     let Some(bytes) = arch.binary() else {
         return Err(format!(

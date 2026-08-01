@@ -8,6 +8,7 @@ use ratatui::Frame;
 use crate::app::App;
 use crate::passwords::ConfigSection;
 
+#[allow(clippy::missing_panics_doc, clippy::too_many_lines, clippy::expect_used)]
 pub fn draw(f: &mut Frame, app: &App) {
     let manager = app
         .password_manager

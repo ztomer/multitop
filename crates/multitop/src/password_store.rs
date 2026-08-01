@@ -64,6 +64,7 @@ fn entry(server: &Server) -> Result<Entry, String> {
 
 pub const SSO_ACCOUNT: &str = "__sso_master__";
 
+#[allow(clippy::option_option)]
 static SSO_CACHE: RwLock<Option<Option<String>>> = RwLock::new(None);
 
 pub fn clear_sso_cache() {
@@ -71,6 +72,11 @@ pub fn clear_sso_cache() {
     *cache = None;
 }
 
+/// Load the SSO master password from the credential store.
+///
+/// # Errors
+///
+/// Returns an error if the credential store cannot be accessed.
 pub fn load_sso() -> Result<Option<String>, String> {
     {
         let cache = SSO_CACHE.read().unwrap_or_else(std::sync::PoisonError::into_inner);
@@ -84,22 +90,28 @@ pub fn load_sso() -> Result<Option<String>, String> {
         let store = MOCK_STORE.read().unwrap_or_else(std::sync::PoisonError::into_inner);
         store.as_ref().and_then(|map| map.get(SSO_ACCOUNT).cloned())
     } else {
-        let entry = match Entry::new(SERVICE, SSO_ACCOUNT) {
-            Ok(e) => e,
-            Err(_) => return Ok(None),
+        let Ok(entry) = Entry::new(SERVICE, SSO_ACCOUNT) else {
+            return Ok(None);
         };
         entry.get_password().ok()
     };
 
     let mut cache = SSO_CACHE.write().unwrap_or_else(std::sync::PoisonError::into_inner);
     *cache = Some(pass.clone());
+    drop(cache);
     Ok(pass)
 }
 
+/// Save the SSO master password to the credential store.
+///
+/// # Errors
+///
+/// Returns an error if the credential store cannot be written.
 pub fn save_sso(password: &str) -> Result<(), String> {
     {
         let mut cache = SSO_CACHE.write().unwrap_or_else(std::sync::PoisonError::into_inner);
         *cache = Some(Some(password.to_string()));
+        drop(cache);
     }
     if is_mock_enabled() {
         enable_mock_store();
@@ -107,6 +119,7 @@ pub fn save_sso(password: &str) -> Result<(), String> {
         if let Some(map) = store.as_mut() {
             map.insert(SSO_ACCOUNT.to_string(), password.to_string());
         }
+        drop(store);
         return Ok(());
     }
     Entry::new(SERVICE, SSO_ACCOUNT)
@@ -115,10 +128,16 @@ pub fn save_sso(password: &str) -> Result<(), String> {
         .map_err(|e| e.to_string())
 }
 
+/// Delete the SSO master password from the credential store.
+///
+/// # Errors
+///
+/// Returns an error if the credential store cannot be accessed.
 pub fn delete_sso() -> Result<(), String> {
     {
         let mut cache = SSO_CACHE.write().unwrap_or_else(std::sync::PoisonError::into_inner);
         *cache = Some(None);
+        drop(cache);
     }
     if is_mock_enabled() {
         enable_mock_store();
@@ -126,6 +145,7 @@ pub fn delete_sso() -> Result<(), String> {
         if let Some(map) = store.as_mut() {
             map.remove(SSO_ACCOUNT);
         }
+        drop(store);
         return Ok(());
     }
     match Entry::new(SERVICE, SSO_ACCOUNT)
@@ -138,6 +158,10 @@ pub fn delete_sso() -> Result<(), String> {
 }
 
 /// Read a password. A missing or locked credential store is not an error.
+///
+/// # Errors
+///
+/// Returns an error if the credential store cannot be accessed.
 pub fn load(server: &Server) -> Result<Option<String>, String> {
     let server_pass = if is_mock_enabled() {
         enable_mock_store();
@@ -145,9 +169,8 @@ pub fn load(server: &Server) -> Result<Option<String>, String> {
         let key = account(server);
         store.as_ref().and_then(|map| map.get(&key).cloned())
     } else {
-        let entry = match entry(server) {
-            Ok(e) => e,
-            Err(_) => return load_sso(),
+        let Ok(entry) = entry(server) else {
+            return load_sso();
         };
         entry.get_password().ok()
     };
@@ -159,6 +182,11 @@ pub fn load(server: &Server) -> Result<Option<String>, String> {
     load_sso()
 }
 
+/// Save a password for a server.
+///
+/// # Errors
+///
+/// Returns an error if the credential store cannot be written.
 pub fn save(server: &Server, password: &str) -> Result<(), String> {
     if is_mock_enabled() {
         enable_mock_store();
@@ -166,6 +194,7 @@ pub fn save(server: &Server, password: &str) -> Result<(), String> {
         if let Some(map) = store.as_mut() {
             map.insert(account(server), password.to_string());
         }
+        drop(store);
         return Ok(());
     }
 
@@ -174,6 +203,11 @@ pub fn save(server: &Server, password: &str) -> Result<(), String> {
         .map_err(|error| error.to_string())
 }
 
+/// Delete a password for a server.
+///
+/// # Errors
+///
+/// Returns an error if the credential store cannot be accessed.
 pub fn delete(server: &Server) -> Result<(), String> {
     if is_mock_enabled() {
         enable_mock_store();
@@ -181,6 +215,7 @@ pub fn delete(server: &Server) -> Result<(), String> {
         if let Some(map) = store.as_mut() {
             map.remove(&account(server));
         }
+        drop(store);
         return Ok(());
     }
 

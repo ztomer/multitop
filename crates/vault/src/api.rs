@@ -57,7 +57,7 @@ impl UnlockedVault {
     /// Returns `VaultError::Io` if saving the vault fails,
     /// `VaultError::Serialization` if the contents cannot be serialized,
     /// or other encryption-related errors.
-    pub fn set_password(&mut self, host: String, password: SecretString) -> Result<(), VaultError> {
+    pub fn set_password(&mut self, host: String, password: &SecretString) -> Result<(), VaultError> {
         self.contents.set(host, password);
         self.save()?;
         Ok(())
@@ -162,7 +162,7 @@ impl Vault {
     /// `VaultError::Io` if directory creation or file writing fails,
     /// `VaultError::Serialization` if contents cannot be serialized,
     /// or encryption-related errors.
-    #[allow(clippy::unused_async)]
+    #[allow(clippy::unused_async, clippy::unused_async_trait_impl)]
     pub async fn initialize(&self, system_password: &str) -> Result<(), VaultError> {
         if self.exists() {
             return Err(VaultError::AlreadyExists("Vault already exists".into()));
@@ -264,7 +264,7 @@ impl Vault {
     /// # Errors
     /// Returns `VaultError::BiometricFailed` if no biometric is available,
     /// the biometric verification fails, or the Secure Enclave key is invalidated.
-    #[allow(clippy::unused_async)]
+    #[allow(clippy::unused_async, clippy::unused_async_trait_impl)]
     async fn try_unlock_biometric(&self) -> Result<UnlockedVault, VaultError> {
         // Load vault file
         let vault_file = format::read_vault_file(&self.config.vault_path)?;
@@ -459,7 +459,7 @@ impl Vault {
     /// # Errors
     /// Returns `VaultError` if unlock fails, Secure Enclave is unavailable,
     /// or saving the vault fails.
-    #[allow(clippy::unused_async)]
+    #[allow(clippy::unused_async, clippy::unused_async_trait_impl)]
     pub async fn rebind_biometric(&self, password: &str) -> Result<(), VaultError> {
         let mut vault = self.unlock_with_password(password)?;
 
@@ -483,7 +483,7 @@ impl Vault {
     /// # Errors
     /// Returns `VaultError` if old password is wrong, new password encryption fails,
     /// or writing the vault fails.
-    #[allow(clippy::unused_async)]
+    #[allow(clippy::unused_async, clippy::unused_async_trait_impl)]
     pub async fn change_password(
         &self,
         old_password: &str,
@@ -539,7 +539,7 @@ impl Vault {
     /// # Errors
     /// Returns `VaultError` if migration flag cannot be read, old password is wrong,
     /// or re-saving the vault fails.
-    #[allow(clippy::unused_async)]
+    #[allow(clippy::unused_async, clippy::unused_async_trait_impl)]
     pub async fn complete_migration(&self, password: &str) -> Result<(), VaultError> {
         let migration_flag = self.config.vault_path.with_extension("bin.migrate");
         if !migration_flag.exists() {
@@ -573,6 +573,7 @@ impl Vault {
     /// # Errors
     /// Returns `VaultError` if vault file cannot be read, migration flag cannot be written,
     /// or unsupported vault version is detected.
+    #[allow(clippy::unused_async, clippy::unused_async_trait_impl)]
     pub async fn migrate_if_needed(vault_path: &std::path::Path) -> Result<(), VaultError> {
         use std::fs::OpenOptions;
         #[cfg(unix)]

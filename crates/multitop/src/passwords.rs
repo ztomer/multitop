@@ -147,6 +147,7 @@ pub fn handle_key(app: &mut App, key: KeyCode) -> PasswordAction {
     }
 }
 
+#[allow(clippy::expect_used)]
 fn password_key(app: &mut App, key: KeyCode) -> PasswordAction {
     let manager = app.password_manager.as_mut().expect("manager exists");
     if manager.editing {
@@ -227,6 +228,7 @@ fn password_key(app: &mut App, key: KeyCode) -> PasswordAction {
     PasswordAction::None
 }
 
+#[allow(clippy::expect_used)]
 fn server_key(app: &mut App, key: KeyCode) -> PasswordAction {
     let manager = app.password_manager.as_mut().expect("manager exists");
     if let Some(draft) = manager.draft.as_mut() {

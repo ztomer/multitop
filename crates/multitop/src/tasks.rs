@@ -141,8 +141,8 @@ pub fn spawn_docker(
     })
 }
 
-/// One-shot: runs the server's `upgrade_cmd`, streaming its output.
 #[must_use]
+#[allow(clippy::missing_panics_doc, clippy::too_many_lines, clippy::expect_used)]
 pub fn spawn_upgrade(
     idx: usize,
     gen: u64,

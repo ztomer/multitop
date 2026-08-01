@@ -78,13 +78,9 @@ impl Panel {
 
     pub fn show_last_frame(&mut self) {
         let pal = &multitop_agent::color::ANSI;
-        self.view = match &self.last_frame {
-            Some(f) => f.clone(),
-            None => vec![format!(
-                "{}waiting for data...{}",
-                pal.meter_mid(),
-                pal.reset
-            )],
-        };
+        self.view = self.last_frame.as_ref().map_or_else(
+            || vec![format!("{}waiting for data...{}", pal.meter_mid(), pal.reset)],
+            std::clone::Clone::clone,
+        );
     }
 }

@@ -35,6 +35,11 @@ impl VaultHeader {
         format!("multitop-vault-canary-{}", hex::encode(&canary_bytes[..16]))
     }
 
+    /// Create a new vault header.
+    ///
+    /// # Errors
+    /// Returns `VaultError::TooManyWrappers` if more than 8 wrappers are provided,
+    /// or `VaultError::WrapperTooLarge` if any wrapper data exceeds 65,535 bytes.
     pub fn new(
         ed25519_pk: crate::crypto::Ed25519PublicKey,
         salt: [u8; 32],
@@ -66,6 +71,11 @@ impl VaultHeader {
         })
     }
 
+    /// Create a new vault header with a pre-generated canary.
+    ///
+    /// # Errors
+    /// Returns `VaultError::TooManyWrappers` if more than 8 wrappers are provided,
+    /// or `VaultError::WrapperTooLarge` if any wrapper data exceeds 65,535 bytes.
     pub fn new_with_canary(
         ed25519_pk: crate::crypto::Ed25519PublicKey,
         salt: [u8; 32],
@@ -106,6 +116,11 @@ impl VaultHeader {
             .find(|w| w.wrapper_type == wrapper_type)
     }
 
+    /// Add a wrapper to the header.
+    ///
+    /// # Errors
+    /// Returns `VaultError::TooManyWrappers` if more than 8 wrappers would exist,
+    /// or `VaultError::WrapperTooLarge` if the wrapper data exceeds 65,535 bytes.
     pub fn add_wrapper(
         &mut self,
         wrapper: crate::crypto::Wrapper,
@@ -127,6 +142,10 @@ impl VaultHeader {
         Ok(())
     }
 
+    /// Replace an existing wrapper or add a new one.
+    ///
+    /// # Errors
+    /// Returns `VaultError::WrapperTooLarge` if the wrapper data exceeds 65,535 bytes.
     pub fn replace_wrapper(
         &mut self,
         wrapper: crate::crypto::Wrapper,
@@ -145,17 +164,22 @@ impl VaultHeader {
         self.get_wrapper(wrapper_type).is_some()
     }
 
-    /// Data that gets signed (header without signature + ciphertext)
+    /// Data that gets signed (header without signature + ciphertext).
     #[must_use]
     pub fn signed_data(&self, ciphertext: &[u8]) -> Vec<u8> {
         let mut data = Vec::new();
-        self.write_header_without_sig(&mut data)
-            .expect("write to vec");
+        // Writing to a Vec<u8> never fails
+        self.write_header_without_sig(&mut data);
         data.extend_from_slice(ciphertext);
         data
     }
 
-    fn write_header_without_sig(&self, buf: &mut Vec<u8>) -> std::io::Result<()> {
+    /// Write header without signature to buffer.
+    ///
+    /// # Errors
+    /// Returns `std::io::Error` if writing to the buffer fails (never for Vec<u8>).
+    #[allow(clippy::unnecessary_wraps)]
+    fn write_header_without_sig(&self, buf: &mut Vec<u8>) {
         buf.extend_from_slice(&self.magic);
         buf.push(self.version);
         buf.push(self.key_version);
@@ -165,9 +189,13 @@ impl VaultHeader {
         buf.push(self.argon2_params.t);
         buf.extend_from_slice(&self.argon2_params.m_kib.to_le_bytes());
         buf.push(self.argon2_params.p);
+        // wrappers.len() <= 8 (enforced by add_wrapper/replace_wrapper)
+        #[allow(clippy::cast_possible_truncation)]
         buf.push(self.wrappers.len() as u8);
         for w in &self.wrappers {
             buf.push(w.wrapper_type as u8);
+            // w.data.len() <= 65535 (enforced by Wrapper::new)
+            #[allow(clippy::cast_possible_truncation)]
             let len = w.data.len() as u16;
             buf.extend_from_slice(&len.to_le_bytes());
             buf.extend_from_slice(&w.data);
@@ -176,25 +204,45 @@ impl VaultHeader {
         buf.extend_from_slice(&self.ed25519_pk.0);
         // Write canary (length + string)
         let canary_bytes = self.canary.as_bytes();
+        // canary is fixed format "multitop-vault-canary-" + 32 hex chars = 57 chars < 65535
+        #[allow(clippy::cast_possible_truncation)]
         buf.extend_from_slice(&(canary_bytes.len() as u16).to_le_bytes());
         buf.extend_from_slice(canary_bytes);
-        Ok(())
     }
 
     #[must_use]
     pub fn to_bytes(&self) -> Vec<u8> {
         let mut buf = Vec::new();
-        self.write_header_without_sig(&mut buf)
-            .expect("write to vec");
+        // Writing to a Vec<u8> never fails
+        self.write_header_without_sig(&mut buf);
         buf.extend_from_slice(&self.signature.0);
         buf
     }
 
+    /// Deserialize header from bytes.
+    ///
+    /// # Errors
+    /// Returns `VaultError::ParseError` if bytes cannot be parsed,
+    /// `VaultError::InvalidFormat` if magic is incorrect,
+    /// `VaultError::UnsupportedVersion` if version is not supported.
     pub fn from_bytes(bytes: &[u8]) -> Result<Self, crate::VaultError> {
         let mut cursor = Cursor::new(bytes);
         Self::from_cursor(&mut cursor)
     }
 
+    /// Deserialize header from cursor.
+    ///
+    /// # Errors
+    /// Returns `VaultError::ParseError` if bytes cannot be parsed,
+    /// `VaultError::InvalidFormat` if magic is incorrect,
+    /// `VaultError::UnsupportedVersion` if version is not supported.
+    /// Deserialize header from cursor.
+    ///
+    /// # Errors
+    /// Returns `VaultError::ParseError` if bytes cannot be parsed,
+    /// `VaultError::InvalidFormat` if magic is incorrect,
+    /// `VaultError::UnsupportedVersion` if version is not supported.
+    #[allow(clippy::too_many_lines)]
     fn from_cursor(cursor: &mut Cursor<&[u8]>) -> Result<Self, crate::VaultError> {
         let mut magic = [0u8; 4];
         cursor
@@ -345,11 +393,20 @@ pub struct VaultFile {
 }
 
 impl VaultFile {
+    /// Read vault file from disk.
+    ///
+    /// # Errors
+    /// Returns `VaultError::Io` if the file cannot be read,
+    /// or parse/format errors from `from_bytes`.
     pub fn read(path: &std::path::Path) -> Result<Self, crate::VaultError> {
         let bytes = std::fs::read(path).map_err(crate::VaultError::Io)?;
         Self::from_bytes(&bytes)
     }
 
+    /// Deserialize vault file from bytes.
+    ///
+    /// # Errors
+    /// Returns `VaultError` if header parsing fails or file is too short.
     pub fn from_bytes(bytes: &[u8]) -> Result<Self, crate::VaultError> {
         let header = VaultHeader::from_bytes(bytes)?;
         let header_size = header.to_bytes().len();
@@ -364,12 +421,20 @@ impl VaultFile {
     }
 }
 
-/// Read vault file from disk
+/// Read vault file from disk.
+///
+/// # Errors
+/// Returns `VaultError::Io` if the file cannot be read,
+/// or parse/format errors from `from_bytes`.
 pub fn read_vault_file(path: &std::path::Path) -> Result<VaultFile, crate::VaultError> {
     VaultFile::read(path)
 }
 
-/// Atomically write vault file (tmp + rename + dir fsync) with advisory file locking
+/// Atomically write vault file (tmp + rename + dir fsync) with advisory file locking.
+///
+/// # Errors
+/// Returns `VaultError::Io` if file operations fail,
+/// or `VaultError::Io` if locking/syncing fails.
 pub fn atomic_write_vault(
     path: &std::path::Path,
     header: &VaultHeader,
@@ -394,7 +459,6 @@ pub fn atomic_write_vault(
 
     // Open the vault file for writing and acquire exclusive lock
     let tmp_path = path.with_extension("bin.tmp");
-    #[allow(unused_mut)]
     let mut open_opts = OpenOptions::new();
     open_opts.write(true).create_new(true);
     #[cfg(unix)]

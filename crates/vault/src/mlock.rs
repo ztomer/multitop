@@ -56,6 +56,9 @@ pub struct LockedMemory {
 
 impl LockedMemory {
     /// Lock the memory for the given slice. Copies data into owned Vec.
+    ///
+    /// # Errors
+    /// Returns `std::io::Error` if `mlock` fails with an error other than `ENOMEM` or `EPERM`.
     pub fn new(slice: &[u8]) -> Result<Self, std::io::Error> {
         let data = slice.to_vec();
         let ptr = data.as_ptr();

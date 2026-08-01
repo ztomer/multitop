@@ -7,8 +7,6 @@
 
 #![allow(clippy::expect_used)]
 
-use std::path::Path;
-
 /// FNV-1a. The hash keys the remote cache filename; it needs to change when
 /// the bytes change, nothing more.
 fn fnv1a(bytes: &[u8]) -> u64 {
@@ -21,6 +19,9 @@ fn fnv1a(bytes: &[u8]) -> u64 {
 }
 
 fn main() {
+    use std::fmt::Write;
+    use std::path::Path;
+
     let out_dir = std::env::var("OUT_DIR").expect("OUT_DIR");
     let mut src = String::new();
 
@@ -33,16 +34,16 @@ fn main() {
         if !path.is_empty() && Path::new(&path).is_file() {
             println!("cargo:rerun-if-changed={path}");
             let bytes = std::fs::read(&path).expect("read agent binary");
-            src.push_str(&format!(
+            write!(src,
                 "pub static AGENT_{ident}: Option<&[u8]> = Some(include_bytes!(r\"{path}\"));\n\
                  pub static HASH_{ident}: &str = \"{:016x}\";\n",
                 fnv1a(&bytes)
-            ));
+            ).expect("write to src");
         } else {
-            src.push_str(&format!(
+            write!(src,
                 "pub static AGENT_{ident}: Option<&[u8]> = None;\n\
                  pub static HASH_{ident}: &str = \"missing\";\n"
-            ));
+            ).expect("write to src");
         }
     }
 

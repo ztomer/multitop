@@ -63,14 +63,15 @@ fn config_home() -> PathBuf {
     if let Some(dir) = std::env::var_os("XDG_CONFIG_HOME").filter(|s| !s.is_empty()) {
         return PathBuf::from(dir);
     }
-    match std::env::var_os("HOME") {
-        Some(home) => PathBuf::from(home).join(".config"),
-        None => PathBuf::from(".config"),
-    }
+    std::env::var_os("HOME")
+        .map_or_else(|| PathBuf::from(".config"), |home| PathBuf::from(home).join(".config"))
 }
 
-/// A user name lands in an `ssh` argv slot; whitespace there silently splits
-/// into extra arguments, so reject it rather than connecting somewhere odd.
+/// Validate that a user name contains no whitespace.
+///
+/// # Errors
+///
+/// Returns an error if the user name contains whitespace.
 pub fn validate_user(user: &str) -> Result<(), ConfigError> {
     if user.chars().any(char::is_whitespace) {
         return err(format!("Invalid user '{user}': contains whitespace"));
@@ -78,7 +79,11 @@ pub fn validate_user(user: &str) -> Result<(), ConfigError> {
     Ok(())
 }
 
-/// A host with whitespace would likewise be split by `ssh`.
+/// Validate that a host name contains no whitespace.
+///
+/// # Errors
+///
+/// Returns an error if the host name contains whitespace.
 pub fn validate_host(host: &str) -> Result<(), ConfigError> {
     if host.chars().any(char::is_whitespace) {
         return err(format!("Invalid host '{host}': contains whitespace"));
@@ -121,9 +126,14 @@ pub struct Config {
 }
 
 /// Read and validate the server list and config settings.
+///
+/// # Errors
+///
+/// Returns an error if the config file cannot be read or parsed.
+#[allow(clippy::expect_used)]
 pub fn load(path: &Path) -> Result<Config, ConfigError> {
     let legacy = legacy_config_path();
-    let text = if let Ok(t) = std::fs::read_to_string(path) { t } else {
+    let Ok(text) = std::fs::read_to_string(path) else {
         let legacy = legacy.exists().then_some(legacy);
         return Err(missing_config_message(path, legacy.as_deref()));
     };
@@ -132,6 +142,15 @@ pub fn load(path: &Path) -> Result<Config, ConfigError> {
 
 /// Parse config text. Split from [`load`] so the validation rules are
 /// testable without touching the filesystem.
+///
+/// # Panics
+///
+/// Panics if a port value cannot be converted to `u16`.
+///
+/// # Errors
+///
+/// Returns an error if the text cannot be parsed as TOML.
+#[allow(clippy::unwrap_used, clippy::expect_used)]
 pub fn parse(text: &str) -> Result<Config, ConfigError> {
     // `Value::from_str` parses a bare value; a whole document needs the
     // deserializer entry point.
@@ -175,7 +194,8 @@ pub fn parse(text: &str) -> Result<Config, ConfigError> {
         let port = match table.get("port") {
             None => DEFAULT_PORT,
             Some(v) => match v.as_integer() {
-                Some(p) if (1..=65535).contains(&p) => p as u16,
+#[allow(clippy::unwrap_used)]
+                Some(p) if (1..=65535).contains(&p) => u16::try_from(p).expect("port in valid range"),
                 _ => return err(format!("Server entry at index {idx} has an invalid 'port'")),
             },
         };
@@ -198,7 +218,7 @@ pub fn parse(text: &str) -> Result<Config, ConfigError> {
         .get("upgrade_history_lines")
         .or_else(|| value.get("history_lines"))
         .and_then(toml::Value::as_integer)
-        .map_or(DEFAULT_UPGRADE_HISTORY_LINES, |v| v as usize);
+        .map_or(DEFAULT_UPGRADE_HISTORY_LINES, |v| usize::try_from(v).expect("history lines in valid range"));
 
     let show_sparklines = value
         .get("show_sparklines")
@@ -247,6 +267,10 @@ pub fn save_show_sparklines(path: &Path, show: bool) {
 }
 
 /// Replace the server list while preserving other top-level configuration.
+///
+/// # Errors
+///
+/// Returns an error if the file cannot be written.
 pub fn save_servers(path: &Path, servers: &[Server]) -> Result<(), String> {
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent).map_err(|error| error.to_string())?;
