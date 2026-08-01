@@ -117,7 +117,9 @@ pub fn draw_upgrade_modal(f: &mut Frame, app: &App) {
     f.render_widget(paragraph, popup_rect);
 }
 
-pub fn draw_vault_awaiting_biometric(f: &mut Frame) {
+/// The "please wait" modal, shown while a biometric prompt or an Argon2
+/// password verification is outstanding. `verifying` picks the wording.
+pub fn draw_vault_awaiting_biometric(f: &mut Frame, verifying: bool) {
     let area = f.area();
     let popup_width = (64u16).min(area.width.saturating_sub(2));
     let popup_height = (8u16).min(area.height.saturating_sub(2));
@@ -140,7 +142,11 @@ pub fn draw_vault_awaiting_biometric(f: &mut Frame) {
     );
 
     let block = ratatui::widgets::Block::default()
-        .title(" Vault Locked ")
+        .title(if verifying {
+            " Unlocking Vault "
+        } else {
+            " Vault Locked "
+        })
         .title_style(
             Style::default()
                 .fg(accent_color)
@@ -154,12 +160,20 @@ pub fn draw_vault_awaiting_biometric(f: &mut Frame) {
     let lines = vec![
         Line::from(""),
         Line::from(vec![Span::styled(
-            "  Unlocking with Touch ID / fingerprint…",
+            if verifying {
+                "  Checking the master password\u{2026}"
+            } else {
+                "  Unlocking with Touch ID / fingerprint\u{2026}"
+            },
             Style::default().fg(Color::White),
         )]),
         Line::from(""),
         Line::from(vec![Span::styled(
-            "  Cancel the system prompt to use the vault password instead.",
+            if verifying {
+                "  This takes a moment by design. Esc to cancel."
+            } else {
+                "  Esc to cancel and use the vault password instead."
+            },
             Style::default().fg(Color::DarkGray),
         )]),
     ];

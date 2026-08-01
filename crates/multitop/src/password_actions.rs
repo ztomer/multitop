@@ -137,16 +137,25 @@ pub fn apply(
             let result = crate::password_store::save(&app.panels[panel].server, &password);
             let stored = result.is_ok();
             app.panels[panel].password_saved = stored;
-            // Also save to vault if unlocked
-            if let Some(ref mut unlocked) = app.vault_unlocked_mut() {
-                let _ = unlocked
-                    .set_password(key, &SecretString::new(password.clone().into_boxed_str()));
-            }
+            // Also save to vault if unlocked. The result is reported: dropping
+            // it told the user "saved securely" whenever the keychain write
+            // succeeded, even if the vault -- the thing they created to hold
+            // this -- never received it.
+            let vault_error = app.vault_unlocked_mut().and_then(|unlocked| {
+                unlocked
+                    .set_password(key, &SecretString::new(password.clone().into_boxed_str()))
+                    .err()
+            });
             if let Some(manager) = app.password_manager.as_mut() {
                 manager.resume_upgrade = false;
-                manager.notice = Some(match result {
-                    Ok(()) => "Password saved securely in system credential store.".to_string(),
-                    Err(error) => {
+                manager.notice = Some(match (&result, &vault_error) {
+                    (Ok(()), None) => {
+                        "Password saved securely in system credential store.".to_string()
+                    }
+                    (Ok(()), Some(e)) => {
+                        format!("Saved to the credential store, but NOT to the vault: {e}")
+                    }
+                    (Err(error), _) => {
                         format!("Password kept for this session; save failed: {error}")
                     }
                 });

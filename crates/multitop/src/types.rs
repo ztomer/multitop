@@ -55,6 +55,9 @@ pub enum Msg {
     VaultCreated(Box<multitop_vault::UnlockedVault>),
     /// Creating the vault failed; the message is shown on the prompt.
     VaultCreateFailed(String),
+    /// A password unlock attempt finished unsuccessfully. Carries the reason so
+    /// the prompt can show it.
+    VaultUnlockFailed(String),
     /// The vault was unlocked by biometric (Touch ID / fingerprint).
     VaultUnlocked(multitop_vault::UnlockedVault),
     /// Biometric unlock was unavailable or cancelled; the TUI falls back to

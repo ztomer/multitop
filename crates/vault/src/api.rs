@@ -247,32 +247,30 @@ impl Vault {
         Ok(())
     }
 
-    /// Unlock vault with biometric (Touch ID / fingerprint)
+    /// Unlock vault with biometric (Touch ID / fingerprint).
+    ///
+    /// There is no password fallback here by design -- see the body. The caller
+    /// owns the terminal and therefore owns any password prompt.
     ///
     /// # Errors
-    /// Returns `VaultError::BiometricFailed` if biometric is unavailable and
-    /// `password_fallback` is false, or if biometric fails and password fallback
-    /// also fails. Returns `VaultError::Io` if password prompting fails.
-    pub async fn unlock_biometric(
-        &self,
-        password_fallback: bool,
-    ) -> Result<(UnlockedVault, UnlockResult), VaultError> {
+    /// Returns `VaultError::BiometricFailed` if biometric is unavailable or the
+    /// verification does not succeed.
+    pub async fn unlock_biometric(&self) -> Result<(UnlockedVault, UnlockResult), VaultError> {
         // Try biometric first
         if let Ok(vault) = self.try_unlock_biometric().await {
             return Ok((vault, UnlockResult::Biometric));
         }
 
-        // Biometric failed or unavailable
-        if !password_fallback {
-            return Err(VaultError::BiometricFailed);
-        }
-
-        // Prompt for password
-        let password = rpassword::prompt_password("Enter sudo password to unlock vault: ")
-            .map_err(|e| VaultError::Io(std::io::Error::other(e)))?;
-
-        let vault = self.unlock_with_password(&password)?;
-        Ok((vault, UnlockResult::Password))
+        // Biometric failed or unavailable.
+        //
+        // This deliberately does NOT prompt for a password. It used to call
+        // `rpassword::prompt_password`, a blocking stdin read -- from a library
+        // whose only caller is a full-screen TUI holding the terminal in raw
+        // mode on the alternate screen. That read cannot be seen, cannot be
+        // typed into, and blocks the caller forever. The caller owns the
+        // terminal, so the caller owns the prompt: it asks the user and calls
+        // `unlock_with_password` itself.
+        Err(VaultError::BiometricFailed)
     }
 
     /// Try to unlock with biometric only (no password fallback)
@@ -304,9 +302,11 @@ impl Vault {
                     Err(VaultError::BiometricFailed) => {
                         // Fall through to password
                     }
-                    Err(e) => {
-                        // Key invalidated (macOS update, etc.) - fall through
-                        eprintln!("Secure Enclave error: {e:?}");
+                    Err(_e) => {
+                        // Key invalidated (macOS update, etc.) - fall through to
+                        // the caller's password path. Deliberately silent: this
+                        // library is used by a full-screen TUI, and a stray
+                        // stderr write lands on top of the rendered UI.
                     }
                 }
             }
@@ -386,14 +386,21 @@ impl Vault {
 
         let unlocked = self.decrypt_and_load(vault_key, &vault_file)?;
 
-        // Check rollback: ensure counter hasn't regressed
+        // The password was correct: decryption and the canary both passed.
+        // Mark success BEFORE the rollback check, because a rollback is not a
+        // failed authentication attempt. Recording it as one fed the
+        // exponential backoff and the ten-attempt hard lockout, so restoring a
+        // backup locked the user out while telling them they were being rate
+        // limited for guessing.
+        guard.mark_success();
+
+        // Check rollback: ensure counter hasn't regressed.
         crate::rollback::check_counter(
             &self.config.vault_path,
             unlocked.header.counter,
             unlocked.header.created_timestamp_ms,
         )?;
 
-        guard.mark_success();
         Ok(unlocked)
     }
 
@@ -432,8 +439,9 @@ impl Vault {
         // Lock vault key in memory to prevent swapping (best-effort)
         let key_lock = match crate::mlock::LockedMemory::new(vault_key.as_bytes()) {
             Ok(lock) => lock,
-            Err(e) => {
-                eprintln!("vault: mlock warning: {e}");
+            Err(_e) => {
+                // Best-effort only, and silent: see the note above about stderr
+                // and the TUI. The vault works without the memory lock.
                 crate::mlock::LockedMemory::noop()
             }
         };
@@ -458,8 +466,8 @@ impl Vault {
         }
         drop(unlocked);
 
-        // Try biometric with password fallback
-        let (vault, _) = self.unlock_biometric(true).await?;
+        // Biometric only; there is no password fallback in the library.
+        let (vault, _) = self.unlock_biometric().await?;
         Ok(vault)
     }
 
@@ -563,7 +571,7 @@ impl Vault {
             return Ok(());
         }
 
-        let old_version = std::fs::read_to_string(&migration_flag)
+        let _old_version = std::fs::read_to_string(&migration_flag)
             .map_err(VaultError::Io)?
             .parse::<u8>()
             .map_err(|e| VaultError::ParseError(format!("invalid migration flag: {e}")))?;
@@ -580,7 +588,6 @@ impl Vault {
         // Remove migration flag
         std::fs::remove_file(&migration_flag).map_err(VaultError::Io)?;
 
-        eprintln!("vault: migration from v{old_version} to v2 complete");
         Ok(())
     }
 }
@@ -591,6 +598,17 @@ impl Vault {
 /// Returns `VaultError` if vault file cannot be read, migration flag cannot be written,
 /// or unsupported vault version is detected.
 #[allow(clippy::unused_async, clippy::unused_async_trait_impl)]
+/// # Unreachable today
+///
+/// This cannot run. It begins by calling `read_vault_file`, whose header parse
+/// rejects any file whose magic is not `MQV2` *and* any version that is not
+/// `CURRENT_VERSION`, so a v0/v1 file errors out before the match below is
+/// reached. Nothing outside this crate calls it either.
+///
+/// It is left in place rather than deleted because the `version` and `key_version`
+/// bytes are a real forward-compatibility hook and a future format change will
+/// want this shape. Anyone wiring it up must first make the reader tolerant of
+/// older versions, or it will keep failing at the first line.
 pub async fn migrate_if_needed(vault_path: &std::path::Path) -> Result<(), VaultError> {
     use std::fs::OpenOptions;
     #[cfg(unix)]
@@ -605,7 +623,6 @@ pub async fn migrate_if_needed(vault_path: &std::path::Path) -> Result<(), Vault
         0 | 1 => {
             // Migrate v1 -> v2: Add canary field if missing
             // v1 vaults don't have the canary field, so we need to re-encrypt
-            eprintln!("vault: migrating from v{} to v2", vault_file.header.version);
 
             // For now, we can't migrate without the password
             // The migration will happen on next unlock with password
@@ -810,7 +827,7 @@ mod tests {
 
         // Biometric will fail, should fall back to password prompt
         // Since we can't mock stdin, this will fail with IO error
-        let result = vault.unlock_biometric(true).await;
+        let result = vault.unlock_biometric().await;
         assert!(result.is_err());
     }
 
@@ -824,7 +841,7 @@ mod tests {
         vault.initialize("password").await.unwrap();
 
         // Biometric will fail, no fallback
-        let result = vault.unlock_biometric(false).await;
+        let result = vault.unlock_biometric().await;
         assert!(result.is_err());
         assert!(matches!(result, Err(VaultError::BiometricFailed)));
     }

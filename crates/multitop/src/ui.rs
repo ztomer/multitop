@@ -414,8 +414,8 @@ pub fn draw(f: &mut Frame, app: &App) {
         keybar,
     );
 
-    if app.vault_awaiting_biometric() {
-        crate::modals::draw_vault_awaiting_biometric(f);
+    if app.vault_awaiting_biometric() || app.vault_verifying() {
+        crate::modals::draw_vault_awaiting_biometric(f, app.vault_verifying());
     } else if app.show_vault_password_prompt() || app.vault_creating() {
         crate::modals::draw_vault_password_prompt(f, app);
     } else if app.show_upgrade_modal() {

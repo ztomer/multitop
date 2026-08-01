@@ -27,7 +27,9 @@ pub fn mlock_memory(ptr: *const u8, len: usize) -> Result<(), std::io::Error> {
         let err = std::io::Error::last_os_error();
         match err.raw_os_error() {
             Some(libc::ENOMEM | libc::EPERM) => {
-                eprintln!("vault: mlock failed ({err}), continuing without memory lock");
+                // Silent: a stray stderr write lands on top of the TUI. This is a
+                // best-effort lock and the vault works without it.
+                let _ = &err;
                 Ok(())
             }
             _ => Err(err),

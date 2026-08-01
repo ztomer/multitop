@@ -408,7 +408,7 @@ async fn test_vault_biometric_failed_falls_back_to_password() {
 }
 
 /// Bug b: real end-to-end of the spawned biometric task. On a machine without
-/// usable biometrics (the test environment), `unlock_biometric(false)` returns
+/// usable biometrics (the test environment), `unlock_biometric()` returns
 /// `BiometricFailed` and the task must emit `VaultBiometricFailed` so the TUI
 /// shows the password prompt — never a hang or a crash.
 #[tokio::test]
@@ -419,7 +419,7 @@ async fn test_vault_biometric_task_emits_fallback_on_unavailable() {
     let (tx, mut rx) = mpsc::channel::<Msg>(4);
     let tx2 = tx.clone();
     let handle = tokio::spawn(async move {
-        match vault.unlock_biometric(false).await {
+        match vault.unlock_biometric().await {
             Ok((unlocked, _)) => {
                 let _ = tx2.send(Msg::VaultUnlocked(unlocked)).await;
             }
@@ -462,7 +462,7 @@ async fn test_vault_biometric_failures_do_not_trigger_lockout() {
 
     // Simulate a handful of biometric failures (unavailable/cancelled).
     for _ in 0..5 {
-        assert!(vault.unlock_biometric(false).await.is_err());
+        assert!(vault.unlock_biometric().await.is_err());
     }
 
     // A correct password must still unlock immediately — no RateLimited error.

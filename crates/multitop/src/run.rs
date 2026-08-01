@@ -42,6 +42,10 @@ pub async fn run(
     result
 }
 
+/// How long to wait for a biometric result before giving up and offering the
+/// password prompt instead.
+const BIOMETRIC_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(45);
+
 pub struct Tasks {
     monitors: Vec<Option<JoinHandle<()>>>,
     pub aux: Vec<Option<JoinHandle<()>>>,
@@ -261,9 +265,23 @@ pub fn handle_key(
         return;
     }
 
-    // While the biometric prompt is up, ignore other keys. The outcome arrives
-    // as a `VaultUnlocked` / `VaultBiometricFailed` message.
+    // While the biometric prompt is up, ignore other keys -- except the ones
+    // that get the user out. The outcome normally arrives as a `VaultUnlocked` /
+    // `VaultBiometricFailed` message, but if that task dies or hangs, every key
+    // including quit was being swallowed and the app could only be killed.
     if app.vault_awaiting_biometric() {
+        if matches!(key.code, KeyCode::Esc | KeyCode::Char('q' | 'Q')) {
+            app.cancel_vault_biometric();
+        }
+        return;
+    }
+
+    // Same again while a password is being verified off-thread: show progress,
+    // swallow stray keys, but never trap the user.
+    if app.vault_verifying() {
+        if matches!(key.code, KeyCode::Esc) {
+            app.cancel_vault_verify();
+        }
         return;
     }
 
@@ -335,23 +353,22 @@ pub fn handle_key(
         match key.code {
             KeyCode::Enter => {
                 let password = std::mem::take(app.vault_password_input_mut());
-                app.set_show_vault_password_prompt(false);
                 if !password.is_empty() {
-                    if let Some(ref vault) = app.vault {
-                        match vault.unlock_with_password(&password) {
-                            Ok(unlocked) => {
-                                app.set_vault_password_error(None);
-                                app.vault_state = VaultState::Unlocked {
-                                    vault: Box::new(unlocked),
-                                    awaiting_biometric: false,
-                                };
-                                app.set_show_upgrade_modal(true);
-                            }
-                            Err(e) => {
-                                app.set_vault_password_error(Some(e.to_string()));
-                                app.set_show_vault_password_prompt(true);
-                            }
-                        }
+                    if let Some(vault) = app.vault.clone() {
+                        // Argon2id is tuned to a quarter of system RAM, capped at
+                        // 1 GiB, so unwrapping the key takes real time. Running it
+                        // here froze the entire UI -- no redraw, no keys, no
+                        // messages -- until it finished. Hand it to a blocking
+                        // thread and let the result come back as a message.
+                        app.set_vault_unlocking();
+                        let tx2 = tx.clone();
+                        tokio::task::spawn_blocking(move || {
+                            let msg = match vault.unlock_with_password(&password) {
+                                Ok(unlocked) => Msg::VaultUnlocked(unlocked),
+                                Err(e) => Msg::VaultUnlockFailed(e.to_string()),
+                            };
+                            let _ = tx2.blocking_send(msg);
+                        });
                     }
                 }
             }
@@ -477,14 +494,16 @@ pub fn handle_key(
                 // or cancelled (a `VaultBiometricFailed` message).
                 let tx2 = tx.clone();
                 tokio::spawn(async move {
-                    match vault.unlock_biometric(false).await {
-                        Ok((unlocked, _)) => {
-                            let _ = tx2.send(Msg::VaultUnlocked(unlocked)).await;
-                        }
-                        Err(_) => {
-                            let _ = tx2.send(Msg::VaultBiometricFailed).await;
-                        }
-                    }
+                    // Bounded: the UI blocks input while awaiting the result, so
+                    // a Secure Enclave call that never returns would otherwise
+                    // wedge the whole app.
+                    let attempt =
+                        tokio::time::timeout(BIOMETRIC_TIMEOUT, vault.unlock_biometric()).await;
+                    let msg = match attempt {
+                        Ok(Ok((unlocked, _))) => Msg::VaultUnlocked(unlocked),
+                        Ok(Err(_)) | Err(_) => Msg::VaultBiometricFailed,
+                    };
+                    let _ = tx2.send(msg).await;
                 });
             } else {
                 app.set_show_upgrade_modal(true);

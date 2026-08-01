@@ -16,9 +16,7 @@ pub fn store_counter(vault_path: &Path, counter: u32, created_ts: u64) {
         Ok(entry) => {
             let _ = entry.set_password(&value);
         }
-        Err(e) => {
-            eprintln!("rollback: failed to create keyring entry: {e}");
-        }
+        Err(_e) => {}
     }
 }
 
@@ -50,8 +48,7 @@ pub fn check_counter(
             store_counter(vault_path, counter, created_ts);
             return Ok(());
         }
-        Err(e) => {
-            eprintln!("rollback: failed to read keyring entry: {e}");
+        Err(_e) => {
             return Ok(()); // Keychain error, skip check
         }
     };

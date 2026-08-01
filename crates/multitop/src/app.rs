@@ -204,6 +204,47 @@ impl App {
         }
     }
 
+    /// True while a password is being verified off the event loop.
+    ///
+    /// Argon2id takes real time, so the attempt runs on a blocking thread and
+    /// the UI shows this instead of freezing.
+    #[must_use]
+    pub const fn vault_verifying(&self) -> bool {
+        matches!(
+            self.vault_state,
+            VaultState::Unlocking {
+                awaiting_biometric: false
+            }
+        )
+    }
+
+    /// Enter the "verifying password" state.
+    pub fn set_vault_unlocking(&mut self) {
+        self.vault_state = VaultState::Unlocking {
+            awaiting_biometric: false,
+        };
+        self.vault_password_input.clear();
+    }
+
+    /// Give up on an in-flight biometric attempt.
+    ///
+    /// The UI blocks input while awaiting a biometric result, so without this
+    /// a task that never reports leaves the app unusable -- not even quit works.
+    pub fn cancel_vault_biometric(&mut self) {
+        if self.vault_awaiting_biometric() {
+            self.vault_state = VaultState::Locked;
+            self.vault_password_input.clear();
+        }
+    }
+
+    /// Stop waiting on an in-flight password verification. The blocking task
+    /// still finishes; its result is ignored because the state has moved on.
+    pub fn cancel_vault_verify(&mut self) {
+        if self.vault_verifying() {
+            self.vault_state = VaultState::Locked;
+        }
+    }
+
     /// True while the user is choosing a master password for a brand new vault.
     #[must_use]
     pub const fn vault_creating(&self) -> bool {
@@ -252,9 +293,26 @@ impl App {
                 Some((crate::password_store::account(&p.server), pass))
             })
             .collect();
+        let mut failed = 0usize;
         if let VaultState::Unlocked { ref mut vault, .. } = &mut self.vault_state {
             for (key, pass) in known {
-                let _ = vault.set_password(key, &secrecy::SecretString::from(pass));
+                if vault
+                    .set_password(key, &secrecy::SecretString::from(pass))
+                    .is_err()
+                {
+                    failed += 1;
+                }
+            }
+        }
+        // Say so rather than leaving the user believing the vault holds
+        // passwords it never received.
+        if failed > 0 {
+            let note = format!(
+                "\u{26a0} {failed} password(s) could not be written to the new vault; \
+                 they remain in the OS credential store."
+            );
+            for p in &mut self.panels {
+                p.view.push(note.clone());
             }
         }
     }
@@ -884,6 +942,11 @@ impl App {
                             .to_string(),
                     );
                 }
+            }
+            Msg::VaultUnlockFailed(error) => {
+                // Back to the prompt with the reason, rather than silently
+                // dropping the user somewhere with no explanation.
+                self.vault_state = VaultState::PasswordPrompt { error: Some(error) };
             }
             Msg::VaultCreateFailed(error) => {
                 self.vault_state = VaultState::Creating { error: Some(error) };
