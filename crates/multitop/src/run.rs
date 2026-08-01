@@ -100,6 +100,16 @@ async fn event_loop(
         if cfg.show_sparklines {
             app.toggle_sparklines();
         }
+        // A sudo password in config.toml is plaintext on disk and was never
+        // even read. Move any we find into the OS credential store and delete
+        // them from the file, once, so the unsupported mechanism cannot linger.
+        if !cfg.plaintext_passwords.is_empty() {
+            crate::password_actions::port_plaintext_passwords(
+                &mut app,
+                &config_path,
+                &cfg.plaintext_passwords,
+            );
+        }
     }
     let state = crate::state::load_state(&config_path);
     app.last_update = state.last_update;
@@ -266,6 +276,56 @@ pub fn handle_key(
             KeyCode::Esc | KeyCode::Char('q' | 'Q' | 'n' | 'N') => {
                 app.set_show_upgrade_modal(false);
             }
+            _ => {}
+        }
+        return;
+    }
+
+    if app.vault_creating() {
+        match key.code {
+            KeyCode::Enter => {
+                let master = std::mem::take(app.vault_password_input_mut());
+                if master.is_empty() {
+                    app.vault_state = VaultState::Creating {
+                        error: Some("Master password cannot be empty".into()),
+                    };
+                    return;
+                }
+                let Some(path) = app.vault_path() else {
+                    app.vault_state = VaultState::Creating {
+                        error: Some("No config directory to create the vault in".into()),
+                    };
+                    return;
+                };
+                let tx2 = tx.clone();
+                tokio::spawn(async move {
+                    let vault = multitop_vault::Vault::new(multitop_vault::VaultConfig {
+                        vault_path: path,
+                        argon2_params: None,
+                    });
+                    let msg = match vault.initialize(&master).await {
+                        // Unlock with the same password we just set, so the
+                        // vault is immediately usable and can take the password
+                        // whose save started all this.
+                        Ok(()) => match vault.unlock_with_password(&master) {
+                            Ok(unlocked) => Msg::VaultCreated(Box::new(unlocked)),
+                            Err(e) => Msg::VaultCreateFailed(e.to_string()),
+                        },
+                        Err(e) => Msg::VaultCreateFailed(e.to_string()),
+                    };
+                    let _ = tx2.send(msg).await;
+                });
+            }
+            KeyCode::Esc => {
+                // Declining leaves the password in the OS credential store,
+                // which still works; only the encrypted vault is skipped.
+                app.vault_state = VaultState::Locked;
+                app.vault_password_input_mut().clear();
+            }
+            KeyCode::Backspace => {
+                app.vault_password_input_mut().pop();
+            }
+            KeyCode::Char(c) => app.vault_password_input_mut().push(c),
             _ => {}
         }
         return;

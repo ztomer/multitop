@@ -409,7 +409,7 @@ pub fn draw(f: &mut Frame, app: &App) {
 
     if app.vault_awaiting_biometric() {
         crate::modals::draw_vault_awaiting_biometric(f);
-    } else if app.show_vault_password_prompt() {
+    } else if app.show_vault_password_prompt() || app.vault_creating() {
         crate::modals::draw_vault_password_prompt(f, app);
     } else if app.show_upgrade_modal() {
         crate::modals::draw_upgrade_modal(f, app);

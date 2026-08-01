@@ -75,6 +75,7 @@ async fn app_with_vault(
         theme: None,
         upgrade_history_lines: 5000,
         show_sparklines: false,
+        plaintext_passwords: Vec::new(),
     };
     multitop::config::save_servers(&config_path, &config.servers).unwrap();
 

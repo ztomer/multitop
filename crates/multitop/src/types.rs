@@ -48,6 +48,13 @@ pub enum Msg {
         note: Option<String>,
         success: bool,
     },
+    /// A brand new vault was created and is unlocked, ready to receive the
+    /// password whose save triggered the creation.
+    /// The file now exists on disk, so the app reopens it itself rather than
+    /// shipping a `Vault` through the channel (it holds no `Debug`).
+    VaultCreated(Box<multitop_vault::UnlockedVault>),
+    /// Creating the vault failed; the message is shown on the prompt.
+    VaultCreateFailed(String),
     /// The vault was unlocked by biometric (Touch ID / fingerprint).
     VaultUnlocked(multitop_vault::UnlockedVault),
     /// Biometric unlock was unavailable or cancelled; the TUI falls back to

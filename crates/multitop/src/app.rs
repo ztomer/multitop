@@ -47,6 +47,13 @@ pub enum VaultState {
     PasswordPrompt {
         error: Option<String>,
     },
+    /// No vault exists yet and the user is choosing a master password for a new
+    /// one. Reached by saving a password with no vault present, so that the
+    /// vault comes into existence the first time there is something to put in
+    /// it rather than needing to be set up in advance.
+    Creating {
+        error: Option<String>,
+    },
 }
 
 pub struct App {
@@ -194,6 +201,61 @@ impl App {
             (true, _) => self.vault_state = VaultState::PasswordPrompt { error: None },
             (false, VaultState::PasswordPrompt { .. }) => self.vault_state = VaultState::Locked,
             (false, _) => {}
+        }
+    }
+
+    /// True while the user is choosing a master password for a brand new vault.
+    #[must_use]
+    pub const fn vault_creating(&self) -> bool {
+        matches!(self.vault_state, VaultState::Creating { .. })
+    }
+
+    /// The error to show on the vault-creation prompt, if the last attempt
+    /// failed.
+    #[must_use]
+    pub const fn vault_create_error(&self) -> Option<&String> {
+        match &self.vault_state {
+            VaultState::Creating { error } => error.as_ref(),
+            _ => None,
+        }
+    }
+
+    /// Ask for a master password so a vault can be created.
+    ///
+    /// Called when a password is saved and no vault exists. Returns false when
+    /// a vault is already present (nothing to create) or there is no config
+    /// path to put one beside.
+    pub fn begin_vault_creation(&mut self) -> bool {
+        if self.vault.is_some() || self.config_path.is_none() {
+            return false;
+        }
+        self.vault_password_input.clear();
+        self.vault_state = VaultState::Creating { error: None };
+        true
+    }
+
+    /// Where a new vault file belongs: beside the config file.
+    #[must_use]
+    pub fn vault_path(&self) -> Option<std::path::PathBuf> {
+        Some(self.config_path.as_ref()?.parent()?.join("vault.bin"))
+    }
+
+    /// Copy every password this session already knows into the freshly created
+    /// vault, so the vault is useful immediately rather than only for passwords
+    /// saved from now on.
+    fn seed_vault_from_panels(&mut self) {
+        let known: Vec<(String, String)> = self
+            .panels
+            .iter()
+            .filter_map(|p| {
+                let pass = p.sudo_password.clone()?;
+                Some((crate::password_store::account(&p.server), pass))
+            })
+            .collect();
+        if let VaultState::Unlocked { ref mut vault, .. } = &mut self.vault_state {
+            for (key, pass) in known {
+                let _ = vault.set_password(key, &secrecy::SecretString::from(pass));
+            }
         }
     }
 
@@ -766,6 +828,27 @@ impl App {
                     let view = self.upgrade_pane(panel, false);
                     self.panels[panel].view = view;
                 }
+            }
+            Msg::VaultCreated(unlocked) => {
+                if let Some(ref path) = self.config_path {
+                    self.vault = crate::vault::create_vault(path).map(Arc::new);
+                }
+                self.vault_state = VaultState::Unlocked {
+                    vault: unlocked,
+                    awaiting_biometric: false,
+                };
+                self.seed_vault_from_panels();
+                self.vault_password_input.clear();
+                for p in &mut self.panels {
+                    p.view.push(
+                        "Vault created. Sudo passwords are now stored encrypted; \
+                         unlock with Touch ID."
+                            .to_string(),
+                    );
+                }
+            }
+            Msg::VaultCreateFailed(error) => {
+                self.vault_state = VaultState::Creating { error: Some(error) };
             }
             Msg::VaultUnlocked(unlocked) => {
                 self.vault_state = VaultState::Unlocked {

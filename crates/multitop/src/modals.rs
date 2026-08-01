@@ -190,8 +190,15 @@ pub fn draw_vault_password_prompt(f: &mut Frame, app: &App) {
         theme.ratatui_accent.2,
     );
 
+    // The same prompt serves unlocking an existing vault and choosing the
+    // master password for a new one; only the wording differs.
+    let creating = app.vault_creating();
     let block = ratatui::widgets::Block::default()
-        .title(" Vault Password ")
+        .title(if creating {
+            " Create Vault "
+        } else {
+            " Vault Password "
+        })
         .title_style(
             Style::default()
                 .fg(accent_color)
@@ -206,7 +213,11 @@ pub fn draw_vault_password_prompt(f: &mut Frame, app: &App) {
     let mut lines = vec![
         Line::from(""),
         Line::from(vec![Span::styled(
-            "  Enter vault master password to unlock:",
+            if creating {
+                "  Choose a master password for your new vault:"
+            } else {
+                "  Enter vault master password to unlock:"
+            },
             Style::default().fg(Color::White),
         )]),
         Line::from(""),
@@ -215,7 +226,20 @@ pub fn draw_vault_password_prompt(f: &mut Frame, app: &App) {
             Span::styled(password_dots, Style::default().fg(Color::White)),
         ]),
     ];
-    if let Some(error) = app.vault_password_error() {
+    if creating {
+        lines.push(Line::from(vec![Span::styled(
+            "  Sudo passwords are encrypted with it. Touch ID unlocks day to day;",
+            Style::default().fg(Color::DarkGray),
+        )]));
+        lines.push(Line::from(vec![Span::styled(
+            "  this password is the recovery path if that key is ever lost.",
+            Style::default().fg(Color::DarkGray),
+        )]));
+    }
+    if let Some(error) = app
+        .vault_create_error()
+        .or_else(|| app.vault_password_error())
+    {
         lines.push(Line::from(vec![Span::styled(
             format!("  {error}"),
             Style::default().fg(Color::Red),
@@ -230,7 +254,14 @@ pub fn draw_vault_password_prompt(f: &mut Frame, app: &App) {
                 .fg(Color::White)
                 .add_modifier(ratatui::style::Modifier::BOLD),
         ),
-        Span::styled(" to unlock, ", Style::default().fg(Color::DarkGray)),
+        Span::styled(
+            if creating {
+                " to create, "
+            } else {
+                " to unlock, "
+            },
+            Style::default().fg(Color::DarkGray),
+        ),
         Span::styled(
             "Esc",
             Style::default()

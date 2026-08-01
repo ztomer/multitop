@@ -125,6 +125,15 @@ pub struct Config {
     pub theme: Option<String>,
     pub upgrade_history_lines: usize,
     pub show_sparklines: bool,
+    /// Plaintext `sudo_password` values found in the config file, paired with
+    /// the server they belong to.
+    ///
+    /// Storing a sudo password in `config.toml` is not supported: the file is
+    /// world-readable plaintext, and the value was silently ignored, so anyone
+    /// who set one had a password sitting on disk doing nothing. They are
+    /// collected here so startup can move them into the credential store and
+    /// strip them from the file exactly once.
+    pub plaintext_passwords: Vec<(Server, String)>,
 }
 
 /// Read and validate the server list and config settings.
@@ -172,6 +181,7 @@ pub fn parse(text: &str) -> Result<Config, ConfigError> {
     }
 
     let mut out = Vec::with_capacity(servers.len());
+    let mut plaintext = Vec::new();
     for (idx, entry) in servers.iter().enumerate() {
         let Some(table) = entry.as_table() else {
             return err(format!("Server entry at index {idx} is not a table"));
@@ -202,12 +212,22 @@ pub fn parse(text: &str) -> Result<Config, ConfigError> {
             .map(str::to_string)
             .filter(|s| !s.trim().is_empty());
 
-        out.push(Server {
+        let server = Server {
             host,
             port,
             user,
             upgrade_cmd,
-        });
+        };
+
+        if let Some(secret) = table
+            .get("sudo_password")
+            .and_then(|v| v.as_str())
+            .filter(|s| !s.is_empty())
+        {
+            plaintext.push((server.clone(), secret.to_string()));
+        }
+
+        out.push(server);
     }
 
     let upgrade_history_lines = value
@@ -227,7 +247,37 @@ pub fn parse(text: &str) -> Result<Config, ConfigError> {
         theme,
         upgrade_history_lines,
         show_sparklines,
+        plaintext_passwords: plaintext,
     })
+}
+
+/// Remove every `sudo_password` key from the `[[servers]]` tables, preserving
+/// everything else in the file.
+///
+/// # Errors
+///
+/// Returns an error if the file cannot be read, parsed, or written.
+pub fn strip_plaintext_passwords(path: &Path) -> Result<usize, String> {
+    let content = std::fs::read_to_string(path).map_err(|e| e.to_string())?;
+    let mut doc = content
+        .parse::<toml::Table>()
+        .map_err(|error| error.to_string())?;
+
+    let mut removed = 0;
+    if let Some(toml::Value::Array(servers)) = doc.get_mut("servers") {
+        for entry in servers.iter_mut() {
+            if let Some(table) = entry.as_table_mut() {
+                if table.remove("sudo_password").is_some() {
+                    removed += 1;
+                }
+            }
+        }
+    }
+    if removed > 0 {
+        let text = toml::to_string_pretty(&doc).map_err(|e| e.to_string())?;
+        std::fs::write(path, text).map_err(|e| e.to_string())?;
+    }
+    Ok(removed)
 }
 
 /// Save theme selection back to the TOML configuration file.

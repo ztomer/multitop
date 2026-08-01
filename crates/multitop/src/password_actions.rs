@@ -135,7 +135,8 @@ pub fn apply(
             let key = crate::password_store::account(&app.panels[panel].server);
             app.panels[panel].sudo_password = Some(password.clone());
             let result = crate::password_store::save(&app.panels[panel].server, &password);
-            app.panels[panel].password_saved = result.is_ok();
+            let stored = result.is_ok();
+            app.panels[panel].password_saved = stored;
             // Also save to vault if unlocked
             if let Some(ref mut unlocked) = app.vault_unlocked_mut() {
                 let _ = unlocked
@@ -149,6 +150,12 @@ pub fn apply(
                         format!("Password kept for this session; save failed: {error}")
                     }
                 });
+            }
+            // Saving the first password is the moment a vault becomes worth
+            // having, so offer to create one here rather than expecting the
+            // user to have set one up in advance.
+            if stored {
+                offer_vault_creation(app);
             }
             let should_resume =
                 resume_upgrade || app.panels[panel].mode == crate::app::Mode::Upgrade;
@@ -195,5 +202,85 @@ pub fn apply(
                 }
             }
         }
+    }
+}
+
+/// Move plaintext `sudo_password` values out of `config.toml` and into the OS
+/// credential store, then delete them from the file.
+///
+/// A password in `config.toml` is plaintext on a world-readable file *and* was
+/// silently ignored by the loader, so it protected nothing and did nothing.
+/// This runs once: after it, the key is gone from the file and the value lives
+/// where the rest of the passwords do.
+pub fn port_plaintext_passwords(
+    app: &mut App,
+    config_path: &std::path::Path,
+    entries: &[(Server, String)],
+) {
+    let mut moved = 0;
+    let mut failed = Vec::new();
+
+    for (server, secret) in entries {
+        match crate::password_store::save(server, secret) {
+            Ok(()) => {
+                moved += 1;
+                // Populate the matching panel so this session does not prompt
+                // for something we just imported.
+                for p in &mut app.panels {
+                    if p.server.host == server.host && p.server.port == server.port {
+                        p.sudo_password = Some(secret.clone());
+                        p.password_saved = true;
+                    }
+                }
+            }
+            Err(e) => failed.push(format!("{}: {e}", server.host)),
+        }
+    }
+
+    // Only strip the file for the ones that were stored successfully; deleting
+    // a password we failed to save would lose it outright.
+    let note = if failed.is_empty() {
+        match crate::config::strip_plaintext_passwords(config_path) {
+            Ok(n) => format!(
+                "Moved {moved} plaintext password(s) out of config.toml into the \
+                 credential store and removed {n} from the file."
+            ),
+            Err(e) => format!(
+                "Moved {moved} password(s) into the credential store, but could \
+                 not rewrite config.toml: {e}. Remove the sudo_password lines by hand."
+            ),
+        }
+    } else {
+        format!(
+            "Could not move {} plaintext password(s) into the credential store \
+             ({}). They are still in config.toml, where they do nothing \u{2014} \
+             remove them.",
+            failed.len(),
+            failed.join(", ")
+        )
+    };
+
+    for p in &mut app.panels {
+        p.view.push(note.clone());
+    }
+}
+
+/// Start vault creation if there is no vault yet.
+///
+/// Called after a password is stored. The password is already safe in the OS
+/// credential store at this point, so declining the prompt costs nothing; the
+/// vault adds encryption at rest and one biometric unlock for every host
+/// instead of one prompt per host.
+fn offer_vault_creation(app: &mut App) {
+    // Never interrupt something the user is already answering.
+    if app.vault_creating()
+        || app.show_vault_password_prompt()
+        || app.vault_awaiting_biometric()
+        || app.show_upgrade_modal()
+    {
+        return;
+    }
+    if app.begin_vault_creation() {
+        app.password_manager = None;
     }
 }

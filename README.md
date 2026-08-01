@@ -120,17 +120,22 @@ Multitop includes an encrypted vault for sudo passwords with biometric unlock:
 ### Vault Integration
 
 - **Upgrade flow**: Press `u` to open the update view → press `u` again → if the vault is locked, biometric prompt → fallback to master password → confirm modal → passwords auto-loaded into panels
-- **Config screen** (`p`): Tab to **Vault** tab → unlock/lock, change master password, view status
+- **Created on demand**: the first time you save a sudo password, multitop offers to create the vault and asks for a master password. There is nothing to set up in advance.
 - **Priority**: Vault passwords take precedence over OS keychain entries
 
 ## Configuration and passwords
 
 Press **p** for the full-screen Configuration screen. **Tab** switches between
-Passwords, Vault, and Servers. Server changes are written to the config file and take
+Passwords and Servers. Server changes are written to the config file and take
 effect after restarting multitop. Passwords can be retained for the current
 session or saved with **S** in the OS credential store: macOS Keychain or the
-Linux desktop Secret Service. Password values are never displayed or written
-to `config.toml`.
+Linux desktop Secret Service. Saving the first password offers to create the
+encrypted vault.
+
+Password values are never displayed or written to `config.toml`. A
+`sudo_password` key there is not supported — it is plaintext on disk and was
+never read. If one is found at startup it is moved into the credential store
+and deleted from the file.
 
 ## How it works
 
