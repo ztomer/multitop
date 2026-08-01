@@ -9,6 +9,16 @@
 
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
+/// Keep this suite off the real login keychain.
+///
+/// `cfg!(test)` is false inside the library when it is built for an
+/// integration test, so the vault's lockout state would otherwise mint a
+/// keychain item per temp vault -- thousands of them accumulated before this
+/// was spotted.
+fn no_real_keychain() {
+    std::env::set_var("MULTITOP_MOCK_KEYCHAIN", "1");
+}
+
 use multitop::app::{App, VaultState};
 use multitop::config::{self, Server};
 
@@ -44,6 +54,7 @@ upgrade_cmd = "apt upgrade"
 
 #[test]
 fn plaintext_passwords_are_surfaced_not_silently_ignored() {
+    no_real_keychain();
     let cfg = config::parse(WITH_SECRETS).unwrap();
     assert_eq!(
         cfg.plaintext_passwords.len(),
@@ -61,6 +72,7 @@ fn plaintext_passwords_are_surfaced_not_silently_ignored() {
 
 #[test]
 fn config_without_secrets_reports_none() {
+    no_real_keychain();
     let cfg = config::parse(
         r#"
 [[servers]]
@@ -74,6 +86,7 @@ user = "ztomer"
 
 #[test]
 fn stripping_removes_the_secret_and_keeps_everything_else() {
+    no_real_keychain();
     let dir = std::env::temp_dir().join(format!("multitop_strip_{}", std::process::id()));
     std::fs::create_dir_all(&dir).unwrap();
     let path = dir.join("config.toml");
@@ -103,6 +116,7 @@ fn stripping_removes_the_secret_and_keeps_everything_else() {
 
 #[test]
 fn stripping_is_idempotent() {
+    no_real_keychain();
     let dir = std::env::temp_dir().join(format!("multitop_strip2_{}", std::process::id()));
     std::fs::create_dir_all(&dir).unwrap();
     let path = dir.join("config.toml");
@@ -124,6 +138,7 @@ fn stripping_is_idempotent() {
 
 #[test]
 fn saving_a_password_with_no_vault_starts_vault_creation() {
+    no_real_keychain();
     let mut app = App::new(vec![server("web-01")]);
     app.config_path = Some(std::path::PathBuf::from("/tmp/multitop-x/config.toml"));
     assert!(app.vault.is_none());
@@ -135,6 +150,7 @@ fn saving_a_password_with_no_vault_starts_vault_creation() {
 
 #[test]
 fn vault_creation_is_not_offered_when_one_exists() {
+    no_real_keychain();
     let mut app = App::new(vec![server("web-01")]);
     app.config_path = Some(std::path::PathBuf::from("/tmp/multitop-x/config.toml"));
     // Simulate an existing vault by handing the app a vault handle.
@@ -158,6 +174,7 @@ fn vault_creation_is_not_offered_when_one_exists() {
 
 #[test]
 fn vault_creation_needs_somewhere_to_put_the_file() {
+    no_real_keychain();
     let mut app = App::new(vec![server("web-01")]);
     app.config_path = None;
     assert!(
@@ -168,6 +185,7 @@ fn vault_creation_needs_somewhere_to_put_the_file() {
 
 #[test]
 fn vault_path_sits_beside_the_config() {
+    no_real_keychain();
     let mut app = App::new(vec![server("web-01")]);
     app.config_path = Some(std::path::PathBuf::from(
         "/home/x/.config/multitop/config.toml",
@@ -180,6 +198,7 @@ fn vault_path_sits_beside_the_config() {
 
 #[tokio::test]
 async fn a_created_vault_can_be_unlocked_and_holds_passwords() {
+    no_real_keychain();
     // End-to-end on the real vault: create, store, lock, reopen, read back.
     let dir = std::env::temp_dir().join(format!("multitop_vault_new_{}", std::process::id()));
     std::fs::create_dir_all(&dir).unwrap();

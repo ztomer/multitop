@@ -6,6 +6,16 @@ const MAX_ATTEMPTS_BEFORE_HARD_LOCKOUT: u32 = 10;
 const HARD_LOCKOUT_DURATION_MS: u64 = 300_000; // 5 minutes
 const KEYCHAIN_SERVICE: &str = "multitop-vault-lockout";
 
+/// Whether to leave the OS keychain alone and use only the file fallback.
+///
+/// Every test vault lives in a fresh temp directory, and the keychain account
+/// is a hash of that path, so each test run minted a brand new keychain item.
+/// A few thousand accumulated in the developer's login keychain before anyone
+/// noticed. Tests get the file-backed path; real runs are unaffected.
+fn keychain_disabled() -> bool {
+    cfg!(test) || std::env::var("MULTITOP_MOCK_KEYCHAIN").is_ok() || std::env::var("CI").is_ok()
+}
+
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct LockoutState {
     pub failed_attempts: u32,
@@ -24,11 +34,13 @@ impl LockoutState {
     #[must_use]
     pub fn load(vault_path: &Path) -> Self {
         // Try keychain first (preferred - can't be trivially deleted)
-        let account = Self::account_name(vault_path);
-        if let Ok(entry) = keyring::Entry::new(KEYCHAIN_SERVICE, &account) {
-            if let Ok(stored) = entry.get_password() {
-                if let Ok(state) = serde_json::from_str(&stored) {
-                    return state;
+        if !keychain_disabled() {
+            let account = Self::account_name(vault_path);
+            if let Ok(entry) = keyring::Entry::new(KEYCHAIN_SERVICE, &account) {
+                if let Ok(stored) = entry.get_password() {
+                    if let Ok(state) = serde_json::from_str(&stored) {
+                        return state;
+                    }
                 }
             }
         }
@@ -74,9 +86,11 @@ impl LockoutState {
         };
 
         // Save to keychain (preferred - survives file deletion)
-        let account = Self::account_name(vault_path);
-        if let Ok(entry) = keyring::Entry::new(KEYCHAIN_SERVICE, &account) {
-            let _ = entry.set_password(&json);
+        if !keychain_disabled() {
+            let account = Self::account_name(vault_path);
+            if let Ok(entry) = keyring::Entry::new(KEYCHAIN_SERVICE, &account) {
+                let _ = entry.set_password(&json);
+            }
         }
 
         // Also save to file as backup

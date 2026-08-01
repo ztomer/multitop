@@ -10,6 +10,17 @@ fn account(vault_path: &Path) -> String {
 }
 
 /// Store the vault's counter in the system keychain for rollback detection.
+///
+/// # Accepted limitation
+///
+/// A failed write is swallowed, and the consequence is asymmetric so it is
+/// worth being explicit: the stored counter can only fall BEHIND the vault, so
+/// a missed write makes `check_counter` more permissive (it compares
+/// `vault >= stored`), never falsely accusing a legitimate vault of being
+/// rolled back. Failing the save outright would block the user from writing
+/// their own vault over a transient keychain error, which is the worse trade
+/// for a single-user tool. It does mean rollback protection degrades silently
+/// if the keychain is persistently unwritable.
 pub fn store_counter(vault_path: &Path, counter: u32, created_ts: u64) {
     let value = format!("{counter}:{created_ts}");
     match keyring::Entry::new(SERVICE, &account(vault_path)) {

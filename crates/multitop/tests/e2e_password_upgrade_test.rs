@@ -12,6 +12,23 @@ use multitop::config::Server;
 use multitop::passwords::{self, ConfigSection, PasswordAction};
 use multitop::tasks::spawn_upgrade;
 
+/// Divert credentials to the in-memory mock, and serialise against the other
+/// suites that share it.
+///
+/// This file used to get the mock implicitly: `is_mock_enabled` returned true
+/// whenever any process argument contained "test", which the test binary's own
+/// path did. That heuristic also fired for a real run like
+/// `--remote latest.example.com`, so it is gone -- and with it the accident
+/// that was keeping these tests off the developer's real login keychain. They
+/// now opt in, like every other suite here.
+async fn mock_store() -> tokio::sync::MutexGuard<'static, ()> {
+    let guard = multitop::password_store::lock_for_test_async().await;
+    multitop::password_store::enable_mock_store();
+    multitop::password_store::clear_mock_store();
+    let _ = multitop::password_store::delete_sso();
+    guard
+}
+
 fn test_server(host: &str, upgrade_cmd: Option<&str>) -> Server {
     Server {
         host: host.to_string(),
@@ -23,6 +40,7 @@ fn test_server(host: &str, upgrade_cmd: Option<&str>) -> Server {
 
 #[tokio::test]
 async fn test_e2e_password_storage_and_os_keyring_lifecycle() {
+    let _store = mock_store().await;
     let server = test_server("localhost", Some("echo 'hello'"));
     let mut app = App::new(vec![server.clone()]);
 
@@ -83,6 +101,7 @@ async fn test_e2e_password_storage_and_os_keyring_lifecycle() {
 
 #[tokio::test]
 async fn test_e2e_app_initialization_auto_loads_stored_password() {
+    let _store = mock_store().await;
     let server = test_server("127.0.0.1", Some("echo 'test'"));
 
     // Pre-seed OS credential store
@@ -106,6 +125,7 @@ async fn test_e2e_app_initialization_auto_loads_stored_password() {
 
 #[tokio::test]
 async fn test_e2e_spawn_upgrade_streams_output_with_stored_password() {
+    let _store = mock_store().await;
     let server = test_server("127.0.0.1", Some("echo 'E2E_UPGRADE_STREAM_OK'"));
     let (tx, mut rx) = tokio::sync::mpsc::channel::<Msg>(100);
 

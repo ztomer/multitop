@@ -70,12 +70,34 @@ pub async fn lock_for_test_async() -> tokio::sync::MutexGuard<'static, ()> {
     TEST_GUARD.lock().await
 }
 
+/// Decide whether the in-memory mock store stands in for the OS keychain.
+///
+/// Split out so the rule is testable, and because the rule used to be wrong in
+/// a way no test could see.
+#[must_use]
+const fn mock_enabled_from(cfg_test: bool, env_mock: bool, env_ci: bool) -> bool {
+    cfg_test || env_mock || env_ci
+}
+
+/// Whether credentials go to the in-memory mock store instead of the OS
+/// keychain.
+///
+/// # The process arguments are deliberately not consulted
+///
+/// This used to also return true when *any* argument contained "test" or
+/// "bench", intended to spot a test or bench harness. In a release binary it
+/// read the real command line, so `--remote latest.example.com` enabled the
+/// mock store -- "latest" contains "test". So did any config path with "test"
+/// in it. Passwords then went to an in-memory store that vanished on exit, and
+/// the user was asked for them again on every launch with nothing to explain
+/// why. `cfg!(test)` already covers anything built by the test harness, and a
+/// bench that wants the mock can set `MULTITOP_MOCK_KEYCHAIN` for itself.
 pub fn is_mock_enabled() -> bool {
-    if cfg!(test)
-        || std::env::var("MULTITOP_MOCK_KEYCHAIN").is_ok()
-        || std::env::var("CI").is_ok()
-        || std::env::args().any(|arg| arg.contains("bench") || arg.contains("test"))
-    {
+    if mock_enabled_from(
+        cfg!(test),
+        std::env::var("MULTITOP_MOCK_KEYCHAIN").is_ok(),
+        std::env::var("CI").is_ok(),
+    ) {
         return true;
     }
     MOCK_STORE
@@ -319,5 +341,24 @@ mod tests {
 
         delete(&server).unwrap();
         assert_eq!(load(&server).unwrap(), None);
+    }
+}
+
+#[cfg(test)]
+mod mock_signal_tests {
+    use super::mock_enabled_from;
+
+    /// Only explicit signals may divert credentials away from the OS keychain.
+    ///
+    /// The regression this guards: the rule once also inspected the process
+    /// arguments, so a release binary run as `--remote latest.example.com`
+    /// silently used the mock store, because "latest" contains "test". The
+    /// signature is the guarantee -- there is nowhere for argv to enter.
+    #[test]
+    fn only_explicit_signals_enable_the_mock_store() {
+        assert!(!mock_enabled_from(false, false, false), "a real run");
+        assert!(mock_enabled_from(true, false, false), "the test harness");
+        assert!(mock_enabled_from(false, true, false), "explicit env opt-in");
+        assert!(mock_enabled_from(false, false, true), "CI");
     }
 }
