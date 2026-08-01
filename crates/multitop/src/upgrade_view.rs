@@ -21,8 +21,13 @@ pub enum Credential {
     Stored,
     /// Held for this session only.
     Session,
-    /// Nothing available; the upgrade will prompt.
+    /// Nothing available; the upgrade will prompt for this host.
     Missing,
+    /// Nothing available and there is no vault at all, so every host will
+    /// prompt separately. Called out on its own because the fix differs: one
+    /// vault removes every prompt, whereas saving one host's password removes
+    /// only that host's.
+    MissingNoVault,
 }
 
 /// Everything the header needs, gathered by the caller.
@@ -222,7 +227,18 @@ pub fn header(status: &Status, pal: &Palette, now: u64, width: usize) -> Vec<Str
                 format!("{}password set for this session{}", pal.reset, pal.reset)
             }
             Credential::Missing => {
-                format!("{}will prompt when needed{}", pal.muted(), pal.reset)
+                format!(
+                    "{}will prompt \u{b7} p to save{}",
+                    pal.meter_high(),
+                    pal.reset
+                )
+            }
+            Credential::MissingNoVault => {
+                format!(
+                    "{}will prompt \u{b7} no vault set up{}",
+                    pal.meter_high(),
+                    pal.reset
+                )
             }
         };
         out.push(format!("{}  {cred}", label(pal, "Sudo     ")));

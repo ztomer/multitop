@@ -397,10 +397,15 @@ pub fn handle_key(
         // The first press is always inert, so the user always sees each host's
         // command, history and credential state before anything can happen.
         KeyCode::Char('u' | 'U') => {
-            if app.upgrades_in_flight() {
-                // Upgrade already running — don't interrupt.
-            } else if !app.in_upgrade() {
+            // Switching *into* the view is always allowed, including while an
+            // upgrade is running: the run continues in the background either
+            // way, and being unable to look at it was the worst time not to be
+            // able to. Only starting a new run is blocked while one is in
+            // flight.
+            if !app.in_upgrade() {
                 app.enter_upgrade_view();
+            } else if app.upgrades_in_flight() {
+                // Already running — don't start another.
             } else if !app.upgrade_runnable() {
                 // Every host lacks an upgrade_cmd. Confirming could only skip
                 // all of them, so say so in the pane instead of opening a

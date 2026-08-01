@@ -366,9 +366,11 @@ impl App {
         for i in 0..self.panels.len() {
             self.bump(i);
             let p = &mut self.panels[i];
-            if p.mode == Mode::Upgrade {
-                p.last_upgrade = std::mem::take(&mut p.view);
-            }
+            // `last_upgrade` is maintained directly by the AuxLine/AuxDone
+            // handlers, so it needs no snapshot here. Copying the view into it
+            // used to be the only thing preserving the completion marker, and
+            // it would now also copy the pane's status header into the log and
+            // duplicate it on the way back in.
             p.mode = Mode::Monitor;
             p.show_last_frame();
         }
@@ -400,8 +402,12 @@ impl App {
             crate::upgrade_view::Credential::Stored
         } else if p.sudo_password.is_some() {
             crate::upgrade_view::Credential::Session
-        } else {
+        } else if self.vault.is_some() {
             crate::upgrade_view::Credential::Missing
+        } else {
+            // No vault at all: every host will prompt separately, which is the
+            // difference between one prompt and one per server.
+            crate::upgrade_view::Credential::MissingNoVault
         };
 
         let status = crate::upgrade_view::Status {
@@ -684,16 +690,25 @@ impl App {
                 let Some(p) = self.panels.get_mut(panel) else {
                     return;
                 };
-                if p.gen == gen {
-                    p.view.push(line.clone());
-                    if p.view.len() > cap {
-                        p.view.drain(..p.view.len() - cap);
-                    }
-                }
-                if p.upgrade_state == crate::panel::UpgradeState::STARTED && p.upgrade_gen == gen {
-                    p.last_upgrade.push(line);
+                // `last_upgrade` is the durable log for this panel's upgrade. It
+                // is keyed on `upgrade_gen`, not `gen`, so it keeps filling while
+                // the user is looking at another view.
+                let belongs =
+                    p.upgrade_state == crate::panel::UpgradeState::STARTED && p.upgrade_gen == gen;
+                if belongs {
+                    p.last_upgrade.push(line.clone());
                     if p.last_upgrade.len() > cap {
                         p.last_upgrade.drain(..p.last_upgrade.len() - cap);
+                    }
+                }
+                // Mirror into the visible pane when this is the view's own
+                // generation, or when the panel is showing the upgrade this line
+                // belongs to — the latter is what lets output keep streaming
+                // after switching away to stats and back.
+                if p.gen == gen || (belongs && p.mode == Mode::Upgrade) {
+                    p.view.push(line);
+                    if p.view.len() > cap {
+                        p.view.drain(..p.view.len() - cap);
                     }
                 }
             }
@@ -711,9 +726,11 @@ impl App {
                 {
                     return;
                 }
-                if self.panels[panel].upgrade_state == crate::panel::UpgradeState::STARTED
-                    && self.panels[panel].upgrade_gen == gen
-                {
+                // Captured before the state flips to DONE below.
+                let belongs = self.panels[panel].upgrade_state
+                    == crate::panel::UpgradeState::STARTED
+                    && self.panels[panel].upgrade_gen == gen;
+                if belongs {
                     self.panels[panel].upgrade_state = crate::panel::UpgradeState::DONE;
                     let now = Self::now_secs();
 
@@ -732,7 +749,22 @@ impl App {
                     self.persist_state();
                 }
                 if let Some(note) = note {
-                    self.panels[panel].view.push(note);
+                    let p = &mut self.panels[panel];
+                    // The completion marker belongs in the durable log too. It
+                    // used to go only into `view`, so finishing while the user
+                    // was on another view appended it to *that* view and lost it
+                    // from the upgrade output for good.
+                    if belongs {
+                        p.last_upgrade.push(note);
+                    } else if p.gen == gen {
+                        p.view.push(note);
+                    }
+                }
+                // Rebuild the pane so a finished run stops advertising itself as
+                // running and picks up the outcome just recorded.
+                if belongs && self.panels[panel].mode == Mode::Upgrade {
+                    let view = self.upgrade_pane(panel, false);
+                    self.panels[panel].view = view;
                 }
             }
             Msg::VaultUnlocked(unlocked) => {

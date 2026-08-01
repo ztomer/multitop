@@ -342,3 +342,143 @@ async fn s_leaves_the_pane_and_u_returns_to_it() {
         "re-entering the pane must not skip straight to the modal"
     );
 }
+
+// ---------------------------------------------------------------------------
+// 5. Switching views mid-run. Reported from live use: after switching to stats
+//    during an upgrade on one host, `u` would not come back, and the host that
+//    finished while away lost its completion marker.
+// ---------------------------------------------------------------------------
+
+/// The upgrade generation the panel is currently running.
+fn upgrade_gen(h: &Harness, panel: usize) -> u64 {
+    h.app.panels[panel].upgrade_gen
+}
+
+fn start_upgrade(h: &mut Harness) {
+    h.press('u');
+    h.press('u');
+    h.press('y');
+    assert!(h.app.upgrades_in_flight(), "precondition: upgrade started");
+}
+
+#[tokio::test]
+async fn can_return_to_the_pane_while_an_upgrade_is_running() {
+    let mut h = Harness::new(vec![server("web-01", Some("apt upgrade"))]);
+    start_upgrade(&mut h);
+
+    h.press('s');
+    assert_eq!(h.app.panels[0].mode, Mode::Monitor);
+    assert!(
+        h.app.upgrades_in_flight(),
+        "leaving the view must not cancel the run"
+    );
+
+    h.press('u');
+    assert_eq!(
+        h.app.panels[0].mode,
+        Mode::Upgrade,
+        "u must return to the pane while the upgrade is still running"
+    );
+}
+
+#[tokio::test]
+async fn output_produced_while_away_is_shown_on_return() {
+    let mut h = Harness::new(vec![server("web-01", Some("apt upgrade"))]);
+    start_upgrade(&mut h);
+    let g = upgrade_gen(&h, 0);
+
+    h.app.apply(Msg::AuxLine {
+        panel: 0,
+        gen: g,
+        line: "while-watching".into(),
+    });
+    h.press('s');
+    h.app.apply(Msg::AuxLine {
+        panel: 0,
+        gen: g,
+        line: "while-away".into(),
+    });
+
+    // Upgrade output must not leak into the stats view.
+    assert!(
+        !h.pane_text(0).contains("while-away"),
+        "stats view must not collect upgrade output: {}",
+        h.pane_text(0)
+    );
+
+    h.press('u');
+    let text = h.pane_text(0);
+    assert!(text.contains("while-watching"), "{text}");
+    assert!(text.contains("while-away"), "{text}");
+}
+
+#[tokio::test]
+async fn output_keeps_streaming_after_returning_to_the_pane() {
+    let mut h = Harness::new(vec![server("web-01", Some("apt upgrade"))]);
+    start_upgrade(&mut h);
+    let g = upgrade_gen(&h, 0);
+
+    h.press('s');
+    h.press('u');
+    h.app.apply(Msg::AuxLine {
+        panel: 0,
+        gen: g,
+        line: "after-return".into(),
+    });
+
+    assert!(
+        h.pane_text(0).contains("after-return"),
+        "the pane must keep updating after switching back: {}",
+        h.pane_text(0)
+    );
+}
+
+/// The reported symptom: the host that finished while the user was on the
+/// stats view showed no completion marker when they came back.
+#[tokio::test]
+async fn completion_marker_survives_being_away_when_it_arrives() {
+    let mut h = Harness::new(vec![server("web-01", Some("apt upgrade"))]);
+    start_upgrade(&mut h);
+    let g = upgrade_gen(&h, 0);
+
+    h.press('s');
+    h.app.apply(Msg::AuxDone {
+        panel: 0,
+        gen: g,
+        note: Some("-done".into()),
+        success: true,
+    });
+
+    assert!(!h.app.upgrades_in_flight(), "the run completed while away");
+    assert!(
+        !h.pane_text(0).contains("-done"),
+        "the marker must not be dumped into the stats view"
+    );
+
+    h.press('u');
+    let text = h.pane_text(0);
+    assert!(
+        text.contains("-done"),
+        "completion marker must be there on return: {text}"
+    );
+    assert!(text.contains("ok"), "and the status must read ok: {text}");
+}
+
+#[tokio::test]
+async fn returning_after_completion_shows_the_finished_state() {
+    let mut h = Harness::new(vec![server("web-01", Some("apt upgrade"))]);
+    start_upgrade(&mut h);
+    let g = upgrade_gen(&h, 0);
+    h.app.apply(Msg::AuxDone {
+        panel: 0,
+        gen: g,
+        note: Some("-done".into()),
+        success: true,
+    });
+
+    let text = h.pane_text(0);
+    assert!(
+        !text.contains("do not quit"),
+        "a finished run must stop saying it is running: {text}"
+    );
+}
