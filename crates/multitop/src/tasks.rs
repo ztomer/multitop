@@ -155,7 +155,21 @@ pub fn spawn_upgrade(
     tx: Sender<Msg>,
 ) -> JoinHandle<()> {
     tokio::spawn(async move {
+        // Every exit from here must report AuxDone. Returning without it leaves
+        // the panel in UpgradeState::STARTED for the rest of the session: it
+        // says "running" forever, blocks any further upgrade because
+        // `upgrades_in_flight()` never clears, and is recorded as an
+        // interrupted run -- all while the stats stream to the same host keeps
+        // working, which makes it look like the host went away.
         let Some(command) = server.upgrade_cmd.clone() else {
+            let _ = tx
+                .send(Msg::AuxDone {
+                    panel: idx,
+                    gen,
+                    note: Some(status_line("\u{26A0} no upgrade_cmd configured")),
+                    success: false,
+                })
+                .await;
             return;
         };
 
@@ -163,10 +177,18 @@ pub fn spawn_upgrade(
             Ok(c) => c,
             Err(e) => {
                 let _ = tx
-                    .send(Msg::Status {
+                    .send(Msg::AuxLine {
                         panel: idx,
                         gen,
-                        text: error_line(e),
+                        line: error_line(e),
+                    })
+                    .await;
+                let _ = tx
+                    .send(Msg::AuxDone {
+                        panel: idx,
+                        gen,
+                        note: Some(status_line("\u{26A0} could not start the upgrade over SSH")),
+                        success: false,
                     })
                     .await;
                 return;
@@ -269,18 +291,31 @@ pub fn spawn_upgrade(
                 .await;
         }
         let exit_status = child.wait().await;
-        let success = exit_status.is_ok_and(|s| s.success());
+        let success = exit_status
+            .as_ref()
+            .is_ok_and(std::process::ExitStatus::success);
+        // Say what actually happened. Reporting every failure as "disconnected"
+        // blamed the network for a command that merely exited non-zero, on a
+        // host the stats view was talking to perfectly well at the time.
+        let note = match exit_status {
+            Ok(s) if s.success() => status_line("\u{2500} done"),
+            Ok(s) => s.code().map_or_else(
+                || status_line("\u{26A0} upgrade command was killed by a signal"),
+                |code| {
+                    status_line(format!(
+                        "\u{26A0} upgrade command exited {code} \u{2014} host reachable, command failed"
+                    ))
+                },
+            ),
+            Err(e) => status_line(format!(
+                "\u{26A0} lost the SSH session ({e}) \u{2014} upgrade may be incomplete"
+            )),
+        };
         let _ = tx
             .send(Msg::AuxDone {
                 panel: idx,
                 gen,
-                note: if success {
-                    Some(status_line("\u{2500} done"))
-                } else {
-                    Some(status_line(
-                        "\u{26A0} disconnected (upgrade may be incomplete)",
-                    ))
-                },
+                note: Some(note),
                 success,
             })
             .await;

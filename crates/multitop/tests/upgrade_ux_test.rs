@@ -482,3 +482,196 @@ async fn returning_after_completion_shows_the_finished_state() {
         "a finished run must stop saying it is running: {text}"
     );
 }
+
+// ---------------------------------------------------------------------------
+// 6. Reported from a live four-host run: panels showed nothing but
+//    "sudo ready", a failing command was blamed on the network, and the status
+//    block vanished the moment output arrived.
+// ---------------------------------------------------------------------------
+
+/// `Msg::Status` used to assign `view = vec![text]`, throwing away the status
+/// header and every line of output collected so far.
+#[tokio::test]
+async fn a_status_note_does_not_wipe_the_upgrade_pane() {
+    let mut h = Harness::new(vec![server("web-01", Some("apt upgrade"))]);
+    start_upgrade(&mut h);
+    let g = upgrade_gen(&h, 0);
+
+    h.app.apply(Msg::AuxLine {
+        panel: 0,
+        gen: g,
+        line: "Reading package lists...".into(),
+    });
+    h.app.apply(Msg::Status {
+        panel: 0,
+        gen: g,
+        text: "sudo ready - already authorized".into(),
+    });
+
+    let text = h.pane_text(0);
+    assert!(
+        text.contains("apt upgrade"),
+        "the status header must survive a status note: {text}"
+    );
+    assert!(
+        text.contains("Reading package lists"),
+        "output collected so far must survive a status note: {text}"
+    );
+    assert!(
+        text.contains("sudo ready"),
+        "and the note itself belongs in the log: {text}"
+    );
+}
+
+/// The note must also survive being away, like any other upgrade output.
+#[tokio::test]
+async fn a_status_note_arriving_while_away_is_kept() {
+    let mut h = Harness::new(vec![server("web-01", Some("apt upgrade"))]);
+    start_upgrade(&mut h);
+    let g = upgrade_gen(&h, 0);
+
+    h.app.apply(Msg::Status {
+        panel: 0,
+        gen: g,
+        text: "sudo ready - already authorized".into(),
+    });
+    h.press('s');
+    assert!(
+        !h.pane_text(0).contains("sudo ready"),
+        "must not be dumped into the stats view"
+    );
+    h.press('u');
+    assert!(h.pane_text(0).contains("sudo ready"), "{}", h.pane_text(0));
+}
+
+/// A non-zero exit is a failed command, not a lost connection. Reporting it as
+/// "disconnected" pointed at the network for a host the stats view was happily
+/// streaming from at that moment.
+#[tokio::test]
+async fn a_failing_command_is_not_reported_as_a_disconnect() {
+    let mut h = Harness::new(vec![server("web-01", Some("./update_sys.sh"))]);
+    start_upgrade(&mut h);
+    let g = upgrade_gen(&h, 0);
+
+    h.app.apply(Msg::AuxDone {
+        panel: 0,
+        gen: g,
+        note: Some("\u{26A0} upgrade command exited 2 - host reachable, command failed".into()),
+        success: false,
+    });
+
+    let text = h.pane_text(0);
+    assert!(text.contains("exited 2"), "must give the exit code: {text}");
+    assert!(
+        text.contains("host reachable"),
+        "must not blame the connection: {text}"
+    );
+    assert!(
+        text.contains("last run failed"),
+        "and the badge must say failed: {text}"
+    );
+}
+
+/// The status block is the point of the pane, so it must not scroll away the
+/// moment output starts arriving.
+#[tokio::test]
+async fn the_status_block_stays_pinned_under_heavy_output() {
+    let mut h = Harness::new(vec![server("web-01", Some("apt upgrade"))]);
+    start_upgrade(&mut h);
+    let g = upgrade_gen(&h, 0);
+    for i in 0..200 {
+        h.app.apply(Msg::AuxLine {
+            panel: 0,
+            gen: g,
+            line: format!("line {i}"),
+        });
+    }
+
+    // What the renderer would actually show in a 20-row panel.
+    let shown = multitop::ui::visible(
+        &h.app.panels[0].view,
+        20,
+        h.app.panels[0].pinned_lines.max(1),
+        0,
+        0,
+    );
+    let text = strip_ansi(&shown.join("\n"));
+    assert!(
+        text.contains("Command"),
+        "the command must still be visible under 200 lines of output: {text}"
+    );
+    assert!(
+        text.contains("line 199"),
+        "and the newest output must still be the tail: {text}"
+    );
+}
+
+/// A panel whose upgrade never reports back stays "running" for the rest of the
+/// session and blocks every later upgrade, because `upgrades_in_flight()` never
+/// clears. That is what a failed SSH spawn used to do: it sent a status line and
+/// returned, with no `AuxDone`.
+#[tokio::test]
+async fn a_panel_that_cannot_start_still_reaches_a_terminal_state() {
+    let mut h = Harness::new(vec![server("web-01", Some("apt upgrade"))]);
+    start_upgrade(&mut h);
+    let g = upgrade_gen(&h, 0);
+
+    // What the task now emits when ssh::spawn_command fails.
+    h.app.apply(Msg::AuxLine {
+        panel: 0,
+        gen: g,
+        line: "ssh: could not resolve hostname".into(),
+    });
+    h.app.apply(Msg::AuxDone {
+        panel: 0,
+        gen: g,
+        note: Some("\u{26A0} could not start the upgrade over SSH".into()),
+        success: false,
+    });
+
+    assert!(
+        !h.app.upgrades_in_flight(),
+        "a panel that could not start must not block every later upgrade"
+    );
+    let text = h.pane_text(0);
+    assert!(
+        !text.contains("do not quit"),
+        "and it must stop claiming to be running: {text}"
+    );
+    assert!(text.contains("could not start"), "{text}");
+
+    // The user can immediately try again.
+    h.press('u');
+    assert!(
+        h.app.show_upgrade_modal(),
+        "u must be able to arm another attempt"
+    );
+}
+
+/// `AuxBegin` arrives immediately after every upgrade starts. It used to
+/// replace the whole view, so the status header was destroyed on every single
+/// run before a byte of output appeared -- leaving a bare "Upgrade on <host>"
+/// line that the panel banner then overwrote, which is why panels showed
+/// output with no header at all.
+#[tokio::test]
+async fn the_pane_survives_the_aux_begin_that_every_run_sends() {
+    let mut h = Harness::new(vec![server("web-01", Some("apt upgrade"))]);
+    start_upgrade(&mut h);
+    let g = upgrade_gen(&h, 0);
+
+    h.app.apply(Msg::AuxBegin {
+        panel: 0,
+        gen: g,
+        header: Some("Upgrade on web-01".into()),
+    });
+
+    let text = h.pane_text(0);
+    assert!(
+        text.contains("apt upgrade"),
+        "the status header must survive AuxBegin: {text}"
+    );
+    assert!(
+        text.contains("running"),
+        "and still show the running state: {text}"
+    );
+}

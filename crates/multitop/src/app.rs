@@ -390,6 +390,7 @@ impl App {
             let gen = self.bump(i);
             let p = &mut self.panels[i];
             p.mode = Mode::Fetch;
+            p.pinned_lines = 1;
             p.view = vec![format!(
                 "{}\u{2192} Fetching system info...{}",
                 pal.meter_mid(),
@@ -412,6 +413,7 @@ impl App {
             let gen = self.bump(i);
             let p = &mut self.panels[i];
             p.mode = Mode::Docker;
+            p.pinned_lines = 1;
             p.view = vec![format!(
                 "{}\u{2192} Docker loading...{}",
                 pal.meter_mid(),
@@ -434,6 +436,7 @@ impl App {
             // it would now also copy the pane's status header into the log and
             // duplicate it on the way back in.
             p.mode = Mode::Monitor;
+            p.pinned_lines = 1;
             p.show_last_frame();
         }
         Vec::new()
@@ -444,8 +447,9 @@ impl App {
         self.reset_scroll();
         for i in 0..self.panels.len() {
             self.panels[i].mode = Mode::Upgrade;
-            let view = self.upgrade_pane(i, false);
+            let (view, pinned) = self.upgrade_pane(i, false);
             self.panels[i].view = view;
+            self.panels[i].pinned_lines = pinned;
         }
     }
 
@@ -454,10 +458,10 @@ impl App {
     ///
     /// The header is always present — before, during and after a run — so the
     /// pane has one shape and `u` always means the same thing in it.
-    fn upgrade_pane(&self, panel: usize, running: bool) -> Vec<String> {
+    fn upgrade_pane(&self, panel: usize, running: bool) -> (Vec<String>, usize) {
         let pal = self.current_theme();
         let Some(p) = self.panels.get(panel) else {
-            return Vec::new();
+            return (Vec::new(), 1);
         };
 
         let credential = if p.external_password || p.password_saved {
@@ -479,9 +483,11 @@ impl App {
             running,
         };
 
-        let mut out = crate::upgrade_view::header(&status, pal, Self::now_secs(), 0);
+        let header = crate::upgrade_view::header(&status, pal, Self::now_secs(), 0);
+        let header_len = header.len();
+        let mut out = header;
         out.extend(p.last_upgrade.iter().cloned());
-        out
+        (out, header_len)
     }
 
     /// Second `u` with no host configured to upgrade: there is nothing to
@@ -509,8 +515,9 @@ impl App {
         for i in 0..self.panels.len() {
             self.panels[i].mode = Mode::Upgrade;
             let running = self.panels[i].upgrade_state == crate::panel::UpgradeState::STARTED;
-            let view = self.upgrade_pane(i, running);
+            let (view, pinned) = self.upgrade_pane(i, running);
             self.panels[i].view = view;
+            self.panels[i].pinned_lines = pinned;
         }
     }
 
@@ -569,12 +576,14 @@ impl App {
         // at view[0], which `ui::draw` overwrites with the host banner on every
         // frame, so the user only ever saw the follow-up hint.
         for i in started {
-            let view = self.upgrade_pane(i, true);
+            let (view, pinned) = self.upgrade_pane(i, true);
             self.panels[i].view = view;
+            self.panels[i].pinned_lines = pinned;
         }
         for i in skipped {
-            let view = self.upgrade_pane(i, false);
+            let (view, pinned) = self.upgrade_pane(i, false);
             self.panels[i].view = view;
+            self.panels[i].pinned_lines = pinned;
         }
         cmds
     }
@@ -728,7 +737,18 @@ impl App {
             }
             Msg::Status { panel, gen, text } => {
                 if self.accepts(panel, gen) {
-                    self.panels[panel].view = vec![text];
+                    let p = &mut self.panels[panel];
+                    if p.mode == Mode::Upgrade {
+                        // In the Upgrade view a status note is one more line in
+                        // the log. Replacing the whole view here wiped the
+                        // status header *and* every line of output collected so
+                        // far, which is what left panels showing nothing but
+                        // "sudo ready" in the middle of a run.
+                        p.last_upgrade.push(text.clone());
+                        p.view.push(text);
+                    } else {
+                        p.view = vec![text];
+                    }
                 }
             }
             Msg::FetchData {
@@ -744,7 +764,15 @@ impl App {
             }
             Msg::AuxBegin { panel, gen, header } => {
                 if self.accepts(panel, gen) {
-                    self.panels[panel].view = header.into_iter().collect();
+                    let p = &mut self.panels[panel];
+                    // In the Upgrade view the pane already has its status header
+                    // and is about to receive output; replacing the whole view
+                    // here threw that away on every single run, leaving nothing
+                    // but a bare "Upgrade on <host>" line that the panel banner
+                    // then overwrote. Other views use this as their reset.
+                    if p.mode != Mode::Upgrade {
+                        p.view = header.into_iter().collect();
+                    }
                 }
             }
             Msg::AuxLine { panel, gen, line } => {
@@ -825,8 +853,9 @@ impl App {
                 // Rebuild the pane so a finished run stops advertising itself as
                 // running and picks up the outcome just recorded.
                 if belongs && self.panels[panel].mode == Mode::Upgrade {
-                    let view = self.upgrade_pane(panel, false);
+                    let (view, pinned) = self.upgrade_pane(panel, false);
                     self.panels[panel].view = view;
+                    self.panels[panel].pinned_lines = pinned;
                 }
             }
             Msg::VaultCreated(unlocked) => {

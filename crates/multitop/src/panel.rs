@@ -34,6 +34,11 @@ pub struct Panel {
     pub sudo_password: Option<String>,
     pub password_saved: bool,
     pub external_password: bool,
+    /// Leading lines of `view` that must stay on screen while the rest
+    /// scrolls. 1 for the host banner; more in the Upgrade view, where the
+    /// status block is the whole point and used to scroll away the moment
+    /// output started arriving.
+    pub pinned_lines: usize,
 }
 
 impl Panel {
@@ -56,6 +61,7 @@ impl Panel {
             sudo_password: None,
             password_saved: false,
             external_password: false,
+            pinned_lines: 1,
         }
     }
 

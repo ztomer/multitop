@@ -87,7 +87,7 @@ pub use crate::refit::{refit_header, refit_line};
 pub fn visible(
     lines: &[String],
     height: usize,
-    pin_header: bool,
+    pinned: usize,
     target_cols: usize,
     scroll_offset: usize,
 ) -> Vec<String> {
@@ -104,12 +104,19 @@ pub fn visible(
         return out;
     }
 
-    let body_budget = height.saturating_sub(1);
+    // The pinned block must never crowd the body out, or a tall header on a
+    // short panel would leave a single row for the output it is describing.
+    // Half the panel is the most it may take; the banner always survives.
+    let pinned = pinned
+        .min(lines.len())
+        .min((height / 2).max(1))
+        .min(height.saturating_sub(1));
+    let body_budget = height.saturating_sub(pinned.max(1));
     let mut out = Vec::with_capacity(height);
     let mut badge_offset = 0;
 
-    if pin_header && lines.len() > 1 {
-        let body_lines = &lines[1..];
+    if pinned > 0 && lines.len() > pinned {
+        let body_lines = &lines[pinned..];
         let max_offset = body_lines.len().saturating_sub(body_budget);
         let eff_offset = scroll_offset.min(max_offset);
         badge_offset = eff_offset;
@@ -117,7 +124,7 @@ pub fn visible(
         let end = body_lines.len().saturating_sub(eff_offset);
         let start = end.saturating_sub(body_budget);
 
-        out.push(lines[0].clone());
+        out.extend_from_slice(&lines[..pinned]);
         out.extend_from_slice(&body_lines[start..end]);
     } else {
         let max_offset = lines.len().saturating_sub(height);
@@ -129,7 +136,7 @@ pub fn visible(
 
     if !out.is_empty() && target_cols > 0 {
         for (i, line) in out.iter_mut().enumerate() {
-            if i == 0 && badge_offset > 0 && pin_header {
+            if i == 0 && badge_offset > 0 && pinned > 0 {
                 let badge = format!(" [\u{2191} -{badge_offset} lines] ");
                 let target_w = target_cols.saturating_sub(badge.chars().count());
                 let refitted = refit_line(line, target_w);
@@ -313,7 +320,7 @@ pub fn draw(f: &mut Frame, app: &App) {
         let mut lines = visible(
             &panel.view,
             inner.height as usize,
-            true,
+            panel.pinned_lines.max(1),
             inner.width as usize,
             panel.scroll_offset,
         );
