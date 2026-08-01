@@ -675,3 +675,33 @@ async fn the_pane_survives_the_aux_begin_that_every_run_sends() {
         "and still show the running state: {text}"
     );
 }
+
+/// Reported from live use: the pane said "will prompt" for a host whose
+/// password had been saved. Passwords load lazily, so a panel that has not run
+/// an upgrade yet holds nothing in memory, and the pane read that emptiness as
+/// "no password" instead of asking the store.
+#[tokio::test]
+async fn the_pane_reports_a_saved_password_rather_than_promising_a_prompt() {
+    let _guard = multitop::password_store::lock_for_test_async().await;
+    multitop::password_store::enable_mock_store();
+    multitop::password_store::clear_mock_store();
+
+    let s = server("web-01", Some("apt upgrade"));
+    multitop::password_store::save(&s, "stored-secret").unwrap();
+
+    let mut h = Harness::new(vec![s]);
+    // Nothing loaded yet: exactly the state a fresh session is in.
+    assert!(h.app.panels[0].sudo_password.is_none());
+
+    h.press('u');
+
+    let text = h.pane_text(0);
+    assert!(
+        text.contains("password stored"),
+        "a saved password must be reported as stored: {text}"
+    );
+    assert!(
+        !text.contains("will prompt"),
+        "and must not threaten a prompt that will not happen: {text}"
+    );
+}

@@ -237,31 +237,44 @@ pub fn port_plaintext_passwords(
         }
     }
 
-    // Only strip the file for the ones that were stored successfully; deleting
-    // a password we failed to save would lose it outright.
-    let note = if failed.is_empty() {
-        match crate::config::strip_plaintext_passwords(config_path) {
-            Ok(n) => format!(
-                "Moved {moved} plaintext password(s) out of config.toml into the \
-                 credential store and removed {n} from the file."
-            ),
-            Err(e) => format!(
-                "Moved {moved} password(s) into the credential store, but could \
-                 not rewrite config.toml: {e}. Remove the sudo_password lines by hand."
-            ),
-        }
-    } else {
-        format!(
-            "Could not move {} plaintext password(s) into the credential store \
-             ({}). They are still in config.toml, where they do nothing \u{2014} \
-             remove them.",
+    // The key is removed whether or not every value made it across. Leaving a
+    // plaintext password on disk is the thing being fixed, so it does not get
+    // to survive on the grounds that the keychain write failed -- that would
+    // keep the secret exactly where it must not be. Anything that failed is
+    // named loudly instead, and can be re-entered with `p`.
+    let strip = crate::config::strip_plaintext_passwords(config_path);
+
+    let mut note = match strip {
+        Ok(n) => format!(
+            "Removed {n} plaintext password(s) from config.toml; \
+             {moved} moved into the credential store."
+        ),
+        Err(e) => format!(
+            "Moved {moved} password(s) into the credential store, but could not \
+             rewrite config.toml: {e}. Delete the sudo_password lines by hand \u{2014} \
+             they are plaintext and unused."
+        ),
+    };
+    if !failed.is_empty() {
+        use std::fmt::Write as _;
+        let _ = write!(
+            note,
+            "  Could not store {} of them ({}); set those again with p.",
             failed.len(),
             failed.join(", ")
-        )
-    };
+        );
+    }
 
     for p in &mut app.panels {
         p.view.push(note.clone());
+    }
+
+    // Porting is adding passwords, so it earns a vault the same way an
+    // interactive save does. Otherwise the passwords land in the keychain and
+    // the vault stays absent, which reads as "no vault set up" right after the
+    // user believes they set their passwords up.
+    if moved > 0 {
+        offer_vault_creation(app);
     }
 }
 

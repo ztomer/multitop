@@ -512,6 +512,15 @@ impl App {
     /// `u` again, so it must have no side effects.
     pub fn enter_upgrade_view(&mut self) {
         self.reset_scroll();
+        // Ask the credential store before reporting on credentials. Passwords
+        // are loaded lazily, so a panel that has not run an upgrade yet this
+        // session holds nothing in memory -- and the pane read that emptiness
+        // as "will prompt" for hosts whose password was saved long ago. Opening
+        // this view is a deliberate user action, and telling them whether they
+        // are about to be asked for a password is the point of it.
+        for p in &mut self.panels {
+            p.ensure_sudo_password();
+        }
         for i in 0..self.panels.len() {
             self.panels[i].mode = Mode::Upgrade;
             let running = self.panels[i].upgrade_state == crate::panel::UpgradeState::STARTED;
