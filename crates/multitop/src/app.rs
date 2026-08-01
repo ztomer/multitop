@@ -5,6 +5,8 @@
 //! runtime in `run.rs` does the I/O; this module can be tested without a
 //! terminal or a network.
 
+#![allow(clippy::missing_const_for_fn)]
+
 use secrecy::ExposeSecret;
 use std::sync::Arc;
 
@@ -15,31 +17,45 @@ pub use crate::types::{Command, Msg};
 
 pub use multitop_agent::SortBy;
 
-#[allow(clippy::struct_excessive_bools)]
+/// High-level application mode (mutually exclusive UI states).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum AppMode {
+    #[default]
+    Running,
+    Filtering,
+    ShowUpgradeModal,
+    ShowSparklines,
+    ShouldQuit,
+}
+
+/// Vault authentication state machine.
+#[derive(Debug, Default)]
+pub enum VaultState {
+    #[default]
+    Locked,
+    Unlocking { awaiting_biometric: bool },
+    Unlocked { vault: Box<multitop_vault::UnlockedVault>, awaiting_biometric: bool },
+    PasswordPrompt { error: Option<String> },
+}
+
 pub struct App {
     pub panels: Vec<Panel>,
     pub selected_panel: usize,
-    pub should_quit: bool,
+    pub mode: AppMode,
     pub sort: SortBy,
     pub theme_idx: usize,
     pub config_path: Option<std::path::PathBuf>,
     pub filter_query: String,
-    pub is_filtering: bool,
     pub sparklines: Vec<crate::sparkline::SparklineHistory>,
     pub sparklines_mem: Vec<crate::sparkline::SparklineHistory>,
     pub sparklines_cpu: Vec<crate::sparkline::SparklineHistory>,
     pub upgrade_history_lines: usize,
     pub password_manager: Option<crate::passwords::PasswordManager>,
-    pub show_upgrade_modal: bool,
     pub last_update: Option<u64>,
     pub upgrade_started_at: Option<u64>,
-    pub show_sparklines: bool,
     pub vault: Option<Arc<multitop_vault::Vault>>,
-    pub vault_unlocked: Option<multitop_vault::UnlockedVault>,
-    pub show_vault_password_prompt: bool,
-    pub vault_awaiting_biometric: bool,
+    pub vault_state: VaultState,
     pub vault_password_input: String,
-    pub vault_password_error: Option<String>,
 }
 
 impl App {
@@ -48,12 +64,11 @@ impl App {
         Self {
             panels: servers.into_iter().map(Panel::new).collect(),
             selected_panel: 0,
-            should_quit: false,
+            mode: AppMode::Running,
             sort: SortBy::Cpu,
             theme_idx: 0,
             config_path: None,
             filter_query: String::new(),
-            is_filtering: false,
             sparklines: (0..count)
                 .map(|_| crate::sparkline::SparklineHistory::new(30))
                 .collect(),
@@ -65,16 +80,11 @@ impl App {
                 .collect(),
             upgrade_history_lines: crate::config::DEFAULT_UPGRADE_HISTORY_LINES,
             password_manager: None,
-            show_upgrade_modal: false,
             last_update: None,
             upgrade_started_at: None,
-            show_sparklines: false,
             vault: None,
-            vault_unlocked: None,
-            show_vault_password_prompt: false,
-            vault_awaiting_biometric: false,
+            vault_state: VaultState::default(),
             vault_password_input: String::new(),
-            vault_password_error: None,
         }
     }
 
@@ -109,13 +119,130 @@ impl App {
     /// there is no vault to unlock (or it is already unlocked), so the caller
     /// proceeds straight to the upgrade modal.
     pub fn begin_vault_unlock(&mut self) -> Option<Arc<multitop_vault::Vault>> {
-        if self.vault.is_some() && self.vault_unlocked.is_none() {
-            self.vault_awaiting_biometric = true;
-            self.vault_password_error = None;
+        if self.vault.is_some() && matches!(self.vault_state, VaultState::Locked) {
+            self.vault_state = VaultState::Unlocking { awaiting_biometric: true };
             self.vault_password_input.clear();
             return self.vault.clone();
         }
         None
+    }
+
+    /// Check if sparklines should be shown.
+    #[must_use]
+    pub const fn show_sparklines(&self) -> bool {
+        matches!(self.mode, AppMode::ShowSparklines)
+    }
+
+    /// Toggle sparklines visibility.
+    pub fn toggle_sparklines(&mut self) {
+        self.mode = if self.show_sparklines() {
+            AppMode::Running
+        } else {
+            AppMode::ShowSparklines
+        };
+    }
+
+    /// Check if upgrade modal should be shown.
+    #[must_use]
+    pub const fn show_upgrade_modal(&self) -> bool {
+        matches!(self.mode, AppMode::ShowUpgradeModal)
+    }
+
+    /// Set upgrade modal visibility.
+    pub fn set_show_upgrade_modal(&mut self, show: bool) {
+        if show {
+            self.mode = AppMode::ShowUpgradeModal;
+        } else if matches!(self.mode, AppMode::ShowUpgradeModal) {
+            self.mode = AppMode::Running;
+        }
+    }
+
+    /// Check if vault password prompt should be shown.
+    #[must_use]
+    pub const fn show_vault_password_prompt(&self) -> bool {
+        matches!(self.vault_state, VaultState::PasswordPrompt { .. })
+    }
+
+    /// Set vault password prompt visibility.
+    pub fn set_show_vault_password_prompt(&mut self, show: bool) {
+        if show {
+            self.vault_state = VaultState::PasswordPrompt { error: None };
+        } else if matches!(self.vault_state, VaultState::PasswordPrompt { .. }) {
+            self.vault_state = VaultState::Locked;
+        }
+    }
+
+    /// Check if vault is awaiting biometric authentication.
+    #[must_use]
+    pub const fn vault_awaiting_biometric(&self) -> bool {
+        matches!(self.vault_state, VaultState::Unlocking { awaiting_biometric: true }
+            | VaultState::Unlocked { awaiting_biometric: true, .. })
+    }
+
+    /// Get vault password input.
+    #[must_use]
+    pub fn vault_password_input(&self) -> &str {
+        &self.vault_password_input
+    }
+
+    /// Get mutable vault password input.
+    pub fn vault_password_input_mut(&mut self) -> &mut String {
+        &mut self.vault_password_input
+    }
+
+    /// Get vault password error.
+    #[must_use]
+    pub const fn vault_password_error(&self) -> Option<&String> {
+        match &self.vault_state {
+            VaultState::PasswordPrompt { error } => error.as_ref(),
+            _ => None,
+        }
+    }
+
+    /// Set vault password error.
+    pub fn set_vault_password_error(&mut self, err: Option<String>) {
+        if let VaultState::PasswordPrompt { ref mut error } = &mut self.vault_state {
+            *error = err;
+        }
+    }
+
+    /// Get the unlocked vault if available.
+    #[must_use]
+    pub const fn vault_unlocked(&self) -> Option<&multitop_vault::UnlockedVault> {
+        match &self.vault_state {
+            VaultState::Unlocked { vault, .. } => Some(vault),
+            _ => None,
+        }
+    }
+
+    /// Get mutable unlocked vault if available.
+    #[must_use]
+    pub fn vault_unlocked_mut(&mut self) -> Option<&mut multitop_vault::UnlockedVault> {
+        match &mut self.vault_state {
+            VaultState::Unlocked { vault, .. } => Some(vault),
+            _ => None,
+        }
+    }
+
+    /// Check if should quit.
+    #[must_use]
+    pub fn should_quit(&self) -> bool {
+        matches!(self.mode, AppMode::ShouldQuit)
+    }
+
+    /// Check if filtering.
+    #[must_use]
+    pub const fn is_filtering(&self) -> bool {
+        matches!(self.mode, AppMode::Filtering)
+    }
+
+    /// Set filtering mode.
+    pub fn set_filtering(&mut self, filtering: bool) {
+        if filtering {
+            self.mode = AppMode::Filtering;
+        } else if matches!(self.mode, AppMode::Filtering) {
+            self.mode = AppMode::Running;
+        }
     }
 
     #[must_use]
@@ -239,11 +366,11 @@ impl App {
         self.reset_scroll();
         let pal = self.current_theme();
         // Pre-load vault passwords if vault is unlocked
-        if let Some(ref unlocked) = self.vault_unlocked {
+        if let VaultState::Unlocked { ref vault, .. } = &self.vault_state {
             for p in &mut self.panels {
                 if p.sudo_password.is_none() {
                     let key = crate::password_store::account(&p.server);
-                    if let Some(pass) = unlocked.get_password(&key) {
+                    if let Some(pass) = vault.get_password(&key) {
                         p.sudo_password = Some(pass.expose_secret().to_string());
                         p.external_password = true;
                     }
@@ -295,7 +422,7 @@ impl App {
 
     /// Confirm upgrade from modal and execute `run_upgrade`.
     pub fn confirm_upgrade(&mut self) -> Vec<Command> {
-        self.show_upgrade_modal = false;
+        self.mode = AppMode::Running;
         let has_upgrade = self.panels.iter().any(|p| p.server.upgrade_cmd.is_some());
         if has_upgrade {
             self.upgrade_started_at = Some(
@@ -315,8 +442,8 @@ impl App {
         self.run_upgrade()
     }
 
-    pub const fn quit(&mut self) {
-        self.should_quit = true;
+    pub fn quit(&mut self) {
+        self.mode = AppMode::ShouldQuit;
     }
 
     /// True when a message is still relevant to the panel it targets.
@@ -470,18 +597,11 @@ impl App {
                 }
             }
             Msg::VaultUnlocked(unlocked) => {
-                self.vault_awaiting_biometric = false;
-                self.show_vault_password_prompt = false;
-                self.vault_password_input.clear();
-                self.vault_password_error = None;
-                self.vault_unlocked = Some(unlocked);
-                self.show_upgrade_modal = true;
+                self.vault_state = VaultState::Unlocked { vault: Box::new(unlocked), awaiting_biometric: false };
+                self.mode = AppMode::ShowUpgradeModal;
             }
             Msg::VaultBiometricFailed => {
-                self.vault_awaiting_biometric = false;
-                self.show_vault_password_prompt = true;
-                self.vault_password_input.clear();
-                self.vault_password_error = None;
+                self.vault_state = VaultState::Unlocking { awaiting_biometric: false };
             }
         }
     }
@@ -529,12 +649,12 @@ impl App {
         }
     }
 
-    pub const fn cycle_theme(&mut self) {
+    pub fn cycle_theme(&mut self) {
         self.theme_idx = (self.theme_idx + 1) % multitop_agent::color::THEMES.len();
     }
 
     #[must_use]
-    pub const fn current_theme(&self) -> &'static multitop_agent::color::Palette {
+    pub fn current_theme(&self) -> &'static multitop_agent::color::Palette {
         &multitop_agent::color::THEMES[self.theme_idx]
     }
 

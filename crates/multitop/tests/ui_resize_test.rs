@@ -100,7 +100,7 @@ fn agent_dims_recalculate_consistently_on_resize() {
 #[test]
 fn sparkline_renders_truncated_on_narrow_split_panel() {
     let mut app = App::new(sample_servers(2));
-    app.show_sparklines = true;
+    app.toggle_sparklines();
 
     for p in &mut app.panels {
         p.view = vec![" CPU [####....] 50%".into(), " MEM [########..] 80%".into()];

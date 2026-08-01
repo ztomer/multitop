@@ -128,12 +128,12 @@ pub fn draw(f: &mut Frame, app: &App) {
             ]));
         }
         lines.push(Line::from(""));
-        let spark_status = if app.show_sparklines {
+        let spark_status = if app.show_sparklines() {
             "Enabled"
         } else {
             "Disabled"
         };
-        let spark_color = if app.show_sparklines {
+        let spark_color = if app.show_sparklines() {
             Color::Green
         } else {
             Color::DarkGray

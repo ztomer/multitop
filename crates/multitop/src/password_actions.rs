@@ -117,16 +117,13 @@ pub fn apply(
             }
         }
         PasswordAction::ToggleSparklines => {
-            app.show_sparklines = !app.show_sparklines;
+            let show = !app.show_sparklines();
+            app.toggle_sparklines();
             if let Some(path) = &app.config_path {
-                crate::config::save_show_sparklines(path, app.show_sparklines);
+                crate::config::save_show_sparklines(path, show);
             }
             if let Some(manager) = app.password_manager.as_mut() {
-                let status = if app.show_sparklines {
-                    "Enabled"
-                } else {
-                    "Disabled"
-                };
+                let status = if show { "Enabled" } else { "Disabled" };
                 manager.notice = Some(format!("Sparklines (Experimental): {status}"));
             }
         }
@@ -135,14 +132,13 @@ pub fn apply(
             password,
             resume_upgrade,
         } => {
+            let key = crate::password_store::account(&app.panels[panel].server);
             app.panels[panel].sudo_password = Some(password.clone());
             let result = crate::password_store::save(&app.panels[panel].server, &password);
             app.panels[panel].password_saved = result.is_ok();
             // Also save to vault if unlocked
-            if let Some(ref mut unlocked) = app.vault_unlocked {
-                let key = crate::password_store::account(&app.panels[panel].server);
-                let _ = unlocked
-                    .set_password(key, &SecretString::new(password.clone().into_boxed_str()));
+            if let Some(ref mut unlocked) = app.vault_unlocked_mut() {
+                let _ = unlocked.set_password(key, &SecretString::new(password.clone().into_boxed_str()));
             }
             if let Some(manager) = app.password_manager.as_mut() {
                 manager.resume_upgrade = false;

@@ -345,7 +345,7 @@ pub fn draw(f: &mut Frame, app: &App) {
                     .unwrap_or_default();
 
                 let (left_str, mem_used_len) =
-                    if app.show_sparklines && !mem_bar.is_empty() && left_rule_len >= 3 {
+                    if app.show_sparklines() && !mem_bar.is_empty() && left_rule_len >= 3 {
                         let text = format!("M:{mem_bar}");
                         let len = text.chars().count();
                         (format!("\x1b[36;1m{text}\x1b[0m"), len)
@@ -354,7 +354,7 @@ pub fn draw(f: &mut Frame, app: &App) {
                     };
 
                 let (right_str, cpu_used_len) =
-                    if app.show_sparklines && !cpu_bar.is_empty() && right_rule_len >= 3 {
+                    if app.show_sparklines() && !cpu_bar.is_empty() && right_rule_len >= 3 {
                         let text = format!("C:{cpu_bar}");
                         let len = text.chars().count();
                         (format!("\x1b[33;1m{text}\x1b[0m"), len)
@@ -397,11 +397,11 @@ pub fn draw(f: &mut Frame, app: &App) {
         keybar,
     );
 
-    if app.vault_awaiting_biometric {
+    if app.vault_awaiting_biometric() {
         crate::modals::draw_vault_awaiting_biometric(f);
-    } else if app.show_vault_password_prompt {
+    } else if app.show_vault_password_prompt() {
         crate::modals::draw_vault_password_prompt(f, app);
-    } else if app.show_upgrade_modal {
+    } else if app.show_upgrade_modal() {
         crate::modals::draw_upgrade_modal(f, app);
     }
 }

@@ -33,18 +33,18 @@ fn test_upgrade_modal_workflow_and_state_saving() {
     app.config_path = Some(config_path.clone());
 
     // Initially modal is closed
-    assert!(!app.show_upgrade_modal);
+    assert!(!app.show_upgrade_modal());
     assert_eq!(app.last_update, None);
 
     // Open modal
-    app.show_upgrade_modal = true;
-    assert!(app.show_upgrade_modal);
+    app.set_show_upgrade_modal(true);
+    assert!(app.show_upgrade_modal());
 
     // Confirm upgrade
     let cmds = app.confirm_upgrade();
 
     // Modal is now closed and commands generated
-    assert!(!app.show_upgrade_modal);
+    assert!(!app.show_upgrade_modal());
     assert_eq!(cmds.len(), 1);
 
     // Simulate upgrade completing so last_update gets persisted

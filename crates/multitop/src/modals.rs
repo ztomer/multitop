@@ -203,7 +203,7 @@ pub fn draw_vault_password_prompt(f: &mut Frame, app: &App) {
 
     f.render_widget(ratatui::widgets::Clear, popup_rect);
 
-    let password_dots: String = (0..app.vault_password_input.len()).map(|_| '*').collect();
+    let password_dots: String = (0..app.vault_password_input().len()).map(|_| '*').collect();
     let mut lines = vec![
         Line::from(""),
         Line::from(vec![Span::styled(
@@ -216,7 +216,7 @@ pub fn draw_vault_password_prompt(f: &mut Frame, app: &App) {
             Span::styled(password_dots, Style::default().fg(Color::White)),
         ]),
     ];
-    if let Some(ref error) = app.vault_password_error {
+    if let Some(error) = app.vault_password_error() {
         lines.push(Line::from(vec![Span::styled(
             format!("  {error}"),
             Style::default().fg(Color::Red),

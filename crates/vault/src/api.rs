@@ -649,7 +649,7 @@ mod tests {
         let mut unlocked = vault.unlock_with_password(password).unwrap();
 
         unlocked
-            .set_password("server1:22".into(), SecretString::from("pass123"))
+            .set_password("server1:22".into(), &SecretString::from("pass123"))
             .unwrap();
         assert_eq!(
             unlocked.get_password("server1:22").unwrap().expose_secret(),
@@ -848,7 +848,7 @@ mod tests {
         let mut unlocked = vault.unlock_with_password("password").unwrap();
 
         unlocked
-            .set_password("server1:22".into(), SecretString::from("pass1"))
+            .set_password("server1:22".into(), &SecretString::from("pass1"))
             .unwrap();
         assert!(unlocked.get_password("server1:22").is_some());
 
@@ -884,10 +884,10 @@ mod tests {
         assert!(unlocked.hosts().is_empty());
 
         unlocked
-            .set_password("server1:22".into(), SecretString::from("pass1"))
+            .set_password("server1:22".into(), &SecretString::from("pass1"))
             .unwrap();
         unlocked
-            .set_password("server2:22".into(), SecretString::from("pass2"))
+            .set_password("server2:22".into(), &SecretString::from("pass2"))
             .unwrap();
 
         let mut hosts = unlocked.hosts();
@@ -906,9 +906,9 @@ mod tests {
 
         {
             let mut unlocked = vault.unlock_with_password("password").unwrap();
-            unlocked
-                .set_password("server1:22".into(), SecretString::from("pass1"))
-                .unwrap();
+unlocked
+            .set_password("server1:22".into(), &SecretString::from("pass1"))
+            .unwrap();
         }
 
         // Unlock again and check password persisted
@@ -934,7 +934,7 @@ mod tests {
             let host = format!("server{i}:22");
             let pass = format!("pass{i}");
             unlocked
-                .set_password(host, SecretString::from(pass.as_str()))
+                .set_password(host, &SecretString::from(pass.as_str()))
                 .unwrap();
         }
 
@@ -967,7 +967,7 @@ mod tests {
                 let host = format!("server{i}:22");
                 let pass = format!("pass{i}");
                 unlocked
-                    .set_password(host, SecretString::from(pass.as_str()))
+                    .set_password(host, &SecretString::from(pass.as_str()))
                     .unwrap();
             }));
         }

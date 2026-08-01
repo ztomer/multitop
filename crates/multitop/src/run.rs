@@ -14,7 +14,7 @@ use tokio::task::JoinHandle;
 use tokio::time::Instant;
 use tokio_stream::StreamExt as _;
 
-use crate::app::{App, Command, Msg};
+use crate::app::{App, Command, Msg, VaultState};
 use crate::config::Server;
 use crate::ui;
 use ratatui::layout::Rect;
@@ -97,7 +97,9 @@ async fn event_loop(
     // OS keychain access dialogs on every app launch.
     if let Ok(cfg) = crate::config::load(&config_path) {
         app.upgrade_history_lines = cfg.upgrade_history_lines;
-        app.show_sparklines = cfg.show_sparklines;
+        if cfg.show_sparklines {
+            app.toggle_sparklines();
+        }
     }
     let state = crate::state::load_state(&config_path);
     app.last_update = state.last_update;
@@ -207,7 +209,7 @@ async fn event_loop(
             }
         }
 
-        if app.should_quit {
+        if app.should_quit() {
             tasks.abort_all(&mut app);
             return Ok(());
         }
@@ -245,54 +247,54 @@ fn handle_key(
 
     // While the biometric prompt is up, ignore other keys. The outcome arrives
     // as a `VaultUnlocked` / `VaultBiometricFailed` message.
-    if app.vault_awaiting_biometric {
+    if app.vault_awaiting_biometric() {
         return;
     }
 
-    if app.show_upgrade_modal {
+    if app.show_upgrade_modal() {
         match key.code {
             KeyCode::Char('u' | 'U' | 'y' | 'Y') | KeyCode::Enter => {
                 let cmds = app.confirm_upgrade();
                 execute_cmds(cmds, app, servers, dims, tx, tasks);
             }
             KeyCode::Esc | KeyCode::Char('q' | 'Q' | 'n' | 'N') => {
-                app.show_upgrade_modal = false;
+                app.set_show_upgrade_modal(false);
             }
             _ => {}
         }
         return;
     }
 
-    if app.show_vault_password_prompt {
+    if app.show_vault_password_prompt() {
         match key.code {
             KeyCode::Enter => {
-                let password = std::mem::take(&mut app.vault_password_input);
-                app.show_vault_password_prompt = false;
+                let password = std::mem::take(app.vault_password_input_mut());
+                app.set_show_vault_password_prompt(false);
                 if !password.is_empty() {
                     if let Some(ref vault) = app.vault {
                         match vault.unlock_with_password(&password) {
                             Ok(unlocked) => {
-                                app.vault_unlocked = Some(unlocked);
-                                app.vault_password_error = None;
-                                app.show_upgrade_modal = true;
+                                app.set_vault_password_error(None);
+                                app.vault_state = VaultState::Unlocked { vault: Box::new(unlocked), awaiting_biometric: false };
+                                app.set_show_upgrade_modal(true);
                             }
                             Err(e) => {
-                                app.vault_password_error = Some(e.to_string());
-                                app.show_vault_password_prompt = true;
+                                app.set_vault_password_error(Some(e.to_string()));
+                                app.set_show_vault_password_prompt(true);
                             }
                         }
                     }
                 }
             }
             KeyCode::Esc => {
-                app.show_vault_password_prompt = false;
-                app.vault_password_input.clear();
-                app.vault_password_error = None;
+                app.set_show_vault_password_prompt(false);
+                app.vault_password_input_mut().clear();
+                app.set_vault_password_error(None);
             }
             KeyCode::Backspace => {
-                app.vault_password_input.pop();
+                app.vault_password_input_mut().pop();
             }
-            KeyCode::Char(c) => app.vault_password_input.push(c),
+            KeyCode::Char(c) => app.vault_password_input_mut().push(c),
             _ => {}
         }
         return;
@@ -403,7 +405,7 @@ fn handle_key(
                     }
                 });
             } else {
-                app.show_upgrade_modal = true;
+                app.set_show_upgrade_modal(true);
             }
             Vec::new()
         }
