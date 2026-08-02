@@ -43,6 +43,26 @@ impl SecureEnclave {
         Self::generate_new()
     }
 
+    /// Load the existing Secure Enclave key, never creating one.
+    ///
+    /// This is what the unlock path must use. `get_or_create` falls through to
+    /// `generate_new`, which calls `delete_existing` -- so using it to *read* an
+    /// existing wrapper means a transient lookup failure (a locked login
+    /// keychain, a momentary search error) destroys the Secure Enclave private
+    /// key and permanently orphans the `SecureEnclave` wrapper already sitting
+    /// in the vault file. The wrapper cannot be re-derived: the private key
+    /// never leaves the enclave, so once deleted the ciphertext is undecryptable
+    /// forever. The user would keep being asked for their password with no
+    /// indication that biometric unlock had been destroyed rather than declined.
+    ///
+    /// Creating a key is an enrollment action. Reading one is not.
+    ///
+    /// # Errors
+    /// Returns `VaultError::SecureEnclaveError` if no key exists or lookup fails.
+    pub fn load_only() -> Result<Self, VaultError> {
+        Self::load_existing()
+    }
+
     fn load_existing() -> Result<Self, VaultError> {
         let mut search = ItemSearchOptions::new();
         search
@@ -182,13 +202,37 @@ impl SecureEnclave {
     }
 }
 
-/// Create or get the Secure Enclave wrapper
+/// Create or get the Secure Enclave wrapper.
+///
+/// Enrollment only -- this can generate a new key pair, which deletes any
+/// existing one. To read an already-wrapped key, use
+/// [`get_secure_enclave_existing`] instead.
 ///
 /// # Errors
 /// Returns `VaultError::SecureEnclaveError` if key creation or lookup fails.
 #[cfg(target_os = "macos")]
 pub fn get_secure_enclave() -> Result<SecureEnclave, VaultError> {
     SecureEnclave::get_or_create()
+}
+
+/// Get the existing Secure Enclave wrapper without ever creating one.
+///
+/// # Errors
+/// Returns `VaultError::SecureEnclaveError` if no key exists or lookup fails.
+#[cfg(target_os = "macos")]
+pub fn get_secure_enclave_existing() -> Result<SecureEnclave, VaultError> {
+    SecureEnclave::load_only()
+}
+
+/// Get the existing Secure Enclave wrapper without ever creating one.
+///
+/// # Errors
+/// Always returns `VaultError::PlatformNotSupported` off macOS.
+#[cfg(not(target_os = "macos"))]
+pub fn get_secure_enclave_existing() -> Result<SecureEnclave, VaultError> {
+    Err(VaultError::PlatformNotSupported(
+        "Secure Enclave only on macOS".into(),
+    ))
 }
 
 /// Check if Secure Enclave is available on this system

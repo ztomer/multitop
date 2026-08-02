@@ -319,7 +319,12 @@ impl Vault {
         // Try Secure Enclave (macOS)
         #[cfg(target_os = "macos")]
         if let Some(se_wrapper) = vault_file.header.get_wrapper(WrapperType::SecureEnclave) {
-            if let Ok(se) = secure_enclave::get_secure_enclave() {
+            // Load-only, never create. `get_secure_enclave` falls through to
+            // generating a fresh key pair, and generation deletes the existing
+            // one -- so a transient lookup failure here would destroy the
+            // private key that this very wrapper was encrypted to, orphaning it
+            // forever. Unlocking must not be able to damage what it is reading.
+            if let Ok(se) = secure_enclave::get_secure_enclave_existing() {
                 match se.unwrap_key(se_wrapper) {
                     Ok(vault_key) => {
                         return self.decrypt_and_load(vault_key, &vault_file);
