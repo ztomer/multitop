@@ -97,7 +97,12 @@ pub fn decode_chunked(body: &[u8]) -> Vec<u8> {
         if size == 0 {
             break;
         }
-        let end = (pos + size).min(body.len());
+        // Saturating, because `size` is a hex number out of the response and
+        // `usize::MAX` parses fine. Adding first and clamping afterwards let the
+        // overflow wrap to a value *below* `pos`, so the clamp returned an `end`
+        // smaller than the start and the slice below panicked -- the clamp that
+        // exists to tolerate a truncated body was itself defeated by the wrap.
+        let end = pos.saturating_add(size).min(body.len());
         out.extend_from_slice(&body[pos..end]);
         pos = end + 2; // trailing CRLF
     }
@@ -157,6 +162,50 @@ fn http_get(path: &str) -> io::Result<Vec<u8>> {
         Ok(decode_chunked(body))
     } else {
         Ok(body.to_vec())
+    }
+}
+
+#[cfg(test)]
+mod chunked_tests {
+    #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+
+    use super::decode_chunked;
+
+    #[test]
+    fn a_chunk_size_that_overflows_usize_does_not_panic() {
+        // `usize::from_str_radix` accepts this happily. Adding it to `pos` before
+        // clamping wrapped below `pos`, so the slice ran backwards and the agent
+        // aborted -- and the release profile aborts on panic, so the process
+        // died rather than the frame being skipped.
+        let body = b"ffffffffffffffff\r\npayload\r\n0\r\n\r\n";
+        let out = decode_chunked(body);
+        assert!(
+            out.len() <= body.len(),
+            "a bogus chunk size must not yield more than the body holds"
+        );
+    }
+
+    #[test]
+    fn a_truncated_chunk_yields_what_arrived() {
+        // The declared size exceeds what is present, which is what a read
+        // timeout mid-response looks like.
+        let body = b"ff\r\nshort";
+        assert_eq!(decode_chunked(body), b"short");
+    }
+
+    #[test]
+    fn well_formed_chunks_still_decode() {
+        assert_eq!(decode_chunked(b"7\r\npayload\r\n0\r\n\r\n"), b"payload");
+        // Two chunks, and a size with a chunk extension after a semicolon.
+        assert_eq!(
+            decode_chunked(b"3\r\nfoo\r\n3;x=y\r\nbar\r\n0\r\n\r\n"),
+            b"foobar"
+        );
+    }
+
+    #[test]
+    fn a_non_hex_size_stops_decoding() {
+        assert_eq!(decode_chunked(b"zz\r\nnope\r\n"), b"");
     }
 }
 
