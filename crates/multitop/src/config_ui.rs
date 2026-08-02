@@ -93,7 +93,7 @@ pub fn draw(f: &mut Frame, app: &App) {
             )));
         } else {
             lines.push(Line::from(Span::styled(
-                "[A] Add Server  [Enter/E] Edit Server & Password  [D] Delete Server  [Esc/E] Return",
+                "[A] Add Server  [Enter/E] Edit Server & Password  [D] Delete Server (confirms)  [Esc/E] Return",
                 Style::default().fg(Color::DarkGray),
             )));
         }

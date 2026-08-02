@@ -76,6 +76,12 @@ pub struct PasswordManager {
     pub resume_upgrade: bool,
     pub draft: Option<ServerDraft>,
     pub notice: Option<String>,
+    /// Index awaiting confirmation for removal, if any.
+    ///
+    /// Deleting a server rewrites config.toml and cannot be undone, so it takes
+    /// two keys. Running an upgrade already asks first; removing a server was
+    /// the more destructive of the two and asked for nothing.
+    pub pending_delete: Option<usize>,
 }
 
 impl PasswordManager {
@@ -90,6 +96,7 @@ impl PasswordManager {
             resume_upgrade,
             draft: None,
             notice: None,
+            pending_delete: None,
         }
     }
 }
@@ -139,6 +146,8 @@ pub fn handle_key(app: &mut App, key: KeyCode) -> PasswordAction {
             ConfigSection::Servers => ConfigSection::Passwords,
         };
         manager.notice = None;
+        // An armed removal refers to the list the user was just looking at.
+        manager.pending_delete = None;
         return PasswordAction::None;
     }
     match manager.section {
@@ -228,6 +237,38 @@ fn password_key(app: &mut App, key: KeyCode) -> PasswordAction {
     PasswordAction::None
 }
 
+/// Resolve a removal the user has been asked to confirm.
+///
+/// Anything other than an explicit yes cancels, so a stray keystroke can only
+/// ever be the safe answer.
+#[allow(clippy::expect_used)]
+fn answer_pending_delete(app: &mut App, key: KeyCode) -> PasswordAction {
+    let manager = app.password_manager.as_mut().expect("manager exists");
+    let Some(idx) = manager.pending_delete.take() else {
+        return PasswordAction::None;
+    };
+    let confirmed = matches!(key, KeyCode::Char('y' | 'Y') | KeyCode::Enter);
+    if !confirmed || idx >= app.panels.len() {
+        if let Some(m) = app.password_manager.as_mut() {
+            m.notice = Some("Removal cancelled.".to_string());
+        }
+        return PasswordAction::None;
+    }
+
+    let host = app.panels[idx].server.host.clone();
+    let servers: Vec<Server> = app
+        .panels
+        .iter()
+        .enumerate()
+        .filter(|(i, _)| *i != idx)
+        .map(|(_, panel)| panel.server.clone())
+        .collect();
+    if let Some(m) = app.password_manager.as_mut() {
+        m.notice = Some(format!("Removed {host}."));
+    }
+    PasswordAction::ApplyServers(servers)
+}
+
 #[allow(clippy::expect_used)]
 fn server_key(app: &mut App, key: KeyCode) -> PasswordAction {
     let manager = app.password_manager.as_mut().expect("manager exists");
@@ -277,6 +318,12 @@ fn server_key(app: &mut App, key: KeyCode) -> PasswordAction {
         }
         return PasswordAction::None;
     }
+    // A pending removal owns the next keystroke, so no other binding can be hit
+    // by accident while the question is on screen.
+    if manager.pending_delete.is_some() {
+        return answer_pending_delete(app, key);
+    }
+
     match key {
         KeyCode::Esc | KeyCode::Char('e' | 'E') => app.password_manager = None,
         KeyCode::Up | KeyCode::Char('k' | 'K') => {
@@ -296,13 +343,17 @@ fn server_key(app: &mut App, key: KeyCode) -> PasswordAction {
             });
         }
         KeyCode::Char('d' | 'D') if app.panels.len() > 1 => {
-            let mut servers: Vec<Server> = app
+            let host = app
                 .panels
-                .iter()
-                .map(|panel| panel.server.clone())
-                .collect();
-            servers.remove(manager.selected);
-            return PasswordAction::ApplyServers(servers);
+                .get(manager.selected)
+                .map_or_else(String::new, |p| p.server.host.clone());
+            manager.pending_delete = Some(manager.selected);
+            manager.notice = Some(format!(
+                "Remove {host} from the configuration? [y] confirm  [Esc] cancel"
+            ));
+        }
+        KeyCode::Char('d' | 'D') => {
+            manager.notice = Some("Cannot remove the last remaining server.".to_string());
         }
         _ => {}
     }
@@ -549,18 +600,127 @@ mod tests {
         );
     }
 
-    /// Removing a server still works, in the section that says so.
+    /// Removing a server still works, in the section that says so -- now behind
+    /// a confirmation.
     #[test]
     fn server_section_d_still_removes_a_server() {
         let mut app = App::new(vec![test_server("host1"), test_server("host2")]);
         crate::passwords::open(&mut app, 0, false);
         crate::passwords::handle_key(&mut app, KeyCode::Tab);
 
-        let action = crate::passwords::handle_key(&mut app, KeyCode::Char('d'));
+        crate::passwords::handle_key(&mut app, KeyCode::Char('d'));
+        let action = crate::passwords::handle_key(&mut app, KeyCode::Char('y'));
         let PasswordAction::ApplyServers(remaining) = action else {
             panic!("expected the server list to change");
         };
         assert_eq!(remaining.len(), 1);
         assert_eq!(remaining[0].host, "host2");
+    }
+
+    /// Removing a server rewrites config.toml and cannot be undone, so it takes
+    /// two keys. It used to happen on the first press, with no question asked --
+    /// while running an upgrade, the less destructive of the two, had a confirm
+    /// modal.
+    #[test]
+    fn server_delete_asks_before_removing() {
+        let mut app = App::new(vec![test_server("host1"), test_server("host2")]);
+        crate::passwords::open(&mut app, 0, false);
+        crate::passwords::handle_key(&mut app, KeyCode::Tab);
+
+        let action = crate::passwords::handle_key(&mut app, KeyCode::Char('d'));
+        assert_eq!(action, PasswordAction::None, "the first press must not act");
+        let manager = app.password_manager.as_ref().unwrap();
+        assert_eq!(manager.pending_delete, Some(0));
+        assert!(
+            manager.notice.as_ref().unwrap().contains("host1"),
+            "the question must name what is about to be removed"
+        );
+    }
+
+    #[test]
+    fn server_delete_goes_ahead_on_confirmation() {
+        let mut app = App::new(vec![test_server("host1"), test_server("host2")]);
+        crate::passwords::open(&mut app, 0, false);
+        crate::passwords::handle_key(&mut app, KeyCode::Tab);
+        crate::passwords::handle_key(&mut app, KeyCode::Char('d'));
+
+        let action = crate::passwords::handle_key(&mut app, KeyCode::Char('y'));
+        let PasswordAction::ApplyServers(remaining) = action else {
+            panic!("expected the removal to be applied");
+        };
+        assert_eq!(remaining.len(), 1);
+        assert_eq!(remaining[0].host, "host2");
+        assert_eq!(app.password_manager.as_ref().unwrap().pending_delete, None);
+    }
+
+    #[test]
+    fn server_delete_can_be_cancelled() {
+        for cancel in [KeyCode::Esc, KeyCode::Char('n')] {
+            let mut app = App::new(vec![test_server("host1"), test_server("host2")]);
+            crate::passwords::open(&mut app, 0, false);
+            crate::passwords::handle_key(&mut app, KeyCode::Tab);
+            crate::passwords::handle_key(&mut app, KeyCode::Char('d'));
+
+            let action = crate::passwords::handle_key(&mut app, cancel);
+            assert_eq!(action, PasswordAction::None, "{cancel:?} must not remove");
+            let manager = app.password_manager.as_ref().unwrap();
+            assert_eq!(manager.pending_delete, None, "{cancel:?} disarms");
+            assert!(manager.notice.as_ref().unwrap().contains("cancelled"));
+        }
+    }
+
+    /// A stray second press must not become the confirmation for a question the
+    /// user never saw answered.
+    #[test]
+    fn a_cancelled_removal_stays_cancelled() {
+        let mut app = App::new(vec![test_server("host1"), test_server("host2")]);
+        crate::passwords::open(&mut app, 0, false);
+        crate::passwords::handle_key(&mut app, KeyCode::Tab);
+        crate::passwords::handle_key(&mut app, KeyCode::Char('d'));
+        crate::passwords::handle_key(&mut app, KeyCode::Esc);
+
+        let action = crate::passwords::handle_key(&mut app, KeyCode::Char('y'));
+        assert_eq!(
+            action,
+            PasswordAction::None,
+            "y after a cancel must not remove anything"
+        );
+        assert_eq!(app.panels.len(), 2);
+    }
+
+    /// Leaving the section must not leave a removal armed against a list the
+    /// user is no longer looking at.
+    #[test]
+    fn switching_sections_disarms_a_pending_removal() {
+        let mut app = App::new(vec![test_server("host1"), test_server("host2")]);
+        crate::passwords::open(&mut app, 0, false);
+        crate::passwords::handle_key(&mut app, KeyCode::Tab);
+        crate::passwords::handle_key(&mut app, KeyCode::Char('d'));
+        assert!(app
+            .password_manager
+            .as_ref()
+            .unwrap()
+            .pending_delete
+            .is_some());
+
+        crate::passwords::handle_key(&mut app, KeyCode::Tab);
+        assert_eq!(
+            app.password_manager.as_ref().unwrap().pending_delete,
+            None,
+            "the armed removal must not survive leaving the section"
+        );
+    }
+
+    #[test]
+    fn the_last_server_still_cannot_be_removed() {
+        let mut app = App::new(vec![test_server("host1")]);
+        crate::passwords::open(&mut app, 0, false);
+        crate::passwords::handle_key(&mut app, KeyCode::Tab);
+
+        let action = crate::passwords::handle_key(&mut app, KeyCode::Char('d'));
+        assert_eq!(action, PasswordAction::None);
+        let manager = app.password_manager.as_ref().unwrap();
+        assert_eq!(manager.pending_delete, None, "nothing to confirm");
+        assert!(manager.notice.as_ref().unwrap().contains("Cannot remove"));
     }
 }

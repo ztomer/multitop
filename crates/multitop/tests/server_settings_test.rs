@@ -170,8 +170,11 @@ fn test_add_and_delete_server_from_passwords_section() {
     let _ = passwords::handle_key(&mut app, KeyCode::Esc);
     assert!(app.password_manager.as_ref().unwrap().draft.is_none());
 
-    // Press 'd' in Passwords section -> returns ApplyServers with host1 removed
-    let action_del = passwords::handle_key(&mut app, KeyCode::Char('d'));
+    // Cancelling the draft above left us in the Servers section, where removal
+    // now takes a confirmation: 'd' asks, 'y' answers.
+    let armed = passwords::handle_key(&mut app, KeyCode::Char('d'));
+    assert_eq!(armed, PasswordAction::None, "the first press only asks");
+    let action_del = passwords::handle_key(&mut app, KeyCode::Char('y'));
     let PasswordAction::ApplyServers(remaining) = action_del else {
         panic!("expected ApplyServers action");
     };
