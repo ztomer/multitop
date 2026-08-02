@@ -141,6 +141,10 @@ enum SsoCacheState {
 
 static SSO_CACHE: RwLock<SsoCacheState> = RwLock::new(SsoCacheState::Uncached);
 
+// reachability: test-only reset for this module's process-global cache.
+// Production invalidates by recording a cached negative via `cache_sso(None)`
+// after the store agrees; this forces the next lookup to re-query instead,
+// which only a test between cases wants.
 pub fn clear_sso_cache() {
     let mut cache = SSO_CACHE
         .write()

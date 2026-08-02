@@ -215,12 +215,6 @@ impl Argon2Params {
         Ok(())
     }
 
-    /// Estimated time in milliseconds.
-    #[must_use]
-    pub const fn estimated_ms(&self) -> u64 {
-        (self.m_kib as u64 / 1024) * self.t as u64 / self.p as u64 / 2
-    }
-
     /// Create Argon2 instance.
     ///
     /// # Errors
@@ -667,18 +661,6 @@ mod tests {
         let params = Argon2Params::from_config(255, 10000, 255);
         assert_eq!(params.t, 20); // clamped from 255
         assert_eq!(params.p, 8); // clamped from 255
-    }
-
-    #[test]
-    fn test_argon2_params_estimated_ms() {
-        let params = Argon2Params {
-            t: 10,
-            m_kib: 262_144,
-            p: 4,
-        }; // 256 MiB
-        let ms = params.estimated_ms();
-        // (262144/1024) * 10 / 4 / 2 = 256 * 10 / 4 / 2 = 320 ms
-        assert_eq!(ms, 320);
     }
 
     #[test]

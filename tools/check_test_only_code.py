@@ -86,6 +86,27 @@ def rust_files(*globs: str) -> list[Path]:
     return sorted(seen)
 
 
+def find_note(lines: list[str], idx: int) -> str:
+    """Look for a `reachability:` marker in the comment block above `idx`.
+
+    Walks up over the contiguous run of comments and attributes immediately
+    preceding the declaration, rather than a fixed one or two lines: a real
+    explanation runs to several lines, and the marker naturally opens it. The
+    first version checked only two lines back, so a four-line note silently
+    failed to register and the function stayed flagged.
+    """
+    back = idx - 1
+    while back >= 0:
+        stripped = lines[back].strip()
+        if not (stripped.startswith("//") or stripped.startswith("#[") or stripped.startswith("#!")):
+            break
+        found = ALLOW_RE.search(lines[back])
+        if found:
+            return found.group(1).strip()
+        back -= 1
+    return ""
+
+
 def collect_declarations(files: list[Path]) -> dict[str, list[tuple[Path, int, str]]]:
     """Public fns declared outside test regions, with any reachability note."""
     decls: dict[str, list[tuple[Path, int, str]]] = {}
@@ -100,13 +121,7 @@ def collect_declarations(files: list[Path]) -> dict[str, list[tuple[Path, int, s
             name = m.group(1)
             if name in IMPLICIT:
                 continue
-            note = ""
-            for back in (idx - 1, idx - 2):
-                if 0 <= back < len(lines):
-                    a = ALLOW_RE.search(lines[back])
-                    if a:
-                        note = a.group(1).strip()
-                        break
+            note = find_note(lines, idx)
             decls.setdefault(name, []).append((path, idx + 1, note))
     return decls
 
@@ -215,21 +230,19 @@ def self_test() -> int:
     failures = 0
     for source, want, label in cases:
         if label == "noted":
-            source = "// reachability: called by the C FFI shim\n" + source
+            source = (
+                "// reachability: called by the C FFI shim\n"
+                "// through a symbol the tool cannot resolve,\n"
+                "// so it looks unreferenced from Rust.\n"
+                "#[must_use]\n"
+            ) + source
         text = strip_test_regions(source)
         decls = {}
         lines = source.splitlines()
         for idx, line in enumerate(text.splitlines()):
             m = PUB_FN_RE.match(line)
             if m and m.group(1) not in IMPLICIT:
-                note = ""
-                for back in (idx - 1, idx - 2):
-                    if 0 <= back < len(lines):
-                        a = ALLOW_RE.search(lines[back])
-                        if a:
-                            note = a.group(1).strip()
-                            break
-                decls[m.group(1)] = note
+                decls[m.group(1)] = find_note(lines, idx)
         got = 0
         prod = [(Path("x.rs"), text)]
         only_tests = "\n".join(
