@@ -45,6 +45,11 @@ pub enum Payload {
     Fetch(FetchSnapshot),
 }
 
+/// Bytes of fixed header before the payload: magic(4) + version(1) + mode(1) + len(2).
+const HEADER_LEN: usize = 8;
+/// The payload length field is a u16, so this is the hard ceiling.
+const MAX_PAYLOAD: usize = u16::MAX as usize;
+
 pub fn encode_packet(payload: &Payload) -> Vec<u8> {
     let mut buf = Vec::with_capacity(512);
     // Header: magic(4) + version(1) + mode(1) + payload_len(2)
@@ -67,8 +72,25 @@ pub fn encode_packet(payload: &Payload) -> Vec<u8> {
         Payload::Fetch(snap) => encode_fetch(snap, &mut buf),
     }
 
-    let payload_len = (buf.len() - payload_start) as u16;
-    let len_bytes = payload_len.to_le_bytes();
+    // Truncate rather than lie. `as u16` wrapped here, so a payload over 64 KiB
+    // wrote a header claiming `len % 65536` -- the reader consumed that many
+    // bytes and then parsed the middle of this payload as the next packet's
+    // header, failed the magic check, and tore the connection down. A host with
+    // enough containers could never show its Docker view.
+    //
+    // Truncating loses the frame (the decoder cannot parse a cut-off payload and
+    // returns None), but the stream stays framed, so the next packet is read
+    // correctly. Losing one frame beats losing the connection. The encoders
+    // below keep within budget so this is a backstop, not the normal path.
+    let payload_len = buf.len() - payload_start;
+    let payload_len = if payload_len > MAX_PAYLOAD {
+        buf.truncate(payload_start + MAX_PAYLOAD);
+        MAX_PAYLOAD
+    } else {
+        payload_len
+    };
+    #[allow(clippy::cast_possible_truncation)]
+    let len_bytes = (payload_len as u16).to_le_bytes();
     buf[6] = len_bytes[0];
     buf[7] = len_bytes[1];
 
@@ -87,9 +109,11 @@ fn encode_snapshot(snap: &Snapshot, buf: &mut Vec<u8>) {
     encode_str(&snap.agent_version, buf);
     buf.extend_from_slice(&(snap.cpu_pct as f32).to_le_bytes());
 
+    #[allow(clippy::cast_possible_truncation)]
     let num_cores = snap.cores.len().min(u16::MAX as usize) as u16;
     buf.extend_from_slice(&num_cores.to_le_bytes());
-    for &(idx, cpu, temp) in &snap.cores {
+    // `.take` so the declared count and the emitted items cannot disagree.
+    for &(idx, cpu, temp) in snap.cores.iter().take(num_cores as usize) {
         buf.extend_from_slice(&(idx as u16).to_le_bytes());
         buf.extend_from_slice(&(cpu as f32).to_le_bytes());
         let t = temp.unwrap_or(-1.0) as f32;
@@ -121,16 +145,32 @@ fn encode_snapshot(snap: &Snapshot, buf: &mut Vec<u8>) {
 
 fn encode_docker(host: &str, rows: &[DockerRow], buf: &mut Vec<u8>) {
     encode_str(host, buf);
-    let num_rows = rows.len().min(u16::MAX as usize) as u16;
-    buf.extend_from_slice(&num_rows.to_le_bytes());
+    // The count is written after the rows, because how many fit is not known
+    // until they are encoded. Writing `rows.len()` up front and then emitting
+    // every row was wrong twice over: past 65535 rows the count wrapped, and
+    // past 64 KiB the packet could not describe its own length at all.
+    let count_pos = buf.len();
+    buf.extend_from_slice(&0u16.to_le_bytes());
+    let mut written: u16 = 0;
     for r in rows {
+        if written == u16::MAX {
+            break;
+        }
+        let before = buf.len();
         encode_str(&r.name, buf);
         encode_str(&r.status, buf);
         buf.extend_from_slice(&(r.cpu_pct as f32).to_le_bytes());
         encode_str(&r.cpu, buf);
         encode_str(&r.mem, buf);
         buf.extend_from_slice(&r.mem_bytes.to_le_bytes());
+        if buf.len() - HEADER_LEN > MAX_PAYLOAD {
+            // This row does not fit; drop it whole rather than half.
+            buf.truncate(before);
+            break;
+        }
+        written += 1;
     }
+    buf[count_pos..count_pos + 2].copy_from_slice(&written.to_le_bytes());
 }
 
 fn encode_fetch(snap: &FetchSnapshot, buf: &mut Vec<u8>) {
@@ -325,4 +365,83 @@ fn decode_docker(cur: &mut Cursor) -> Option<Payload> {
         });
     }
     Some(Payload::Docker { host, rows })
+}
+
+#[cfg(test)]
+mod framing_tests {
+    #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+
+    use super::*;
+
+    fn rows(n: usize) -> Vec<DockerRow> {
+        (0..n)
+            .map(|i| DockerRow {
+                name: format!("container-with-a-fairly-long-name-{i}"),
+                status: "Up 3 days (healthy) registry.example.com/team/svc".to_string(),
+                cpu: "12.5%".to_string(),
+                cpu_pct: 12.5,
+                mem: "128.0M/512.0M".to_string(),
+                mem_bytes: 134_217_728,
+            })
+            .collect()
+    }
+
+    fn declared_len(pkt: &[u8]) -> usize {
+        u16::from_le_bytes([pkt[6], pkt[7]]) as usize
+    }
+
+    #[test]
+    fn the_header_length_always_matches_the_body() {
+        // 700 of these rows encode to ~86 KiB. The length field is a u16, so
+        // `as u16` wrapped and declared ~21 KiB: the reader consumed that much
+        // and then read the middle of this payload as the next header, failed
+        // the magic check, and dropped the connection.
+        for n in [0, 1, 100, 500, 700, 2000] {
+            let pkt = encode_packet(&Payload::Docker {
+                host: "h".into(),
+                rows: rows(n),
+            });
+            assert_eq!(
+                declared_len(&pkt),
+                pkt.len() - HEADER_LEN,
+                "header and body disagree at {n} rows"
+            );
+            assert!(
+                pkt.len() - HEADER_LEN <= MAX_PAYLOAD,
+                "payload exceeds what the length field can express at {n} rows"
+            );
+        }
+    }
+
+    #[test]
+    fn an_oversized_row_set_still_decodes_to_the_rows_that_fit() {
+        // Truncating the packet would make it undecodable; dropping whole rows
+        // keeps it valid, so a busy host still shows containers.
+        let pkt = encode_packet(&Payload::Docker {
+            host: "busy-host".into(),
+            rows: rows(2000),
+        });
+        let decoded = decode_packet(&pkt).expect("an over-budget packet must still decode");
+        match decoded {
+            Payload::Docker { host, rows: got } => {
+                assert_eq!(host, "busy-host");
+                assert!(!got.is_empty(), "some rows must survive");
+                assert!(got.len() < 2000, "not all rows can fit in 64 KiB");
+                assert_eq!(got[0].name, "container-with-a-fairly-long-name-0");
+            }
+            other => panic!("wrong payload kind: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn ordinary_packets_round_trip_unchanged() {
+        let pkt = encode_packet(&Payload::Docker {
+            host: "h".into(),
+            rows: rows(3),
+        });
+        match decode_packet(&pkt).unwrap() {
+            Payload::Docker { rows: got, .. } => assert_eq!(got.len(), 3),
+            other => panic!("wrong payload kind: {other:?}"),
+        }
+    }
 }
