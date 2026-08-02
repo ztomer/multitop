@@ -22,6 +22,8 @@ pub fn create_vault(config_path: &std::path::Path) -> Option<Vault> {
     Some(Vault::new(VaultConfig {
         vault_path,
         argon2_params: None,
+        // Real runs use the OS keychain for lockout and rollback state.
+        use_os_keychain: true,
     }))
 }
 

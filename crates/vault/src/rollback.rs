@@ -9,17 +9,6 @@ fn account(vault_path: &Path) -> String {
     hex::encode(hash)
 }
 
-/// Whether to leave the OS keychain alone.
-///
-/// `check_counter` has skipped under test since it was written, but the WRITE
-/// did not -- and it runs on every `UnlockedVault::save`. Test vaults save
-/// constantly, so each run wrote real keychain items and, because the calling
-/// binary differs every build, macOS put an authorization dialog in front of
-/// the developer. The read and the write must agree.
-fn keychain_disabled() -> bool {
-    cfg!(test) || std::env::var("MULTITOP_MOCK_KEYCHAIN").is_ok() || std::env::var("CI").is_ok()
-}
-
 /// Store the vault's counter in the system keychain for rollback detection.
 ///
 /// # Accepted limitation
@@ -32,8 +21,8 @@ fn keychain_disabled() -> bool {
 /// their own vault over a transient keychain error, which is the worse trade
 /// for a single-user tool. It does mean rollback protection degrades silently
 /// if the keychain is persistently unwritable.
-pub fn store_counter(vault_path: &Path, counter: u32, created_ts: u64) {
-    if keychain_disabled() {
+pub fn store_counter(vault_path: &Path, counter: u32, created_ts: u64, use_keychain: bool) {
+    if !use_keychain {
         return;
     }
     let value = format!("{counter}:{created_ts}");
@@ -55,9 +44,11 @@ pub fn check_counter(
     vault_path: &Path,
     counter: u32,
     created_ts: u64,
+    use_keychain: bool,
 ) -> Result<(), crate::VaultError> {
-    // Skip in test/CI, matching `store_counter`.
-    if keychain_disabled() {
+    // The caller decides, and the same value drives `store_counter`, so the
+    // read and the write cannot disagree.
+    if !use_keychain {
         return Ok(());
     }
 
@@ -69,7 +60,7 @@ pub fn check_counter(
         Ok(v) => v,
         Err(keyring::Error::NoEntry) => {
             // First unlock — store current and return ok
-            store_counter(vault_path, counter, created_ts);
+            store_counter(vault_path, counter, created_ts, use_keychain);
             return Ok(());
         }
         Err(_e) => {
@@ -168,7 +159,7 @@ mod tests {
         std::fs::write(&path, b"test").unwrap();
 
         // Even with a lower counter, should pass in test mode
-        let result = check_counter(&path, 0, 0);
+        let result = check_counter(&path, 0, 0, false);
         assert!(result.is_ok());
     }
 

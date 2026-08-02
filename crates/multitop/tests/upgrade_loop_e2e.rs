@@ -12,15 +12,6 @@
 
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
-/// Keep this suite off the real login keychain.
-///
-/// `cfg!(test)` is false inside the library when it is built for an
-/// integration test, so the vault's lockout state and rollback counter would
-/// otherwise write real keychain items -- and prompt for authorization,
-/// because the calling binary changes on every build.
-fn no_real_keychain() {
-    std::env::set_var("MULTITOP_MOCK_KEYCHAIN", "1");
-}
 use std::time::Duration;
 
 use multitop::app::{App, Msg, VaultState};
@@ -93,7 +84,6 @@ impl MsgCollector {
 /// Test 1: Single server basic stream
 #[tokio::test]
 async fn test_upgrade_single_server_streams_exact_output() {
-    no_real_keychain();
     let _store_guard = enable_test_mock_store().await;
     let server = local_server("ls -l ; ls -l");
     let (tx, rx) = mpsc::channel::<Msg>(100);
@@ -117,7 +107,6 @@ async fn test_upgrade_single_server_streams_exact_output() {
 /// Test 2: Multi-server concurrent output
 #[tokio::test]
 async fn test_upgrade_multi_server_concurrent_output() {
-    no_real_keychain();
     let _store_guard = enable_test_mock_store().await;
     let (tx, rx) = mpsc::channel::<Msg>(100);
 
@@ -169,7 +158,6 @@ async fn test_upgrade_multi_server_concurrent_output() {
 /// Test 3: Failure exit code
 #[tokio::test]
 async fn test_upgrade_failure_reports_nonzero_exit() {
-    no_real_keychain();
     let _store_guard = enable_test_mock_store().await;
     let server = local_server("ls -l ; exit 1");
     let (tx, rx) = mpsc::channel::<Msg>(100);
@@ -194,7 +182,6 @@ async fn test_upgrade_failure_reports_nonzero_exit() {
 #[tokio::test]
 async fn test_upgrade_state_machine_roundtrip() {
     use tempfile::TempDir;
-    no_real_keychain();
     let temp_dir = TempDir::new().unwrap();
     let config_path = temp_dir.path().join("config.toml");
 
@@ -253,7 +240,6 @@ async fn test_upgrade_state_machine_roundtrip() {
 /// Test 7: Empty output handled gracefully
 #[tokio::test]
 async fn test_upgrade_empty_output_handled() {
-    no_real_keychain();
     let _store_guard = enable_test_mock_store().await;
     let server = local_server("true");
     let (tx, rx) = mpsc::channel::<Msg>(100);
@@ -277,7 +263,6 @@ async fn test_upgrade_empty_output_handled() {
 /// Test 8: Carriage return cleaning
 #[tokio::test]
 async fn test_upgrade_carriage_return_cleaned() {
-    no_real_keychain();
     let _store_guard = enable_test_mock_store().await;
     let server = local_server("printf 'step1\\rstep2\\rstep3\\n'");
     let (tx, rx) = mpsc::channel::<Msg>(100);
@@ -318,7 +303,6 @@ async fn test_upgrade_vault_password_preloaded() {
     use multitop_vault::{Vault, VaultConfig};
     use secrecy::SecretString;
     use tempfile::TempDir;
-    no_real_keychain();
 
     let _store_guard = enable_test_mock_store().await;
     let temp_dir = TempDir::new().unwrap();
@@ -333,6 +317,8 @@ async fn test_upgrade_vault_password_preloaded() {
             m_kib: 32768,
             p: 1,
         }),
+        // Tests never touch the real login keychain.
+        use_os_keychain: false,
     };
     let vault = Vault::new(vault_config);
     vault.initialize(master_pw).await.unwrap();
@@ -391,7 +377,6 @@ async fn test_upgrade_vault_password_preloaded() {
 /// Test 6: Lock prevents concurrent (local lock contention)
 #[tokio::test]
 async fn test_upgrade_lock_prevents_concurrent() {
-    no_real_keychain();
     let _store_guard = enable_test_mock_store().await;
     let (tx, rx) = mpsc::channel::<Msg>(100);
 
@@ -428,7 +413,6 @@ async fn test_upgrade_lock_prevents_concurrent() {
 /// Test 9: Generation staleness — stale messages are dropped
 #[tokio::test]
 async fn test_upgrade_generation_staleness() {
-    no_real_keychain();
     let mut app = App::new(vec![local_server("echo gen_test")]);
 
     // Start first upgrade (gen becomes 1)
@@ -472,7 +456,6 @@ async fn test_upgrade_generation_staleness() {
 #[tokio::test]
 async fn test_upgrade_state_persists_across_app_restart() {
     use tempfile::TempDir;
-    no_real_keychain();
 
     let temp_dir = TempDir::new().unwrap();
     let config_path = temp_dir.path().join("config.toml");
@@ -517,7 +500,6 @@ async fn test_upgrade_state_persists_across_app_restart() {
 /// Test 11: Upgrade → return → show last result
 #[test]
 fn test_ui_upgrade_then_return_shows_last_result() {
-    no_real_keychain();
     let mut app = App::new(vec![local_server("ls -l")]);
 
     // Start upgrade
@@ -562,7 +544,6 @@ fn test_ui_upgrade_then_return_shows_last_result() {
 /// Test 12: Second `u` in upgrade mode reinitiates upgrade (new gen, new command)
 #[test]
 fn test_ui_second_u_in_upgrade_mode_reinitiates_upgrade() {
-    no_real_keychain();
     let mut app = App::new(vec![local_server("ls -l")]);
 
     // First upgrade start
@@ -591,7 +572,6 @@ fn test_ui_second_u_in_upgrade_mode_reinitiates_upgrade() {
 /// Test 13: Second `u` while upgrade in flight is no-op
 #[test]
 fn test_ui_second_u_while_in_flight_is_noop() {
-    no_real_keychain();
     let mut app = App::new(vec![local_server("ls -l")]);
 
     // Start upgrade
@@ -617,7 +597,6 @@ fn test_ui_second_u_while_in_flight_is_noop() {
 #[tokio::test]
 async fn test_ui_vault_locked_shows_prompt_not_modal() {
     use multitop_vault::{Vault, VaultConfig};
-    no_real_keychain();
 
     let temp_dir = std::env::temp_dir().join(format!("multitop_test_vault_{}", std::process::id()));
     let _ = std::fs::create_dir_all(&temp_dir);
@@ -630,6 +609,8 @@ async fn test_ui_vault_locked_shows_prompt_not_modal() {
             m_kib: 32768,
             p: 1,
         }),
+        // Tests never touch the real login keychain.
+        use_os_keychain: false,
     };
     let vault = Vault::new(config);
     let _ = vault.initialize("master-pass").await;
@@ -658,7 +639,6 @@ async fn test_ui_vault_locked_shows_prompt_not_modal() {
 #[tokio::test]
 async fn test_ui_vault_unlocked_after_password_runs_upgrade() {
     use multitop_vault::{Vault, VaultConfig};
-    no_real_keychain();
 
     let temp_dir =
         std::env::temp_dir().join(format!("multitop_test_vault2_{}", std::process::id()));
@@ -672,6 +652,8 @@ async fn test_ui_vault_unlocked_after_password_runs_upgrade() {
             m_kib: 32768,
             p: 1,
         }),
+        // Tests never touch the real login keychain.
+        use_os_keychain: false,
     };
     let vault = Vault::new(config);
     let _ = vault.initialize("master-pass").await;
@@ -721,7 +703,6 @@ async fn test_ui_vault_unlocked_after_password_runs_upgrade() {
 #[test]
 fn test_ui_upgrade_modal_confirmation_flow() {
     use tempfile::TempDir;
-    no_real_keychain();
 
     let temp_dir = TempDir::new().unwrap();
     let config_path = temp_dir.path().join("config.toml");
@@ -744,7 +725,6 @@ fn test_ui_upgrade_modal_confirmation_flow() {
 /// Test 17: Switching panes during upgrade preserves task
 #[test]
 fn test_ui_switching_panes_during_upgrade_preserves_task() {
-    no_real_keychain();
     let mut app = App::new(vec![local_server("ls -l"), local_server("ls -l")]);
 
     // Start upgrades on both panels
@@ -783,7 +763,6 @@ fn test_ui_switching_panes_during_upgrade_preserves_task() {
 /// Test 18: No `upgrade_cmd` → message shown without command
 #[test]
 fn test_ui_no_upgrade_cmd_shows_message_without_command() {
-    no_real_keychain();
     let mut app = App::new(vec![Server {
         host: "127.0.0.1".into(),
         port: 0,
@@ -805,7 +784,6 @@ fn test_ui_no_upgrade_cmd_shows_message_without_command() {
 /// Test 19: Output persists across view switches
 #[test]
 fn test_ui_upgrade_output_persists_across_view_switches() {
-    no_real_keychain();
     let mut app = App::new(vec![local_server("ls -l")]);
 
     let cmds = app.run_upgrade();
@@ -849,7 +827,6 @@ fn test_ui_upgrade_output_persists_across_view_switches() {
 /// Test 20: Returning to completed shows output (not rerun)
 #[test]
 fn test_ui_returning_to_completed_shows_output() {
-    no_real_keychain();
     let mut app = App::new(vec![local_server("ls -l")]);
 
     // Complete full upgrade cycle
@@ -907,7 +884,6 @@ fn test_ui_returning_to_completed_shows_output() {
 /// Test 21: `u` during flight after switching away → no-op
 #[test]
 fn test_ui_u_during_flight_after_switching_away_is_noop() {
-    no_real_keychain();
     let mut app = App::new(vec![local_server("sleep 3 && ls -l")]);
 
     // Start upgrade
@@ -979,7 +955,6 @@ fn no_upgrade_server(host: &str) -> Server {
 /// host-specific message — not a dead NIL state that reads as "no output".
 #[test]
 fn test_upgrade_skip_server_reaches_terminal_state() {
-    no_real_keychain();
     let mut app = App::new(vec![no_upgrade_server("192.168.0.90")]);
 
     let cmds = app.run_upgrade();
@@ -1008,7 +983,6 @@ fn test_upgrade_skip_server_reaches_terminal_state() {
 /// one gets a `RunUpgrade` command and the skipped one reaches DONE.
 #[test]
 fn test_upgrade_mixed_servers_only_configured_run() {
-    no_real_keychain();
     let mut app = App::new(vec![
         local_server("apt update && apt upgrade -y"),
         no_upgrade_server("192.168.0.90"),
@@ -1032,7 +1006,6 @@ fn test_upgrade_mixed_servers_only_configured_run() {
 /// user must never land on a blank panel after the updater.
 #[test]
 fn test_upgrade_skip_message_persists_across_views() {
-    no_real_keychain();
     let mut app = App::new(vec![no_upgrade_server("192.168.0.90")]);
     app.run_upgrade();
     let msg = app.panels[0].last_upgrade.clone();
@@ -1061,7 +1034,6 @@ fn test_upgrade_skip_message_persists_across_views() {
 /// be skipped, so the user learns about them before running.
 #[test]
 fn test_upgrade_skip_hosts_helper_lists_unconfigured() {
-    no_real_keychain();
     let app = App::new(vec![
         local_server("apt update"),
         no_upgrade_server("192.168.0.90"),
@@ -1079,7 +1051,6 @@ fn test_upgrade_skip_hosts_helper_lists_unconfigured() {
 /// skip message instead of re-showing the confirm modal or a blank panel.
 #[test]
 fn test_upgrade_skip_then_u_shows_message_not_modal() {
-    no_real_keychain();
     let mut app = App::new(vec![no_upgrade_server("192.168.0.90")]);
     app.run_upgrade();
     app.switch_stats();

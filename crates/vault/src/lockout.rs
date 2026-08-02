@@ -6,20 +6,16 @@ const MAX_ATTEMPTS_BEFORE_HARD_LOCKOUT: u32 = 10;
 const HARD_LOCKOUT_DURATION_MS: u64 = 300_000; // 5 minutes
 const KEYCHAIN_SERVICE: &str = "multitop-vault-lockout";
 
-/// Whether to leave the OS keychain alone and use only the file fallback.
-///
-/// Every test vault lives in a fresh temp directory, and the keychain account
-/// is a hash of that path, so each test run minted a brand new keychain item.
-/// A few thousand accumulated in the developer's login keychain before anyone
-/// noticed. Tests get the file-backed path; real runs are unaffected.
-fn keychain_disabled() -> bool {
-    cfg!(test) || std::env::var("MULTITOP_MOCK_KEYCHAIN").is_ok() || std::env::var("CI").is_ok()
-}
-
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct LockoutState {
     pub failed_attempts: u32,
     pub lockout_until_epoch_ms: u64,
+    /// Whether this state may touch the OS keychain. Carried on the value so
+    /// `save` cannot disagree with `load` about it -- that exact disagreement,
+    /// between the rollback counter's read and write, is what put keychain
+    /// dialogs in front of the user during test runs.
+    #[serde(skip)]
+    use_keychain: bool,
 }
 
 impl LockoutState {
@@ -32,13 +28,14 @@ impl LockoutState {
     }
 
     #[must_use]
-    pub fn load(vault_path: &Path) -> Self {
+    pub fn load(vault_path: &Path, use_keychain: bool) -> Self {
         // Try keychain first (preferred - can't be trivially deleted)
-        if !keychain_disabled() {
+        if use_keychain {
             let account = Self::account_name(vault_path);
             if let Ok(entry) = keyring::Entry::new(KEYCHAIN_SERVICE, &account) {
                 if let Ok(stored) = entry.get_password() {
-                    if let Ok(state) = serde_json::from_str(&stored) {
+                    if let Ok(mut state) = serde_json::from_str::<Self>(&stored) {
+                        state.use_keychain = use_keychain;
                         return state;
                     }
                 }
@@ -47,13 +44,12 @@ impl LockoutState {
 
         // Fallback to file-based storage (legacy)
         let path = Self::lockout_path(vault_path);
-        std::fs::read_to_string(&path)
+        let mut state: Self = std::fs::read_to_string(&path)
             .ok()
             .and_then(|s| serde_json::from_str(&s).ok())
-            .unwrap_or(Self {
-                failed_attempts: 0,
-                lockout_until_epoch_ms: 0,
-            })
+            .unwrap_or_default();
+        state.use_keychain = use_keychain;
+        state
     }
 
     fn lockout_path(vault_path: &Path) -> std::path::PathBuf {
@@ -86,7 +82,7 @@ impl LockoutState {
         };
 
         // Save to keychain (preferred - survives file deletion)
-        if !keychain_disabled() {
+        if self.use_keychain {
             let account = Self::account_name(vault_path);
             if let Ok(entry) = keyring::Entry::new(KEYCHAIN_SERVICE, &account) {
                 let _ = entry.set_password(&json);
@@ -254,7 +250,7 @@ mod tests {
     fn make_test_lockout() -> (LockoutState, tempfile::TempDir) {
         let dir = TempDir::new().unwrap();
         let path = dir.path().join("vault.bin");
-        let state = LockoutState::load(&path);
+        let state = LockoutState::load(&path, false);
         (state, dir)
     }
 
@@ -273,10 +269,11 @@ mod tests {
         let state = LockoutState {
             failed_attempts: 5,
             lockout_until_epoch_ms: 12345,
+            use_keychain: false,
         };
         state.save(&path);
 
-        let loaded = LockoutState::load(&path);
+        let loaded = LockoutState::load(&path, false);
         assert_eq!(loaded.failed_attempts, 5);
         assert_eq!(loaded.lockout_until_epoch_ms, 12345);
     }
@@ -286,7 +283,7 @@ mod tests {
         let dir = TempDir::new().unwrap();
         let path = dir.path().join("nonexistent.bin");
 
-        let state = LockoutState::load(&path);
+        let state = LockoutState::load(&path, false);
         assert_eq!(state.failed_attempts, 0);
         assert_eq!(state.lockout_until_epoch_ms, 0);
     }
@@ -295,7 +292,7 @@ mod tests {
     fn test_lockout_on_failure_no_delay() {
         let dir = TempDir::new().unwrap();
         let path = dir.path().join("vault.bin");
-        let mut state = LockoutState::load(&path);
+        let mut state = LockoutState::load(&path, false);
 
         // First 2 failures should not trigger delay
         state.on_failure(&path, 1000);
@@ -311,7 +308,7 @@ mod tests {
     fn test_lockout_on_failure_exponential_backoff() {
         let dir = TempDir::new().unwrap();
         let path = dir.path().join("vault.bin");
-        let mut state = LockoutState::load(&path);
+        let mut state = LockoutState::load(&path, false);
 
         // 3 failures: 1s delay
         state.on_failure(&path, 1000);
@@ -335,7 +332,7 @@ mod tests {
     fn test_lockout_on_failure_max_delay_capped() {
         let dir = TempDir::new().unwrap();
         let path = dir.path().join("vault.bin");
-        let mut state = LockoutState::load(&path);
+        let mut state = LockoutState::load(&path, false);
 
         // Simulate many failures
         for i in 0..20 {
@@ -354,7 +351,7 @@ mod tests {
     fn test_lockout_on_failure_hard_lockout() {
         let dir = TempDir::new().unwrap();
         let path = dir.path().join("vault.bin");
-        let mut state = LockoutState::load(&path);
+        let mut state = LockoutState::load(&path, false);
 
         // 10 failures: hard lockout (5 minutes)
         for i in 0..10 {
@@ -373,6 +370,7 @@ mod tests {
         let mut state = LockoutState {
             failed_attempts: 5,
             lockout_until_epoch_ms: 99999,
+            use_keychain: false,
         };
 
         state.on_success(&path);
@@ -385,6 +383,7 @@ mod tests {
         let state = LockoutState {
             failed_attempts: 0,
             lockout_until_epoch_ms: 0,
+            use_keychain: false,
         };
         assert!(state.check_lockout(1000).is_ok());
     }
@@ -394,6 +393,7 @@ mod tests {
         let state = LockoutState {
             failed_attempts: 3,
             lockout_until_epoch_ms: 5000,
+            use_keychain: false,
         };
 
         // Before lockout expires
@@ -412,7 +412,7 @@ mod tests {
     fn test_lockout_guard_records_failure() {
         let dir = TempDir::new().unwrap();
         let path = dir.path().join("vault.bin");
-        let state = Mutex::new(LockoutState::load(&path));
+        let state = Mutex::new(LockoutState::load(&path, false));
 
         // Real usage: the caller counts the attempt before the KDF, the guard
         // finalises it. The guard no longer increments on its own.
@@ -446,6 +446,7 @@ mod tests {
         let state = Mutex::new(LockoutState {
             failed_attempts: 2,
             lockout_until_epoch_ms: 0,
+            use_keychain: false,
         });
 
         // The attempt is counted up front (durable), then finalised on drop.
@@ -487,6 +488,7 @@ mod tests {
         let state = Mutex::new(LockoutState {
             failed_attempts: 3,
             lockout_until_epoch_ms: 5000,
+            use_keychain: false,
         });
 
         {
@@ -518,11 +520,11 @@ mod write_ahead_tests {
         let dir = TempDir::new().unwrap();
         let path = dir.path().join("vault.bin");
 
-        let mut state = LockoutState::load(&path);
+        let mut state = LockoutState::load(&path, false);
         state.on_attempt(&path, 1_000);
 
         // Nothing else runs: this is the process being killed mid-attempt.
-        let reloaded = LockoutState::load(&path);
+        let reloaded = LockoutState::load(&path, false);
         assert_eq!(
             reloaded.failed_attempts, 1,
             "the attempt must already be on disk before the KDF is run"
@@ -537,11 +539,11 @@ mod write_ahead_tests {
 
         for _ in 0..MAX_ATTEMPTS_BEFORE_HARD_LOCKOUT {
             // Each iteration is a fresh process that dies before its guard drops.
-            let mut state = LockoutState::load(&path);
+            let mut state = LockoutState::load(&path, false);
             state.on_attempt(&path, 1_000);
         }
 
-        let mut state = LockoutState::load(&path);
+        let mut state = LockoutState::load(&path, false);
         assert_eq!(state.failed_attempts, MAX_ATTEMPTS_BEFORE_HARD_LOCKOUT);
 
         // The next completed failure anchors the hard lockout.
@@ -559,7 +561,7 @@ mod write_ahead_tests {
         let dir = TempDir::new().unwrap();
         let path = dir.path().join("vault.bin");
 
-        let mut state = LockoutState::load(&path);
+        let mut state = LockoutState::load(&path, false);
         state.on_attempt(&path, 1_000);
         state.on_attempt(&path, 1_000);
         state.on_attempt(&path, 1_000);
@@ -584,12 +586,12 @@ mod write_ahead_tests {
         let dir = TempDir::new().unwrap();
         let path = dir.path().join("vault.bin");
 
-        let mut state = LockoutState::load(&path);
+        let mut state = LockoutState::load(&path, false);
         state.on_attempt(&path, 1_000);
         state.on_attempt(&path, 1_000);
         state.on_success(&path);
 
-        let reloaded = LockoutState::load(&path);
+        let reloaded = LockoutState::load(&path, false);
         assert_eq!(reloaded.failed_attempts, 0);
         assert_eq!(reloaded.lockout_until_epoch_ms, 0);
     }
@@ -622,7 +624,7 @@ mod kill_resistance_tests {
 
         // Retry as fast as a script can, always dying before the guard runs.
         for _ in 0..40 {
-            let mut state = LockoutState::load(&path);
+            let mut state = LockoutState::load(&path, false);
             if state.check_lockout(t).is_ok() {
                 allowed += 1;
                 state.on_attempt(&path, t);
@@ -655,7 +657,7 @@ mod kill_resistance_tests {
         let mut t = 1_000u64;
         let mut allowed = 0;
         for _ in 0..400 {
-            let mut state = LockoutState::load(&path);
+            let mut state = LockoutState::load(&path, false);
             if state.check_lockout(t).is_ok() {
                 allowed += 1;
                 state.on_attempt(&path, t);
@@ -663,7 +665,7 @@ mod kill_resistance_tests {
             t += 1_000;
         }
 
-        let state = LockoutState::load(&path);
+        let state = LockoutState::load(&path, false);
         assert!(
             state.failed_attempts >= MAX_ATTEMPTS_BEFORE_HARD_LOCKOUT,
             "attempts must accumulate across kills"
@@ -685,7 +687,7 @@ mod kill_resistance_tests {
         let dir = TempDir::new().unwrap();
         let path = dir.path().join("vault.bin");
 
-        let mut state = LockoutState::load(&path);
+        let mut state = LockoutState::load(&path, false);
         for _ in 0..4 {
             state.on_attempt(&path, 1_000);
         }
@@ -693,7 +695,9 @@ mod kill_resistance_tests {
 
         state.on_success(&path);
         assert!(
-            LockoutState::load(&path).check_lockout(1_000).is_ok(),
+            LockoutState::load(&path, false)
+                .check_lockout(1_000)
+                .is_ok(),
             "a success must leave the user unblocked"
         );
     }

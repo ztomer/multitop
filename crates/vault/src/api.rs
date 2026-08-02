@@ -26,6 +26,9 @@ pub struct UnlockedVault {
     contents: VaultContents,
     header: crate::format::VaultHeader,
     file_path: PathBuf,
+    /// Carried from `VaultConfig` so a save cannot write a rollback counter to
+    /// the OS keychain that the matching read would skip.
+    use_os_keychain: bool,
 }
 
 impl std::fmt::Debug for UnlockedVault {
@@ -118,6 +121,7 @@ impl UnlockedVault {
             &self.file_path,
             self.header.counter,
             self.header.created_timestamp_ms,
+            self.use_os_keychain,
         );
 
         Ok(())
@@ -431,6 +435,7 @@ impl Vault {
             &self.config.vault_path,
             unlocked.header.counter,
             unlocked.header.created_timestamp_ms,
+            self.config.use_os_keychain,
         )?;
 
         Ok(unlocked)
@@ -457,7 +462,7 @@ impl Vault {
         if self.lockout_loaded.load(Ordering::SeqCst) {
             return Ok(());
         }
-        let loaded = LockoutState::load(&self.config.vault_path);
+        let loaded = LockoutState::load(&self.config.vault_path, self.config.use_os_keychain);
         {
             let mut lockout = self
                 .lockout
@@ -517,6 +522,7 @@ impl Vault {
             contents,
             header,
             file_path,
+            use_os_keychain: self.config.use_os_keychain,
         })
     }
 
@@ -750,6 +756,8 @@ mod tests {
                 m_kib: 32768,
                 p: 1,
             }),
+            // Tests never touch the real login keychain.
+            use_os_keychain: false,
         }
     }
 
@@ -1159,6 +1167,8 @@ mod lazy_lockout_tests {
                 m_kib: 32768,
                 p: 1,
             }),
+            // Tests never touch the real login keychain.
+            use_os_keychain: false,
         }
     }
 
@@ -1173,7 +1183,7 @@ mod lazy_lockout_tests {
         vault.initialize("pw").await.unwrap();
 
         // Someone was locked out earlier in a previous run of the app.
-        let mut state = LockoutState::load(&path);
+        let mut state = LockoutState::load(&path, false);
         for _ in 0..12 {
             state.on_attempt(&path, crate::crypto::now_ms());
         }
@@ -1199,7 +1209,7 @@ mod lazy_lockout_tests {
         let vault = Vault::new(fast(path.clone()));
         vault.initialize("pw").await.unwrap();
 
-        let mut state = LockoutState::load(&path);
+        let mut state = LockoutState::load(&path, false);
         for _ in 0..12 {
             state.on_attempt(&path, crate::crypto::now_ms());
         }

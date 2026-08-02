@@ -321,6 +321,8 @@ pub fn handle_key(
                     let vault = multitop_vault::Vault::new(multitop_vault::VaultConfig {
                         vault_path: path,
                         argon2_params: None,
+                        // Real runs use the OS keychain for lockout and rollback state.
+                        use_os_keychain: true,
                     });
                     let msg = match vault.initialize(&master).await {
                         // Unlock with the same password we just set, so the

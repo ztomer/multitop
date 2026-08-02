@@ -42,6 +42,20 @@ pub struct VaultConfig {
     pub vault_path: PathBuf,
     /// Argon2id parameters (auto-detected if None)
     pub argon2_params: Option<Argon2Params>,
+    /// Whether lockout state and the rollback counter may use the OS keychain.
+    ///
+    /// This is a required field, deliberately. It used to be an ambient
+    /// decision made inside `lockout` and `rollback` from `cfg!(test)` and an
+    /// environment variable, and the two disagreed: the rollback *read* skipped
+    /// the keychain under test while the *write* did not. Every test vault save
+    /// therefore wrote a real keychain item and, because the calling binary
+    /// changes on each build, put an authorization dialog in front of whoever
+    /// was at the keyboard -- thousands of items accumulated before anyone
+    /// noticed, and the suites were 15x slower for blocking on it.
+    ///
+    /// Making it a field means a new test that builds a vault cannot forget:
+    /// the compiler asks.
+    pub use_os_keychain: bool,
 }
 
 impl Default for VaultConfig {
@@ -52,6 +66,7 @@ impl Default for VaultConfig {
                 .join("multitop")
                 .join("vault.bin"),
             argon2_params: None,
+            use_os_keychain: true,
         }
     }
 }
