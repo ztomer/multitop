@@ -109,10 +109,14 @@ pub fn draw(f: &mut Frame, app: &App) {
             } else {
                 &panel.server.user
             };
+            // Kare set only. These were a padlock and a white circle, written
+            // as unicode escapes, which is how they sat in a repo with a
+            // no-emoji gate: the escape is plain ASCII in the source, so a
+            // character scan saw nothing while the UI drew emoji.
             let (state, state_color) = if panel.password_saved || panel.sudo_password.is_some() {
-                ("\u{1f512} Stored", Color::Green)
+                ("\u{2713} Stored", Color::Green)
             } else {
-                ("\u{26aa} Unset", Color::DarkGray)
+                ("\u{b7} Unset", Color::DarkGray)
             };
             let style = if index == manager.selected {
                 Style::default().fg(accent)

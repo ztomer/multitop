@@ -13,12 +13,14 @@ Usage:
     python3 tools/check_no_emoji.py             # check every tracked file
     python3 tools/check_no_emoji.py FILE...     # check specific files
     python3 tools/check_no_emoji.py --staged    # check staged content only
+    python3 tools/check_no_emoji.py --self-test # verify the checker detects
 
 Exits 0 when clean, 1 when a violation is found, 2 on a usage error.
 """
 
 from __future__ import annotations
 
+import re
 import subprocess
 import sys
 import unicodedata
@@ -45,6 +47,29 @@ SKIP_SUFFIXES = (
     ".woff", ".woff2", ".ttf", ".otf", ".bin", ".lock",
 )
 SKIP_DIRS = ("target/", "node_modules/", ".git/")
+
+
+# Escaped forms that render as a character without containing it literally.
+# A Rust escape for a padlock codepoint is plain ASCII in the file, so scanning
+# characters alone reports a clean tree while the UI draws an emoji. Two were
+# hiding in the config panel exactly this way. Rust uses the brace form; the
+# four-hex-digit form is here so the same gate works on JS/JSON/Java if any
+# lands. (Deliberately described rather than shown -- this file is scanned too.)
+ESCAPE_RE = re.compile(r"\\u\{([0-9a-fA-F]{1,6})\}|\\u([0-9a-fA-F]{4})")
+
+
+def escaped_violations(line: str) -> list[tuple[int, str]]:
+    """Codepoints written as escapes that would be forbidden if written out."""
+    out = []
+    for m in ESCAPE_RE.finditer(line):
+        hex_digits = m.group(1) or m.group(2)
+        try:
+            ch = chr(int(hex_digits, 16))
+        except (ValueError, OverflowError):
+            continue
+        if is_forbidden(ch):
+            out.append((m.start() + 1, ch))
+    return out
 
 
 def is_forbidden(ch: str) -> bool:
@@ -107,12 +132,20 @@ def check(path: str, staged: bool = False) -> list[str]:
     for lineno, line in enumerate(lines, 1):
         for col, ch in enumerate(line, 1):
             if is_forbidden(ch):
-                try:
-                    name = unicodedata.name(ch)
-                except ValueError:
-                    name = f"U+{ord(ch):04X}"
-                hits.append(f"{path}:{lineno}:{col}: {ch!r} ({name})")
+                hits.append(f"{path}:{lineno}:{col}: {ch!r} ({describe(ch)})")
+        for col, ch in escaped_violations(line):
+            hits.append(
+                f"{path}:{lineno}:{col}: escaped {ch!r} ({describe(ch)}) "
+                f"-- an escape is still an emoji on screen"
+            )
     return hits
+
+
+def describe(ch: str) -> str:
+    try:
+        return unicodedata.name(ch)
+    except ValueError:
+        return f"U+{ord(ch):04X}"
 
 
 def main(argv: list[str]) -> int:
@@ -120,6 +153,9 @@ def main(argv: list[str]) -> int:
     if "--help" in args or "-h" in args:
         print(__doc__)
         return 0
+
+    if "--self-test" in args:
+        return _self_test()
 
     staged = "--staged" in args
     if staged:
@@ -148,5 +184,36 @@ def main(argv: list[str]) -> int:
     return 0
 
 
+def _self_test() -> int:
+    """`--self-test`: prove the checker detects what it claims to.
+
+    The fixtures are assembled at runtime from codepoint numbers. Writing them
+    out would put the very characters this file rejects into this file, and the
+    gate scans itself.
+    """
+    padlock_escape = "let s = \"\\u{%x} Stored\";" % 0x1F512
+    circle_literal = "const X = \"%s\";" % chr(0x26AA)
+    fullwidth_ok = "banner \\u{%x} is fine" % 0xFF41
+
+    cases = [
+        ("plain ascii", False),
+        ("arrow %s is allowed" % chr(0x2192), False),
+        ("check %s is allowed" % chr(0x2713), False),
+        (padlock_escape, True),
+        (circle_literal, True),
+        (fullwidth_ok, False),
+    ]
+
+    failures = 0
+    for text, should_flag in cases:
+        flagged = bool(escaped_violations(text)) or any(is_forbidden(c) for c in text)
+        if flagged != should_flag:
+            print(f"  self-test FAILED: {text!r} -> {flagged}, want {should_flag}")
+            failures += 1
+    print("self-test: clean" if not failures else f"self-test: {failures} failure(s)")
+    return 1 if failures else 0
+
+
 if __name__ == "__main__":
     sys.exit(main(sys.argv))
+
