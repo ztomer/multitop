@@ -106,10 +106,15 @@ impl Drop for LockedMemory {
     }
 }
 
-// SAFETY: LockedMemory owns its data via Vec, which is Send/Sync.
-// The mlock/munlock calls are thread-safe system calls.
-unsafe impl Send for LockedMemory {}
-unsafe impl Sync for LockedMemory {}
+// `LockedMemory` owns a `Vec<u8>` and nothing else, so it already derives Send
+// and Sync automatically. The hand-written `unsafe impl Send`/`unsafe impl Sync`
+// that used to sit here were therefore redundant -- and worse than redundant:
+// they permanently overrode the compiler's judgement about a type whose whole
+// job is holding key material. Adding a `Cell`, a raw pointer, or any other
+// non-Sync field would stop the auto-derive and force a decision at compile
+// time; with the manual impls in place that same edit compiles silently and
+// asserts a thread-safety property that no longer holds. Deleting them costs
+// nothing and hands the veto back to the compiler.
 
 #[cfg(test)]
 mod tests {
@@ -201,6 +206,9 @@ mod tests {
         assert_eq!(&locked.data[..], &data[..]);
     }
 
+    // These two now guard the auto-derive: with the hand-written `unsafe impl`s
+    // gone, they fail to compile if a future field makes the type non-Send or
+    // non-Sync, instead of silently passing on a false assertion.
     #[test]
     fn test_locked_memory_is_send() {
         fn assert_send<T: Send>() {}
