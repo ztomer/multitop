@@ -85,10 +85,20 @@ pub fn apply(
             let result = crate::password_store::delete(&app.panels[panel].server);
             app.panels[panel].sudo_password = None;
             app.panels[panel].password_saved = false;
+            // `load` falls back to the SSO master password, so removing a
+            // per-host entry does not stop the host authenticating when an SSO
+            // password exists. Saying "removed" full stop was untrue: the next
+            // upgrade would pick the SSO one up and the user would have no idea
+            // why the password they just deleted still worked.
+            let sso_covers = matches!(crate::password_store::load_sso(), Ok(Some(_)));
             if let Some(manager) = app.password_manager.as_mut() {
-                manager.notice = Some(match result {
-                    Ok(()) => "Saved password removed.".to_string(),
-                    Err(error) => format!("Could not remove saved password: {error}"),
+                manager.notice = Some(match (result, sso_covers) {
+                    (Ok(()), false) => "Saved password removed.".to_string(),
+                    (Ok(()), true) => {
+                        "Saved password removed; this host will now use the SSO master password."
+                            .to_string()
+                    }
+                    (Err(error), _) => format!("Could not remove saved password: {error}"),
                 });
             }
         }

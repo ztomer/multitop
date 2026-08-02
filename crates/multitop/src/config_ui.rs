@@ -71,7 +71,7 @@ pub fn draw(f: &mut Frame, app: &App) {
                 "Editing Server Configuration & Password",
                 Style::default().fg(accent),
             )));
-            let masked_pass = "*".repeat(draft.password.chars().count());
+            let masked_pass = crate::fmt::mask_secret(&draft.password);
             for (index, (label, value)) in [
                 ("Host", &draft.host),
                 ("User", &draft.user),
@@ -160,7 +160,7 @@ pub fn draw(f: &mut Frame, app: &App) {
             lines.push(Line::from(vec![
                 Span::raw("Password: "),
                 Span::styled(
-                    "*".repeat(manager.input.chars().count()),
+                    crate::fmt::mask_secret(&manager.input),
                     Style::default().fg(accent),
                 ),
             ]));

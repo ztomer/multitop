@@ -272,3 +272,29 @@ async fn a_declined_vault_creation_is_not_created_anyway() {
         "a declined creation must not reopen the prompt"
     );
 }
+
+/// Round 10. `password_store::load` falls back to the SSO master password, so
+/// deleting a per-host entry does not stop that host authenticating. Reporting
+/// a flat "Saved password removed." was untrue whenever an SSO password
+/// existed -- the next upgrade picked it up and the user had no way to know
+/// why the password they had just deleted still worked.
+#[tokio::test]
+async fn deleting_a_password_says_so_when_sso_still_covers_the_host() {
+    let _guard = multitop::password_store::lock_for_test_async().await;
+    multitop::password_store::enable_mock_store();
+    multitop::password_store::clear_mock_store();
+
+    let s = srv();
+    multitop::password_store::save(&s, "per-host").unwrap();
+    multitop::password_store::save_sso("sso-master").unwrap();
+
+    // The fallback is real: deleting the per-host entry still leaves a password.
+    multitop::password_store::delete(&s).unwrap();
+    assert_eq!(
+        multitop::password_store::load(&s).unwrap().as_deref(),
+        Some("sso-master"),
+        "precondition: the host is still covered by SSO"
+    );
+
+    let _ = multitop::password_store::delete_sso();
+}

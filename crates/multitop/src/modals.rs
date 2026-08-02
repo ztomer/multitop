@@ -223,7 +223,7 @@ pub fn draw_vault_password_prompt(f: &mut Frame, app: &App) {
 
     f.render_widget(ratatui::widgets::Clear, popup_rect);
 
-    let password_dots: String = (0..app.vault_password_input().len()).map(|_| '*').collect();
+    let password_dots = crate::fmt::mask_secret(app.vault_password_input());
     let mut lines = vec![
         Line::from(""),
         Line::from(vec![Span::styled(

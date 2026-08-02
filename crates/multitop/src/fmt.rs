@@ -7,6 +7,17 @@ pub fn error_line(text: impl std::fmt::Display) -> String {
 }
 
 /// Format text as a status line (meter-mid palette).
+/// Mask a secret for display: one asterisk per CHARACTER.
+///
+/// Not per byte. The vault prompt used `len()`, so a password containing any
+/// non-ASCII character drew more asterisks than the user had typed -- which
+/// both looks wrong mid-typing and quietly reveals that the secret is not
+/// plain ASCII. One function so the three places that mask cannot disagree.
+#[must_use]
+pub fn mask_secret(secret: &str) -> String {
+    "*".repeat(secret.chars().count())
+}
+
 pub fn status_line(text: impl std::fmt::Display) -> String {
     let pal = &multitop_agent::color::ANSI;
     format!("{}{text}{}", pal.meter_mid(), pal.reset)
@@ -101,5 +112,33 @@ mod tests {
     fn unixtime_to_str_old() {
         let result = unixtime_to_str(86400); // 1970-01-02 00:00:00 UTC
         assert_eq!(result, "1970-01-02 00:00:00 UTC");
+    }
+}
+
+#[cfg(test)]
+mod mask_tests {
+    use super::mask_secret;
+
+    /// One asterisk per character, never per byte.
+    ///
+    /// The vault prompt masked with `len()`, so "pässwörd" (8 characters, 10
+    /// bytes) drew ten asterisks. That is wrong on screen while typing and
+    /// leaks that the secret contains non-ASCII.
+    #[test]
+    fn secrets_are_masked_by_character_not_byte() {
+        assert_eq!(mask_secret("hunter2"), "*******");
+        assert_eq!(mask_secret(""), "");
+
+        let multibyte = "pässwörd";
+        assert_eq!(multibyte.chars().count(), 8);
+        assert_eq!(multibyte.len(), 10, "it really is wider in bytes");
+        assert_eq!(
+            mask_secret(multibyte).chars().count(),
+            8,
+            "the mask must not reveal the byte width"
+        );
+
+        // Emoji and combining marks are characters too.
+        assert_eq!(mask_secret("a\u{4e16}b").chars().count(), 3);
     }
 }
