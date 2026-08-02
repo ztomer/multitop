@@ -9,6 +9,17 @@ fn account(vault_path: &Path) -> String {
     hex::encode(hash)
 }
 
+/// Whether to leave the OS keychain alone.
+///
+/// `check_counter` has skipped under test since it was written, but the WRITE
+/// did not -- and it runs on every `UnlockedVault::save`. Test vaults save
+/// constantly, so each run wrote real keychain items and, because the calling
+/// binary differs every build, macOS put an authorization dialog in front of
+/// the developer. The read and the write must agree.
+fn keychain_disabled() -> bool {
+    cfg!(test) || std::env::var("MULTITOP_MOCK_KEYCHAIN").is_ok() || std::env::var("CI").is_ok()
+}
+
 /// Store the vault's counter in the system keychain for rollback detection.
 ///
 /// # Accepted limitation
@@ -22,6 +33,9 @@ fn account(vault_path: &Path) -> String {
 /// for a single-user tool. It does mean rollback protection degrades silently
 /// if the keychain is persistently unwritable.
 pub fn store_counter(vault_path: &Path, counter: u32, created_ts: u64) {
+    if keychain_disabled() {
+        return;
+    }
     let value = format!("{counter}:{created_ts}");
     match keyring::Entry::new(SERVICE, &account(vault_path)) {
         Ok(entry) => {
@@ -42,9 +56,8 @@ pub fn check_counter(
     counter: u32,
     created_ts: u64,
 ) -> Result<(), crate::VaultError> {
-    // In test/CI environments, skip keychain check
-    if cfg!(test) || std::env::var("CI").is_ok() || std::env::var("MULTITOP_MOCK_KEYCHAIN").is_ok()
-    {
+    // Skip in test/CI, matching `store_counter`.
+    if keychain_disabled() {
         return Ok(());
     }
 
