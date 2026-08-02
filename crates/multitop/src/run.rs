@@ -35,11 +35,32 @@ pub async fn run(
     initial_theme: Option<String>,
 ) -> std::io::Result<()> {
     let mut terminal = ratatui::init();
+    // Restoration is a guard rather than trailing statements, so it cannot be
+    // skipped. Both of the calls that used to sit here propagated with `?`: a
+    // failure to *enable* mouse capture returned before the restore, and -- worse
+    // -- so did a failure to *disable* it, meaning the cleanup path could skip
+    // its own cleanup. Either left the shell in raw mode inside the alternate
+    // screen, needing `reset` to recover.
+    //
+    // Panics are already covered: `ratatui::init` installs a panic hook that
+    // restores the terminal, which matters because the release profile aborts
+    // and would not run this `Drop`.
+    let _restore = TerminalGuard;
     execute!(std::io::stdout(), EnableMouseCapture)?;
-    let result = event_loop(&mut terminal, servers, config_path, initial_theme).await;
-    execute!(std::io::stdout(), DisableMouseCapture)?;
-    ratatui::restore();
-    result
+    event_loop(&mut terminal, servers, config_path, initial_theme).await
+}
+
+/// Puts the terminal back on every exit path, including early returns.
+struct TerminalGuard;
+
+impl Drop for TerminalGuard {
+    fn drop(&mut self) {
+        // Ignored deliberately: if disabling mouse capture fails there is
+        // nothing useful to do about it, and it must not stop the restore that
+        // follows -- that ordering is the bug this guard exists to remove.
+        let _ = execute!(std::io::stdout(), DisableMouseCapture);
+        ratatui::restore();
+    }
 }
 
 /// How long to wait for a biometric result before giving up and offering the
