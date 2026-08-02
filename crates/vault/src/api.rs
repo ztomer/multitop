@@ -401,23 +401,38 @@ impl Vault {
             }
         }
 
-        // Try fprintd (Linux)
+        // Try fprintd (Linux).
+        //
+        // Only ask for a fingerprint if there is a wrapper a fingerprint can
+        // actually release. Unlike the Secure Enclave, fprintd does not hold key
+        // material -- it returns a yes or a no, and the key would have to come
+        // from the TPM2 wrapper. Nothing in this codebase creates a TPM2
+        // wrapper, so `has_wrapper(Tpm2)` is always false.
+        //
+        // Previously the verifier ran in the `else` arm, which is the arm that
+        // is always taken: a Linux user was prompted to present a fingerprint,
+        // waited up to thirty seconds, and then reached the
+        // `Err(BiometricFailed)` below no matter what happened -- succeeding,
+        // failing, and timing out were indistinguishable. That failed closed,
+        // which is the right direction, but the prompt was pure ceremony and it
+        // delayed the password fallback by half a minute.
         #[cfg(target_os = "linux")]
         if vault_file.header.has_wrapper(WrapperType::Tpm2) {
-            // TPM2 wrapper would go here
-        } else if let Ok(fv) = fprintd::FingerprintVerifier::new().await {
-            match fv.verify(30).await {
-                Ok(crate::fprintd::FingerprintResult::Verified) => {
-                    // If we had a TPM2 wrapper, we'd use it
-                    // For now, fall through to password
+            if let Ok(fv) = fprintd::FingerprintVerifier::new().await {
+                match fv.verify(30).await {
+                    Ok(crate::fprintd::FingerprintResult::Verified) => {
+                        // TPM2 unwrapping would go here once it exists. Until
+                        // then a verified fingerprint still releases nothing, so
+                        // this falls through rather than claiming success.
+                    }
+                    Ok(
+                        crate::fprintd::FingerprintResult::Failed
+                        | crate::fprintd::FingerprintResult::Timeout,
+                    ) => {
+                        return Err(VaultError::BiometricFailed);
+                    }
+                    _ => {}
                 }
-                Ok(crate::fprintd::FingerprintResult::Failed) => {
-                    return Err(VaultError::BiometricFailed);
-                }
-                Ok(crate::fprintd::FingerprintResult::Timeout) => {
-                    return Err(VaultError::BiometricFailed);
-                }
-                _ => {}
             }
         }
 

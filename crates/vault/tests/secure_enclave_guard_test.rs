@@ -55,3 +55,25 @@ fn initialising_without_keychain_permission_creates_no_secure_enclave_key() {
 
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// The Linux fprintd prompt is gated on a TPM2 wrapper being present, because
+/// fprintd returns only a yes or a no and holds no key material -- a verified
+/// fingerprint releases nothing unless a TPM2 wrapper is there to be unwrapped.
+/// Nothing in this codebase creates one, which is what keeps that prompt from
+/// firing. Pinned here so that adding TPM2 *creation* without also adding TPM2
+/// *unwrapping* fails a test, rather than silently reintroducing a thirty-second
+/// fingerprint prompt that cannot succeed.
+#[test]
+fn no_vault_is_created_with_a_tpm2_wrapper() {
+    let dir = std::env::temp_dir().join(format!("mt_tpm2_{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+
+    let header = init_vault(&dir, false);
+    assert!(
+        !header.has_wrapper(WrapperType::Tpm2),
+        "a TPM2 wrapper now exists, so the fprintd path is live -- TPM2 unwrapping \
+         must be implemented before that prompt can succeed"
+    );
+
+    let _ = std::fs::remove_dir_all(&dir);
+}
