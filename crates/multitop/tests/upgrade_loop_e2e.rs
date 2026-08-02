@@ -44,6 +44,18 @@ async fn enable_test_mock_store() -> tokio::sync::MutexGuard<'static, ()> {
     guard
 }
 
+/// The same, for `#[test]` bodies that cannot await.
+///
+/// These tests drive the real `enter_upgrade_view`, which loads saved passwords
+/// so it can tell the user truthfully whether a prompt is coming. Without this
+/// guard that load reaches the OS keychain from the test suite.
+fn enable_test_mock_store_blocking() -> tokio::sync::MutexGuard<'static, ()> {
+    let guard = password_store::lock_for_test();
+    password_store::enable_mock_store();
+    password_store::clear_mock_store();
+    guard
+}
+
 /// Test helper: collect messages from channel with timeout.
 struct MsgCollector {
     rx: mpsc::Receiver<Msg>,
@@ -500,6 +512,7 @@ async fn test_upgrade_state_persists_across_app_restart() {
 /// Test 11: Upgrade → return → show last result
 #[test]
 fn test_ui_upgrade_then_return_shows_last_result() {
+    let _store_guard = enable_test_mock_store_blocking();
     let mut app = App::new(vec![local_server("ls -l")]);
 
     // Start upgrade
@@ -531,7 +544,7 @@ fn test_ui_upgrade_then_return_shows_last_result() {
     assert_eq!(app.panels[0].mode, Mode::Monitor);
 
     // Switch back to upgrade view
-    app.show_upgrade_output();
+    app.enter_upgrade_view();
     assert_eq!(app.panels[0].mode, Mode::Upgrade);
     assert!(
         app.panels[0]
@@ -640,6 +653,7 @@ async fn test_ui_vault_locked_shows_prompt_not_modal() {
 async fn test_ui_vault_unlocked_after_password_runs_upgrade() {
     use multitop_vault::{Vault, VaultConfig};
 
+    let _store_guard = enable_test_mock_store().await;
     let temp_dir =
         std::env::temp_dir().join(format!("multitop_test_vault2_{}", std::process::id()));
     let _ = std::fs::create_dir_all(&temp_dir);
@@ -680,7 +694,7 @@ async fn test_ui_vault_unlocked_after_password_runs_upgrade() {
         if app.in_upgrade() {
             let _ = app.run_upgrade();
         } else {
-            app.show_upgrade_output();
+            app.enter_upgrade_view();
         }
     } else if app.vault.is_some() && app.vault_unlocked().is_none() {
         app.set_show_vault_password_prompt(true);
@@ -784,6 +798,7 @@ fn test_ui_no_upgrade_cmd_shows_message_without_command() {
 /// Test 19: Output persists across view switches
 #[test]
 fn test_ui_upgrade_output_persists_across_view_switches() {
+    let _store_guard = enable_test_mock_store_blocking();
     let mut app = App::new(vec![local_server("ls -l")]);
 
     let cmds = app.run_upgrade();
@@ -815,7 +830,7 @@ fn test_ui_upgrade_output_persists_across_view_switches() {
         .contains(&"persistent output line".to_string()));
 
     // Switch back to upgrade view
-    app.show_upgrade_output();
+    app.enter_upgrade_view();
     assert!(
         app.panels[0]
             .view
@@ -827,6 +842,7 @@ fn test_ui_upgrade_output_persists_across_view_switches() {
 /// Test 20: Returning to completed shows output (not rerun)
 #[test]
 fn test_ui_returning_to_completed_shows_output() {
+    let _store_guard = enable_test_mock_store_blocking();
     let mut app = App::new(vec![local_server("ls -l")]);
 
     // Complete full upgrade cycle
@@ -857,14 +873,14 @@ fn test_ui_returning_to_completed_shows_output() {
     app.switch_stats();
 
     // Press 'u' again — should show_upgrade_output, NOT start new upgrade
-    // Key handler: upgrades_in_flight()=false → had_upgrade()=true → in_upgrade()=false → show_upgrade_output()
+    // Key handler: not in Upgrade mode, nothing in flight -> enter_upgrade_view()
     if app.upgrades_in_flight() {
         // no-op
     } else if app.had_upgrade() {
         if app.in_upgrade() {
             let _ = app.run_upgrade();
         } else {
-            app.show_upgrade_output();
+            app.enter_upgrade_view();
         }
     } else {
         app.set_show_upgrade_modal(true);
@@ -1006,6 +1022,7 @@ fn test_upgrade_mixed_servers_only_configured_run() {
 /// user must never land on a blank panel after the updater.
 #[test]
 fn test_upgrade_skip_message_persists_across_views() {
+    let _store_guard = enable_test_mock_store_blocking();
     let mut app = App::new(vec![no_upgrade_server("192.168.0.90")]);
     app.run_upgrade();
     let msg = app.panels[0].last_upgrade.clone();
@@ -1013,7 +1030,7 @@ fn test_upgrade_skip_message_persists_across_views() {
     app.switch_stats();
     assert_eq!(app.panels[0].mode, Mode::Monitor);
 
-    app.show_upgrade_output();
+    app.enter_upgrade_view();
     assert_eq!(app.panels[0].mode, Mode::Upgrade);
     // The Upgrade pane now always opens with a status header, so the previous
     // output follows it rather than being the whole view. The message itself
@@ -1051,6 +1068,7 @@ fn test_upgrade_skip_hosts_helper_lists_unconfigured() {
 /// skip message instead of re-showing the confirm modal or a blank panel.
 #[test]
 fn test_upgrade_skip_then_u_shows_message_not_modal() {
+    let _store_guard = enable_test_mock_store_blocking();
     let mut app = App::new(vec![no_upgrade_server("192.168.0.90")]);
     app.run_upgrade();
     app.switch_stats();
@@ -1061,7 +1079,7 @@ fn test_upgrade_skip_then_u_shows_message_not_modal() {
         panic!("no upgrade in flight for a skipped server");
     } else if app.had_upgrade() {
         assert!(!app.in_upgrade(), "not in upgrade view after switch_stats");
-        app.show_upgrade_output();
+        app.enter_upgrade_view();
     } else {
         panic!("had_upgrade must be true: the skip is the recorded outcome");
     }

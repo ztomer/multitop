@@ -18,7 +18,6 @@
 crates/agent/src/render.rs:frame_height
 crates/multitop/src/app.rs:had_upgrade
 crates/multitop/src/app.rs:set_filtering
-crates/multitop/src/app.rs:show_upgrade_output
 crates/multitop/src/app.rs:vault_unlocked
 crates/multitop/src/config.rs:parse_ssh_config
 crates/multitop/src/panel.rs:set_sudo_password

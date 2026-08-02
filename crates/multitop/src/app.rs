@@ -540,17 +540,6 @@ impl App {
         Vec::new()
     }
 
-    /// Show the last upgrade output without re-running upgrades.
-    pub fn show_upgrade_output(&mut self) {
-        self.reset_scroll();
-        for i in 0..self.panels.len() {
-            self.panels[i].mode = Mode::Upgrade;
-            let (view, pinned) = self.upgrade_pane(i, false);
-            self.panels[i].view = view;
-            self.panels[i].pinned_lines = pinned;
-        }
-    }
-
     /// The Upgrade pane for one panel: a status header, then whatever output
     /// the last run produced.
     ///
