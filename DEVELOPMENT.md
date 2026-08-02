@@ -11,8 +11,7 @@ Internal documentation for contributors and maintainers.
 | **E2E Test Phased Plan** | [docs/e2e_test_phased_plan.md](docs/e2e_test_phased_plan.md) |
 | **Upgrade E2E Test Plan** | [docs/upgrade_e2e_test_plan.md](docs/upgrade_e2e_test_plan.md) |
 | **Performance** | [docs/performance.md](docs/performance.md) |
-| **Vault Roadmap** | [docs/vault_roadmap.md](docs/vault_roadmap.md) |
-| **Roadmap** | [docs/roadmap.md](docs/roadmap.md) |
+| **Roadmap** | [docs/roadmap.md](docs/roadmap.md) — the single forward-looking backlog |
 
 ## Release Workflow
 
