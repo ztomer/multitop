@@ -162,19 +162,6 @@ impl LockoutState {
         self.save(vault_path);
     }
 
-    pub fn on_failure(&mut self, vault_path: &Path, now_ms: u64) {
-        self.failed_attempts += 1;
-
-        if self.failed_attempts >= MAX_ATTEMPTS_BEFORE_HARD_LOCKOUT {
-            self.lockout_until_epoch_ms = now_ms + HARD_LOCKOUT_DURATION_MS;
-        } else if self.failed_attempts >= 3 {
-            let delay_sec = (1u64 << (self.failed_attempts - 3)).min(60);
-            self.lockout_until_epoch_ms = now_ms + (delay_sec * 1000);
-        }
-
-        self.save(vault_path);
-    }
-
     /// Clear the limiter after a correct password.
     ///
     /// Note the ordering consequence: `on_attempt` counts before the KDF runs,
@@ -311,55 +298,60 @@ mod tests {
         assert_eq!(state.lockout_until_epoch_ms, 0);
     }
 
+    // These drive `on_attempt`, the function the vault actually calls. They
+    // used to drive `on_failure`, a near-copy with no production call sites
+    // that re-implemented `backoff_deadline` inline -- so the tiers were pinned
+    // only on a dead duplicate, and the live limiter could have drifted without
+    // a single test noticing.
     #[test]
-    fn test_lockout_on_failure_no_delay() {
+    fn the_first_two_attempts_impose_no_delay() {
         let dir = TempDir::new().unwrap();
         let path = dir.path().join("vault.bin");
         let mut state = LockoutState::load(&path, false);
 
         // First 2 failures should not trigger delay
-        state.on_failure(&path, 1000);
+        state.on_attempt(&path, 1000);
         assert_eq!(state.failed_attempts, 1);
         assert_eq!(state.lockout_until_epoch_ms, 0);
 
-        state.on_failure(&path, 1000);
+        state.on_attempt(&path, 1000);
         assert_eq!(state.failed_attempts, 2);
         assert_eq!(state.lockout_until_epoch_ms, 0);
     }
 
     #[test]
-    fn test_lockout_on_failure_exponential_backoff() {
+    fn the_backoff_doubles_from_the_third_attempt() {
         let dir = TempDir::new().unwrap();
         let path = dir.path().join("vault.bin");
         let mut state = LockoutState::load(&path, false);
 
         // 3 failures: 1s delay
-        state.on_failure(&path, 1000);
-        state.on_failure(&path, 1000);
-        state.on_failure(&path, 1000);
+        state.on_attempt(&path, 1000);
+        state.on_attempt(&path, 1000);
+        state.on_attempt(&path, 1000);
         assert_eq!(state.failed_attempts, 3);
         assert_eq!(state.lockout_until_epoch_ms, 2000); // 1000 + 1000ms
 
         // 4 failures: 2s delay
-        state.on_failure(&path, 2000);
+        state.on_attempt(&path, 2000);
         assert_eq!(state.failed_attempts, 4);
         assert_eq!(state.lockout_until_epoch_ms, 4000); // 2000 + 2000ms
 
         // 5 failures: 4s delay
-        state.on_failure(&path, 4000);
+        state.on_attempt(&path, 4000);
         assert_eq!(state.failed_attempts, 5);
         assert_eq!(state.lockout_until_epoch_ms, 8000); // 4000 + 4000ms
     }
 
     #[test]
-    fn test_lockout_on_failure_max_delay_capped() {
+    fn many_attempts_end_in_the_hard_lockout() {
         let dir = TempDir::new().unwrap();
         let path = dir.path().join("vault.bin");
         let mut state = LockoutState::load(&path, false);
 
         // Simulate many failures
         for i in 0..20 {
-            state.on_failure(&path, i * 1000);
+            state.on_attempt(&path, i * 1000);
         }
 
         // Delay should be capped at 60 seconds
@@ -371,19 +363,41 @@ mod tests {
     }
 
     #[test]
-    fn test_lockout_on_failure_hard_lockout() {
+    fn ten_attempts_trigger_the_hard_lockout() {
         let dir = TempDir::new().unwrap();
         let path = dir.path().join("vault.bin");
         let mut state = LockoutState::load(&path, false);
 
         // 10 failures: hard lockout (5 minutes)
         for i in 0..10 {
-            state.on_failure(&path, i * 1000);
+            state.on_attempt(&path, i * 1000);
         }
 
         assert_eq!(state.failed_attempts, 10);
         // Should be locked out for 5 minutes (300,000 ms)
         assert!(state.lockout_until_epoch_ms > 9 * 1000 + 300_000 - 1000);
+    }
+
+    #[test]
+    fn a_recorded_failure_never_pulls_the_deadline_earlier() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("vault.bin");
+        let mut state = LockoutState::load(&path, false);
+
+        // Three attempts, the last at a late clock, so the deadline is far out.
+        state.on_attempt(&path, 1000);
+        state.on_attempt(&path, 1000);
+        state.on_attempt(&path, 100_000);
+        assert_eq!(state.lockout_until_epoch_ms, 101_000);
+
+        // Recording the failure against an earlier clock must not shorten it.
+        // The deleted `on_failure` assigned the deadline outright instead of
+        // taking the max, so it could hand back time an attacker had spent.
+        state.on_failure_recorded(&path, 1000);
+        assert_eq!(
+            state.lockout_until_epoch_ms, 101_000,
+            "the backoff deadline must never move earlier"
+        );
     }
 
     #[test]
