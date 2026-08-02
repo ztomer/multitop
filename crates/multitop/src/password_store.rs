@@ -75,8 +75,8 @@ pub async fn lock_for_test_async() -> tokio::sync::MutexGuard<'static, ()> {
 /// Split out so the rule is testable, and because the rule used to be wrong in
 /// a way no test could see.
 #[must_use]
-const fn mock_enabled_from(cfg_test: bool, env_mock: bool, env_ci: bool) -> bool {
-    cfg_test || env_mock || env_ci
+const fn mock_enabled_from(cfg_test: bool, env_mock: bool) -> bool {
+    cfg_test || env_mock
 }
 
 /// Whether credentials go to the in-memory mock store instead of the OS
@@ -84,8 +84,16 @@ const fn mock_enabled_from(cfg_test: bool, env_mock: bool, env_ci: bool) -> bool
 ///
 /// # The process arguments are deliberately not consulted
 ///
-/// This used to also return true when *any* argument contained "test" or
-/// "bench", intended to spot a test or bench harness. In a release binary it
+/// `CI` used to count as a signal too. It is somebody else's environment
+/// variable, set for reasons that have nothing to do with this program, and a
+/// release binary that saw it silently sent every password to a store that
+/// evaporates on exit -- the same failure as the argument sniffing below, from
+/// a different direction. Integration tests call `enable_mock_store` directly,
+/// so nothing needed it.
+///
+/// The argument list used to count as well: it returned true when *any*
+/// argument contained "test" or "bench", intended to spot a test or bench
+/// harness. In a release binary it
 /// read the real command line, so `--remote latest.example.com` enabled the
 /// mock store -- "latest" contains "test". So did any config path with "test"
 /// in it. Passwords then went to an in-memory store that vanished on exit, and
@@ -93,11 +101,7 @@ const fn mock_enabled_from(cfg_test: bool, env_mock: bool, env_ci: bool) -> bool
 /// why. `cfg!(test)` already covers anything built by the test harness, and a
 /// bench that wants the mock can set `MULTITOP_MOCK_KEYCHAIN` for itself.
 pub fn is_mock_enabled() -> bool {
-    if mock_enabled_from(
-        cfg!(test),
-        std::env::var("MULTITOP_MOCK_KEYCHAIN").is_ok(),
-        std::env::var("CI").is_ok(),
-    ) {
+    if mock_enabled_from(cfg!(test), std::env::var("MULTITOP_MOCK_KEYCHAIN").is_ok()) {
         return true;
     }
     MOCK_STORE
@@ -185,13 +189,10 @@ pub fn load_sso() -> Result<Option<String>, String> {
 ///
 /// Returns an error if the credential store cannot be written.
 pub fn save_sso(password: &str) -> Result<(), String> {
-    {
-        let mut cache = SSO_CACHE
-            .write()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
-        *cache = SsoCacheState::Found(password.to_string());
-        drop(cache);
-    }
+    // The cache is updated only after the store accepts the write. Recording it
+    // first meant a failed save still served the password for the rest of the
+    // session, so the user was told it had not been saved and then saw it work
+    // until they restarted.
     if is_mock_enabled() {
         enable_mock_store();
         let mut store = MOCK_STORE
@@ -201,12 +202,25 @@ pub fn save_sso(password: &str) -> Result<(), String> {
             map.insert(SSO_ACCOUNT.to_string(), password.to_string());
         }
         drop(store);
+        cache_sso(Some(password));
         return Ok(());
     }
     Entry::new(SERVICE, SSO_ACCOUNT)
         .map_err(|e| e.to_string())?
         .set_password(password)
-        .map_err(|e| e.to_string())
+        .map_err(|e| e.to_string())?;
+    cache_sso(Some(password));
+    Ok(())
+}
+
+/// Record the SSO cache state. Call only after the store has agreed.
+fn cache_sso(password: Option<&str>) {
+    let mut cache = SSO_CACHE
+        .write()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    *cache = password.map_or(SsoCacheState::NotFound, |p| {
+        SsoCacheState::Found(p.to_string())
+    });
 }
 
 /// Delete the SSO master password from the credential store.
@@ -215,13 +229,7 @@ pub fn save_sso(password: &str) -> Result<(), String> {
 ///
 /// Returns an error if the credential store cannot be accessed.
 pub fn delete_sso() -> Result<(), String> {
-    {
-        let mut cache = SSO_CACHE
-            .write()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
-        *cache = SsoCacheState::NotFound;
-        drop(cache);
-    }
+    // Same rule as `save_sso`: the cache follows the store, never leads it.
     if is_mock_enabled() {
         enable_mock_store();
         let mut store = MOCK_STORE
@@ -231,13 +239,20 @@ pub fn delete_sso() -> Result<(), String> {
             map.remove(SSO_ACCOUNT);
         }
         drop(store);
+        cache_sso(None);
         return Ok(());
     }
     match Entry::new(SERVICE, SSO_ACCOUNT)
         .map_err(|e| e.to_string())?
         .delete_credential()
     {
-        Ok(()) | Err(Error::NoEntry) => Ok(()),
+        // Gone either way, so the cache must say so. Missing this is how
+        // "the cache follows the store" turns into the cache serving a
+        // password that was just deleted, for the rest of the session.
+        Ok(()) | Err(Error::NoEntry) => {
+            cache_sso(None);
+            Ok(())
+        }
         Err(error) => Err(error.to_string()),
     }
 }
@@ -356,9 +371,51 @@ mod mock_signal_tests {
     /// signature is the guarantee -- there is nowhere for argv to enter.
     #[test]
     fn only_explicit_signals_enable_the_mock_store() {
-        assert!(!mock_enabled_from(false, false, false), "a real run");
-        assert!(mock_enabled_from(true, false, false), "the test harness");
-        assert!(mock_enabled_from(false, true, false), "explicit env opt-in");
-        assert!(mock_enabled_from(false, false, true), "CI");
+        assert!(!mock_enabled_from(false, false), "a real run");
+        assert!(mock_enabled_from(true, false), "the test harness");
+        assert!(mock_enabled_from(false, true), "explicit env opt-in");
+        // CI is deliberately absent: it is somebody else's environment
+        // variable, and honouring it sent a release binary's passwords to a
+        // store that evaporates on exit. The signature is the guarantee --
+        // there is nowhere for it to enter.
+    }
+}
+
+#[cfg(test)]
+mod sso_cache_tests {
+    #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+
+    use super::*;
+
+    /// The cache must follow the store, never lead it.
+    ///
+    /// `save_sso` used to record `Found` before attempting the write and
+    /// `delete_sso` recorded `NotFound` before attempting the delete. On
+    /// failure the user was told it had not worked, and then watched it appear
+    /// to work for the rest of the session, because every later read came from
+    /// a cache that had already committed to the outcome.
+    #[tokio::test]
+    async fn the_sso_cache_reflects_what_the_store_accepted() {
+        let _guard = lock_for_test_async().await;
+        enable_mock_store();
+        clear_mock_store();
+        let _ = delete_sso();
+
+        assert_eq!(load_sso().unwrap(), None, "starts empty");
+
+        save_sso("master-1").unwrap();
+        assert_eq!(load_sso().unwrap().as_deref(), Some("master-1"));
+
+        // A delete must be visible immediately, not just after a restart.
+        delete_sso().unwrap();
+        assert_eq!(
+            load_sso().unwrap(),
+            None,
+            "a completed delete must not keep serving the old password"
+        );
+
+        // And a re-save is visible again.
+        save_sso("master-2").unwrap();
+        assert_eq!(load_sso().unwrap().as_deref(), Some("master-2"));
     }
 }
