@@ -167,10 +167,12 @@ impl Vault {
     /// `new` with an injected clock, for tests that drive lockout timing.
     #[must_use]
     pub fn with_clock(config: VaultConfig, clock: fn() -> u64) -> Self {
+        let use_keychain = config.use_os_keychain;
         Self {
             config,
             unlocked: Arc::new(Mutex::new(None)),
-            lockout: StdMutex::new(LockoutState::default()),
+            // Carries the policy from the start, so it is never briefly wrong.
+            lockout: StdMutex::new(LockoutState::new(use_keychain)),
             lockout_init: StdMutex::new(()),
             lockout_loaded: std::sync::atomic::AtomicBool::new(false),
             clock,
@@ -1230,6 +1232,68 @@ mod lazy_lockout_tests {
         assert!(
             limited.iter().all(|b| *b),
             "every racing caller must see the lockout, got {limited:?}"
+        );
+    }
+}
+
+#[cfg(test)]
+mod keychain_policy_tests {
+    #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+
+    use super::*;
+
+    fn cfg(use_os_keychain: bool) -> VaultConfig {
+        VaultConfig {
+            vault_path: std::path::PathBuf::from("/tmp/multitop-policy/vault.bin"),
+            argon2_params: None,
+            use_os_keychain,
+        }
+    }
+
+    /// The limiter must carry the vault's keychain policy from the moment the
+    /// vault exists, not from the first time someone happens to load it.
+    ///
+    /// `LockoutState::default()` cannot know the answer -- `use_keychain` is
+    /// `#[serde(skip)]`, so it defaults to false. Building a production vault
+    /// on that made it claim, briefly, that it must not persist to the
+    /// keychain. Nothing exploited the window today because
+    /// `unlock_with_password` loads first, but the value was wrong and a new
+    /// caller would have inherited it.
+    #[test]
+    fn a_vault_carries_its_keychain_policy_from_construction() {
+        let real = Vault::new(cfg(true));
+        assert!(
+            real.lockout.lock().unwrap().uses_keychain(),
+            "a production vault must intend to persist the limiter to the keychain \
+             before anything is loaded"
+        );
+
+        let isolated = Vault::new(cfg(false));
+        assert!(
+            !isolated.lockout.lock().unwrap().uses_keychain(),
+            "and a vault told not to must never intend to"
+        );
+    }
+
+    /// The trap itself, pinned so nobody reintroduces `default()` here.
+    #[test]
+    fn default_lockout_state_does_not_know_the_policy() {
+        assert!(
+            !crate::lockout::LockoutState::default().uses_keychain(),
+            "default() answers false because it cannot know; construct with new()"
+        );
+        assert!(crate::lockout::LockoutState::new(true).uses_keychain());
+    }
+
+    /// `VaultConfig::default()` is the one place a caller can avoid stating the
+    /// policy. It answers `true` on purpose: a test that slips through gets the
+    /// real keychain and is noticed immediately, whereas `false` would let
+    /// production quietly stop persisting the limiter.
+    #[test]
+    fn the_config_default_fails_loudly_rather_than_silently() {
+        assert!(
+            VaultConfig::default().use_os_keychain,
+            "the default must be the fail-loud direction"
         );
     }
 }

@@ -19,6 +19,29 @@ pub struct LockoutState {
 }
 
 impl LockoutState {
+    /// An empty state that already knows whether it may use the OS keychain.
+    ///
+    /// Prefer this to `default()`, which cannot know: `use_keychain` is
+    /// `#[serde(skip)]`, so its default is `false`. A production vault built on
+    /// `default()` therefore claims it must not use the keychain until the
+    /// first load replaces it -- harmless today because `unlock_with_password`
+    /// always loads first, but a new caller that touched the limiter earlier
+    /// would silently stop persisting it where it matters most.
+    #[must_use]
+    pub const fn new(use_keychain: bool) -> Self {
+        Self {
+            failed_attempts: 0,
+            lockout_until_epoch_ms: 0,
+            use_keychain,
+        }
+    }
+
+    /// Whether this state may touch the OS keychain.
+    #[must_use]
+    pub const fn uses_keychain(&self) -> bool {
+        self.use_keychain
+    }
+
     fn account_name(vault_path: &Path) -> String {
         use sha2::{Digest, Sha256};
         let canonical =
