@@ -202,6 +202,61 @@ mod tests {
         line.spans.iter().map(|s| s.content.as_ref()).collect()
     }
 
+    // -----------------------------------------------------------------------
+    // Escape neutralisation
+    //
+    // Panel content is whatever a monitored host emitted: agent frames, and for
+    // upgrades the raw stdout of a command running as root on that machine. If
+    // any of it reached the terminal verbatim, a compromised or merely noisy
+    // host could drive the user's terminal -- retitle it, clear it, or emit a
+    // sequence the terminal answers, which arrives back as stdin.
+    //
+    // The parser already converts SGR to styles and drops everything else. The
+    // tests below it only covered colour codes, so that property was unpinned.
+    // -----------------------------------------------------------------------
+
+    fn rendered(input: &str) -> String {
+        plain(&line_to_spans(input))
+    }
+
+    #[test]
+    fn non_sgr_csi_sequences_are_dropped() {
+        // Erase display, cursor home, scroll region, hide cursor: all meaningless
+        // in a widget that repaints, and none of them safe to pass through.
+        assert_eq!(rendered("\x1b[2Jhello"), "hello");
+        assert_eq!(rendered("\x1b[Hhello"), "hello");
+        assert_eq!(rendered("a\x1b[1;40rb"), "ab");
+        assert_eq!(rendered("\x1b[?25lhidden"), "hidden");
+    }
+
+    #[test]
+    fn osc_sequences_are_consumed_whole() {
+        // Retitling the terminal, in both terminator forms.
+        assert_eq!(rendered("\x1b]0;pwned\x07after"), "after");
+        assert_eq!(rendered("\x1b]0;pwned\x1b\\after"), "after");
+        // OSC 52 writes the clipboard on terminals that honour it.
+        assert_eq!(rendered("\x1b]52;c;ZWNobyBwd25lZAo=\x07x"), "x");
+    }
+
+    #[test]
+    fn an_unterminated_osc_does_not_leak_its_payload() {
+        assert_eq!(rendered("\x1b]0;no terminator here"), "");
+    }
+
+    #[test]
+    fn a_bare_escape_is_dropped_not_rendered() {
+        assert_eq!(rendered("a\x1bb"), "ab");
+        assert_eq!(rendered("\x1b"), "");
+    }
+
+    #[test]
+    fn control_characters_do_not_survive() {
+        // A bell rings the terminal; a backspace corrupts the layout.
+        assert_eq!(rendered("a\x07b"), "ab");
+        assert_eq!(rendered("a\x08b"), "ab");
+        assert_eq!(rendered("a\rb"), "ab");
+    }
+
     #[test]
     fn plain_text_passes_through() {
         let l = line_to_spans("hello world");
