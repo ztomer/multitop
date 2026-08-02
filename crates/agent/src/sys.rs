@@ -162,7 +162,14 @@ pub fn get_net_macos() -> NetTotals {
             let mut curr = ifap;
             while !curr.is_null() {
                 let ifa = *curr;
-                if !ifa.ifa_name.is_null() && !ifa.ifa_data.is_null() {
+                // `ifa_addr` is checked here too. getifaddrs(3) says the field
+                // "may reference a NULL pointer" -- an interface with no address
+                // assigned still appears in the list, with a name and with
+                // ifa_data. The guard covered the other two pointers and then
+                // dereferenced this one unconditionally, so such an interface
+                // was a null dereference. It is a child process, so it would
+                // take out local monitoring and reconnect rather than the TUI.
+                if !ifa.ifa_name.is_null() && !ifa.ifa_data.is_null() && !ifa.ifa_addr.is_null() {
                     let name = std::ffi::CStr::from_ptr(ifa.ifa_name).to_string_lossy();
                     if name != "lo0" && !name.starts_with("lo") {
                         let sa_family = (*ifa.ifa_addr).sa_family;
