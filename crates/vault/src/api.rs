@@ -157,6 +157,52 @@ pub struct Vault {
     clock: fn() -> u64,
 }
 
+/// Decide whether a Secure Enclave wrapper is orphaned and should be re-bound
+/// after a successful password unlock.
+///
+/// Kept as a pure function because the *rule* is the part that can be got
+/// wrong, and it can be pinned by tests without a real enclave. Two of these
+/// conditions are load-bearing in a way that is easy to lose:
+///
+/// - `has_se_wrapper` must be required, so a repair never becomes an enrolment.
+///   Turning biometric unlock on for a vault that never had it is the user's
+///   decision; silently adding a wrapper because the hardware happens to exist
+///   would make that decision for them.
+/// - `keychain_allowed` must be required, so the test suite -- which runs with
+///   `use_os_keychain: false` precisely to stay off real credential storage --
+///   can never generate an enclave key, and so can never delete the real one.
+#[cfg(target_os = "macos")]
+#[must_use]
+pub(crate) const fn should_rebind_biometric(
+    keychain_allowed: bool,
+    has_se_wrapper: bool,
+    key: EnclaveKey,
+    biometrics: Biometrics,
+) -> bool {
+    keychain_allowed
+        && has_se_wrapper
+        && matches!(key, EnclaveKey::Missing)
+        && matches!(biometrics, Biometrics::Available)
+}
+
+/// Whether the Secure Enclave private key backing an existing wrapper still
+/// loads. `Missing` covers both an absent key and one invalidated by a change
+/// to the enrolled biometric set.
+#[cfg(target_os = "macos")]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum EnclaveKey {
+    Loads,
+    Missing,
+}
+
+/// Whether this machine has enrolled biometrics to bind a new key to.
+#[cfg(target_os = "macos")]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Biometrics {
+    Available,
+    Absent,
+}
+
 impl Vault {
     /// Create new vault manager
     #[must_use]
@@ -440,7 +486,8 @@ impl Vault {
             params,
         )?;
 
-        let unlocked = self.decrypt_and_load(vault_key, &vault_file)?;
+        #[cfg_attr(not(target_os = "macos"), allow(unused_mut))]
+        let mut unlocked = self.decrypt_and_load(vault_key, &vault_file)?;
 
         // The password was correct: decryption and the canary both passed.
         // Mark success BEFORE the rollback check, because a rollback is not a
@@ -457,6 +504,58 @@ impl Vault {
             unlocked.header.created_timestamp_ms,
             self.config.use_os_keychain,
         )?;
+
+        // Repair an orphaned Secure Enclave wrapper.
+        //
+        // `kSecAccessControlBiometryCurrentSet` is the right access control to
+        // have chosen, but it means the enclave key is invalidated whenever the
+        // enrolled biometric set changes -- adding one fingerprint is enough.
+        // The key can also simply be absent. Either way the wrapper still in the
+        // file is encrypted to a private key that no longer exists, so biometric
+        // unlock is dead, and it stays dead: `rebind_biometric` is the only cure
+        // and no UI path reaches it. The user is asked for their password
+        // forever with nothing saying why, which reads as the feature quietly
+        // breaking rather than as something recoverable.
+        //
+        // Re-binding requires exactly the authorisation just presented a few
+        // lines above -- the master password -- so the repair happens here
+        // instead of waiting for a prompt that does not exist. It is
+        // deliberately narrow: it only ever *replaces* a wrapper that is already
+        // present. It never adds biometric unlock to a vault that had none,
+        // because enabling it is the user's decision, not a repair.
+        //
+        // Best-effort and silent. If any step fails the password path is
+        // untouched and the vault still opens.
+        #[cfg(target_os = "macos")]
+        {
+            let keychain_allowed = self.config.use_os_keychain;
+            let has_se_wrapper =
+                keychain_allowed && unlocked.header.has_wrapper(WrapperType::SecureEnclave);
+            // Each check is guarded by the previous one so the expensive ones --
+            // a keychain search, then a `bioutil` subprocess -- never run on an
+            // ordinary unlock.
+            let key = if has_se_wrapper && secure_enclave::get_secure_enclave_existing().is_err() {
+                EnclaveKey::Missing
+            } else {
+                EnclaveKey::Loads
+            };
+            let biometrics = if matches!(key, EnclaveKey::Missing) && secure_enclave::is_available()
+            {
+                Biometrics::Available
+            } else {
+                Biometrics::Absent
+            };
+
+            if should_rebind_biometric(keychain_allowed, has_se_wrapper, key, biometrics) {
+                if let Ok(se) = secure_enclave::get_secure_enclave() {
+                    if let Ok(wrapper) = se.wrap_key(&unlocked.vault_key) {
+                        if unlocked.header.replace_wrapper(wrapper).is_ok() {
+                            let _ = unlocked.save();
+                        }
+                    }
+                }
+            }
+        }
 
         Ok(unlocked)
     }
@@ -750,6 +849,64 @@ mod tests {
     use crate::crypto::Argon2Params;
     use secrecy::ExposeSecret;
     use tempfile::TempDir;
+
+    // -----------------------------------------------------------------------
+    // Biometric re-bind decision (macOS-only, like the code path it guards)
+    // -----------------------------------------------------------------------
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn rebinds_only_when_an_existing_wrapper_is_orphaned() {
+        // The one case that should repair: a wrapper is present, its enclave key
+        // is gone, and the hardware is there to make a new one.
+        assert!(should_rebind_biometric(
+            true,
+            true,
+            EnclaveKey::Missing,
+            Biometrics::Available
+        ));
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn never_rebinds_without_an_existing_wrapper() {
+        // A repair must not become an enrolment. Enabling biometric unlock for a
+        // vault that never had it is the user's decision.
+        assert!(
+            !should_rebind_biometric(true, false, EnclaveKey::Missing, Biometrics::Available),
+            "no wrapper present: adding one would enable biometric unlock the user never chose"
+        );
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn never_rebinds_when_keychain_access_is_withheld() {
+        // This is what keeps the test suite from generating an enclave key --
+        // and therefore from deleting the developer's real one, since
+        // generation deletes first.
+        assert!(
+            !should_rebind_biometric(false, true, EnclaveKey::Missing, Biometrics::Available),
+            "use_os_keychain=false must never reach Secure Enclave key generation"
+        );
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn never_rebinds_while_the_existing_key_still_works() {
+        assert!(
+            !should_rebind_biometric(true, true, EnclaveKey::Loads, Biometrics::Available),
+            "the enclave key loads fine: nothing is orphaned, so nothing to repair"
+        );
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn never_rebinds_without_biometric_hardware() {
+        assert!(
+            !should_rebind_biometric(true, true, EnclaveKey::Missing, Biometrics::Absent),
+            "no enrolled biometrics: generating a key would produce another dead wrapper"
+        );
+    }
 
     // A controllable clock for lockout tests. Thread-local because the test
     // harness gives each test its own thread, so tests cannot disturb one
