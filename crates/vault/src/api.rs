@@ -745,13 +745,16 @@ impl Vault {
     ) -> Result<(), VaultError> {
         let mut vault = self.unlock_with_password(old_password)?;
 
-        // Create new Argon2id wrapper with new password
+        // Only the wrapper changes. The vault key itself is untouched: the new
+        // password wraps the same key, which is why any Secure Enclave wrapper
+        // in the header stays valid and biometric unlock keeps working across a
+        // rotation. Rotating the key would mean re-binding the enclave in the
+        // same operation or silently breaking Touch ID.
         let salt = crypto::generate_salt();
         let params = self.config.argon2_params.unwrap_or_default();
         let argon2id_wrapper =
             crypto::wrap_argon2id(&vault.vault_key, new_password, &salt, &params)?;
 
-        // Update header
         vault.header.salt = salt;
         vault.header.argon2_params = params;
         vault.header.replace_wrapper(crypto::Wrapper::new(
@@ -760,19 +763,23 @@ impl Vault {
         )?)?;
         vault.header.key_version += 1;
 
-        // Re-encrypt with new nonce
-        let plaintext = serde_json::to_vec(&vault.contents)
-            .map_err(|e| VaultError::Serialization(e.to_string()))?;
-        let (ciphertext, nonce) = crypto::encrypt_vault(&vault.vault_key, &plaintext)?;
-        vault.header.nonce = nonce;
-        vault.header.signature =
-            crypto::sign_vault(&vault.vault_key, &vault.header.signed_data(&ciphertext));
-
-        // Securely overwrite old vault file before writing new one
-        crypto::secure_overwrite(&vault.file_path).ok(); // best-effort, ignore errors
-
-        // Write
-        format::atomic_write_vault(&vault.file_path, &vault.header, &ciphertext)?;
+        // Written through `save`, which re-encrypts with a fresh nonce, signs,
+        // writes atomically, and advances the rollback counter.
+        //
+        // What used to be here re-implemented all of that except the counter,
+        // and called `secure_overwrite` on the vault *before* writing the
+        // replacement. That filled the file with random bytes in place and then
+        // wrote the new one, so anything failing in between -- a full disk, a
+        // crash, a power cut -- left the old vault shredded and the new one
+        // never written, with every stored password gone and nothing to restore
+        // from. Atomic write exists precisely to remove that window.
+        //
+        // Erasing the pre-rotation ciphertext is not attempted. `atomic_write_vault`
+        // renames a new file over the old one, so the previous blocks are
+        // unlinked rather than overwritten, and on a copy-on-write filesystem an
+        // in-place overwrite does not reach them either -- as `secure_overwrite`
+        // documents about itself. Full-disk encryption is the real mitigation.
+        vault.save()?;
 
         Ok(())
     }

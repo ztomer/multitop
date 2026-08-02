@@ -505,64 +505,12 @@ pub fn unwrap_argon2id(
     Ok(VaultKey(key))
 }
 
-/// Securely overwrite a file with random data + zeros before deletion.
-/// Best-effort on modern SSDs with encryption; use full-disk encryption for real protection.
-///
-/// # Errors
-/// Returns `std::io::Error` if the file cannot be opened, written, or synced.
-pub fn secure_overwrite(path: &std::path::Path) -> std::io::Result<()> {
-    use std::fs::OpenOptions;
-    use std::io::{Seek, Write};
-    #[cfg(unix)]
-    use std::os::unix::fs::OpenOptionsExt;
-
-    let metadata = std::fs::metadata(path)?;
-    // file size fits in usize on 64-bit platforms (target for this crate)
-    #[allow(clippy::cast_possible_truncation)]
-    let len = metadata.len() as usize;
-
-    if len == 0 {
-        return Ok(());
-    }
-
-    // Open the file once for all passes to avoid TOCTOU
-    let mut open_opts = OpenOptions::new();
-    open_opts.write(true).truncate(false);
-    #[cfg(unix)]
-    open_opts.mode(0o600);
-
-    let mut file = open_opts.open(path)?;
-    let mut rng = rand::thread_rng();
-
-    // Pass 1: random data
-    let mut buf = vec![0u8; len];
-    rng.fill_bytes(&mut buf);
-    file.seek(std::io::SeekFrom::Start(0))?;
-    file.write_all(&buf)?;
-    file.sync_all()?;
-
-    // Pass 2: zeros
-    buf.fill(0);
-    file.seek(std::io::SeekFrom::Start(0))?;
-    file.write_all(&buf)?;
-    file.sync_all()?;
-
-    // Pass 3: random data
-    rng.fill_bytes(&mut buf);
-    file.seek(std::io::SeekFrom::Start(0))?;
-    file.write_all(&buf)?;
-    file.sync_all()?;
-
-    Ok(())
-}
-
 #[cfg(test)]
 mod tests {
     #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
     use super::*;
     use crate::VaultError;
-    use tempfile::TempDir;
 
     #[test]
     fn test_vault_key_new_random() {
@@ -872,39 +820,5 @@ mod tests {
         let result = unwrap_argon2id(&[0u8; 10], "password", &salt, &params);
         assert!(result.is_err());
         assert!(matches!(result, Err(VaultError::InvalidWrapperData(_))));
-    }
-
-    #[test]
-    fn test_secure_overwrite() {
-        let dir = TempDir::new().unwrap();
-        let path = dir.path().join("test.bin");
-        std::fs::write(&path, b"sensitive data").unwrap();
-
-        secure_overwrite(&path).unwrap();
-
-        // File should still exist but with different content
-        assert!(path.exists());
-        let content = std::fs::read(&path).unwrap();
-        assert_eq!(content.len(), 14); // Same length as original
-        assert_ne!(content, b"sensitive data"); // But different content
-    }
-
-    #[test]
-    fn test_secure_overwrite_empty_file() {
-        let dir = TempDir::new().unwrap();
-        let path = dir.path().join("empty.bin");
-        std::fs::write(&path, b"").unwrap();
-
-        secure_overwrite(&path).unwrap();
-        assert!(path.exists());
-    }
-
-    #[test]
-    fn test_secure_overwrite_nonexistent_file() {
-        let dir = TempDir::new().unwrap();
-        let path = dir.path().join("nonexistent.bin");
-
-        let result = secure_overwrite(&path);
-        assert!(result.is_err());
     }
 }
