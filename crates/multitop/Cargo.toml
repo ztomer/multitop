@@ -16,6 +16,10 @@ ratatui = { version = "0.30", default-features = false, features = ["crossterm"]
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "process", "io-util", "sync", "time"] }
 tokio-stream = { version = "0.1.19", default-features = false }
 toml = { version = "1", default-features = false, features = ["parse", "serde", "display"] }
+# Writes back without reformatting. `toml` reconstructs a file from its parsed
+# value, which silently drops every comment and blank line the user wrote.
+# Already in the tree as a dependency of `toml`, so this costs no new code.
+toml_edit = "0.25"
 zstd = "0.13"
 multitop-agent = { path = "../agent" }
 multitop-vault = { path = "../vault" }

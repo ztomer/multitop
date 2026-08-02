@@ -260,22 +260,22 @@ pub fn parse(text: &str) -> Result<Config, ConfigError> {
 pub fn strip_plaintext_passwords(path: &Path) -> Result<usize, String> {
     let content = std::fs::read_to_string(path).map_err(|e| e.to_string())?;
     let mut doc = content
-        .parse::<toml::Table>()
+        .parse::<toml_edit::DocumentMut>()
         .map_err(|error| error.to_string())?;
 
     let mut removed = 0;
-    if let Some(toml::Value::Array(servers)) = doc.get_mut("servers") {
-        for entry in servers.iter_mut() {
-            if let Some(table) = entry.as_table_mut() {
-                if table.remove("sudo_password").is_some() {
-                    removed += 1;
-                }
+    if let Some(servers) = doc
+        .get_mut("servers")
+        .and_then(toml_edit::Item::as_array_of_tables_mut)
+    {
+        for table in servers.iter_mut() {
+            if table.remove("sudo_password").is_some() {
+                removed += 1;
             }
         }
     }
     if removed > 0 {
-        let text = toml::to_string_pretty(&doc).map_err(|e| e.to_string())?;
-        std::fs::write(path, text).map_err(|e| e.to_string())?;
+        std::fs::write(path, doc.to_string()).map_err(|e| e.to_string())?;
     }
     Ok(removed)
 }
@@ -303,14 +303,15 @@ pub fn save_show_sparklines(path: &Path, show: bool) {
     let Ok(content) = std::fs::read_to_string(path) else {
         return;
     };
-    let Ok(mut doc) = content.parse::<toml::Table>() else {
+    // Edited in place rather than re-serialised. Round-tripping through
+    // `toml::Table` rebuilds the file from its values, so every comment and
+    // blank line the user wrote disappears -- and this runs on a keystroke,
+    // meaning toggling sparklines was enough to strip a hand-written config.
+    let Ok(mut doc) = content.parse::<toml_edit::DocumentMut>() else {
         return;
     };
-    doc.insert("show_sparklines".to_string(), toml::Value::Boolean(show));
-    let Ok(new_content) = toml::to_string(&doc) else {
-        return;
-    };
-    let _ = std::fs::write(path, new_content);
+    doc["show_sparklines"] = toml_edit::value(show);
+    let _ = std::fs::write(path, doc.to_string());
 }
 
 /// Replace the server list while preserving other top-level configuration.
@@ -324,28 +325,43 @@ pub fn save_servers(path: &Path, servers: &[Server]) -> Result<(), String> {
     }
     let content = std::fs::read_to_string(path).unwrap_or_default();
     let mut doc = if content.trim().is_empty() {
-        toml::Table::new()
+        toml_edit::DocumentMut::new()
     } else {
         content
-            .parse::<toml::Table>()
+            .parse::<toml_edit::DocumentMut>()
             .map_err(|error| error.to_string())?
     };
-    let entries = servers
-        .iter()
-        .map(|server| {
-            let mut table = toml::Table::new();
-            table.insert("host".into(), toml::Value::String(server.host.clone()));
-            table.insert("port".into(), toml::Value::Integer(server.port.into()));
-            table.insert("user".into(), toml::Value::String(server.user.clone()));
-            if let Some(command) = &server.upgrade_cmd {
-                table.insert("upgrade_cmd".into(), toml::Value::String(command.clone()));
+
+    // Reuse the existing table for a server that is still present, so the
+    // comment above it survives. Rebuilding every entry from scratch -- which is
+    // what serialising a parsed value does -- threw away the whole file's
+    // comments and blank lines every time a server was added or edited.
+    let existing: Vec<toml_edit::Table> = doc
+        .get("servers")
+        .and_then(toml_edit::Item::as_array_of_tables)
+        .map(|a| a.iter().cloned().collect())
+        .unwrap_or_default();
+
+    let mut out = toml_edit::ArrayOfTables::new();
+    for server in servers {
+        let mut table = existing
+            .iter()
+            .find(|t| t.get("host").and_then(|v| v.as_str()) == Some(server.host.as_str()))
+            .cloned()
+            .unwrap_or_else(toml_edit::Table::new);
+        table["host"] = toml_edit::value(server.host.clone());
+        table["port"] = toml_edit::value(i64::from(server.port));
+        table["user"] = toml_edit::value(server.user.clone());
+        match &server.upgrade_cmd {
+            Some(command) => table["upgrade_cmd"] = toml_edit::value(command.clone()),
+            None => {
+                table.remove("upgrade_cmd");
             }
-            toml::Value::Table(table)
-        })
-        .collect();
-    doc.insert("servers".into(), toml::Value::Array(entries));
-    let output = toml::to_string(&doc).map_err(|error| error.to_string())?;
-    std::fs::write(path, output).map_err(|error| error.to_string())
+        }
+        out.push(table);
+    }
+    doc["servers"] = toml_edit::Item::ArrayOfTables(out);
+    std::fs::write(path, doc.to_string()).map_err(|error| error.to_string())
 }
 
 /// Parse standard SSH config file (~/.ssh/config) for Host blocks.
