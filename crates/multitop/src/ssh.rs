@@ -108,6 +108,32 @@ fn ssh_command(server: &Server) -> Command {
     cmd
 }
 
+/// Printed by the remote once it has turned echo off and is ready to read the
+/// password. The caller waits for this line before writing, because the pty
+/// echoes whatever arrives before `stty -echo` has run.
+pub const PW_READY_SENTINEL: &str = "__multitop_pw_ready__";
+
+/// Take the sudo password on stdin instead of putting it in the command.
+///
+/// The password used to be interpolated as `echo '<password>' | sudo -S`, and
+/// that whole string was passed as argv -- to `ssh` locally, and by sshd to the
+/// login shell remotely. Process arguments are not secret: `/proc/<pid>/cmdline`
+/// is world-readable on Linux, so every user on a monitored host could read that
+/// host's sudo password for as long as an upgrade ran.
+///
+/// Nothing here holds the password in an argument. `read` puts it in a shell
+/// variable, and `printf` is a builtin in sh, bash and zsh, so piping it to
+/// `sudo` spawns no process that could carry it. Echo is turned off first
+/// because `-tt` allocates a pty, whose line discipline would otherwise print
+/// the password straight back into the panel.
+fn password_preamble() -> String {
+    format!(
+        "stty -echo 2>/dev/null; printf '{PW_READY_SENTINEL}\\n'; IFS= read -r __mt_pw; \
+         stty echo 2>/dev/null; printf '%s\\n' \"$__mt_pw\" | sudo -S -p '' -v 2>/dev/null; \
+         __mt_rc=$?; unset __mt_pw; [ $__mt_rc -eq 0 ]"
+    )
+}
+
 #[must_use]
 pub fn ssh_command_tty(server: &Server) -> Command {
     let mut cmd = Command::new("ssh");
@@ -289,12 +315,32 @@ fn wrap_with_local_upgrade_lock(inner: &str) -> String {
     )
 }
 
+/// A spawned command, and whether it is waiting for a password on stdin.
+///
+/// The flag is returned rather than recomputed by the caller. Deciding it twice
+/// -- once here and once where the password is written -- is precisely how the
+/// two can disagree: the mock-store path builds a command with no password
+/// preamble, and a caller that assumed otherwise consumed real output while
+/// hunting for a sentinel that was never coming.
+pub struct Spawned {
+    pub child: Child,
+    pub awaits_password: bool,
+}
+
 /// Spawn an upgrade or arbitrary command process.
+///
+/// When `awaits_password` is set on the result, the caller must read stdout
+/// until [`PW_READY_SENTINEL`] and then write the password to the child's
+/// stdin, or the remote `read` blocks until the connection dies.
 ///
 /// # Errors
 ///
 /// Returns an error if spawning the command process fails.
-pub fn spawn_command(server: &Server, command: &str, password: Option<&str>) -> io::Result<Child> {
+pub fn spawn_command(
+    server: &Server,
+    command: &str,
+    password: Option<&str>,
+) -> io::Result<Spawned> {
     let quoted = sh_quote(command);
     let quoted_escaped = quoted.replace('\'', r"'\''");
     if is_local(server) {
@@ -307,13 +353,14 @@ pub fn spawn_command(server: &Server, command: &str, password: Option<&str>) -> 
                 inner
             }
         };
+        let awaits = password.is_some() && !crate::password_store::is_mock_enabled();
         let wrapped = match password {
             Some(_pass) if crate::password_store::is_mock_enabled() => wrap(format!(
                 "setopt expand_aliases 2>/dev/null; shopt -s expand_aliases 2>/dev/null; source ~/.zshrc 2>/dev/null; source ~/.zprofile 2>/dev/null; source ~/.bashrc 2>/dev/null; eval {quoted}"
             )),
-            Some(pass) => wrap(format!(
-                "echo {} | sudo -S -p '' -v 2>/dev/null && setopt expand_aliases 2>/dev/null; shopt -s expand_aliases 2>/dev/null; source ~/.zshrc 2>/dev/null; source ~/.zprofile 2>/dev/null; source ~/.bashrc 2>/dev/null; eval {quoted}",
-                sh_quote(pass),
+            Some(_pass) => wrap(format!(
+                "{} && setopt expand_aliases 2>/dev/null; shopt -s expand_aliases 2>/dev/null; source ~/.zshrc 2>/dev/null; source ~/.zprofile 2>/dev/null; source ~/.bashrc 2>/dev/null; eval {quoted}",
+                password_preamble(),
             )),
             None => wrap(format!(
                 "setopt expand_aliases 2>/dev/null; shopt -s expand_aliases 2>/dev/null; source ~/.zshrc 2>/dev/null; source ~/.zprofile 2>/dev/null; source ~/.bashrc 2>/dev/null; eval {quoted}"
@@ -322,23 +369,30 @@ pub fn spawn_command(server: &Server, command: &str, password: Option<&str>) -> 
         let child = Command::new(&shell)
             .arg("-c")
             .arg(wrapped)
-            .stdin(Stdio::null())
+            .stdin(if password.is_some() {
+                Stdio::piped()
+            } else {
+                Stdio::null()
+            })
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
             .kill_on_drop(true)
             .spawn()?;
 
-        return Ok(child);
+        return Ok(Spawned {
+            child,
+            awaits_password: awaits,
+        });
     }
 
     let remote_cmd = match password {
         Some(_pass) if crate::password_store::is_mock_enabled() => wrap_with_upgrade_lock(&format!(
             "if command -v zsh >/dev/null 2>&1; then zsh -l -i -c 'setopt expand_aliases 2>/dev/null; source ~/.zshrc 2>/dev/null; source ~/.zprofile 2>/dev/null; eval {quoted_escaped}'; elif command -v bash >/dev/null 2>&1; then bash -i -c 'shopt -s expand_aliases 2>/dev/null; source ~/.bashrc 2>/dev/null; source ~/.bash_profile 2>/dev/null; eval {quoted_escaped}'; else sh -c {quoted}; fi"
         )),
-        Some(pass) => {
-            let pass_q = sh_quote(pass);
+        Some(_pass) => {
+            let preamble = password_preamble();
             wrap_with_upgrade_lock(&format!(
-                "echo {pass_q} | sudo -S -p '' -v 2>/dev/null && if command -v zsh >/dev/null 2>&1; then zsh -l -i -c 'setopt expand_aliases 2>/dev/null; source ~/.zshrc 2>/dev/null; source ~/.zprofile 2>/dev/null; eval {quoted_escaped}'; elif command -v bash >/dev/null 2>&1; then bash -i -c 'shopt -s expand_aliases 2>/dev/null; source ~/.bashrc 2>/dev/null; source ~/.bash_profile 2>/dev/null; eval {quoted_escaped}'; else sh -c {quoted}; fi"
+                "{preamble} && if command -v zsh >/dev/null 2>&1; then zsh -l -i -c 'setopt expand_aliases 2>/dev/null; source ~/.zshrc 2>/dev/null; source ~/.zprofile 2>/dev/null; eval {quoted_escaped}'; elif command -v bash >/dev/null 2>&1; then bash -i -c 'shopt -s expand_aliases 2>/dev/null; source ~/.bashrc 2>/dev/null; source ~/.bash_profile 2>/dev/null; eval {quoted_escaped}'; else sh -c {quoted}; fi"
             ))
         }
         None => wrap_with_upgrade_lock(&format!(
@@ -348,13 +402,20 @@ pub fn spawn_command(server: &Server, command: &str, password: Option<&str>) -> 
 
     let child = ssh_command_tty(server)
         .arg(remote_cmd)
-        .stdin(Stdio::null())
+        .stdin(if password.is_some() {
+            Stdio::piped()
+        } else {
+            Stdio::null()
+        })
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .kill_on_drop(true)
         .spawn()?;
 
-    Ok(child)
+    Ok(Spawned {
+        child,
+        awaits_password: password.is_some() && !crate::password_store::is_mock_enabled(),
+    })
 }
 
 /// Ship the agent binary for `arch` to the server.

@@ -24,7 +24,7 @@ fn enable_mock_store() {
 async fn test_local_spawn_command_no_password() {
     enable_mock_store();
     let server = local_server("echo hello");
-    let mut child = spawn_command(&server, "echo hello", None).unwrap();
+    let mut child = spawn_command(&server, "echo hello", None).unwrap().child;
 
     let mut stdout = String::new();
     child
@@ -45,7 +45,9 @@ async fn test_local_spawn_command_with_mock_password() {
     enable_mock_store();
     let server = local_server("echo test");
     let password = "mock_password";
-    let mut child = spawn_command(&server, "echo test", Some(password)).unwrap();
+    let mut child = spawn_command(&server, "echo test", Some(password))
+        .unwrap()
+        .child;
 
     let mut stdout = String::new();
     child
@@ -67,10 +69,12 @@ async fn test_local_spawn_command_upgrade_lock_prevents_concurrent() {
     let server = local_server("sleep 2");
 
     // First command acquires lock
-    let mut child1 = spawn_command(&server, "sleep 2", None).unwrap();
+    let mut child1 = spawn_command(&server, "sleep 2", None).unwrap().child;
 
     // Second command should block or fail
-    let mut child2 = spawn_command(&server, "echo should_not_run", None).unwrap();
+    let mut child2 = spawn_command(&server, "echo should_not_run", None)
+        .unwrap()
+        .child;
 
     // Wait for first to complete
     let _ = child1.wait().await.unwrap();
@@ -95,7 +99,9 @@ async fn test_local_spawn_agent_finds_binary() {
     enable_mock_store();
     let server = local_server("multitop-agent --help 2>&1 || true");
 
-    let mut child = spawn_command(&server, "multitop-agent --help 2>&1 || true", None).unwrap();
+    let mut child = spawn_command(&server, "multitop-agent --help 2>&1 || true", None)
+        .unwrap()
+        .child;
 
     let mut stdout = String::new();
     child

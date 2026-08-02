@@ -1,4 +1,5 @@
 use tokio::io::AsyncBufReadExt;
+use tokio::io::AsyncWriteExt;
 use tokio::io::BufReader;
 use tokio::sync::mpsc::Sender;
 use tokio::task::JoinHandle;
@@ -141,6 +142,11 @@ pub fn spawn_docker(
     })
 }
 
+/// How many lines to look at before giving up on the readiness sentinel. A
+/// login shell may print a banner first; beyond this something is wrong and the
+/// run should proceed (and fail on sudo) rather than hang.
+const MAX_SENTINEL_LINES: usize = 50;
+
 #[must_use]
 #[allow(
     clippy::missing_panics_doc,
@@ -173,7 +179,10 @@ pub fn spawn_upgrade(
             return;
         };
 
-        let mut child = match ssh::spawn_command(&server, &command, pass.as_deref()) {
+        let ssh::Spawned {
+            mut child,
+            awaits_password,
+        } = match ssh::spawn_command(&server, &command, pass.as_deref()) {
             Ok(c) => c,
             Err(e) => {
                 let _ = tx
@@ -198,6 +207,38 @@ pub fn spawn_upgrade(
         let stderr = child.stderr.take().expect("stderr piped");
         let mut stdout_lines = BufReader::new(stdout).lines();
         let mut stderr_lines = BufReader::new(stderr).lines();
+
+        // Hand the sudo password over on stdin, once the remote says it has
+        // turned echo off. It is deliberately absent from the command line: argv
+        // is not secret, and `/proc/<pid>/cmdline` is world-readable on Linux, so
+        // embedding it exposed the password to every user on the monitored host
+        // for the length of the run.
+        //
+        // Waiting for the sentinel is what makes it safe rather than merely
+        // moved: `-tt` allocates a pty, and anything arriving before `stty
+        // -echo` completes is echoed straight back into this stdout. The
+        // sentinel line is consumed here, so it never reaches the panel.
+        if let Some(secret) = pass.as_deref().filter(|_| awaits_password) {
+            let mut ready = false;
+            for _ in 0..MAX_SENTINEL_LINES {
+                match stdout_lines.next_line().await {
+                    Ok(Some(line)) if line.trim() == ssh::PW_READY_SENTINEL => {
+                        ready = true;
+                        break;
+                    }
+                    // Anything else this early is banner noise; keep looking.
+                    Ok(Some(_)) => {}
+                    _ => break,
+                }
+            }
+            if ready {
+                if let Some(mut stdin) = child.stdin.take() {
+                    let _ = stdin.write_all(format!("{secret}\n").as_bytes()).await;
+                    let _ = stdin.flush().await;
+                    // Dropping closes it, so the remote `read` cannot block.
+                }
+            }
+        }
 
         let header = header_line(format!("Upgrade on {}", server.host));
         let _ = tx
