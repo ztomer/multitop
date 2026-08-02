@@ -8,3 +8,9 @@
 # Python bytecode from tooling scripts.
 __pycache__/
 *.pyc
+
+# Local build settings. `rustc-wrapper = "sccache"` lives here for developers
+# who have sccache installed; committing it made every other environment
+# require it, and CI has no sccache, so `cargo test` died before compiling
+# anything. See DEVELOPMENT.md.
+.cargo/config.toml

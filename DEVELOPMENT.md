@@ -13,6 +13,28 @@ Internal documentation for contributors and maintainers.
 | **Performance** | [docs/performance.md](docs/performance.md) |
 | **Roadmap** | [docs/roadmap.md](docs/roadmap.md) — the single forward-looking backlog |
 
+## Optional: faster local builds
+
+`sccache` caches compiled crates and cuts rebuild times noticeably on this
+workspace. To use it:
+
+```bash
+brew install sccache          # or: cargo install sccache
+mkdir -p .cargo
+printf '[build]\nrustc-wrapper = "sccache"\n' > .cargo/config.toml
+```
+
+`.cargo/config.toml` is gitignored on purpose. It was committed once, and
+because a `rustc-wrapper` must exist on every machine that builds the project,
+CI died before compiling anything:
+
+```
+error: could not execute process `sccache .../rustc -vV` (never executed)
+Caused by: No such file or directory (os error 2)
+```
+
+A build wrapper is a property of the machine, not of the project.
+
 ## Release Workflow
 
 See [RELEASE.md](RELEASE.md) for details. Cutting a release is one command —
