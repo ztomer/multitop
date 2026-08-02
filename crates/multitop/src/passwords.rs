@@ -211,17 +211,17 @@ fn password_key(app: &mut App, key: KeyCode) -> PasswordAction {
             manager.draft = Some(ServerDraft::new(None, None, None));
             manager.section = ConfigSection::Servers;
         }
+        // In the Passwords section, delete the PASSWORD. It used to remove the
+        // whole server from config.toml -- unconfirmed, one keystroke, under a
+        // hint that just read "[D] Delete" while the user was looking at a list
+        // of passwords. Server removal lives in the Servers section, where the
+        // hint says so. This also gives `PasswordAction::Delete` a caller: it
+        // was implemented and tested but no key produced it, so a saved
+        // password could not be removed from the UI at all.
         KeyCode::Char('d' | 'D') => {
-            if app.panels.len() > 1 {
-                let mut servers: Vec<Server> = app
-                    .panels
-                    .iter()
-                    .map(|panel| panel.server.clone())
-                    .collect();
-                servers.remove(manager.selected);
-                return PasswordAction::ApplyServers(servers);
-            }
-            manager.notice = Some("Cannot remove the last remaining server.".to_string());
+            return PasswordAction::Delete {
+                panel: manager.selected,
+            };
         }
         _ => {}
     }
@@ -518,21 +518,49 @@ mod tests {
         assert_eq!(action, PasswordAction::ToggleSparklines);
     }
 
+    /// In the Passwords section, `d` deletes the password, not the server.
+    ///
+    /// It used to remove the whole server from config.toml -- unconfirmed, one
+    /// keystroke, under a hint that read only "[D] Delete" while the user was
+    /// looking at a list of passwords. It also meant `PasswordAction::Delete`
+    /// had no caller at all: removing a saved password was implemented and
+    /// tested but unreachable from the keyboard.
     #[test]
-    fn password_key_delete_server_last_one_shows_notice() {
+    fn password_key_d_deletes_the_password_not_the_server() {
+        let mut app = App::new(vec![test_server("host1"), test_server("host2")]);
+        crate::passwords::open(&mut app, 0, false);
+
+        let action = crate::passwords::handle_key(&mut app, KeyCode::Char('d'));
+        assert_eq!(action, PasswordAction::Delete { panel: 0 });
+    }
+
+    /// Even with one server left, `d` here is about the password, so there is
+    /// nothing to refuse.
+    #[test]
+    fn password_key_d_works_with_a_single_server() {
         let mut app = App::new(vec![test_server("host1")]);
         crate::passwords::open(&mut app, 0, false);
 
         let action = crate::passwords::handle_key(&mut app, KeyCode::Char('d'));
-        assert_eq!(action, PasswordAction::None);
-        assert!(app.password_manager.as_ref().unwrap().notice.is_some());
-        assert!(app
-            .password_manager
-            .as_ref()
-            .unwrap()
-            .notice
-            .as_ref()
-            .unwrap()
-            .contains("Cannot remove"));
+        assert_eq!(
+            action,
+            PasswordAction::Delete { panel: 0 },
+            "deleting a password must not be blocked by the server count"
+        );
+    }
+
+    /// Removing a server still works, in the section that says so.
+    #[test]
+    fn server_section_d_still_removes_a_server() {
+        let mut app = App::new(vec![test_server("host1"), test_server("host2")]);
+        crate::passwords::open(&mut app, 0, false);
+        crate::passwords::handle_key(&mut app, KeyCode::Tab);
+
+        let action = crate::passwords::handle_key(&mut app, KeyCode::Char('d'));
+        let PasswordAction::ApplyServers(remaining) = action else {
+            panic!("expected the server list to change");
+        };
+        assert_eq!(remaining.len(), 1);
+        assert_eq!(remaining[0].host, "host2");
     }
 }

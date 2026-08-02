@@ -170,7 +170,7 @@ pub fn draw(f: &mut Frame, app: &App) {
             )));
         } else {
             lines.push(Line::from(Span::styled(
-                "[P] Toggle Sparklines (Experimental)  [Enter/S] SSO Password  [O] Override  [A] Add  [D] Delete",
+                "[P] Toggle Sparklines (Experimental)  [Enter/S] SSO Password  [O] Override  [A] Add  [D] Delete Password",
                 Style::default().fg(Color::DarkGray),
             )));
         }
