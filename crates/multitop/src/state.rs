@@ -144,7 +144,49 @@ pub fn save_state(config_path: &Path, state: &AppState) -> Result<(), String> {
     }
 
     let content = toml::to_string(&table).map_err(|e| e.to_string())?;
-    std::fs::write(&path, content).map_err(|e| e.to_string())
+    write_atomic(&path, &content)
+}
+
+/// Write via a temporary file and a rename, so the destination is only ever the
+/// old contents or the new ones.
+///
+/// `fs::write` truncates before it writes, so an interruption does not merely
+/// fail to record the new value -- it destroys the previous one. That matters
+/// here more than most places: `upgrade_started_at` exists so an upgrade cut
+/// short by a power loss can be reported afterwards, and it is written at the
+/// moment the upgrade starts. Losing power during that write left an empty file,
+/// which loads as "no state at all", so the record that power-loss detection
+/// depends on was itself the thing power loss erased.
+///
+/// The temporary name carries the pid so two instances cannot write the same
+/// scratch file, and it is removed on every failure path -- a leftover would
+/// otherwise accumulate beside the config forever.
+fn write_atomic(path: &Path, content: &str) -> Result<(), String> {
+    use std::io::Write as _;
+
+    let tmp = path.with_extension(format!("toml.{}.tmp", std::process::id()));
+    let result = (|| -> std::io::Result<()> {
+        let mut file = std::fs::File::create(&tmp)?;
+        file.write_all(content.as_bytes())?;
+        // Flush the contents before the rename publishes them; a rename of a
+        // file whose data has not reached the disk can still surface as empty
+        // after a crash.
+        file.sync_all()?;
+        drop(file);
+        std::fs::rename(&tmp, path)?;
+        // Persist the rename itself, for the same reason.
+        if let Some(parent) = path.parent() {
+            if let Ok(dir) = std::fs::File::open(parent) {
+                let _ = dir.sync_all();
+            }
+        }
+        Ok(())
+    })();
+
+    if result.is_err() {
+        let _ = std::fs::remove_file(&tmp);
+    }
+    result.map_err(|e| e.to_string())
 }
 
 #[cfg(test)]
