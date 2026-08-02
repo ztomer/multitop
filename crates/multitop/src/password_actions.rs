@@ -29,8 +29,19 @@ pub fn apply(
                 let mut new_panels = Vec::with_capacity(new_servers.len());
                 for server in new_servers {
                     let mut panel = crate::app::Panel::new(server.clone());
-                    if let Some(old_panel) =
-                        app.panels.iter().find(|p| p.server.host == server.host)
+                    // Match on the full credential identity, not the host.
+                    //
+                    // Credentials are keyed `user@host:port`, so two entries on
+                    // the same machine -- a different port, or a different
+                    // account -- are different credentials. Matching on host
+                    // alone handed the first panel's password to every entry
+                    // sharing that host, which means an upgrade could send one
+                    // account's sudo password to a session opened as another.
+                    let key = crate::password_store::account(&server);
+                    if let Some(old_panel) = app
+                        .panels
+                        .iter()
+                        .find(|p| crate::password_store::account(&p.server) == key)
                     {
                         panel.sudo_password.clone_from(&old_panel.sudo_password);
                         panel.password_saved = old_panel.password_saved;

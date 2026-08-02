@@ -94,18 +94,20 @@ fn test_tab_between_passwords_and_servers_sections() {
 
 #[test]
 fn test_apply_servers_updates_panels_dynamically() {
-    let mut app = App::new(vec![test_server("host1"), test_server("host2")]);
+    // Same server values throughout: `test_server` allocates a new port per
+    // call, so re-calling it would describe different credentials.
+    let s1 = test_server("host1");
+    let s2 = test_server("host2");
+    let s3 = test_server("host3");
+
+    let mut app = App::new(vec![s1.clone(), s2.clone()]);
     let tmp_path =
         std::env::temp_dir().join(format!("multitop_test_cfg_{}.toml", std::process::id()));
     app.config_path = Some(tmp_path.clone());
     app.panels[0].sudo_password = Some("secret1".to_string());
     app.panels[0].password_saved = true;
 
-    let new_servers = vec![
-        test_server("host1"),
-        test_server("host2"),
-        test_server("host3"),
-    ];
+    let new_servers = vec![s1, s2, s3];
 
     let (tx, _rx) = tokio::sync::mpsc::channel::<Msg>(10);
     let mut tasks = multitop::run::Tasks::new(2);
@@ -359,7 +361,16 @@ fn test_save_resume_upgrade_false() {
 #[test]
 fn test_apply_servers_preserves_existing_passwords() {
     let _store_guard = setup_mock_store();
-    let mut app = App::new(vec![test_server("host1"), test_server("host2")]);
+    // Reuse the same server values. `test_server` allocates a fresh port on
+    // every call, so calling it twice for "host1" produces two DIFFERENT
+    // credentials (`admin@host1:<port>`), and this test used to pass only
+    // because panels were rematched by host alone -- the very leak that let one
+    // account's password reach another account on the same machine.
+    let s1 = test_server("host1");
+    let s2 = test_server("host2");
+    let s3 = test_server("host3");
+
+    let mut app = App::new(vec![s1.clone(), s2.clone()]);
     let tmp_path =
         std::env::temp_dir().join(format!("multitop_test_cfg_{}.toml", std::process::id()));
     app.config_path = Some(tmp_path.clone());
@@ -372,17 +383,9 @@ fn test_apply_servers_preserves_existing_passwords() {
     let mut tasks = multitop::run::Tasks::new(2);
 
     multitop::password_actions::apply(
-        PasswordAction::ApplyServers(vec![
-            test_server("host1"),
-            test_server("host2"),
-            test_server("host3"),
-        ]),
+        PasswordAction::ApplyServers(vec![s1.clone(), s2.clone(), s3.clone()]),
         &mut app,
-        &[
-            test_server("host1"),
-            test_server("host2"),
-            test_server("host3"),
-        ],
+        &[s1, s2, s3],
         &tx,
         &mut tasks,
     );

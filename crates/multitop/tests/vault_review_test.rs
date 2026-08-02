@@ -298,3 +298,61 @@ async fn deleting_a_password_says_so_when_sso_still_covers_the_host() {
 
     let _ = multitop::password_store::delete_sso();
 }
+
+/// Round 12. Panels were rematched by host alone when the server list changed,
+/// but credentials are keyed `user@host:port`. Two entries on the same machine
+/// -- a different port, or a different account -- are different credentials,
+/// and the first panel's password was handed to all of them. An upgrade could
+/// then send one account's sudo password to a session opened as another.
+#[tokio::test]
+async fn reapplying_servers_does_not_leak_a_password_across_accounts() {
+    let _guard = multitop::password_store::lock_for_test_async().await;
+    multitop::password_store::enable_mock_store();
+    multitop::password_store::clear_mock_store();
+    let _ = multitop::password_store::delete_sso();
+
+    let alice = Server {
+        host: "192.168.0.33".into(),
+        port: 22,
+        user: "alice".into(),
+        upgrade_cmd: Some("true".into()),
+    };
+    let root = Server {
+        host: "192.168.0.33".into(),
+        port: 2222,
+        user: "root".into(),
+        upgrade_cmd: Some("true".into()),
+    };
+
+    let servers = vec![alice, root];
+    let mut app = App::new(servers.clone());
+    // Only the first account has a password in this session.
+    app.panels[0].sudo_password = Some("alice-secret".into());
+    app.panels[0].password_saved = true;
+
+    let (tx, _rx) = mpsc::channel::<Msg>(16);
+    let mut tasks = Tasks::new(2);
+    let dir = std::env::temp_dir().join(format!("multitop_apply_{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    app.config_path = Some(dir.join("config.toml"));
+
+    multitop::password_actions::apply(
+        multitop::passwords::PasswordAction::ApplyServers(servers.clone()),
+        &mut app,
+        &servers,
+        &tx,
+        &mut tasks,
+    );
+
+    assert_eq!(
+        app.panels[0].sudo_password.as_deref(),
+        Some("alice-secret"),
+        "the account that had a password keeps it"
+    );
+    assert_eq!(
+        app.panels[1].sudo_password, None,
+        "a different account on the same host must NOT inherit it"
+    );
+
+    let _ = std::fs::remove_dir_all(&dir);
+}
