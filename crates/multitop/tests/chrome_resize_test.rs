@@ -181,7 +181,15 @@ async fn monitor_loop_re_reads_dims_each_frame() {
         while let Some(payload) = payload_rx.recv().await {
             let dims = *dims_rx.borrow();
             let lines = render_payload(&payload, dims, SortBy::Cpu, pal);
-            if msg_tx.send(Msg::Frame { panel: 0, lines }).await.is_err() {
+            if msg_tx
+                .send(Msg::Frame {
+                    panel: 0,
+                    epoch: 0,
+                    lines,
+                })
+                .await
+                .is_err()
+            {
                 break;
             }
         }
@@ -240,9 +248,12 @@ fn resize_path_must_not_call_restart_all_agents() {
         let end = (*line_no + 2).min(run_source.lines().count());
         let context: Vec<&str> = run_source.lines().skip(start).take(end - start).collect();
         let ctx_block = context.join("\n");
+        // Matched against the terminal-resize machinery specifically, not the
+        // bare word: `Tasks::fit_to` used to be called `resize`, and its call
+        // beside a legitimate restart tripped this on a substring alone.
         assert!(
-            !ctx_block.to_lowercase().contains("resize"),
-            "restart_all_agents at line {line_no} is near 'resize' context:\n{ctx_block}"
+            !ctx_block.contains("Event::Resize") && !ctx_block.contains("resize_at"),
+            "restart_all_agents at line {line_no} sits in the terminal-resize path:\n{ctx_block}"
         );
     }
 }

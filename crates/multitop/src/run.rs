@@ -86,6 +86,30 @@ impl Tasks {
         }
     }
 
+    /// Grow or shrink to match a new panel count, aborting anything dropped.
+    ///
+    /// Without this an added server had no slot to spawn a monitor into, and a
+    /// removed one left its task running against a host that is no longer shown.
+    fn fit_to(&mut self, n: usize) {
+        for h in self
+            .monitors
+            .iter_mut()
+            .skip(n)
+            .chain(self.aux.iter_mut().skip(n))
+            .flatten()
+        {
+            h.abort();
+        }
+        self.monitors.truncate(n);
+        self.aux.truncate(n);
+        self.aux_is_upgrade.truncate(n);
+        while self.monitors.len() < n {
+            self.monitors.push(None);
+            self.aux.push(None);
+            self.aux_is_upgrade.push(false);
+        }
+    }
+
     /// Aborting a task drops the `Child` it owns, and every child is spawned
     /// with `kill_on_drop`, so this also terminates the SSH process.
     fn abort_all(&mut self, app: &mut App) {
@@ -110,7 +134,7 @@ use multitop_agent::SortBy;
 #[allow(clippy::too_many_lines)]
 async fn event_loop(
     terminal: &mut ratatui::DefaultTerminal,
-    servers: Vec<Server>,
+    mut servers: Vec<Server>,
     config_path: PathBuf,
     initial_theme: Option<String>,
 ) -> std::io::Result<()> {
@@ -161,6 +185,7 @@ async fn event_loop(
     for (i, server) in servers.iter().enumerate() {
         tasks.monitors[i] = Some(spawn_monitor(
             i,
+            app.panels_epoch,
             server.clone(),
             dims_rx.clone(),
             app.sort,
@@ -168,6 +193,8 @@ async fn event_loop(
         ));
     }
 
+    // Tracks which panel list the running tasks were started for.
+    let mut known_epoch = app.panels_epoch;
     let mut resize_at: Option<Instant> = None;
     let mut dirty = true;
 
@@ -191,6 +218,19 @@ async fn event_loop(
                 match maybe {
                     Some(Ok(Event::Key(key))) => {
                         handle_key(key, &mut app, &servers, dims, dims_rx.clone(), &tx, &mut tasks);
+                        // An edit to the server list retires every task bound to
+                        // the old one. Without respawning here the panels simply
+                        // stopped updating: the running monitors still hold the
+                        // previous epoch, so their frames are now discarded, and
+                        // a newly added server had no task at all. `servers` was
+                        // also captured once at startup and never refreshed, so
+                        // upgrades used the stale list.
+                        if app.panels_epoch != known_epoch {
+                            known_epoch = app.panels_epoch;
+                            servers = app.panels.iter().map(|p| p.server.clone()).collect();
+                            tasks.fit_to(servers.len());
+                            restart_all_agents(&app, &servers, dims_rx.clone(), &tx, &mut tasks);
+                        }
                         dirty = true;
                     }
                     Some(Ok(Event::Mouse(mouse))) => {
@@ -633,6 +673,7 @@ fn restart_all_agents(
         }
         tasks.monitors[i] = Some(spawn_monitor(
             i,
+            app.panels_epoch,
             server.clone(),
             dims_rx.clone(),
             app.sort,

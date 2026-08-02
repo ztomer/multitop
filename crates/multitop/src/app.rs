@@ -90,6 +90,13 @@ pub struct App {
     pub show_sparklines: bool,
     /// Terminal flag, independent of `mode`.
     pub should_quit: bool,
+    /// Which incarnation of the panel *list* is current.
+    ///
+    /// Advanced only by `replace_panels`. Long-lived tasks that captured a panel
+    /// index stamp their messages with the epoch they were started for, so an
+    /// edit to the server list retires them without disturbing the per-panel
+    /// `gen` that mode switches rely on.
+    pub panels_epoch: u64,
 }
 
 impl App {
@@ -123,7 +130,54 @@ impl App {
             host_updates: std::collections::BTreeMap::new(),
             show_sparklines: false,
             should_quit: false,
+            panels_epoch: 0,
         }
+    }
+
+    /// Swap in a new panel list, invalidating every task bound to the old one.
+    ///
+    /// Editing the server list replaces the panels but cannot stop the monitor
+    /// tasks already running: each captured its index at spawn and loops
+    /// forever. Without a generation bump those tasks keep matching, so after a
+    /// deletion the task for the removed host paints the panel that moved into
+    /// its slot -- one machine's statistics under another machine's name.
+    ///
+    /// Generations continue upward from the highest one in use rather than
+    /// restarting, so a task holding an old value can never coincide with a new
+    /// panel.
+    pub fn replace_panels(&mut self, servers: Vec<Server>) {
+        self.panels_epoch += 1;
+        let mut panels: Vec<Panel> = servers.into_iter().map(Panel::new).collect();
+        for panel in &mut panels {
+            // Carry the credential across when the same account survives the
+            // edit, matched on the full identity rather than the host: two
+            // entries on one machine with different users or ports are
+            // different credentials, and handing the first one's password to
+            // the rest would send one account's sudo password to another's
+            // session.
+            let key = crate::password_store::account(&panel.server);
+            if let Some(old) = self
+                .panels
+                .iter()
+                .find(|p| crate::password_store::account(&p.server) == key)
+            {
+                panel.sudo_password.clone_from(&old.sudo_password);
+                panel.password_saved = old.password_saved;
+                panel.external_password = old.external_password;
+            }
+        }
+        let count = panels.len();
+        self.panels = panels;
+        self.selected_panel = self.selected_panel.min(count.saturating_sub(1));
+        self.sparklines = (0..count)
+            .map(|_| crate::sparkline::SparklineHistory::new(30))
+            .collect();
+        self.sparklines_mem = (0..count)
+            .map(|_| crate::sparkline::SparklineHistory::new(30))
+            .collect();
+        self.sparklines_cpu = (0..count)
+            .map(|_| crate::sparkline::SparklineHistory::new(30))
+            .collect();
     }
 
     #[must_use]
@@ -821,7 +875,14 @@ impl App {
                     }
                 }
             }
-            Msg::Frame { panel, lines } => {
+            Msg::Frame {
+                panel,
+                epoch,
+                lines,
+            } => {
+                if epoch != self.panels_epoch {
+                    return;
+                }
                 let Some(p) = self.panels.get_mut(panel) else {
                     return;
                 };

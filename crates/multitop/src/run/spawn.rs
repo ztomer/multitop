@@ -13,8 +13,19 @@ use crate::stream;
 use super::RECONNECT_BACKOFF;
 use multitop_agent::proto::Payload;
 
+/// One status line for a panel, stamped with the generation this task was
+/// started for so a later panel list rejects it.
+fn frame(idx: usize, epoch: u64, line: String) -> super::Msg {
+    super::Msg::Frame {
+        panel: idx,
+        epoch,
+        lines: vec![line],
+    }
+}
+
 pub fn spawn_monitor(
     idx: usize,
+    epoch: u64,
     server: Server,
     dims_rx: Arc<watch::Receiver<(u16, u16)>>,
     sort: super::SortBy,
@@ -26,10 +37,7 @@ pub fn spawn_monitor(
         loop {
             let status_tx = tx.clone();
             let notify = move |text: String| {
-                let _ = status_tx.try_send(super::Msg::Frame {
-                    panel: idx,
-                    lines: vec![text],
-                });
+                let _ = status_tx.try_send(frame(idx, epoch, text));
             };
 
             match stream::connect(&server, Mode::Monitor, sort, notify).await {
@@ -50,6 +58,7 @@ pub fn spawn_monitor(
                                     let _ = tx
                                         .send(super::Msg::Frame {
                                             panel: idx,
+                                            epoch,
                                             lines: vec![format!(
                                                 "\u{2192} agent version mismatch: \
                                                  remote {} vs local {}, replacing...",
@@ -84,6 +93,7 @@ pub fn spawn_monitor(
                     let _ = tx
                         .send(super::Msg::Frame {
                             panel: idx,
+                            epoch,
                             lines: vec![error_line(detail)],
                         })
                         .await;
@@ -95,6 +105,7 @@ pub fn spawn_monitor(
                                 let _ = tx
                                     .send(super::Msg::Frame {
                                         panel: idx,
+                                        epoch,
                                         lines: vec![format!(
                                             "\u{2713} agent replaced on {}",
                                             server.host
@@ -106,12 +117,7 @@ pub fn spawn_monitor(
                     }
                 }
                 Err(e) => {
-                    let _ = tx
-                        .send(super::Msg::Frame {
-                            panel: idx,
-                            lines: vec![error_line(e)],
-                        })
-                        .await;
+                    let _ = tx.send(frame(idx, epoch, error_line(e))).await;
                 }
             }
 

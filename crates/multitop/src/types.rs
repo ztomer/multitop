@@ -19,6 +19,15 @@ pub enum Msg {
     },
     Frame {
         panel: usize,
+        /// Which panel *list* the sender was started for.
+        ///
+        /// Deliberately not the per-panel `gen`, which counts operations and is
+        /// bumped by every mode switch: a monitor task is spawned once and lives
+        /// across those, so matching on `gen` would reject its frames the first
+        /// time the user pressed `d` and freeze the stats panel for good. This
+        /// changes only when the panel list itself is replaced, which is exactly
+        /// when a captured index stops meaning the same host.
+        epoch: u64,
         lines: Vec<String>,
     },
     Status {
@@ -61,16 +70,10 @@ pub enum Msg {
         unlocked: Box<multitop_vault::UnlockedVault>,
     },
     /// Creating the vault failed; the message is shown on the prompt.
-    VaultCreateFailed {
-        epoch: u64,
-        error: String,
-    },
+    VaultCreateFailed { epoch: u64, error: String },
     /// A password unlock attempt finished unsuccessfully. Carries the reason so
     /// the prompt can show it.
-    VaultUnlockFailed {
-        epoch: u64,
-        error: String,
-    },
+    VaultUnlockFailed { epoch: u64, error: String },
     /// The vault was unlocked by biometric (Touch ID / fingerprint).
     VaultUnlocked {
         epoch: u64,
@@ -78,7 +81,5 @@ pub enum Msg {
     },
     /// Biometric unlock was unavailable or cancelled; the TUI falls back to
     /// the vault password prompt.
-    VaultBiometricFailed {
-        epoch: u64,
-    },
+    VaultBiometricFailed { epoch: u64 },
 }

@@ -25,36 +25,12 @@ pub fn apply(
                 .ok_or_else(|| "No configuration file is active.".to_string())
                 .and_then(|path| crate::config::save_servers(path, &new_servers));
             if result.is_ok() {
-                // Update app.panels to match the new server list while preserving existing passwords.
-                let mut new_panels = Vec::with_capacity(new_servers.len());
-                for server in new_servers {
-                    let mut panel = crate::app::Panel::new(server.clone());
-                    // Match on the full credential identity, not the host.
-                    //
-                    // Credentials are keyed `user@host:port`, so two entries on
-                    // the same machine -- a different port, or a different
-                    // account -- are different credentials. Matching on host
-                    // alone handed the first panel's password to every entry
-                    // sharing that host, which means an upgrade could send one
-                    // account's sudo password to a session opened as another.
-                    let key = crate::password_store::account(&server);
-                    if let Some(old_panel) = app
-                        .panels
-                        .iter()
-                        .find(|p| crate::password_store::account(&p.server) == key)
-                    {
-                        panel.sudo_password.clone_from(&old_panel.sudo_password);
-                        panel.password_saved = old_panel.password_saved;
-                        panel.external_password = old_panel.external_password;
-                    }
-                    new_panels.push(panel);
-                }
-                app.panels = new_panels;
-                if app.panels.is_empty() {
-                    app.selected_panel = 0;
-                } else {
-                    app.selected_panel = app.selected_panel.min(app.panels.len() - 1);
-                }
+                // Rebuild the panels through `replace_panels`, which bumps every
+                // generation. Assigning `app.panels` directly left the running
+                // monitor tasks matching their old indices, so after a deletion
+                // the task for the removed host painted whichever host had moved
+                // into its slot. It also carries credentials across the swap.
+                app.replace_panels(new_servers);
             }
             if let Some(manager) = app.password_manager.as_mut() {
                 if !app.panels.is_empty() {

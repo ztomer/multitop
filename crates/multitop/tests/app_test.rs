@@ -45,6 +45,7 @@ fn frame_is_shown_in_monitor_mode() {
     let mut a = app(1);
     a.apply(Msg::Frame {
         panel: 0,
+        epoch: 0,
         lines: vec!["line1".into(), "line2".into()],
     });
     assert_eq!(text(&a.panels[0]), "line1\nline2");
@@ -56,6 +57,7 @@ fn frame_is_stored_but_hidden_in_docker_mode() {
     a.toggle_docker();
     a.apply(Msg::Frame {
         panel: 0,
+        epoch: 0,
         lines: vec!["fresh".into()],
     });
     assert!(
@@ -73,6 +75,7 @@ fn frame_for_unknown_panel_is_ignored() {
     let mut a = app(1);
     a.apply(Msg::Frame {
         panel: 9,
+        epoch: 0,
         lines: vec!["x".into()],
     });
     assert!(text(&a.panels[0]).contains("connecting"));
@@ -106,6 +109,7 @@ fn switch_stats_restores_the_last_frame() {
     for i in 0..3 {
         a.apply(Msg::Frame {
             panel: i,
+            epoch: 0,
             lines: vec![format!("data{i}")],
         });
     }
@@ -308,6 +312,7 @@ fn upgrade_output_persists_until_dismissed() {
     });
     a.apply(Msg::Frame {
         panel: 0,
+        epoch: 0,
         lines: vec!["cpu stats".into()],
     });
 
