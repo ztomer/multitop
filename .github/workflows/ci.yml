@@ -29,6 +29,8 @@ jobs:
         run: |
           python3 tools/check_no_emoji.py --self-test
           python3 tools/check_no_emoji.py
+          python3 tools/check_test_only_code.py --self-test
+          python3 tools/check_test_only_code.py
 
       - name: Formatting
         run: cargo fmt --all -- --check

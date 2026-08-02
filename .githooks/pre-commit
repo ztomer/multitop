@@ -40,6 +40,17 @@ if ! python3 tools/check_no_emoji.py --staged >"$log" 2>&1; then
 fi
 ok "no emoji"
 
+info "checking for test-only code"
+if ! python3 tools/check_test_only_code.py --self-test >"$log" 2>&1; then
+    cat "$log" >&2
+    die "the test-only checker's own self-test failed -- it cannot be trusted to report clean"
+fi
+if ! python3 tools/check_test_only_code.py >"$log" 2>&1; then
+    cat "$log" >&2
+    die "a function is exercised only by tests — wire it up, delete it, or annotate it"
+fi
+ok "no new test-only code"
+
 info "checking formatting"
 if ! cargo fmt --all -- --check >"$log" 2>&1; then
     cat "$log" >&2

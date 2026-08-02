@@ -1,0 +1,33 @@
+# Functions reachable only from tests, known when the check was introduced.
+#
+# This file is a ratchet. A name here is a case the check already found and that
+# nobody has resolved yet; anything NOT here fails the gate immediately. When one
+# is fixed, its line must be deleted -- the check fails on a stale entry too, so
+# the list can only shrink.
+#
+# Each of these is exercised by tests and by no production path. That is worth
+# fixing even when the function is harmless, because the failure mode found twice
+# in this codebase is not the dead function itself: it is that a *duplicate* of
+# its logic is what production calls, the tests guard the dead copy, and the live
+# copy drifts unwatched. `rollback::parse_stored_counter` and
+# `LockoutState::on_failure` were both exactly that.
+#
+# Resolve one by wiring it up, or by deleting it and repointing its tests at
+# whatever replaced it. If the caller is real but invisible to the tool, put a
+# `// reachability: <why>` note above the function instead of a line here.
+crates/agent/src/render.rs:frame_height
+crates/multitop/src/app.rs:had_upgrade
+crates/multitop/src/app.rs:set_filtering
+crates/multitop/src/app.rs:show_upgrade_output
+crates/multitop/src/app.rs:vault_unlocked
+crates/multitop/src/config.rs:parse_ssh_config
+crates/multitop/src/panel.rs:set_sudo_password
+crates/multitop/src/password_store.rs:clear_sso_cache
+crates/multitop/src/sparkline.rs:render_bar
+crates/vault/src/api.rs:change_password
+crates/vault/src/api.rs:complete_migration
+crates/vault/src/api.rs:get_unlocked
+crates/vault/src/api.rs:remove_password
+crates/vault/src/crypto.rs:estimated_ms
+crates/vault/src/crypto.rs:from_config
+crates/vault/src/lockout.rs:uses_keychain

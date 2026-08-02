@@ -31,6 +31,8 @@ pub fn disable_mock_store() {
 }
 
 /// Clear in-memory mock store contents.
+// reachability: test-only helper; lives here because it needs this
+// module's private state, and is called from tests only by design.
 pub fn clear_mock_store() {
     let mut store = MOCK_STORE
         .write()
@@ -56,6 +58,8 @@ static TEST_GUARD: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 /// Hold the returned guard for the whole test body — dropping it early
 /// re-opens the race.
 #[doc(hidden)]
+// reachability: test-only helper; lives here because it needs this
+// module's private state, and is called from tests only by design.
 pub fn lock_for_test() -> tokio::sync::MutexGuard<'static, ()> {
     TEST_GUARD.blocking_lock()
 }
@@ -66,6 +70,8 @@ pub fn lock_for_test() -> tokio::sync::MutexGuard<'static, ()> {
 /// Hold the returned guard for the whole test body — dropping it early
 /// re-opens the race.
 #[doc(hidden)]
+// reachability: test-only helper; lives here because it needs this
+// module's private state, and is called from tests only by design.
 pub async fn lock_for_test_async() -> tokio::sync::MutexGuard<'static, ()> {
     TEST_GUARD.lock().await
 }
