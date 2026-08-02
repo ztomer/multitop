@@ -7,14 +7,14 @@ for each one, side by side in a single terminal. Written in Rust
 Self-deploys a tiny static agent binary to each host on first connect —
 zero setup on the remote side. Also monitors the local machine, runs
 upgrade commands across servers with power-loss detection, and includes
-a Docker container view. Works on macOS and Linux.
+a Docker container view. Works on macOS (Apple Silicon) and Linux.
 
 <img width="1902" height="1232" alt="image" src="https://github.com/user-attachments/assets/d145f190-03b3-49e3-8fa7-1501e1aa73a7" />
 
 
 ## Installation
 
-### Homebrew (macOS & Linux)
+### Homebrew (macOS Apple Silicon & Linux)
 
 ```bash
 brew tap ztomer/tap
@@ -175,10 +175,12 @@ and fuzzing verification results.
 
 ## Requirements
 
-- **Local**: Rust 1.85+, `ssh`, and a cross-compilation backend for the agent
-  (see below)
+- **Local**: macOS on Apple Silicon, or Linux. Rust 1.85+, `ssh`, and a
+  cross-compilation backend for the agent (see below). Intel Macs are not
+  supported and fail at compile time.
 - **Remote**: Linux with `/proc`, a POSIX shell, x86-64 or aarch64. No
-  package installs.
+  package installs. This is the *agent's* architecture and is unrelated to the
+  machine you run multitop on -- monitoring x86-64 servers is fully supported.
 
 ## Building
 
