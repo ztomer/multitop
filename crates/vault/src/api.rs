@@ -234,10 +234,19 @@ impl Vault {
             argon2id_wrapper,
         )?];
 
+        // The Secure Enclave key lives in the login keychain, so it is exactly
+        // the "real credential storage" that `use_os_keychain` exists to keep
+        // tests away from. It was not gated: every test that initialised a
+        // vault on macOS ran `generate_new`, which begins by calling
+        // `delete_existing` -- so running the suite deleted the developer's
+        // actual Secure Enclave key and orphaned the wrapper in their real
+        // vault, permanently disabling biometric unlock.
         #[cfg(target_os = "macos")]
-        if let Ok(se) = secure_enclave::get_secure_enclave() {
-            if let Ok(se_wrapper) = se.wrap_key(&vault_key) {
-                wrappers.insert(0, se_wrapper); // Biometric first
+        if self.config.use_os_keychain {
+            if let Ok(se) = secure_enclave::get_secure_enclave() {
+                if let Ok(se_wrapper) = se.wrap_key(&vault_key) {
+                    wrappers.insert(0, se_wrapper); // Biometric first
+                }
             }
         }
 
@@ -318,25 +327,29 @@ impl Vault {
 
         // Try Secure Enclave (macOS)
         #[cfg(target_os = "macos")]
-        if let Some(se_wrapper) = vault_file.header.get_wrapper(WrapperType::SecureEnclave) {
-            // Load-only, never create. `get_secure_enclave` falls through to
-            // generating a fresh key pair, and generation deletes the existing
-            // one -- so a transient lookup failure here would destroy the
-            // private key that this very wrapper was encrypted to, orphaning it
-            // forever. Unlocking must not be able to damage what it is reading.
-            if let Ok(se) = secure_enclave::get_secure_enclave_existing() {
-                match se.unwrap_key(se_wrapper) {
-                    Ok(vault_key) => {
-                        return self.decrypt_and_load(vault_key, &vault_file);
-                    }
-                    Err(VaultError::BiometricFailed) => {
-                        // Fall through to password
-                    }
-                    Err(_e) => {
-                        // Key invalidated (macOS update, etc.) - fall through to
-                        // the caller's password path. Deliberately silent: this
-                        // library is used by a full-screen TUI, and a stray
-                        // stderr write lands on top of the rendered UI.
+        if self.config.use_os_keychain {
+            if let Some(se_wrapper) = vault_file.header.get_wrapper(WrapperType::SecureEnclave) {
+                // Load-only, never create. `get_secure_enclave` falls through to
+                // generating a fresh key pair, and generation deletes the
+                // existing one -- so a transient lookup failure here would
+                // destroy the private key that this very wrapper was encrypted
+                // to, orphaning it forever. Unlocking must not be able to
+                // damage what it is reading.
+                if let Ok(se) = secure_enclave::get_secure_enclave_existing() {
+                    match se.unwrap_key(se_wrapper) {
+                        Ok(vault_key) => {
+                            return self.decrypt_and_load(vault_key, &vault_file);
+                        }
+                        Err(VaultError::BiometricFailed) => {
+                            // Fall through to password
+                        }
+                        Err(_e) => {
+                            // Key invalidated (macOS update, etc.) - fall
+                            // through to the caller's password path.
+                            // Deliberately silent: this library is used by a
+                            // full-screen TUI, and a stray stderr write lands
+                            // on top of the rendered UI.
+                        }
                     }
                 }
             }
@@ -566,8 +579,10 @@ impl Vault {
     pub async fn rebind_biometric(&self, password: &str) -> Result<(), VaultError> {
         let mut vault = self.unlock_with_password(password)?;
 
+        // Gated for the same reason as `initialize`: creating the Secure Enclave
+        // key writes to the login keychain and deletes any existing key first.
         #[cfg(target_os = "macos")]
-        {
+        if self.config.use_os_keychain {
             if let Ok(se) = secure_enclave::get_secure_enclave() {
                 let se_wrapper = se.wrap_key(&vault.vault_key)?;
                 vault.header.add_wrapper(se_wrapper)?;
