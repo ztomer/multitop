@@ -16,7 +16,7 @@ pub mod rollback;
 pub mod secure_enclave;
 
 // Re-export public API
-pub use api::{migrate_if_needed, UnlockResult, UnlockedVault, Vault};
+pub use api::{UnlockResult, UnlockedVault, Vault};
 pub use crypto::{
     decrypt_vault, encrypt_vault, generate_salt, now_ms, sign_vault, unwrap_argon2id,
     verify_vault_signature, wrap_argon2id, Argon2Params, Ed25519PublicKey, Ed25519Signature,

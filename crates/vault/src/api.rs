@@ -787,95 +787,6 @@ impl Vault {
         }
         Ok(())
     }
-
-    /// Complete pending migration after unlock
-    ///
-    /// # Errors
-    /// Returns `VaultError` if migration flag cannot be read, old password is wrong,
-    /// or re-saving the vault fails.
-    #[allow(clippy::unused_async, clippy::unused_async_trait_impl)]
-    pub async fn complete_migration(&self, password: &str) -> Result<(), VaultError> {
-        let migration_flag = self.config.vault_path.with_extension("bin.migrate");
-        if !migration_flag.exists() {
-            return Ok(());
-        }
-
-        let _old_version = std::fs::read_to_string(&migration_flag)
-            .map_err(VaultError::Io)?
-            .parse::<u8>()
-            .map_err(|e| VaultError::ParseError(format!("invalid migration flag: {e}")))?;
-
-        // Unlock with old password
-        let mut vault = self.unlock_with_password(password)?;
-
-        // Update version
-        vault.header.version = 2;
-
-        // Re-save (this will re-encrypt with current format)
-        vault.save()?;
-
-        // Remove migration flag
-        std::fs::remove_file(&migration_flag).map_err(VaultError::Io)?;
-
-        Ok(())
-    }
-}
-
-/// Run upgrade/migration if needed
-///
-/// # Errors
-/// Returns `VaultError` if vault file cannot be read, migration flag cannot be written,
-/// or unsupported vault version is detected.
-#[allow(clippy::unused_async, clippy::unused_async_trait_impl)]
-/// # Unreachable today
-///
-/// This cannot run. It begins by calling `read_vault_file`, whose header parse
-/// rejects any file whose magic is not `MQV2` *and* any version that is not
-/// `CURRENT_VERSION`, so a v0/v1 file errors out before the match below is
-/// reached. Nothing outside this crate calls it either.
-///
-/// It is left in place rather than deleted because the `version` and `key_version`
-/// bytes are a real forward-compatibility hook and a future format change will
-/// want this shape. Anyone wiring it up must first make the reader tolerant of
-/// older versions, or it will keep failing at the first line.
-pub async fn migrate_if_needed(vault_path: &std::path::Path) -> Result<(), VaultError> {
-    use std::fs::OpenOptions;
-    #[cfg(unix)]
-    use std::os::unix::fs::OpenOptionsExt;
-    if !vault_path.exists() {
-        return Ok(());
-    }
-
-    let vault_file = format::read_vault_file(vault_path)?;
-
-    match vault_file.header.version {
-        0 | 1 => {
-            // Migrate v1 -> v2: Add canary field if missing
-            // v1 vaults don't have the canary field, so we need to re-encrypt
-
-            // For now, we can't migrate without the password
-            // The migration will happen on next unlock with password
-            // Store a flag that migration is needed
-            let migration_flag = vault_path.with_extension("bin.migrate");
-
-            #[allow(unused_mut)]
-            let mut open_opts = OpenOptions::new();
-            open_opts.write(true).create(true).truncate(true);
-            #[cfg(unix)]
-            open_opts.mode(0o600);
-
-            let mut file = open_opts.open(&migration_flag).map_err(VaultError::Io)?;
-            std::io::Write::write_all(
-                &mut file,
-                format!("{}", vault_file.header.version).as_bytes(),
-            )
-            .map_err(VaultError::Io)?;
-
-            Ok(())
-        }
-        2 => Ok(()), // Current version, no migration needed
-        v => Err(VaultError::UnsupportedVersion(v)),
-    }
 }
 
 #[cfg(test)]
@@ -1330,39 +1241,6 @@ mod tests {
         // Verify all passwords were saved (last writer wins for each host)
         let unlocked = vault.unlock_with_password("password").unwrap();
         assert_eq!(unlocked.hosts().len(), 5);
-    }
-
-    #[tokio::test]
-    async fn test_vault_migration_flag() {
-        let dir = TempDir::new().unwrap();
-        let path = dir.path().join("test_vault.bin");
-        let config = fast_vault_config(path.clone());
-        let vault = Vault::new(config);
-
-        vault.initialize("password").await.unwrap();
-
-        // Simulate migration needed by creating flag file
-        let migration_flag = path.with_extension("bin.migrate");
-        std::fs::write(&migration_flag, "1").unwrap();
-        assert!(migration_flag.exists());
-
-        // Complete migration
-        vault.complete_migration("password").await.unwrap();
-        assert!(!migration_flag.exists());
-    }
-
-    #[tokio::test]
-    async fn test_vault_migration_not_needed() {
-        let dir = TempDir::new().unwrap();
-        let path = dir.path().join("test_vault.bin");
-        let config = fast_vault_config(path.clone());
-        let vault = Vault::new(config);
-
-        vault.initialize("password").await.unwrap();
-
-        // No migration flag
-        let result = vault.complete_migration("password").await;
-        assert!(result.is_ok());
     }
 }
 

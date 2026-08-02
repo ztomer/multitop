@@ -25,7 +25,6 @@ crates/multitop/src/panel.rs:set_sudo_password
 crates/multitop/src/password_store.rs:clear_sso_cache
 crates/multitop/src/sparkline.rs:render_bar
 crates/vault/src/api.rs:change_password
-crates/vault/src/api.rs:complete_migration
 crates/vault/src/api.rs:get_unlocked
 crates/vault/src/api.rs:remove_password
 crates/vault/src/crypto.rs:estimated_ms
