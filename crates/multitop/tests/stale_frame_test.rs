@@ -115,3 +115,44 @@ fn switching_modes_does_not_retire_the_running_monitor() {
         "a mode switch must not stop the monitor task's frames being accepted"
     );
 }
+
+/// The same hazard for aux tasks, which are gated on `gen` rather than the
+/// epoch.
+///
+/// Fresh panels started at generation 0, so after a swap the counter walked back
+/// up through values that surviving docker, fetch and upgrade tasks were still
+/// holding. The first mode switch on the new panel reached 1, and a task spawned
+/// for the *old* host at generation 1 became acceptable again -- its output
+/// landing on whichever host now occupied the index.
+#[test]
+fn a_replaced_panel_never_reuses_a_generation_a_live_task_holds() {
+    let mut app = App::new(vec![server("host-a"), server("host-b")]);
+
+    // An upgrade task for host-a is spawned and holds this generation.
+    let stale_gen = app.bump(0);
+
+    // host-a is deleted; host-b takes index 0.
+    app.replace_panels(vec![server("host-b")]);
+    assert_eq!(app.panels[0].server.host, "host-b");
+
+    // The user does anything that bumps the panel: a mode switch is enough.
+    let fresh_gen = app.bump(0);
+    assert_ne!(
+        fresh_gen, stale_gen,
+        "the new panel reached the generation host-a's task still holds"
+    );
+
+    // And host-a's late output must not be accepted.
+    app.apply(Msg::AuxLine {
+        panel: 0,
+        gen: stale_gen,
+        line: "A-UPGRADE-OUTPUT".to_string(),
+    });
+    assert!(
+        !app.panels[0]
+            .view
+            .iter()
+            .any(|l| l.contains("A-UPGRADE-OUTPUT")),
+        "host-a's upgrade output landed on host-b's panel"
+    );
+}

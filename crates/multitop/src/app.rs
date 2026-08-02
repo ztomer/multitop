@@ -147,8 +147,17 @@ impl App {
     /// panel.
     pub fn replace_panels(&mut self, servers: Vec<Server>) {
         self.panels_epoch += 1;
+        // Generations continue upward instead of restarting at zero. `Frame` is
+        // guarded by the epoch, but docker, fetch and upgrade tasks are gated on
+        // `gen` -- and a task that outlives the swap still holds the value it was
+        // spawned with. Counting a fresh panel back up from zero walks straight
+        // through those values, so the first mode switch on the replacement
+        // reached generation 1 and made a task spawned for the *old* host
+        // acceptable again, on a panel that is now a different machine.
+        let next_gen = self.panels.iter().map(|p| p.gen).max().unwrap_or(0) + 1;
         let mut panels: Vec<Panel> = servers.into_iter().map(Panel::new).collect();
         for panel in &mut panels {
+            panel.gen = next_gen;
             // Carry the credential across when the same account survives the
             // edit, matched on the full identity rather than the host: two
             // entries on one machine with different users or ports are
