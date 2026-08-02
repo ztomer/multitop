@@ -176,11 +176,10 @@ and fuzzing verification results.
 ## Requirements
 
 - **Local**: macOS on Apple Silicon, or Linux. Rust 1.85+, `ssh`, and a
-  cross-compilation backend for the agent (see below). Intel Macs are not
-  supported and fail at compile time.
+  cross-compilation backend for the agent (see below).
 - **Remote**: Linux with `/proc`, a POSIX shell, x86-64 or aarch64. No
-  package installs. This is the *agent's* architecture and is unrelated to the
-  machine you run multitop on -- monitoring x86-64 servers is fully supported.
+  package installs. This is the agent's architecture, not the machine you run
+  multitop on.
 
 ## Building
 
