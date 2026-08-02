@@ -384,7 +384,29 @@ impl Vault {
                 if let Ok(se) = secure_enclave::get_secure_enclave_existing() {
                     match se.unwrap_key(se_wrapper) {
                         Ok(vault_key) => {
-                            return self.decrypt_and_load(vault_key, &vault_file);
+                            let unlocked = self.decrypt_and_load(vault_key, &vault_file)?;
+                            // Rollback detection has to happen on this path too.
+                            // It used to live only in `unlock_with_password`, so
+                            // restoring an old vault file -- reverting a changed
+                            // password, reinstating a revoked credential -- was
+                            // refused when the user typed their password and
+                            // accepted in silence when they used Touch ID. The
+                            // more convenient unlock skipped the defence.
+                            //
+                            // It cannot simply move into `decrypt_and_load`,
+                            // which both paths share: that runs before
+                            // `guard.mark_success()`, so a rollback would once
+                            // again be recorded as a failed authentication
+                            // attempt and feed the lockout backoff. There is no
+                            // lockout guard on this path, so the check goes
+                            // here.
+                            crate::rollback::check_counter(
+                                &self.config.vault_path,
+                                unlocked.header.counter,
+                                unlocked.header.created_timestamp_ms,
+                                self.config.use_os_keychain,
+                            )?;
+                            return Ok(unlocked);
                         }
                         Err(VaultError::BiometricFailed) => {
                             // Fall through to password
