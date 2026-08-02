@@ -121,6 +121,19 @@ pub struct Argon2Params {
     pub p: u8,      // parallelism
 }
 
+/// Minimum Argon2 memory cost (32 MiB).
+pub const MIN_M_KIB: u32 = 32_768;
+/// Maximum Argon2 memory cost (4 GiB).
+pub const MAX_M_KIB: u32 = 4_194_304;
+/// Minimum Argon2 iterations.
+pub const MIN_T: u8 = 1;
+/// Maximum Argon2 iterations.
+pub const MAX_T: u8 = 20;
+/// Minimum Argon2 parallelism.
+pub const MIN_P: u8 = 1;
+/// Maximum Argon2 parallelism.
+pub const MAX_P: u8 = 8;
+
 impl Default for Argon2Params {
     fn default() -> Self {
         Self::auto_detect()
@@ -160,12 +173,46 @@ impl Argon2Params {
     /// - `p` (parallelism): 1–8
     #[must_use]
     pub fn from_config(t: u8, m_mib: u32, p: u8) -> Self {
+        // The MiB -> KiB conversion is done in u64. Doing it in u32 and
+        // clamping the result inverted the clamp: `m_mib = 4_194_304` overflows
+        // to 0, which then clamps *up* to the 32 MiB floor, so asking for the
+        // documented maximum silently produced the weakest KDF the vault
+        // allows. Release builds do not check overflow, so it was silent.
+        let memory_kib = u64::from(m_mib)
+            .saturating_mul(1024)
+            .clamp(u64::from(MIN_M_KIB), u64::from(MAX_M_KIB));
         Self {
-            t: t.clamp(1, 20),
-            // m_mib <= 4096, so m_mib * 1024 <= 4_194_304 fits in u32
-            m_kib: (m_mib * 1024).clamp(32_768, 4_194_304),
-            p: p.clamp(1, 8),
+            t: t.clamp(MIN_T, MAX_T),
+            // Clamped to MAX_M_KIB above, so this always fits.
+            m_kib: u32::try_from(memory_kib).unwrap_or(MAX_M_KIB),
+            p: p.clamp(MIN_P, MAX_P),
         }
+    }
+
+    /// Check that these parameters are within the supported ranges.
+    ///
+    /// # Errors
+    /// Returns `VaultError::Argon2Params` if any value is out of range.
+    pub fn validate(&self) -> Result<(), crate::VaultError> {
+        if !(MIN_M_KIB..=MAX_M_KIB).contains(&self.m_kib) {
+            return Err(crate::VaultError::Argon2Params(format!(
+                "memory cost {} KiB is outside {MIN_M_KIB}..={MAX_M_KIB}",
+                self.m_kib
+            )));
+        }
+        if !(MIN_T..=MAX_T).contains(&self.t) {
+            return Err(crate::VaultError::Argon2Params(format!(
+                "iterations {} is outside {MIN_T}..={MAX_T}",
+                self.t
+            )));
+        }
+        if !(MIN_P..=MAX_P).contains(&self.p) {
+            return Err(crate::VaultError::Argon2Params(format!(
+                "parallelism {} is outside {MIN_P}..={MAX_P}",
+                self.p
+            )));
+        }
+        Ok(())
     }
 
     /// Estimated time in milliseconds.
@@ -179,6 +226,14 @@ impl Argon2Params {
     /// # Errors
     /// Returns `VaultError::Argon2Params` if the Argon2 parameters are invalid.
     pub fn to_argon2(&self) -> Result<argon2::Argon2<'static>, crate::VaultError> {
+        // Every derivation -- wrap and unwrap -- funnels through here, which
+        // makes this the one place that sees parameters read out of a vault
+        // header. That header is parsed before any signature over it can be
+        // checked (the key that would verify it is the one this KDF is about
+        // to derive), so `m_kib` from a corrupt or hostile file would size a
+        // multi-gigabyte allocation unvouched-for. `argon2::Params` accepts
+        // anything up to u32::MAX KiB -- 4 TiB -- so it is not the backstop.
+        self.validate()?;
         let params = Params::new(self.m_kib, u32::from(self.t), u32::from(self.p), None)
             .map_err(|e| crate::VaultError::Argon2Params(e.to_string()))?;
         Ok(Argon2::new(
