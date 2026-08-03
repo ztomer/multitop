@@ -364,6 +364,56 @@ pub fn save_servers(path: &Path, servers: &[Server]) -> Result<(), String> {
     std::fs::write(path, doc.to_string()).map_err(|error| error.to_string())
 }
 
+/// Where the user's SSH client configuration lives.
+///
+/// `MULTITOP_SSH_CONFIG` overrides it so a test can point at a fixture without
+/// reading, or depending on, the real one.
+#[must_use]
+pub fn ssh_config_path() -> Option<std::path::PathBuf> {
+    if let Ok(p) = std::env::var("MULTITOP_SSH_CONFIG") {
+        return Some(std::path::PathBuf::from(p));
+    }
+    std::env::var_os("HOME").map(|home| {
+        let mut p = std::path::PathBuf::from(home);
+        p.push(".ssh");
+        p.push("config");
+        p
+    })
+}
+
+/// Add SSH-config hosts that are not already configured, changing nothing else.
+///
+/// Returns the merged list and how many entries were added.
+///
+/// Import is additive and never destructive, which is the whole policy:
+///
+/// - An entry already present is left exactly as it is. The SSH config has no
+///   `upgrade_cmd` and no password, so treating it as authoritative would wipe
+///   both for every host it happens to mention.
+/// - Servers absent from the SSH config are kept. Most people have hosts here
+///   that they never put in `~/.ssh/config`, and an import that quietly removed
+///   them would be a data-loss bug wearing a feature's clothes.
+/// - "Already present" is the full credential identity, `user@host:port`, not
+///   the host. Two entries on one machine under different accounts are
+///   different servers, and matching on host alone would silently skip the
+///   second.
+#[must_use]
+pub fn merge_ssh_hosts(existing: &[Server], imported: Vec<Server>) -> (Vec<Server>, usize) {
+    let key = |s: &Server| format!("{}@{}:{}", s.user, s.host, s.port);
+    let known: std::collections::HashSet<String> = existing.iter().map(&key).collect();
+
+    let mut merged = existing.to_vec();
+    let mut added = 0;
+    let mut seen = known;
+    for server in imported {
+        if seen.insert(key(&server)) {
+            merged.push(server);
+            added += 1;
+        }
+    }
+    (merged, added)
+}
+
 /// Parse standard SSH config file (~/.ssh/config) for Host blocks.
 #[must_use]
 pub fn parse_ssh_config(text: &str) -> Vec<Server> {

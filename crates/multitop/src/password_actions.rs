@@ -142,6 +142,48 @@ pub fn apply(
                 let _ = tx2.blocking_send(msg);
             });
         }
+        PasswordAction::ImportSshHosts => {
+            let existing: Vec<Server> = app.panels.iter().map(|p| p.server.clone()).collect();
+            let outcome = crate::config::ssh_config_path()
+                .and_then(|path| std::fs::read_to_string(path).ok())
+                .map(|text| {
+                    crate::config::merge_ssh_hosts(
+                        &existing,
+                        crate::config::parse_ssh_config(&text),
+                    )
+                });
+            match outcome {
+                Some((_, 0)) => {
+                    if let Some(manager) = app.password_manager.as_mut() {
+                        manager.notice =
+                            Some("No new hosts in ~/.ssh/config; nothing was changed.".to_string());
+                    }
+                }
+                Some((merged, added)) => {
+                    // Delegated rather than reimplemented: ApplyServers writes
+                    // config.toml, rebuilds the panels through `replace_panels`
+                    // so stale tasks are retired, and carries credentials across.
+                    apply(
+                        PasswordAction::ApplyServers(merged),
+                        app,
+                        servers,
+                        tx,
+                        tasks,
+                    );
+                    if let Some(manager) = app.password_manager.as_mut() {
+                        let plural = if added == 1 { "host" } else { "hosts" };
+                        manager.notice = Some(format!(
+                            "Imported {added} {plural} from ~/.ssh/config; existing entries were left alone."
+                        ));
+                    }
+                }
+                None => {
+                    if let Some(manager) = app.password_manager.as_mut() {
+                        manager.notice = Some("Could not read ~/.ssh/config.".to_string());
+                    }
+                }
+            }
+        }
         PasswordAction::ToggleSparklines => {
             let show = !app.show_sparklines();
             app.toggle_sparklines();

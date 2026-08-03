@@ -158,6 +158,8 @@ pub enum PasswordAction {
     },
     DeleteSso,
     ToggleSparklines,
+    /// Add hosts from `~/.ssh/config` that are not configured yet.
+    ImportSshHosts,
     /// Replace the vault master password. Both are plain `String` because they
     /// are handed straight to the vault and dropped.
     RotateVaultPassword {
@@ -413,6 +415,9 @@ fn server_key(app: &mut App, key: KeyCode) -> PasswordAction {
             manager.selected = (manager.selected + 1).min(app.panels.len().saturating_sub(1));
         }
         KeyCode::Char('a' | 'A') => manager.draft = Some(ServerDraft::new(None, None, None)),
+        // Import from ~/.ssh/config. Additive only: see `config::merge_ssh_hosts`
+        // for why nothing already configured is touched.
+        KeyCode::Char('i' | 'I') => return PasswordAction::ImportSshHosts,
         KeyCode::Enter => {
             manager.draft = app.panels.get(manager.selected).map(|panel| {
                 ServerDraft::new(
