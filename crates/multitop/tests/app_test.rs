@@ -3,6 +3,32 @@ use multitop::app::*;
 use multitop::config::Server;
 use multitop::fmt::{error_line, header_line, status_line};
 
+/// Divert credentials to the in-memory store, and hold the process-global guard.
+///
+/// Driving an `App` reaches `password_store` several calls down, and an
+/// integration binary is compiled without `cfg(test)`, so the mock is not in
+/// force unless it is asked for. Without this these tests query the real OS
+/// keychain: every rebuild changes the binary's code signature, so macOS raises
+/// an access dialog and the suite stops until a human dismisses it -- and a test
+/// can read, overwrite or delete credentials the user depends on.
+#[allow(dead_code)]
+fn isolate_keychain() -> tokio::sync::MutexGuard<'static, ()> {
+    let guard = multitop::password_store::lock_for_test();
+    multitop::password_store::enable_mock_store();
+    multitop::password_store::clear_mock_store();
+    guard
+}
+
+/// `isolate_keychain` for `#[tokio::test]` bodies, which must not block the
+/// runtime thread to take the guard.
+#[allow(dead_code)]
+async fn isolate_keychain_async() -> tokio::sync::MutexGuard<'static, ()> {
+    let guard = multitop::password_store::lock_for_test_async().await;
+    multitop::password_store::enable_mock_store();
+    multitop::password_store::clear_mock_store();
+    guard
+}
+
 fn servers(n: usize) -> Vec<Server> {
     (0..n)
         .map(|i| Server {
@@ -24,6 +50,7 @@ fn text(p: &Panel) -> String {
 
 #[test]
 fn starts_in_monitor_mode_showing_connecting() {
+    let _keychain = isolate_keychain();
     let a = app(2);
     assert_eq!(a.panels.len(), 2);
     for p in &a.panels {
@@ -34,6 +61,7 @@ fn starts_in_monitor_mode_showing_connecting() {
 
 #[test]
 fn empty_server_list_is_allowed() {
+    let _keychain = isolate_keychain();
     let mut a = app(0);
     assert!(a.panels.is_empty());
     assert!(a.toggle_docker().is_empty());
@@ -42,6 +70,7 @@ fn empty_server_list_is_allowed() {
 
 #[test]
 fn frame_is_shown_in_monitor_mode() {
+    let _keychain = isolate_keychain();
     let mut a = app(1);
     a.apply(Msg::Frame {
         panel: 0,
@@ -53,6 +82,7 @@ fn frame_is_shown_in_monitor_mode() {
 
 #[test]
 fn frame_is_stored_but_hidden_in_docker_mode() {
+    let _keychain = isolate_keychain();
     let mut a = app(1);
     a.toggle_docker();
     a.apply(Msg::Frame {
@@ -72,6 +102,7 @@ fn frame_is_stored_but_hidden_in_docker_mode() {
 
 #[test]
 fn frame_for_unknown_panel_is_ignored() {
+    let _keychain = isolate_keychain();
     let mut a = app(1);
     a.apply(Msg::Frame {
         panel: 9,
@@ -83,6 +114,7 @@ fn frame_for_unknown_panel_is_ignored() {
 
 #[test]
 fn toggle_docker_switches_every_panel_at_once() {
+    let _keychain = isolate_keychain();
     let mut a = app(3);
     let cmds = a.toggle_docker();
     assert_eq!(cmds.len(), 3);
@@ -94,6 +126,7 @@ fn toggle_docker_switches_every_panel_at_once() {
 
 #[test]
 fn toggle_docker_twice_stays_in_docker_mode() {
+    let _keychain = isolate_keychain();
     let mut a = app(3);
     a.toggle_docker();
     let cmds = a.toggle_docker();
@@ -105,6 +138,7 @@ fn toggle_docker_twice_stays_in_docker_mode() {
 
 #[test]
 fn switch_stats_restores_the_last_frame() {
+    let _keychain = isolate_keychain();
     let mut a = app(3);
     for i in 0..3 {
         a.apply(Msg::Frame {
@@ -122,6 +156,7 @@ fn switch_stats_restores_the_last_frame() {
 
 #[test]
 fn switch_stats_without_data_says_waiting() {
+    let _keychain = isolate_keychain();
     let mut a = app(1);
     a.toggle_docker();
     a.switch_stats();
@@ -130,6 +165,7 @@ fn switch_stats_without_data_says_waiting() {
 
 #[test]
 fn switch_stats_from_docker() {
+    let _keychain = isolate_keychain();
     let mut a = app(3);
     a.toggle_docker();
     a.switch_stats();
@@ -140,6 +176,7 @@ fn switch_stats_from_docker() {
 
 #[test]
 fn every_transition_bumps_the_generation() {
+    let _keychain = isolate_keychain();
     let mut a = app(1);
     let g0 = a.panels[0].gen;
     a.toggle_docker();
@@ -151,6 +188,7 @@ fn every_transition_bumps_the_generation() {
 
 #[test]
 fn stale_results_are_dropped() {
+    let _keychain = isolate_keychain();
     let mut a = app(1);
     let cmds = a.toggle_docker();
     let Command::RunDocker { gen, .. } = cmds[0] else {
@@ -173,6 +211,7 @@ fn stale_results_are_dropped() {
 
 #[test]
 fn current_results_are_shown() {
+    let _keychain = isolate_keychain();
     let mut a = app(1);
     let cmds = a.toggle_docker();
     let Command::RunDocker { gen, .. } = cmds[0] else {
@@ -193,6 +232,7 @@ fn current_results_are_shown() {
 
 #[test]
 fn aux_output_streams_line_by_line() {
+    let _keychain = isolate_keychain();
     let mut a = app(1);
     let gen = a.panels[0].gen;
     a.apply(Msg::AuxBegin {
@@ -214,6 +254,7 @@ fn aux_output_streams_line_by_line() {
 
 #[test]
 fn aux_output_is_capped() {
+    let _keychain = isolate_keychain();
     let mut a = app(1);
     let cap = a.upgrade_history_lines;
     let gen = a.panels[0].gen;
@@ -236,6 +277,7 @@ fn aux_output_is_capped() {
 
 #[test]
 fn upgrade_without_command_explains_itself() {
+    let _keychain = isolate_keychain();
     let mut a = app(1);
     let cmds = a.run_upgrade();
     assert!(cmds.is_empty(), "nothing to run");
@@ -244,6 +286,7 @@ fn upgrade_without_command_explains_itself() {
 
 #[test]
 fn upgrade_command_large_output_and_carriage_return_cleanliness() {
+    let _keychain = isolate_keychain();
     let raw_lines = vec![
         "ls -l /usr/bin".to_string(),
         "Downloading 10%\rDownloading 50%\rDownloading 100%".to_string(),
@@ -269,6 +312,7 @@ fn upgrade_command_large_output_and_carriage_return_cleanliness() {
 
 #[test]
 fn upgrade_with_command_is_scheduled() {
+    let _keychain = isolate_keychain();
     let mut servers = servers(2);
     servers[0].upgrade_cmd = Some("apt upgrade -y".into());
     let mut a = App::new(servers);
@@ -286,6 +330,7 @@ fn upgrade_with_command_is_scheduled() {
 
 #[test]
 fn upgrade_output_persists_until_dismissed() {
+    let _keychain = isolate_keychain();
     let mut servers = servers(1);
     servers[0].upgrade_cmd = Some("apt upgrade -y".into());
     let mut a = App::new(servers);
@@ -323,6 +368,7 @@ fn upgrade_output_persists_until_dismissed() {
 
 #[test]
 fn status_respects_generation() {
+    let _keychain = isolate_keychain();
     let mut a = app(1);
     let gen = a.panels[0].gen;
     a.apply(Msg::Status {
@@ -342,6 +388,7 @@ fn status_respects_generation() {
 
 #[test]
 fn aux_done_can_append_a_note() {
+    let _keychain = isolate_keychain();
     let mut a = app(1);
     let gen = a.panels[0].gen;
     a.apply(Msg::AuxBegin {
@@ -360,6 +407,7 @@ fn aux_done_can_append_a_note() {
 
 #[test]
 fn quit_sets_the_flag() {
+    let _keychain = isolate_keychain();
     let mut a = app(1);
     assert!(!a.should_quit());
     a.quit();
@@ -372,6 +420,7 @@ fn quit_sets_the_flag() {
 /// made opening the modal silently turn sparklines off for good.
 #[test]
 fn transient_ui_states_preserve_the_sparkline_preference() {
+    let _keychain = isolate_keychain();
     let mut a = app(1);
     a.toggle_sparklines();
     assert!(a.show_sparklines(), "toggle turns sparklines on");
@@ -405,6 +454,7 @@ fn transient_ui_states_preserve_the_sparkline_preference() {
 
 #[test]
 fn helpers_wrap_in_ansi() {
+    let _keychain = isolate_keychain();
     assert!(error_line("boom").contains("boom"));
     assert!(status_line("wait").contains("wait"));
     assert!(header_line("hi").contains("hi"));
@@ -414,6 +464,7 @@ fn helpers_wrap_in_ansi() {
 fn local_server_deduplication() {
     use multitop::config::Server;
     use multitop::ssh::is_local;
+    let _keychain = isolate_keychain();
 
     let s1 = Server {
         host: "127.0.0.1".into(),
@@ -456,6 +507,7 @@ fn local_server_deduplication() {
 
 #[test]
 fn server_configuration_persists_without_password_fields() {
+    let _keychain = isolate_keychain();
     let toml = r#"
     [[servers]]
     host = "192.168.0.33"
@@ -478,6 +530,7 @@ fn server_configuration_persists_without_password_fields() {
 
 #[test]
 fn cleanup_old_agents_command_keeps_current_hashes() {
+    let _keychain = isolate_keychain();
     let cmd = multitop::ssh::cleanup_old_agents_command();
     // The command should contain "cd ~/.cache/multitop"
     assert!(cmd.contains("cd ~/.cache/multitop"));

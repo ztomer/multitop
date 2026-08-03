@@ -129,6 +129,18 @@ fn reclaim_terminal() {
 #[cfg(not(unix))]
 fn reclaim_terminal() {}
 
+/// Keep the selection on a panel the user can actually see.
+///
+/// The selected panel drives the keybar's mode badge and every view-switching
+/// key. Left pointing at a filtered-out host, those keys act on a panel that is
+/// not on screen.
+fn clamp_selection_to_filter(app: &mut App) {
+    let shown = app.filtered_indices();
+    if !shown.is_empty() && !shown.contains(&app.selected_panel) {
+        app.selected_panel = shown[0];
+    }
+}
+
 /// Puts the terminal back on every exit path, including early returns.
 struct TerminalGuard;
 
@@ -568,7 +580,43 @@ pub fn handle_key(
         return;
     }
 
+    // Typing a query owns every printable key, so this is checked before the
+    // single-letter bindings below -- otherwise a host called "docker" could
+    // not be typed without switching views half way through.
+    if app.is_filtering() {
+        match key.code {
+            KeyCode::Esc => {
+                app.filter_query.clear();
+                app.set_filtering(false);
+            }
+            // Keep what was typed and hand the keys back. Clearing here instead
+            // would make the feature useless: the filter would only ever exist
+            // while a key was held down.
+            KeyCode::Enter => app.set_filtering(false),
+            KeyCode::Backspace => {
+                app.filter_query.pop();
+            }
+            KeyCode::Char(c) => app.filter_query.push(c),
+            _ => {}
+        }
+        clamp_selection_to_filter(app);
+        return;
+    }
+
     match key.code {
+        // Esc clears an applied filter before it quits. Quitting on the same
+        // key that got you here reads as the app dying, and the panels are
+        // already hidden, so there is nothing on screen to explain it.
+        KeyCode::Esc if !app.filter_query.trim().is_empty() => {
+            app.filter_query.clear();
+            clamp_selection_to_filter(app);
+            return;
+        }
+        KeyCode::Char('/') => {
+            app.set_filtering(true);
+            app.filter_query.clear();
+            return;
+        }
         KeyCode::Esc | KeyCode::Char('q' | 'Q') => {
             app.quit();
             return;

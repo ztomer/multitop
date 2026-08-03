@@ -133,6 +133,7 @@ fn keybar_lists_every_binding() {
         theme,
         120,
         multitop::app::Mode::Monitor,
+        multitop::ui::FilterHint::Off,
     )
     .spans
     .iter()
@@ -153,6 +154,7 @@ fn keybar_shows_sort_by_cpu_and_theme() {
         theme,
         120,
         multitop::app::Mode::Monitor,
+        multitop::ui::FilterHint::Off,
     )
     .spans
     .iter()
@@ -171,6 +173,7 @@ fn keybar_shows_sort_by_mem() {
         theme,
         120,
         multitop::app::Mode::Monitor,
+        multitop::ui::FilterHint::Off,
     )
     .spans
     .iter()

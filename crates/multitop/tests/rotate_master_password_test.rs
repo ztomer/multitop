@@ -16,6 +16,32 @@ use multitop::app::App;
 use multitop::config::Server;
 use multitop::passwords::{handle_key, PasswordAction, PasswordManager};
 
+/// Divert credentials to the in-memory store, and hold the process-global guard.
+///
+/// Driving an `App` reaches `password_store` several calls down, and an
+/// integration binary is compiled without `cfg(test)`, so the mock is not in
+/// force unless it is asked for. Without this these tests query the real OS
+/// keychain: every rebuild changes the binary's code signature, so macOS raises
+/// an access dialog and the suite stops until a human dismisses it -- and a test
+/// can read, overwrite or delete credentials the user depends on.
+#[allow(dead_code)]
+fn isolate_keychain() -> tokio::sync::MutexGuard<'static, ()> {
+    let guard = multitop::password_store::lock_for_test();
+    multitop::password_store::enable_mock_store();
+    multitop::password_store::clear_mock_store();
+    guard
+}
+
+/// `isolate_keychain` for `#[tokio::test]` bodies, which must not block the
+/// runtime thread to take the guard.
+#[allow(dead_code)]
+async fn isolate_keychain_async() -> tokio::sync::MutexGuard<'static, ()> {
+    let guard = multitop::password_store::lock_for_test_async().await;
+    multitop::password_store::enable_mock_store();
+    multitop::password_store::clear_mock_store();
+    guard
+}
+
 fn server(host: &str) -> Server {
     Server {
         host: host.to_string(),
@@ -64,6 +90,7 @@ fn type_in(app: &mut App, text: &str) -> PasswordAction {
 
 #[test]
 fn r_collects_the_current_password_then_the_new_one() {
+    let _keychain = isolate_keychain();
     let (mut app, dir) = app_with_vault("flow");
 
     assert!(matches!(
@@ -107,6 +134,7 @@ fn r_collects_the_current_password_then_the_new_one() {
 
 #[test]
 fn escape_abandons_the_rotation_without_acting() {
+    let _keychain = isolate_keychain();
     let (mut app, dir) = app_with_vault("esc");
 
     handle_key(&mut app, KeyCode::Char('r'));
@@ -125,6 +153,7 @@ fn escape_abandons_the_rotation_without_acting() {
 
 #[test]
 fn an_empty_password_does_not_rotate() {
+    let _keychain = isolate_keychain();
     let (mut app, dir) = app_with_vault("empty");
 
     handle_key(&mut app, KeyCode::Char('r'));
@@ -140,6 +169,7 @@ fn an_empty_password_does_not_rotate() {
 
 #[test]
 fn rotation_is_not_offered_without_a_vault() {
+    let _keychain = isolate_keychain();
     let mut app = App::new(vec![server("host-a")]);
     app.password_manager = Some(PasswordManager::new(0, false));
     assert!(app.vault.is_none());
@@ -162,6 +192,7 @@ fn rotation_is_not_offered_without_a_vault() {
 /// `r` must not be swallowed while another prompt is open.
 #[test]
 fn r_is_ordinary_text_while_a_password_is_being_typed() {
+    let _keychain = isolate_keychain();
     let (mut app, dir) = app_with_vault("text");
 
     handle_key(&mut app, KeyCode::Char('s')); // SSO prompt

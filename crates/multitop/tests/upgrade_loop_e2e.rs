@@ -23,6 +23,29 @@ use multitop::types::Command;
 
 use tokio::sync::mpsc;
 
+/// Divert credentials to the in-memory store, and hold the process-global guard.
+///
+/// An integration binary is compiled without `cfg(test)`, so the mock store is
+/// not in force unless it is asked for, and anything holding an `App` reaches
+/// `password_store` several calls down. Without this these tests query the real
+/// OS keychain: every rebuild changes the binary's code signature, so macOS
+/// raises an access dialog and the suite stops until a human dismisses it.
+#[allow(dead_code)]
+fn isolate_keychain() -> tokio::sync::MutexGuard<'static, ()> {
+    let guard = multitop::password_store::lock_for_test();
+    multitop::password_store::enable_mock_store();
+    multitop::password_store::clear_mock_store();
+    guard
+}
+
+#[allow(dead_code)]
+async fn isolate_keychain_async() -> tokio::sync::MutexGuard<'static, ()> {
+    let guard = multitop::password_store::lock_for_test_async().await;
+    multitop::password_store::enable_mock_store();
+    multitop::password_store::clear_mock_store();
+    guard
+}
+
 /// Test helper: create a local Server (127.0.0.1 triggers local shell path).
 fn local_server(upgrade_cmd: &str) -> Server {
     Server {
@@ -194,6 +217,7 @@ async fn test_upgrade_failure_reports_nonzero_exit() {
 #[tokio::test]
 async fn test_upgrade_state_machine_roundtrip() {
     use tempfile::TempDir;
+    let _keychain = isolate_keychain_async().await;
     let temp_dir = TempDir::new().unwrap();
     let config_path = temp_dir.path().join("config.toml");
 
@@ -425,6 +449,7 @@ async fn test_upgrade_lock_prevents_concurrent() {
 /// Test 9: Generation staleness — stale messages are dropped
 #[tokio::test]
 async fn test_upgrade_generation_staleness() {
+    let _keychain = isolate_keychain_async().await;
     let mut app = App::new(vec![local_server("echo gen_test")]);
 
     // Start first upgrade (gen becomes 1)
@@ -468,6 +493,7 @@ async fn test_upgrade_generation_staleness() {
 #[tokio::test]
 async fn test_upgrade_state_persists_across_app_restart() {
     use tempfile::TempDir;
+    let _keychain = isolate_keychain_async().await;
 
     let temp_dir = TempDir::new().unwrap();
     let config_path = temp_dir.path().join("config.toml");
@@ -557,6 +583,7 @@ fn test_ui_upgrade_then_return_shows_last_result() {
 /// Test 12: Second `u` in upgrade mode reinitiates upgrade (new gen, new command)
 #[test]
 fn test_ui_second_u_in_upgrade_mode_reinitiates_upgrade() {
+    let _keychain = isolate_keychain();
     let mut app = App::new(vec![local_server("ls -l")]);
 
     // First upgrade start
@@ -585,6 +612,7 @@ fn test_ui_second_u_in_upgrade_mode_reinitiates_upgrade() {
 /// Test 13: Second `u` while upgrade in flight is no-op
 #[test]
 fn test_ui_second_u_while_in_flight_is_noop() {
+    let _keychain = isolate_keychain();
     let mut app = App::new(vec![local_server("ls -l")]);
 
     // Start upgrade
@@ -610,6 +638,7 @@ fn test_ui_second_u_while_in_flight_is_noop() {
 #[tokio::test]
 async fn test_ui_vault_locked_shows_prompt_not_modal() {
     use multitop_vault::{Vault, VaultConfig};
+    let _keychain = isolate_keychain_async().await;
 
     let temp_dir = std::env::temp_dir().join(format!("multitop_test_vault_{}", std::process::id()));
     let _ = std::fs::create_dir_all(&temp_dir);
@@ -717,6 +746,7 @@ async fn test_ui_vault_unlocked_after_password_runs_upgrade() {
 #[test]
 fn test_ui_upgrade_modal_confirmation_flow() {
     use tempfile::TempDir;
+    let _keychain = isolate_keychain();
 
     let temp_dir = TempDir::new().unwrap();
     let config_path = temp_dir.path().join("config.toml");
@@ -739,6 +769,7 @@ fn test_ui_upgrade_modal_confirmation_flow() {
 /// Test 17: Switching panes during upgrade preserves task
 #[test]
 fn test_ui_switching_panes_during_upgrade_preserves_task() {
+    let _keychain = isolate_keychain();
     let mut app = App::new(vec![local_server("ls -l"), local_server("ls -l")]);
 
     // Start upgrades on both panels
@@ -777,6 +808,7 @@ fn test_ui_switching_panes_during_upgrade_preserves_task() {
 /// Test 18: No `upgrade_cmd` → message shown without command
 #[test]
 fn test_ui_no_upgrade_cmd_shows_message_without_command() {
+    let _keychain = isolate_keychain();
     let mut app = App::new(vec![Server {
         host: "127.0.0.1".into(),
         port: 0,
@@ -900,6 +932,7 @@ fn test_ui_returning_to_completed_shows_output() {
 /// Test 21: `u` during flight after switching away → no-op
 #[test]
 fn test_ui_u_during_flight_after_switching_away_is_noop() {
+    let _keychain = isolate_keychain();
     let mut app = App::new(vec![local_server("sleep 3 && ls -l")]);
 
     // Start upgrade
@@ -971,6 +1004,7 @@ fn no_upgrade_server(host: &str) -> Server {
 /// host-specific message — not a dead NIL state that reads as "no output".
 #[test]
 fn test_upgrade_skip_server_reaches_terminal_state() {
+    let _keychain = isolate_keychain();
     let mut app = App::new(vec![no_upgrade_server("192.168.0.90")]);
 
     let cmds = app.run_upgrade();
@@ -999,6 +1033,7 @@ fn test_upgrade_skip_server_reaches_terminal_state() {
 /// one gets a `RunUpgrade` command and the skipped one reaches DONE.
 #[test]
 fn test_upgrade_mixed_servers_only_configured_run() {
+    let _keychain = isolate_keychain();
     let mut app = App::new(vec![
         local_server("apt update && apt upgrade -y"),
         no_upgrade_server("192.168.0.90"),
@@ -1051,6 +1086,7 @@ fn test_upgrade_skip_message_persists_across_views() {
 /// be skipped, so the user learns about them before running.
 #[test]
 fn test_upgrade_skip_hosts_helper_lists_unconfigured() {
+    let _keychain = isolate_keychain();
     let app = App::new(vec![
         local_server("apt update"),
         no_upgrade_server("192.168.0.90"),

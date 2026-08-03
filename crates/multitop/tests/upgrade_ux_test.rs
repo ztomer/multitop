@@ -22,6 +22,29 @@ use multitop::config::Server;
 use multitop::run::{handle_key, Tasks};
 use multitop::state::HostUpdate;
 
+/// Divert credentials to the in-memory store, and hold the process-global guard.
+///
+/// An integration binary is compiled without `cfg(test)`, so the mock store is
+/// not in force unless it is asked for, and anything holding an `App` reaches
+/// `password_store` several calls down. Without this these tests query the real
+/// OS keychain: every rebuild changes the binary's code signature, so macOS
+/// raises an access dialog and the suite stops until a human dismisses it.
+#[allow(dead_code)]
+fn isolate_keychain() -> tokio::sync::MutexGuard<'static, ()> {
+    let guard = multitop::password_store::lock_for_test();
+    multitop::password_store::enable_mock_store();
+    multitop::password_store::clear_mock_store();
+    guard
+}
+
+#[allow(dead_code)]
+async fn isolate_keychain_async() -> tokio::sync::MutexGuard<'static, ()> {
+    let guard = multitop::password_store::lock_for_test_async().await;
+    multitop::password_store::enable_mock_store();
+    multitop::password_store::clear_mock_store();
+    guard
+}
+
 fn server(host: &str, cmd: Option<&str>) -> Server {
     Server {
         host: host.to_string(),
@@ -113,6 +136,7 @@ fn strip_ansi(s: &str) -> String {
 
 #[tokio::test]
 async fn first_press_switches_to_the_upgrade_pane() {
+    let _keychain = isolate_keychain_async().await;
     let mut h = Harness::new(vec![server("web-01", Some("apt upgrade"))]);
     assert_eq!(h.app.panels[0].mode, Mode::Monitor);
 
@@ -137,6 +161,7 @@ async fn first_press_switches_to_the_upgrade_pane() {
 /// differently depending on whether an upgrade had run before.
 #[tokio::test]
 async fn first_press_is_the_same_before_and_after_an_upgrade_has_run() {
+    let _keychain = isolate_keychain_async().await;
     let mut fresh = Harness::new(vec![server("web-01", Some("apt upgrade"))]);
     fresh.press('u');
     let fresh_mode = fresh.app.panels[0].mode;
@@ -160,6 +185,7 @@ async fn first_press_is_the_same_before_and_after_an_upgrade_has_run() {
 
 #[tokio::test]
 async fn first_press_reaches_the_pane_from_every_other_view() {
+    let _keychain = isolate_keychain_async().await;
     for entry in ['d', 'f', 's'] {
         let mut h = Harness::new(vec![server("web-01", Some("apt upgrade"))]);
         h.press(entry);
@@ -179,6 +205,7 @@ async fn first_press_reaches_the_pane_from_every_other_view() {
 
 #[tokio::test]
 async fn pane_shows_the_command_and_history_for_each_host() {
+    let _keychain = isolate_keychain_async().await;
     let mut h = Harness::new(vec![
         server("web-01", Some("apt update && apt upgrade -y")),
         server("db-02", Some("dnf upgrade -y")),
@@ -218,6 +245,7 @@ async fn pane_shows_the_command_and_history_for_each_host() {
 
 #[tokio::test]
 async fn pane_explains_a_host_with_no_upgrade_cmd() {
+    let _keychain = isolate_keychain_async().await;
     let mut h = Harness::new(vec![server("web-01", None)]);
     h.press('u');
 
@@ -232,6 +260,7 @@ async fn pane_explains_a_host_with_no_upgrade_cmd() {
 
 #[tokio::test]
 async fn pane_warns_about_an_interrupted_previous_run() {
+    let _keychain = isolate_keychain_async().await;
     let mut h = Harness::new(vec![server("web-01", Some("apt upgrade"))]);
     let now = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -259,6 +288,7 @@ async fn pane_warns_about_an_interrupted_previous_run() {
 
 #[tokio::test]
 async fn second_press_opens_the_confirm_modal() {
+    let _keychain = isolate_keychain_async().await;
     let mut h = Harness::new(vec![server("web-01", Some("apt upgrade"))]);
     h.press('u');
     assert!(!h.app.show_upgrade_modal());
@@ -276,6 +306,7 @@ async fn second_press_opens_the_confirm_modal() {
 
 #[tokio::test]
 async fn confirming_after_two_presses_starts_the_upgrade() {
+    let _keychain = isolate_keychain_async().await;
     let mut h = Harness::new(vec![server("web-01", Some("apt upgrade"))]);
     h.press('u');
     h.press('u');
@@ -294,6 +325,7 @@ async fn confirming_after_two_presses_starts_the_upgrade() {
 
 #[tokio::test]
 async fn second_press_with_nothing_configured_does_not_open_a_modal() {
+    let _keychain = isolate_keychain_async().await;
     let mut h = Harness::new(vec![server("web-01", None), server("db-02", None)]);
     h.press('u');
     h.press('u');
@@ -308,6 +340,7 @@ async fn second_press_with_nothing_configured_does_not_open_a_modal() {
 
 #[tokio::test]
 async fn presses_are_ignored_while_an_upgrade_is_running() {
+    let _keychain = isolate_keychain_async().await;
     let mut h = Harness::new(vec![server("web-01", Some("apt upgrade"))]);
     h.press('u');
     h.press('u');
@@ -327,6 +360,7 @@ async fn presses_are_ignored_while_an_upgrade_is_running() {
 
 #[tokio::test]
 async fn s_leaves_the_pane_and_u_returns_to_it() {
+    let _keychain = isolate_keychain_async().await;
     let mut h = Harness::new(vec![server("web-01", Some("apt upgrade"))]);
     h.press('u');
     assert_eq!(h.app.panels[0].mode, Mode::Upgrade);
@@ -363,6 +397,7 @@ fn start_upgrade(h: &mut Harness) {
 
 #[tokio::test]
 async fn can_return_to_the_pane_while_an_upgrade_is_running() {
+    let _keychain = isolate_keychain_async().await;
     let mut h = Harness::new(vec![server("web-01", Some("apt upgrade"))]);
     start_upgrade(&mut h);
 
@@ -383,6 +418,7 @@ async fn can_return_to_the_pane_while_an_upgrade_is_running() {
 
 #[tokio::test]
 async fn output_produced_while_away_is_shown_on_return() {
+    let _keychain = isolate_keychain_async().await;
     let mut h = Harness::new(vec![server("web-01", Some("apt upgrade"))]);
     start_upgrade(&mut h);
     let g = upgrade_gen(&h, 0);
@@ -414,6 +450,7 @@ async fn output_produced_while_away_is_shown_on_return() {
 
 #[tokio::test]
 async fn output_keeps_streaming_after_returning_to_the_pane() {
+    let _keychain = isolate_keychain_async().await;
     let mut h = Harness::new(vec![server("web-01", Some("apt upgrade"))]);
     start_upgrade(&mut h);
     let g = upgrade_gen(&h, 0);
@@ -437,6 +474,7 @@ async fn output_keeps_streaming_after_returning_to_the_pane() {
 /// stats view showed no completion marker when they came back.
 #[tokio::test]
 async fn completion_marker_survives_being_away_when_it_arrives() {
+    let _keychain = isolate_keychain_async().await;
     let mut h = Harness::new(vec![server("web-01", Some("apt upgrade"))]);
     start_upgrade(&mut h);
     let g = upgrade_gen(&h, 0);
@@ -466,6 +504,7 @@ async fn completion_marker_survives_being_away_when_it_arrives() {
 
 #[tokio::test]
 async fn returning_after_completion_shows_the_finished_state() {
+    let _keychain = isolate_keychain_async().await;
     let mut h = Harness::new(vec![server("web-01", Some("apt upgrade"))]);
     start_upgrade(&mut h);
     let g = upgrade_gen(&h, 0);
@@ -493,6 +532,7 @@ async fn returning_after_completion_shows_the_finished_state() {
 /// header and every line of output collected so far.
 #[tokio::test]
 async fn a_status_note_does_not_wipe_the_upgrade_pane() {
+    let _keychain = isolate_keychain_async().await;
     let mut h = Harness::new(vec![server("web-01", Some("apt upgrade"))]);
     start_upgrade(&mut h);
     let g = upgrade_gen(&h, 0);
@@ -526,6 +566,7 @@ async fn a_status_note_does_not_wipe_the_upgrade_pane() {
 /// The note must also survive being away, like any other upgrade output.
 #[tokio::test]
 async fn a_status_note_arriving_while_away_is_kept() {
+    let _keychain = isolate_keychain_async().await;
     let mut h = Harness::new(vec![server("web-01", Some("apt upgrade"))]);
     start_upgrade(&mut h);
     let g = upgrade_gen(&h, 0);
@@ -549,6 +590,7 @@ async fn a_status_note_arriving_while_away_is_kept() {
 /// streaming from at that moment.
 #[tokio::test]
 async fn a_failing_command_is_not_reported_as_a_disconnect() {
+    let _keychain = isolate_keychain_async().await;
     let mut h = Harness::new(vec![server("web-01", Some("./update_sys.sh"))]);
     start_upgrade(&mut h);
     let g = upgrade_gen(&h, 0);
@@ -576,6 +618,7 @@ async fn a_failing_command_is_not_reported_as_a_disconnect() {
 /// moment output starts arriving.
 #[tokio::test]
 async fn the_status_block_stays_pinned_under_heavy_output() {
+    let _keychain = isolate_keychain_async().await;
     let mut h = Harness::new(vec![server("web-01", Some("apt upgrade"))]);
     start_upgrade(&mut h);
     let g = upgrade_gen(&h, 0);
@@ -612,6 +655,7 @@ async fn the_status_block_stays_pinned_under_heavy_output() {
 /// returned, with no `AuxDone`.
 #[tokio::test]
 async fn a_panel_that_cannot_start_still_reaches_a_terminal_state() {
+    let _keychain = isolate_keychain_async().await;
     let mut h = Harness::new(vec![server("web-01", Some("apt upgrade"))]);
     start_upgrade(&mut h);
     let g = upgrade_gen(&h, 0);
@@ -655,6 +699,7 @@ async fn a_panel_that_cannot_start_still_reaches_a_terminal_state() {
 /// output with no header at all.
 #[tokio::test]
 async fn the_pane_survives_the_aux_begin_that_every_run_sends() {
+    let _keychain = isolate_keychain_async().await;
     let mut h = Harness::new(vec![server("web-01", Some("apt upgrade"))]);
     start_upgrade(&mut h);
     let g = upgrade_gen(&h, 0);

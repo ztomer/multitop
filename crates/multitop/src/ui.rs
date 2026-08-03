@@ -152,16 +152,104 @@ pub fn visible(
 
 #[must_use]
 #[allow(clippy::too_many_lines)]
+/// What the keybar should say about filtering.
+///
+/// An enum rather than a `&str` plus an `is_editing` flag: the two states need
+/// different lines, and a pair of arguments that must agree is how they end up
+/// disagreeing.
+#[derive(Clone, Copy, Debug)]
+pub enum FilterHint<'a> {
+    /// No filter, nothing being typed.
+    Off,
+    /// The user is typing a query right now.
+    Editing(&'a str),
+    /// A filter is in force but not being edited. This must be visible: panels
+    /// are hidden, and a monitor that silently stops showing a host is worse
+    /// than one that shows it failing.
+    Active(&'a str),
+}
+
+/// The key letter and its label for one view, highlighted when that view is on.
+///
+/// Six copies of this if/else pair inline are what made `keybar_line` too long
+/// to read, and the sixth was the one that had to be edited to add a view.
+fn mode_pair(
+    active_mode: crate::app::Mode,
+    this: crate::app::Mode,
+    on: Style,
+    key_off: Style,
+    label_off: Style,
+) -> (Style, Style) {
+    if active_mode == this {
+        (on, on)
+    } else {
+        (key_off, label_off)
+    }
+}
+
+/// The prompt shown in place of the keybar while a query is being typed.
+fn filter_prompt(query: &str, label: Style, accent: Color) -> Line<'static> {
+    Line::from(vec![
+        Span::styled("Filter: ", label),
+        Span::styled(query.to_string(), Style::default().fg(accent)),
+        Span::styled("\u{2588}", Style::default().fg(accent)),
+        Span::styled("   [Enter] keep  [Esc] clear", label),
+    ])
+}
+
+/// The right-hand badges: Settings, Theme, Sort.
+fn keybar_badges(
+    sort: multitop_agent::SortBy,
+    theme: &multitop_agent::color::Palette,
+    label: Style,
+    key_hi: Style,
+    sort_label: Style,
+    accent_color: Color,
+) -> Vec<Span<'static>> {
+    let active = Style::default().fg(Color::White);
+    let inactive = Style::default().fg(Color::DarkGray);
+    let theme_val_style = Style::default().fg(accent_color);
+    let (mem_style, cpu_style) = match sort {
+        multitop_agent::SortBy::Mem => (active, inactive),
+        multitop_agent::SortBy::Cpu => (inactive, active),
+    };
+    let theme_name_padded = format!("{:<11}", theme.name);
+    vec![
+        Span::styled("[", sort_label),
+        Span::styled("S", label),
+        Span::styled("E", key_hi),
+        Span::styled("ttings", label),
+        Span::styled("]  ", sort_label),
+        Span::styled("[", sort_label),
+        Span::styled(
+            "T",
+            Style::default()
+                .fg(accent_color)
+                .add_modifier(ratatui::style::Modifier::BOLD),
+        ),
+        Span::styled("heme: ", sort_label),
+        Span::styled(theme_name_padded, theme_val_style),
+        Span::styled("]  ", sort_label),
+        Span::styled("[Sort: ", sort_label),
+        Span::styled("C", key_hi),
+        Span::styled("pu", cpu_style),
+        Span::styled("/ ", sort_label),
+        Span::styled("M", key_hi),
+        Span::styled("em", mem_style),
+        Span::styled("]", sort_label),
+    ]
+}
+
+#[must_use]
 pub fn keybar_line(
     sort: multitop_agent::SortBy,
     theme: &multitop_agent::color::Palette,
     keybar_width: u16,
     active_mode: crate::app::Mode,
+    filter: FilterHint<'_>,
 ) -> Line<'static> {
     const SPACES: &str = "                                                                                                                                                                                                                                                                ";
     let label = Style::default().fg(Color::DarkGray);
-    let active = Style::default().fg(Color::White);
-    let inactive = Style::default().fg(Color::DarkGray);
     let border_color = Color::Rgb(
         theme.ratatui_border.0,
         theme.ratatui_border.1,
@@ -177,53 +265,24 @@ pub fn keybar_line(
         .fg(Color::Black)
         .add_modifier(ratatui::style::Modifier::BOLD);
     let sort_label = Style::default().fg(border_color);
-    let theme_val_style = Style::default().fg(accent_color);
 
     let key_hi = Style::default()
         .fg(Color::White)
         .add_modifier(ratatui::style::Modifier::BOLD);
 
-    let f_hi = if active_mode == crate::app::Mode::Fetch {
-        active_mode_style
-    } else {
-        key_hi
-    };
-    let f_lbl = if active_mode == crate::app::Mode::Fetch {
-        active_mode_style
-    } else {
-        label
-    };
-    let d_hi = if active_mode == crate::app::Mode::Docker {
-        active_mode_style
-    } else {
-        key_hi
-    };
-    let d_lbl = if active_mode == crate::app::Mode::Docker {
-        active_mode_style
-    } else {
-        label
-    };
-    let s_hi = if active_mode == crate::app::Mode::Monitor {
-        active_mode_style
-    } else {
-        key_hi
-    };
-    let s_lbl = if active_mode == crate::app::Mode::Monitor {
-        active_mode_style
-    } else {
-        label
-    };
-    let u_hi = if active_mode == crate::app::Mode::Upgrade {
-        active_mode_style
-    } else {
-        key_hi
-    };
-    let u_lbl = if active_mode == crate::app::Mode::Upgrade {
-        active_mode_style
-    } else {
-        label
-    };
-    let left_spans = [
+    // While typing, the keybar becomes the prompt. Reusing the row avoids
+    // moving the panels underneath, which would reflow the whole grid on the
+    // first keystroke.
+    if let FilterHint::Editing(query) = filter {
+        return filter_prompt(query, label, accent_color);
+    }
+
+    let pair = |m| mode_pair(active_mode, m, active_mode_style, key_hi, label);
+    let (f_hi, f_lbl) = pair(crate::app::Mode::Fetch);
+    let (d_hi, d_lbl) = pair(crate::app::Mode::Docker);
+    let (s_hi, s_lbl) = pair(crate::app::Mode::Monitor);
+    let (u_hi, u_lbl) = pair(crate::app::Mode::Upgrade);
+    let mut left_spans = vec![
         Span::styled("ESC / ", label),
         Span::styled("Q", key_hi),
         Span::styled("uit  ", label),
@@ -248,38 +307,19 @@ pub fn keybar_line(
             u_lbl,
         ),
         Span::styled("  ", label),
+        Span::styled("/", key_hi),
+        Span::styled(" Filter", label),
+        Span::styled("  ", label),
     ];
+    if let FilterHint::Active(query) = filter {
+        left_spans.push(Span::styled(
+            format!("[filter: {query}]  "),
+            Style::default().fg(accent_color),
+        ));
+    }
     let left_width: usize = left_spans.iter().map(|s| s.content.len()).sum();
 
-    let (mem_style, cpu_style) = match sort {
-        multitop_agent::SortBy::Mem => (active, inactive),
-        multitop_agent::SortBy::Cpu => (inactive, active),
-    };
-    let theme_name_padded = format!("{:<11}", theme.name);
-    let badge_spans = [
-        Span::styled("[", sort_label),
-        Span::styled("S", label),
-        Span::styled("E", key_hi),
-        Span::styled("ttings", label),
-        Span::styled("]  ", sort_label),
-        Span::styled("[", sort_label),
-        Span::styled(
-            "T",
-            Style::default()
-                .fg(accent_color)
-                .add_modifier(ratatui::style::Modifier::BOLD),
-        ),
-        Span::styled("heme: ", sort_label),
-        Span::styled(theme_name_padded, theme_val_style),
-        Span::styled("]  ", sort_label),
-        Span::styled("[Sort: ", sort_label),
-        Span::styled("C", key_hi),
-        Span::styled("pu", cpu_style),
-        Span::styled("/ ", sort_label),
-        Span::styled("M", key_hi),
-        Span::styled("em", mem_style),
-        Span::styled("]", sort_label),
-    ];
+    let badge_spans = keybar_badges(sort, theme, label, key_hi, sort_label, accent_color);
     let badge_width: usize = badge_spans.iter().map(|s| s.content.len()).sum();
     let pad = (keybar_width as usize).saturating_sub(left_width + badge_width);
     let pad_str = if pad <= SPACES.len() {
@@ -293,21 +333,93 @@ pub fn keybar_line(
     spans.extend(badge_spans);
     Line::from(spans)
 }
+/// What the keybar should say about the current filter.
+fn filter_hint(app: &App) -> FilterHint<'_> {
+    if app.is_filtering() {
+        FilterHint::Editing(&app.filter_query)
+    } else if app.filter_query.trim().is_empty() {
+        FilterHint::Off
+    } else {
+        FilterHint::Active(&app.filter_query)
+    }
+}
+
+/// Say that a filter is hiding everything, rather than showing a blank screen.
+///
+/// An empty result and a dead app look identical otherwise, and the way out --
+/// `Esc` -- is not guessable from a blank terminal.
+fn draw_no_matches(f: &mut Frame, app: &App, theme: &multitop_agent::color::Palette) {
+    let bg_color = Color::Rgb(
+        theme.ratatui_keybar_bg.0,
+        theme.ratatui_keybar_bg.1,
+        theme.ratatui_keybar_bg.2,
+    );
+    let area = f.area();
+    let (body, keybar) = (
+        Rect {
+            height: area.height.saturating_sub(1),
+            ..area
+        },
+        Rect {
+            y: area.y + area.height.saturating_sub(1),
+            height: 1.min(area.height),
+            ..area
+        },
+    );
+    let hosts = app.panels.len();
+    f.render_widget(
+        Paragraph::new(vec![
+            Line::from(""),
+            Line::from(Span::styled(
+                format!("  No host matches \"{}\".", app.filter_query),
+                Style::default().fg(Color::Yellow),
+            )),
+            Line::from(Span::styled(
+                format!("  {hosts} configured; Esc clears the filter."),
+                Style::default().fg(Color::DarkGray),
+            )),
+        ]),
+        body,
+    );
+    f.render_widget(
+        Paragraph::new(keybar_line(
+            app.sort,
+            theme,
+            keybar.width,
+            crate::app::Mode::Monitor,
+            filter_hint(app),
+        ))
+        .style(Style::default().bg(bg_color)),
+        keybar,
+    );
+}
+
 #[allow(clippy::too_many_lines)]
 pub fn draw(f: &mut Frame, app: &App) {
     if app.password_manager.is_some() {
         crate::config_ui::draw(f, app);
         return;
     }
-    let (panel_areas, keybar) = regions(f.area(), app.panels.len());
+    // Filtering hides panels rather than dimming them: the point of narrowing to
+    // one host is to give that host the whole screen. `shown` maps a layout slot
+    // back to the real panel index -- everything downstream (sparklines, the
+    // selected panel, task generations) is keyed by the real index, and mixing
+    // the two up is how a panel ends up wearing another host's data.
+    let shown = app.filtered_indices();
     let theme = app.current_theme();
+    if shown.is_empty() {
+        draw_no_matches(f, app, theme);
+        return;
+    }
+    let (panel_areas, keybar) = regions(f.area(), shown.len());
     let bg_color = Color::Rgb(
         theme.ratatui_keybar_bg.0,
         theme.ratatui_keybar_bg.1,
         theme.ratatui_keybar_bg.2,
     );
 
-    for ((idx, panel), area) in app.panels.iter().enumerate().zip(&panel_areas) {
+    for (&idx, area) in shown.iter().zip(&panel_areas) {
+        let panel = &app.panels[idx];
         let inner = Rect {
             x: area.x + SIDE_MARGIN,
             y: area.y,
@@ -409,8 +521,14 @@ pub fn draw(f: &mut Frame, app: &App) {
         .map_or(crate::app::Mode::Monitor, |p| p.mode);
 
     f.render_widget(
-        Paragraph::new(keybar_line(app.sort, theme, keybar.width, active_mode))
-            .style(Style::default().bg(bg_color)),
+        Paragraph::new(keybar_line(
+            app.sort,
+            theme,
+            keybar.width,
+            active_mode,
+            filter_hint(app),
+        ))
+        .style(Style::default().bg(bg_color)),
         keybar,
     );
 

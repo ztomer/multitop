@@ -14,6 +14,29 @@ use std::collections::HashMap;
 use tempfile::TempDir;
 use tokio::sync::mpsc;
 
+/// Divert credentials to the in-memory store, and hold the process-global guard.
+///
+/// An integration binary is compiled without `cfg(test)`, so the mock store is
+/// not in force unless it is asked for, and anything holding an `App` reaches
+/// `password_store` several calls down. Without this these tests query the real
+/// OS keychain: every rebuild changes the binary's code signature, so macOS
+/// raises an access dialog and the suite stops until a human dismisses it.
+#[allow(dead_code)]
+fn isolate_keychain() -> tokio::sync::MutexGuard<'static, ()> {
+    let guard = multitop::password_store::lock_for_test();
+    multitop::password_store::enable_mock_store();
+    multitop::password_store::clear_mock_store();
+    guard
+}
+
+#[allow(dead_code)]
+async fn isolate_keychain_async() -> tokio::sync::MutexGuard<'static, ()> {
+    let guard = multitop::password_store::lock_for_test_async().await;
+    multitop::password_store::enable_mock_store();
+    multitop::password_store::clear_mock_store();
+    guard
+}
+
 fn test_servers() -> Vec<Server> {
     vec![
         Server {
@@ -228,6 +251,7 @@ mod vault_upgrade_e2e_tests {
 
 #[tokio::test]
 async fn test_vault_password_prompt_state_machine() {
+    let _keychain = isolate_keychain_async().await;
     let master_pw = "test-master";
     let mut vault_passwords = HashMap::new();
     vault_passwords.insert(
@@ -271,6 +295,7 @@ async fn test_vault_password_prompt_state_machine() {
 
 #[tokio::test]
 async fn test_vault_failed_unlock_shows_error() {
+    let _keychain = isolate_keychain_async().await;
     let master_pw = "test-master";
     let mut vault_passwords = HashMap::new();
     vault_passwords.insert(
@@ -318,6 +343,7 @@ async fn test_vault_failed_unlock_shows_error() {
 /// `begin_vault_unlock()` path used by the `u` key handler.
 #[tokio::test]
 async fn test_vault_locked_u_key_tries_biometric_first() {
+    let _keychain = isolate_keychain_async().await;
     let (mut app, _temp_dir) = app_with_vault(test_servers(), "test-master", HashMap::new()).await;
     // Lock the vault again to simulate a fresh app start.
     app.vault_state = VaultState::Locked;
@@ -357,6 +383,7 @@ async fn test_vault_locked_u_key_tries_biometric_first() {
 /// the awaiting state, and proceed to the upgrade modal — exactly one attempt.
 #[tokio::test]
 async fn test_vault_biometric_success_proceeds_to_modal() {
+    let _keychain = isolate_keychain_async().await;
     let master_pw = "test-master";
     let (mut app, _temp_dir) = app_with_vault(test_servers(), master_pw, HashMap::new()).await;
 
@@ -395,6 +422,7 @@ async fn test_vault_biometric_success_proceeds_to_modal() {
 /// to the password prompt (one clear fallback, not a silent dead-end).
 #[tokio::test]
 async fn test_vault_biometric_failed_falls_back_to_password() {
+    let _keychain = isolate_keychain_async().await;
     let (mut app, _temp_dir) = app_with_vault(test_servers(), "test-master", HashMap::new()).await;
     app.vault_state = VaultState::Unlocking {
         awaiting_biometric: true,
@@ -421,6 +449,7 @@ async fn test_vault_biometric_failed_falls_back_to_password() {
 /// shows the password prompt — never a hang or a crash.
 #[tokio::test]
 async fn test_vault_biometric_task_emits_fallback_on_unavailable() {
+    let _keychain = isolate_keychain_async().await;
     let (mut app, _temp_dir) = app_with_vault(test_servers(), "test-master", HashMap::new()).await;
     let vault = app.vault.clone().unwrap();
 
@@ -469,6 +498,7 @@ async fn test_vault_biometric_task_emits_fallback_on_unavailable() {
 /// lockout backoff before they ever typed a password.
 #[tokio::test]
 async fn test_vault_biometric_failures_do_not_trigger_lockout() {
+    let _keychain = isolate_keychain_async().await;
     let master_pw = "test-master";
     let (app, _temp_dir) = app_with_vault(test_servers(), master_pw, HashMap::new()).await;
     let vault = app.vault.clone().unwrap();

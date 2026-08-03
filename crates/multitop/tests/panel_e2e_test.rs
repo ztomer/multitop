@@ -6,6 +6,29 @@ use multitop::config::Server;
 use multitop::panel::UpgradeState;
 use multitop::password_store;
 
+/// Divert credentials to the in-memory store, and hold the process-global guard.
+///
+/// An integration binary is compiled without `cfg(test)`, so the mock store is
+/// not in force unless it is asked for, and anything holding an `App` reaches
+/// `password_store` several calls down. Without this these tests query the real
+/// OS keychain: every rebuild changes the binary's code signature, so macOS
+/// raises an access dialog and the suite stops until a human dismisses it.
+#[allow(dead_code)]
+fn isolate_keychain() -> tokio::sync::MutexGuard<'static, ()> {
+    let guard = multitop::password_store::lock_for_test();
+    multitop::password_store::enable_mock_store();
+    multitop::password_store::clear_mock_store();
+    guard
+}
+
+#[allow(dead_code)]
+async fn isolate_keychain_async() -> tokio::sync::MutexGuard<'static, ()> {
+    let guard = multitop::password_store::lock_for_test_async().await;
+    multitop::password_store::enable_mock_store();
+    multitop::password_store::clear_mock_store();
+    guard
+}
+
 fn test_server(host: &str) -> Server {
     Server {
         host: host.to_string(),
@@ -32,6 +55,7 @@ fn reset_store() {
 
 #[test]
 fn test_panel_new_initializes_state() {
+    let _keychain = isolate_keychain();
     let server = test_server("127.0.0.1");
     let panel = multitop::app::Panel::new(server);
 
@@ -55,6 +79,7 @@ fn test_ensure_sudo_password_loads_keychain() {
 
 #[test]
 fn test_ensure_sudo_password_loads_vault() {
+    let _keychain = isolate_keychain();
     // Vault integration is tested in vault_upgrade_e2e.rs
     // This test just verifies the function exists and compiles
     let server = test_server("127.0.0.11");
@@ -123,6 +148,7 @@ fn test_password_saved_flag_sync() {
 
 #[test]
 fn test_show_last_frame_restores_view() {
+    let _keychain = isolate_keychain();
     let server = test_server("127.0.0.17");
     let mut panel = multitop::app::Panel::new(server);
 
@@ -134,6 +160,7 @@ fn test_show_last_frame_restores_view() {
 
 #[test]
 fn test_panel_mode_transitions() {
+    let _keychain = isolate_keychain();
     let server = test_server("127.0.0.18");
     let mut panel = multitop::app::Panel::new(server);
 
@@ -154,6 +181,7 @@ fn test_panel_mode_transitions() {
 
 #[test]
 fn test_panel_generation_bump_on_mode_change() {
+    let _keychain = isolate_keychain();
     let server = test_server("127.0.0.19");
     let mut panel = multitop::app::Panel::new(server);
 

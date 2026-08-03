@@ -13,6 +13,32 @@
 use multitop::app::{App, Msg};
 use multitop::config::Server;
 
+/// Divert credentials to the in-memory store, and hold the process-global guard.
+///
+/// Driving an `App` reaches `password_store` several calls down, and an
+/// integration binary is compiled without `cfg(test)`, so the mock is not in
+/// force unless it is asked for. Without this these tests query the real OS
+/// keychain: every rebuild changes the binary's code signature, so macOS raises
+/// an access dialog and the suite stops until a human dismisses it -- and a test
+/// can read, overwrite or delete credentials the user depends on.
+#[allow(dead_code)]
+fn isolate_keychain() -> tokio::sync::MutexGuard<'static, ()> {
+    let guard = multitop::password_store::lock_for_test();
+    multitop::password_store::enable_mock_store();
+    multitop::password_store::clear_mock_store();
+    guard
+}
+
+/// `isolate_keychain` for `#[tokio::test]` bodies, which must not block the
+/// runtime thread to take the guard.
+#[allow(dead_code)]
+async fn isolate_keychain_async() -> tokio::sync::MutexGuard<'static, ()> {
+    let guard = multitop::password_store::lock_for_test_async().await;
+    multitop::password_store::enable_mock_store();
+    multitop::password_store::clear_mock_store();
+    guard
+}
+
 fn server(host: &str) -> Server {
     Server {
         host: host.to_string(),
@@ -24,6 +50,7 @@ fn server(host: &str) -> Server {
 
 #[test]
 fn a_frame_from_a_replaced_panel_is_rejected() {
+    let _keychain = isolate_keychain();
     let mut app = App::new(vec![server("host-a"), server("host-b"), server("host-c")]);
 
     // A frame from the task that owns panel 0 right now is applied.
@@ -60,6 +87,7 @@ fn a_frame_from_a_replaced_panel_is_rejected() {
 
 #[test]
 fn a_frame_from_the_current_task_is_still_applied_after_a_change() {
+    let _keychain = isolate_keychain();
     let mut app = App::new(vec![server("host-a"), server("host-b")]);
     app.replace_panels(vec![server("host-b")]);
 
@@ -79,6 +107,7 @@ fn a_frame_from_the_current_task_is_still_applied_after_a_change() {
 
 #[test]
 fn replacing_panels_advances_the_epoch() {
+    let _keychain = isolate_keychain();
     let mut app = App::new(vec![server("host-a"), server("host-b")]);
     let before = app.panels_epoch;
 
@@ -98,6 +127,7 @@ fn replacing_panels_advances_the_epoch() {
 /// exactly that.
 #[test]
 fn switching_modes_does_not_retire_the_running_monitor() {
+    let _keychain = isolate_keychain();
     let mut app = App::new(vec![server("host-a")]);
     let epoch = app.panels_epoch;
 
@@ -126,6 +156,7 @@ fn switching_modes_does_not_retire_the_running_monitor() {
 /// landing on whichever host now occupied the index.
 #[test]
 fn a_replaced_panel_never_reuses_a_generation_a_live_task_holds() {
+    let _keychain = isolate_keychain();
     let mut app = App::new(vec![server("host-a"), server("host-b")]);
 
     // An upgrade task for host-a is spawned and holds this generation.

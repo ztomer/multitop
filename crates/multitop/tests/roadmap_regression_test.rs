@@ -13,6 +13,29 @@ use multitop::config::Server;
 use multitop::password_store::{self, clear_mock_store, enable_mock_store};
 use multitop::state::{self, AppState};
 
+/// Divert credentials to the in-memory store, and hold the process-global guard.
+///
+/// An integration binary is compiled without `cfg(test)`, so the mock store is
+/// not in force unless it is asked for, and anything holding an `App` reaches
+/// `password_store` several calls down. Without this these tests query the real
+/// OS keychain: every rebuild changes the binary's code signature, so macOS
+/// raises an access dialog and the suite stops until a human dismisses it.
+#[allow(dead_code)]
+fn isolate_keychain() -> tokio::sync::MutexGuard<'static, ()> {
+    let guard = multitop::password_store::lock_for_test();
+    multitop::password_store::enable_mock_store();
+    multitop::password_store::clear_mock_store();
+    guard
+}
+
+#[allow(dead_code)]
+async fn isolate_keychain_async() -> tokio::sync::MutexGuard<'static, ()> {
+    let guard = multitop::password_store::lock_for_test_async().await;
+    multitop::password_store::enable_mock_store();
+    multitop::password_store::clear_mock_store();
+    guard
+}
+
 fn test_server(user: &str, host: &str) -> Server {
     Server {
         host: host.to_string(),
@@ -24,6 +47,7 @@ fn test_server(user: &str, host: &str) -> Server {
 
 #[test]
 fn test_upgrade_modal_workflow_and_state_saving() {
+    let _keychain = isolate_keychain();
     let temp_dir = std::env::temp_dir().join("multitop_test_modal_flow");
     let _ = std::fs::create_dir_all(&temp_dir);
     let config_path = temp_dir.join("config.toml");
@@ -112,6 +136,7 @@ fn test_sso_master_password_lifecycle_and_fallback() {
 
 #[test]
 fn test_state_persistence_roundtrip() {
+    let _keychain = isolate_keychain();
     let temp_dir = std::env::temp_dir().join("multitop_test_state_roundtrip");
     let _ = std::fs::create_dir_all(&temp_dir);
     let config_path = temp_dir.join("config.toml");
@@ -132,6 +157,7 @@ fn test_state_persistence_roundtrip() {
 
 #[test]
 fn test_sparklines_and_header_formatting() {
+    let _keychain = isolate_keychain();
     let server = test_server("deployer", "prod-node-1");
     let mut app = App::new(vec![server]);
 
@@ -159,6 +185,7 @@ fn test_sparklines_and_header_formatting() {
 
 #[test]
 fn test_username_consistency_across_panes() {
+    let _keychain = isolate_keychain();
     let server_with_user = test_server("alice", "db-host");
     let server_no_user = Server {
         host: "bare-host".to_string(),

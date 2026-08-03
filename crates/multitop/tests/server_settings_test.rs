@@ -9,6 +9,29 @@ use multitop::password_store;
 use multitop::passwords::{self, ConfigSection, PasswordAction};
 use std::sync::atomic::{AtomicU16, Ordering};
 
+/// Divert credentials to the in-memory store, and hold the process-global guard.
+///
+/// An integration binary is compiled without `cfg(test)`, so the mock store is
+/// not in force unless it is asked for, and anything holding an `App` reaches
+/// `password_store` several calls down. Without this these tests query the real
+/// OS keychain: every rebuild changes the binary's code signature, so macOS
+/// raises an access dialog and the suite stops until a human dismisses it.
+#[allow(dead_code)]
+fn isolate_keychain() -> tokio::sync::MutexGuard<'static, ()> {
+    let guard = multitop::password_store::lock_for_test();
+    multitop::password_store::enable_mock_store();
+    multitop::password_store::clear_mock_store();
+    guard
+}
+
+#[allow(dead_code)]
+async fn isolate_keychain_async() -> tokio::sync::MutexGuard<'static, ()> {
+    let guard = multitop::password_store::lock_for_test_async().await;
+    multitop::password_store::enable_mock_store();
+    multitop::password_store::clear_mock_store();
+    guard
+}
+
 static PORT_COUNTER: AtomicU16 = AtomicU16::new(10000);
 
 fn next_port() -> u16 {
@@ -49,6 +72,7 @@ fn reset_store() {
 
 #[test]
 fn test_open_and_close_settings_manager_with_e_key() {
+    let _keychain = isolate_keychain();
     let mut app = App::new(vec![test_server("host1"), test_server("host2")]);
     assert!(app.password_manager.is_none());
 
@@ -68,6 +92,7 @@ fn test_open_and_close_settings_manager_with_e_key() {
 
 #[test]
 fn test_tab_between_passwords_and_servers_sections() {
+    let _keychain = isolate_keychain();
     let mut app = App::new(vec![test_server("host1")]);
     passwords::open(&mut app, 0, false);
     assert_eq!(
@@ -94,6 +119,7 @@ fn test_tab_between_passwords_and_servers_sections() {
 
 #[test]
 fn test_apply_servers_updates_panels_dynamically() {
+    let _keychain = isolate_keychain();
     // Same server values throughout: `test_server` allocates a new port per
     // call, so re-calling it would describe different credentials.
     let s1 = test_server("host1");
@@ -157,6 +183,7 @@ async fn test_save_password_in_upgrade_mode_triggers_upgrade_resume() {
 
 #[test]
 fn test_add_and_delete_server_from_passwords_section() {
+    let _keychain = isolate_keychain();
     let mut app = App::new(vec![test_server("host1"), test_server("host2")]);
     passwords::open(&mut app, 0, false);
 

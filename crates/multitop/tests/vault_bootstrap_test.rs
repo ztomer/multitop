@@ -12,6 +12,32 @@
 use multitop::app::{App, VaultState};
 use multitop::config::{self, Server};
 
+/// Divert credentials to the in-memory store, and hold the process-global guard.
+///
+/// Driving an `App` reaches `password_store` several calls down, and an
+/// integration binary is compiled without `cfg(test)`, so the mock is not in
+/// force unless it is asked for. Without this these tests query the real OS
+/// keychain: every rebuild changes the binary's code signature, so macOS raises
+/// an access dialog and the suite stops until a human dismisses it -- and a test
+/// can read, overwrite or delete credentials the user depends on.
+#[allow(dead_code)]
+fn isolate_keychain() -> tokio::sync::MutexGuard<'static, ()> {
+    let guard = multitop::password_store::lock_for_test();
+    multitop::password_store::enable_mock_store();
+    multitop::password_store::clear_mock_store();
+    guard
+}
+
+/// `isolate_keychain` for `#[tokio::test]` bodies, which must not block the
+/// runtime thread to take the guard.
+#[allow(dead_code)]
+async fn isolate_keychain_async() -> tokio::sync::MutexGuard<'static, ()> {
+    let guard = multitop::password_store::lock_for_test_async().await;
+    multitop::password_store::enable_mock_store();
+    multitop::password_store::clear_mock_store();
+    guard
+}
+
 fn server(host: &str) -> Server {
     Server {
         host: host.to_string(),
@@ -44,6 +70,7 @@ upgrade_cmd = "apt upgrade"
 
 #[test]
 fn plaintext_passwords_are_surfaced_not_silently_ignored() {
+    let _keychain = isolate_keychain();
     let cfg = config::parse(WITH_SECRETS).unwrap();
     assert_eq!(
         cfg.plaintext_passwords.len(),
@@ -61,6 +88,7 @@ fn plaintext_passwords_are_surfaced_not_silently_ignored() {
 
 #[test]
 fn config_without_secrets_reports_none() {
+    let _keychain = isolate_keychain();
     let cfg = config::parse(
         r#"
 [[servers]]
@@ -74,6 +102,7 @@ user = "ztomer"
 
 #[test]
 fn stripping_removes_the_secret_and_keeps_everything_else() {
+    let _keychain = isolate_keychain();
     let dir = std::env::temp_dir().join(format!("multitop_strip_{}", std::process::id()));
     std::fs::create_dir_all(&dir).unwrap();
     let path = dir.join("config.toml");
@@ -103,6 +132,7 @@ fn stripping_removes_the_secret_and_keeps_everything_else() {
 
 #[test]
 fn stripping_is_idempotent() {
+    let _keychain = isolate_keychain();
     let dir = std::env::temp_dir().join(format!("multitop_strip2_{}", std::process::id()));
     std::fs::create_dir_all(&dir).unwrap();
     let path = dir.join("config.toml");
@@ -124,6 +154,7 @@ fn stripping_is_idempotent() {
 
 #[test]
 fn saving_a_password_with_no_vault_starts_vault_creation() {
+    let _keychain = isolate_keychain();
     let mut app = App::new(vec![server("web-01")]);
     app.config_path = Some(std::path::PathBuf::from("/tmp/multitop-x/config.toml"));
     assert!(app.vault.is_none());
@@ -135,6 +166,7 @@ fn saving_a_password_with_no_vault_starts_vault_creation() {
 
 #[test]
 fn vault_creation_is_not_offered_when_one_exists() {
+    let _keychain = isolate_keychain();
     let mut app = App::new(vec![server("web-01")]);
     app.config_path = Some(std::path::PathBuf::from("/tmp/multitop-x/config.toml"));
     // Simulate an existing vault by handing the app a vault handle.
@@ -158,6 +190,7 @@ fn vault_creation_is_not_offered_when_one_exists() {
 
 #[test]
 fn vault_creation_needs_somewhere_to_put_the_file() {
+    let _keychain = isolate_keychain();
     let mut app = App::new(vec![server("web-01")]);
     app.config_path = None;
     assert!(
@@ -168,6 +201,7 @@ fn vault_creation_needs_somewhere_to_put_the_file() {
 
 #[test]
 fn vault_path_sits_beside_the_config() {
+    let _keychain = isolate_keychain();
     let mut app = App::new(vec![server("web-01")]);
     app.config_path = Some(std::path::PathBuf::from(
         "/home/x/.config/multitop/config.toml",
@@ -180,6 +214,7 @@ fn vault_path_sits_beside_the_config() {
 
 #[tokio::test]
 async fn a_created_vault_can_be_unlocked_and_holds_passwords() {
+    let _keychain = isolate_keychain_async().await;
     // End-to-end on the real vault: create, store, lock, reopen, read back.
     let dir = std::env::temp_dir().join(format!("multitop_vault_new_{}", std::process::id()));
     std::fs::create_dir_all(&dir).unwrap();

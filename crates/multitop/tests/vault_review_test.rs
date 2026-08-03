@@ -15,6 +15,29 @@ use multitop::app::{App, Msg, VaultState};
 use multitop::config::Server;
 use multitop::run::{handle_key, Tasks};
 
+/// Divert credentials to the in-memory store, and hold the process-global guard.
+///
+/// An integration binary is compiled without `cfg(test)`, so the mock store is
+/// not in force unless it is asked for, and anything holding an `App` reaches
+/// `password_store` several calls down. Without this these tests query the real
+/// OS keychain: every rebuild changes the binary's code signature, so macOS
+/// raises an access dialog and the suite stops until a human dismisses it.
+#[allow(dead_code)]
+fn isolate_keychain() -> tokio::sync::MutexGuard<'static, ()> {
+    let guard = multitop::password_store::lock_for_test();
+    multitop::password_store::enable_mock_store();
+    multitop::password_store::clear_mock_store();
+    guard
+}
+
+#[allow(dead_code)]
+async fn isolate_keychain_async() -> tokio::sync::MutexGuard<'static, ()> {
+    let guard = multitop::password_store::lock_for_test_async().await;
+    multitop::password_store::enable_mock_store();
+    multitop::password_store::clear_mock_store();
+    guard
+}
+
 fn srv() -> Server {
     Server {
         host: "h".into(),
@@ -81,6 +104,7 @@ impl H {
 /// could only be killed. Proven with a probe before the fix.
 #[tokio::test]
 async fn a_biometric_prompt_can_always_be_escaped() {
+    let _keychain = isolate_keychain_async().await;
     for escape in [KeyCode::Esc, KeyCode::Char('q'), KeyCode::Char('Q')] {
         let mut h = H::new();
         h.app.vault_state = VaultState::Unlocking {
@@ -101,6 +125,7 @@ async fn a_biometric_prompt_can_always_be_escaped() {
 /// act on a UI the user cannot see behind the modal.
 #[tokio::test]
 async fn other_keys_are_still_ignored_during_a_biometric_prompt() {
+    let _keychain = isolate_keychain_async().await;
     let mut h = H::new();
     h.app.vault_state = VaultState::Unlocking {
         awaiting_biometric: true,
@@ -116,6 +141,7 @@ async fn other_keys_are_still_ignored_during_a_biometric_prompt() {
 /// attempt now runs off-thread and the app shows a verifying state meanwhile.
 #[tokio::test]
 async fn verifying_a_password_does_not_block_the_ui() {
+    let _keychain = isolate_keychain_async().await;
     let mut h = H::new();
     h.app.set_vault_unlocking();
 
@@ -134,6 +160,7 @@ async fn verifying_a_password_does_not_block_the_ui() {
 /// leave them in a state with no explanation.
 #[tokio::test]
 async fn a_failed_unlock_returns_to_the_prompt_with_the_reason() {
+    let _keychain = isolate_keychain_async().await;
     let mut h = H::new();
     h.app.set_vault_unlocking();
 
@@ -157,6 +184,7 @@ async fn a_failed_unlock_returns_to_the_prompt_with_the_reason() {
 /// saved securely when the vault never received it.
 #[tokio::test]
 async fn seeding_a_vault_reports_failures() {
+    let _keychain = isolate_keychain_async().await;
     // No vault is unlocked, so nothing can be seeded; the app must not claim
     // otherwise. This pins the reporting path rather than the happy path.
     let mut h = H::new();
@@ -185,6 +213,7 @@ async fn seeding_a_vault_reports_failures() {
 /// backed out -- a destructive action arriving from an attempt they cancelled.
 #[tokio::test]
 async fn a_cancelled_biometric_result_is_discarded_when_it_lands() {
+    let _keychain = isolate_keychain_async().await;
     let mut h = H::new();
     h.app.vault = None;
     h.app.vault_state = VaultState::Unlocking {
@@ -211,6 +240,7 @@ async fn a_cancelled_biometric_result_is_discarded_when_it_lands() {
 /// The same guard must not discard a result the user is still waiting for.
 #[tokio::test]
 async fn a_current_biometric_result_is_still_honoured() {
+    let _keychain = isolate_keychain_async().await;
     let mut h = H::new();
     h.app.vault_state = VaultState::Unlocking {
         awaiting_biometric: true,
@@ -229,6 +259,7 @@ async fn a_current_biometric_result_is_still_honoured() {
 /// its own thread regardless.
 #[tokio::test]
 async fn a_cancelled_password_verification_is_discarded_when_it_lands() {
+    let _keychain = isolate_keychain_async().await;
     let mut h = H::new();
     let stale = h.app.set_vault_unlocking();
 
@@ -252,6 +283,7 @@ async fn a_cancelled_password_verification_is_discarded_when_it_lands() {
 /// was created and seeded with every known password after the user declined.
 #[tokio::test]
 async fn a_declined_vault_creation_is_not_created_anyway() {
+    let _keychain = isolate_keychain_async().await;
     let mut h = H::new();
     h.app.config_path = Some(std::path::PathBuf::from("/tmp/multitop-x/config.toml"));
     assert!(h.app.begin_vault_creation());

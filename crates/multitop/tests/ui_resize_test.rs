@@ -6,6 +6,32 @@ use multitop::app::{App, Mode};
 use multitop::config::Server;
 use multitop::ui::{agent_dims, draw, refit_header, refit_line};
 
+/// Divert credentials to the in-memory store, and hold the process-global guard.
+///
+/// Driving an `App` reaches `password_store` several calls down, and an
+/// integration binary is compiled without `cfg(test)`, so the mock is not in
+/// force unless it is asked for. Without this these tests query the real OS
+/// keychain: every rebuild changes the binary's code signature, so macOS raises
+/// an access dialog and the suite stops until a human dismisses it -- and a test
+/// can read, overwrite or delete credentials the user depends on.
+#[allow(dead_code)]
+fn isolate_keychain() -> tokio::sync::MutexGuard<'static, ()> {
+    let guard = multitop::password_store::lock_for_test();
+    multitop::password_store::enable_mock_store();
+    multitop::password_store::clear_mock_store();
+    guard
+}
+
+/// `isolate_keychain` for `#[tokio::test]` bodies, which must not block the
+/// runtime thread to take the guard.
+#[allow(dead_code)]
+async fn isolate_keychain_async() -> tokio::sync::MutexGuard<'static, ()> {
+    let guard = multitop::password_store::lock_for_test_async().await;
+    multitop::password_store::enable_mock_store();
+    multitop::password_store::clear_mock_store();
+    guard
+}
+
 fn sample_servers(count: usize) -> Vec<Server> {
     (0..count)
         .map(|i| Server {
@@ -19,6 +45,7 @@ fn sample_servers(count: usize) -> Vec<Server> {
 
 #[test]
 fn refit_header_expands_and_shrinks_dynamically() {
+    let _keychain = isolate_keychain();
     let raw_header =
         "\x1b[90m──────────\x1b[0m\x1b[36;1m ｂｅｅｌｉｎｋ \x1b[0m\x1b[90m──────────\x1b[0m";
 
@@ -33,6 +60,7 @@ fn refit_header_expands_and_shrinks_dynamically() {
 
 #[test]
 fn refit_line_reflows_divider_rules() {
+    let _keychain = isolate_keychain();
     let raw_rule = " \x1b[90m────────────────────\x1b[0m";
     let refitted = refit_line(raw_rule, 80);
     let plain = multitop_agent::color::strip_ansi(&refitted);
@@ -41,6 +69,7 @@ fn refit_line_reflows_divider_rules() {
 
 #[test]
 fn ui_renders_without_panic_across_resizes() {
+    let _keychain = isolate_keychain();
     let servers = sample_servers(3);
     let mut app = App::new(servers);
 
@@ -81,6 +110,7 @@ fn ui_renders_without_panic_across_resizes() {
 #[test]
 fn agent_dims_recalculate_consistently_on_resize() {
     use ratatui::layout::Size;
+    let _keychain = isolate_keychain();
 
     let sz_initial = Size::new(100, 30);
     let (cols1, rows1) = agent_dims(sz_initial, 4);
@@ -99,6 +129,7 @@ fn agent_dims_recalculate_consistently_on_resize() {
 /// invisible on anything but a maximally wide header).
 #[test]
 fn sparkline_renders_truncated_on_narrow_split_panel() {
+    let _keychain = isolate_keychain();
     let mut app = App::new(sample_servers(2));
     app.toggle_sparklines();
 
@@ -147,6 +178,7 @@ fn sparkline_renders_truncated_on_narrow_split_panel() {
 /// the selected one (upgrade/fetch/docker views switch all panels at once).
 #[test]
 fn reset_scroll_clears_all_panels_not_just_selected() {
+    let _keychain = isolate_keychain();
     let mut app = App::new(sample_servers(3));
     app.selected_panel = 1;
     for (i, p) in app.panels.iter_mut().enumerate() {

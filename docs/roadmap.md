@@ -74,6 +74,30 @@ feature.
 The password handshake was verified live against three hosts once; the other
 three rows have not been.
 
+## 0. OPEN: upgrades fail because there is no stored sudo password
+
+**Cause, and it was mine.** Verifying the password flow on 2026-08-03 I drove
+the app through the SSO prompt with `XDG_CONFIG_HOME` isolated but *not* the
+keychain -- the credential store is per-user, not per-config-dir -- which wrote
+the literal string `test` over the real `multitop`/`__sso_master__` login-keychain
+item. I deleted it rather than leave a wrong password in place. A later check
+confirmed the state: no per-host entry exists for any of the four configured
+hosts, and no SSO entry either.
+
+So the app has no sudo password for any host. The remote `upgrade_cmd` needs
+sudo, gets none, and the run fails. Nothing in the SSH or handshake path is
+wrong -- the exact remote command was replayed against 192.168.0.33 by hand and
+behaved correctly: the readiness sentinel arrived, the password was consumed,
+and sudo rejected a deliberately wrong one with exit 1.
+
+**The fix is one action:** press `s` in Server Settings and enter the SSO master
+password again. Then confirm an upgrade completes.
+
+If it still fails afterwards, the next thing to capture is the exact text in the
+upgrade pane. No string in the workspace says "unreachable", so that wording is
+coming from ssh or sudo output being surfaced verbatim, and knowing which line
+it is decides where to look.
+
 ## 5. Confirm the two 2026-08-03 fixes against real hosts
 
 Both were diagnosed from a screenshot and fixed with tests, and neither has been
@@ -99,6 +123,25 @@ both paths, and says so instead of letting it surface as a connection failure.
 To confirm: run a real upgrade on a host that needs sudo and watch it complete;
 then `kill -TTIN` the running app from another terminal and check it keeps
 drawing rather than stopping.
+
+## 5a. Finish keychain isolation for tests
+
+`tools/check_keychain_isolation.py` is a gate in the hook and in CI, and it
+reports clean. It is not yet the whole story:
+
+- The check is per test body and resolves helpers one level deep. It scans
+  `crates/*/tests` only, so **unit tests inside `src/` are not covered** --
+  and the vault's keychain use (`lockout.rs`, `rollback.rs`) is gated on a
+  `use_keychain` flag rather than on `cfg(test)`, so a unit test can reach the
+  real keychain.
+- A probe that makes every real-keychain call panic still reported **9 hits**
+  across the workspace after the `tests/` directories were cleaned. Those
+  remaining hits have not been attributed yet. Reproduce with: replace each
+  `keyring::Entry::new(...)` in `crates/vault/src/{lockout,rollback}.rs` and the
+  non-mock branches of `crates/multitop/src/password_store.rs` with a `panic!`,
+  then run the workspace suite and read the failing test names.
+
+Until that reaches zero, running the suite can still raise a keychain dialog.
 
 ## 6. Rotate the sudo password used during live verification
 

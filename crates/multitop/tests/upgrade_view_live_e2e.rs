@@ -41,6 +41,32 @@ use multitop::config::Server;
 use multitop::panel::UpgradeState;
 use multitop::run::{handle_key, Tasks};
 
+/// Divert credentials to the in-memory store, and hold the process-global guard.
+///
+/// Driving an `App` reaches `password_store` several calls down, and an
+/// integration binary is compiled without `cfg(test)`, so the mock is not in
+/// force unless it is asked for. Without this these tests query the real OS
+/// keychain: every rebuild changes the binary's code signature, so macOS raises
+/// an access dialog and the suite stops until a human dismisses it -- and a test
+/// can read, overwrite or delete credentials the user depends on.
+#[allow(dead_code)]
+fn isolate_keychain() -> tokio::sync::MutexGuard<'static, ()> {
+    let guard = multitop::password_store::lock_for_test();
+    multitop::password_store::enable_mock_store();
+    multitop::password_store::clear_mock_store();
+    guard
+}
+
+/// `isolate_keychain` for `#[tokio::test]` bodies, which must not block the
+/// runtime thread to take the guard.
+#[allow(dead_code)]
+async fn isolate_keychain_async() -> tokio::sync::MutexGuard<'static, ()> {
+    let guard = multitop::password_store::lock_for_test_async().await;
+    multitop::password_store::enable_mock_store();
+    multitop::password_store::clear_mock_store();
+    guard
+}
+
 /// A read-only stand-in for a real upgrade. See the module header.
 const SAFE_CMD: &str = "ls -l ; ls -l";
 
@@ -178,6 +204,7 @@ fn strip_ansi(s: &str) -> String {
 #[ignore = "requires a reachable SSH host (MULTITOP_TEST_SSH_HOST); run with --ignored"]
 #[tokio::test]
 async fn live_run_keeps_its_status_block_and_collects_output() {
+    let _keychain = isolate_keychain_async().await;
     let mut h = Live::new(vec![ssh_server(SAFE_CMD)]);
 
     h.press('u');
@@ -220,6 +247,7 @@ async fn live_run_keeps_its_status_block_and_collects_output() {
 #[ignore = "requires a reachable SSH host (MULTITOP_TEST_SSH_HOST); run with --ignored"]
 #[tokio::test]
 async fn switching_views_during_a_live_run_loses_nothing() {
+    let _keychain = isolate_keychain_async().await;
     // Long enough that we are reliably still running when we switch away.
     let mut h = Live::new(vec![ssh_server(
         "ls -l ; sleep 3 ; ls -l ; echo TAIL_MARKER",
@@ -277,6 +305,7 @@ async fn switching_views_during_a_live_run_loses_nothing() {
 #[ignore = "requires a reachable SSH host (MULTITOP_TEST_SSH_HOST); run with --ignored"]
 #[tokio::test]
 async fn a_failing_command_on_a_reachable_host_is_reported_honestly() {
+    let _keychain = isolate_keychain_async().await;
     let mut h = Live::new(vec![ssh_server("ls -l ; exit 2")]);
 
     h.press('u');
@@ -316,6 +345,7 @@ async fn a_failing_command_on_a_reachable_host_is_reported_honestly() {
 #[ignore = "requires a reachable SSH host (MULTITOP_TEST_SSH_HOST); run with --ignored"]
 #[tokio::test]
 async fn an_unreachable_host_reaches_a_terminal_state() {
+    let _keychain = isolate_keychain_async().await;
     let mut h = Live::new(vec![Server {
         // Reserved for documentation; never routable.
         host: "192.0.2.1".into(),
