@@ -233,8 +233,9 @@ pub fn header(status: &Status, pal: &Palette, now: u64, width: usize) -> Vec<Str
             }
             Credential::Missing => {
                 format!(
-                    "{}will prompt \u{b7} p to save{}",
+                    "{}will prompt \u{b7} {} to save{}",
                     pal.meter_high(),
+                    crate::consts::SETTINGS_KEY,
                     pal.reset
                 )
             }

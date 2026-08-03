@@ -16,6 +16,14 @@ pub const MAX_STDERR_LINES: usize = 8;
 
 pub const DEFAULT_PORT: u16 = 22;
 
+/// The key that opens Server Settings, as the user must press it.
+///
+/// One constant because three separate help lines named two different keys --
+/// `p` and `o` -- neither of which was bound to anything. They appeared at the
+/// exact moment an operator was stuck and needed the instruction to work first
+/// time. `tools/check_key_hints.py` is the gate that stops a fourth.
+pub const SETTINGS_KEY: &str = "e";
+
 pub const ANSI_YELLOW: &str = "\x1b[0;33m";
 pub const ANSI_RED: &str = "\x1b[0;31m";
 pub const ANSI_GRAY: &str = "\x1b[0;90m";

@@ -631,7 +631,7 @@ async fn the_status_block_stays_pinned_under_heavy_output() {
     }
 
     // What the renderer would actually show in a 20-row panel.
-    let shown = multitop::ui::visible(
+    let (shown, _) = multitop::ui::visible(
         &h.app.panels[0].view,
         20,
         h.app.panels[0].pinned_lines.max(1),

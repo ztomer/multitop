@@ -56,7 +56,15 @@ impl Panel {
             upgrade_gen: 0,
             last_monitor: None,
             last_docker: None,
-            view: vec![format!("{}connecting...{}", pal.muted(), pal.reset)],
+            // Row 0 belongs to the host banner, which `ui::draw` composes over
+            // whatever is there. A body that starts at row 0 therefore has its
+            // first line eaten -- and this body is one line long, so the whole
+            // of it was eaten and a host coming up rendered as an empty box,
+            // indistinguishable from a hung SSH session or a dead app.
+            view: vec![
+                String::new(),
+                format!("{}connecting...{}", pal.muted(), pal.reset),
+            ],
             scroll_offset: 0,
             sudo_password: None,
             password_saved: false,
@@ -86,11 +94,14 @@ impl Panel {
         let pal = &multitop_agent::color::ANSI;
         self.view = self.last_frame.as_ref().map_or_else(
             || {
-                vec![format!(
-                    "{}waiting for data...{}",
-                    pal.meter_mid(),
-                    pal.reset
-                )]
+                // Row 0 is the banner's; see `Panel::new`. An agent frame
+                // already carries its own line 0 for the banner to replace,
+                // but this fallback is written here and must reserve it, or it
+                // says nothing at all.
+                vec![
+                    String::new(),
+                    format!("{}waiting for data...{}", pal.meter_mid(), pal.reset),
+                ]
             },
             std::clone::Clone::clone,
         );

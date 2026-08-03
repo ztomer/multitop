@@ -51,6 +51,17 @@ if ! python3 tools/check_test_only_code.py >"$log" 2>&1; then
 fi
 ok "no new test-only code"
 
+info "checking key hints"
+if ! python3 tools/check_key_hints.py --self-test >"$log" 2>&1; then
+    cat "$log" >&2
+    die "the key-hint checker's own self-test failed -- it cannot be trusted to report clean"
+fi
+if ! python3 tools/check_key_hints.py >"$log" 2>&1; then
+    cat "$log" >&2
+    die "a user-facing string names a key nothing binds"
+fi
+ok "key hints name live keys"
+
 info "checking keychain isolation"
 if ! python3 tools/check_keychain_isolation.py --self-test >"$log" 2>&1; then
     cat "$log" >&2

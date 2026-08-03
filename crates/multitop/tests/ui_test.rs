@@ -67,8 +67,8 @@ fn regions_with_no_panels_still_yield_a_keybar() {
 #[test]
 fn visible_shows_everything_when_it_fits() {
     let lines: Vec<String> = (0..3).map(|i| i.to_string()).collect();
-    assert_eq!(visible(&lines, 10, 0, 0, 0).len(), 3);
-    assert_eq!(visible(&lines, 3, 0, 0, 0).len(), 3);
+    assert_eq!(visible(&lines, 10, 0, 0, 0).0.len(), 3);
+    assert_eq!(visible(&lines, 3, 0, 0, 0).0.len(), 3);
 }
 
 #[test]
@@ -86,7 +86,7 @@ fn visible_preserves_header_and_tail_logs() {
         "p4".into(),
         "p5".into(),
     ];
-    let shown = visible(&lines, 6, 1, 0, 0);
+    let (shown, _) = visible(&lines, 6, 1, 0, 0);
     assert_eq!(shown.len(), 6);
     assert_eq!(shown[0], "HEADER");
     assert_eq!(shown[1], "p1");
@@ -96,7 +96,7 @@ fn visible_preserves_header_and_tail_logs() {
 #[test]
 fn visible_handles_zero_height() {
     let lines: Vec<String> = (0..3).map(|i| i.to_string()).collect();
-    assert!(visible(&lines, 0, 0, 0, 0).is_empty());
+    assert!(visible(&lines, 0, 0, 0, 0).0.is_empty());
 }
 
 #[test]
@@ -114,12 +114,12 @@ fn visible_scrolls_backwards_into_history() {
         "line 9".into(),
         "line 10".into(),
     ];
-    let tail = visible(&lines, 4, 1, 0, 0);
+    let (tail, _) = visible(&lines, 4, 1, 0, 0);
     assert_eq!(tail[0], "HEADER");
     assert_eq!(tail[1], "line 8");
     assert_eq!(tail[3], "line 10");
 
-    let scrolled = visible(&lines, 4, 1, 0, 3);
+    let (scrolled, _) = visible(&lines, 4, 1, 0, 3);
     assert_eq!(scrolled[0], "HEADER");
     assert_eq!(scrolled[1], "line 5");
     assert_eq!(scrolled[3], "line 7");

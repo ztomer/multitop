@@ -321,9 +321,10 @@ pub fn port_plaintext_passwords(
         use std::fmt::Write as _;
         let _ = write!(
             note,
-            "  Could not store {} of them ({}); set those again with p.",
+            "  Could not store {} of them ({}); set those again with {}.",
             failed.len(),
-            failed.join(", ")
+            failed.join(", "),
+            crate::consts::SETTINGS_KEY
         );
     }
 

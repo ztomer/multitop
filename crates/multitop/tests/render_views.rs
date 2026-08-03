@@ -223,6 +223,24 @@ const SCREENS: &[Screen] = &[
         app.mode = AppMode::Running;
         app
     }},
+    // Scrolled back through a long upgrade log. The scroll badge belongs on
+    // row 0 and, until row 0 had one owner, was built and destroyed on the same
+    // frame -- so it had never appeared on screen.
+    Screen { name: "upgrade-scrolled-back", build: |t| {
+        let mut app = base(2, t);
+        app.enter_upgrade_view();
+        for p in &mut app.panels {
+            p.upgrade_state = UpgradeState::STARTED;
+            // Row 0 reserved for the banner, then a pinned status block, then
+            // the log -- the shape `upgrade_pane` produces.
+            let mut view = vec![String::new(), " Status     running".to_string()];
+            view.extend((0..200).map(|i| format!("Unpacking package-{i}...")));
+            p.view = view;
+            p.pinned_lines = 2;
+            p.scroll_offset = 40;
+        }
+        app
+    }},
     Screen { name: "upgrade-confirm-modal", build: |t| {
         let mut app = base(2, t);
         app.enter_upgrade_view();

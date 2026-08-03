@@ -83,6 +83,20 @@ pub use crate::refit::{refit_header, refit_line};
 
 /// Show the tail when there is more content than room, optionally pinning
 /// the header (line 0) so the server name stays visible. Supports scrolling via `scroll_offset`.
+///
+/// Returns the rows to draw and **how far back the view is scrolled**, for the
+/// caller to render as a badge.
+///
+/// # Row 0 has one owner
+///
+/// This used to compose the scroll badge onto `out[0]` itself. `draw` then
+/// overwrote `lines[0]` with the host banner, unconditionally, on every frame --
+/// so the badge was built and destroyed within one frame and the scroll-position
+/// indicator has never once been on screen. Two pieces of code believed they
+/// owned that row and the later one silently won.
+///
+/// Handing the offset back as a value, rather than as text already baked into a
+/// row somebody else is about to overwrite, is what makes that unrepresentable.
 #[must_use]
 pub fn visible(
     lines: &[String],
@@ -90,18 +104,18 @@ pub fn visible(
     pinned: usize,
     target_cols: usize,
     scroll_offset: usize,
-) -> Vec<String> {
+) -> (Vec<String>, usize) {
     if lines.is_empty() || height == 0 {
-        return Vec::new();
+        return (Vec::new(), 0);
     }
     if lines.len() <= height {
         let mut out = lines.to_vec();
-        if !out.is_empty() && target_cols > 0 {
+        if target_cols > 0 {
             for line in &mut out {
                 *line = refit_line(line, target_cols);
             }
         }
-        return out;
+        return (out, 0);
     }
 
     // The pinned block must never crowd the body out, or a tall header on a
@@ -135,19 +149,12 @@ pub fn visible(
     }
 
     if !out.is_empty() && target_cols > 0 {
-        for (i, line) in out.iter_mut().enumerate() {
-            if i == 0 && badge_offset > 0 && pinned > 0 {
-                let badge = format!(" [\u{2191} -{badge_offset} lines] ");
-                let target_w = target_cols.saturating_sub(badge.chars().count());
-                let refitted = refit_line(line, target_w);
-                *line = format!("{refitted}\x1b[33;1m{badge}\x1b[0m");
-            } else {
-                *line = refit_line(line, target_cols);
-            }
+        for line in &mut out {
+            *line = refit_line(line, target_cols);
         }
     }
 
-    out
+    (out, if pinned > 0 { badge_offset } else { 0 })
 }
 
 #[must_use]
@@ -257,6 +264,15 @@ fn keybar_badges(
         .into_iter()
         .map(|spans| (span_width(&spans), spans))
         .collect()
+}
+
+/// The scroll badge, coloured, or nothing at all when not scrolled back.
+fn badge_span(badge: &str) -> String {
+    if badge.is_empty() {
+        String::new()
+    } else {
+        format!("\x1b[33;1m{badge}\x1b[0m")
+    }
 }
 
 /// Display width of a run of spans.
@@ -554,7 +570,7 @@ pub fn draw(f: &mut Frame, app: &App) {
         if inner.width == 0 || inner.height == 0 {
             continue;
         }
-        let mut lines = visible(
+        let (mut lines, badge_offset) = visible(
             &panel.view,
             inner.height as usize,
             panel.pinned_lines.max(1),
@@ -578,7 +594,16 @@ pub fn draw(f: &mut Frame, app: &App) {
             } else {
                 host_name
             };
-            let total_w = inner.width as usize;
+            // Row 0 is composed here, once, from everything that belongs on it:
+            // the banner, the sparklines either side of it, and the scroll
+            // badge. `visible` used to write the badge here too and lose.
+            let badge = if badge_offset > 0 {
+                format!(" [\u{2191} -{badge_offset} lines] ")
+            } else {
+                String::new()
+            };
+            let badge_w = badge.chars().count();
+            let total_w = (inner.width as usize).saturating_sub(badge_w);
             let disp_w = multitop_agent::fmt::fullwidth_display_width(&server_target);
             let space_needed = disp_w + 2;
 
@@ -621,7 +646,7 @@ pub fn draw(f: &mut Frame, app: &App) {
                 let fw = multitop_agent::fmt::fullwidth(&server_target);
 
                 lines[0] = format!(
-                    "{left_str}{}{}{}{}{}{} {}{}{}{}{right_str}",
+                    "{left_str}{}{}{}{}{}{} {}{}{}{}{right_str}{}",
                     theme.secondary(),
                     "\u{2500}".repeat(left_rule_rem),
                     theme.reset,
@@ -632,9 +657,14 @@ pub fn draw(f: &mut Frame, app: &App) {
                     theme.secondary(),
                     "\u{2500}".repeat(right_rule_rem),
                     theme.reset,
+                    badge_span(&badge),
                 );
             } else {
-                lines[0] = multitop_agent::fmt::center_header(&server_target, total_w, theme);
+                lines[0] = format!(
+                    "{}{}",
+                    multitop_agent::fmt::center_header(&server_target, total_w, theme),
+                    badge_span(&badge)
+                );
             }
         }
         f.render_widget(Paragraph::new(ansi::to_text(&lines)), inner);

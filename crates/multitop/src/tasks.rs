@@ -459,9 +459,9 @@ pub fn spawn_upgrade(
             Ok(s) if sudo_rejected || s.code() == Some(ssh::SUDO_FAILED_CODE) => status_line(
                 format!(
                     "\u{26A0} sudo refused the stored password on {} \u{2014} the upgrade did not run. \
-                     Set a password for this host with o in Settings; an SSO password is \
-                     only right if every host shares it.",
-                    server.host
+                     Set this host's password with {} in Settings.",
+                    server.host,
+                    crate::consts::SETTINGS_KEY
                 ),
             ),
             Ok(s) => s.code().map_or_else(
