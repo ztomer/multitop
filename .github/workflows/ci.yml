@@ -31,6 +31,8 @@ jobs:
           python3 tools/check_no_emoji.py
           python3 tools/check_test_only_code.py --self-test
           python3 tools/check_test_only_code.py
+          python3 tools/check_keychain_isolation.py --self-test
+          python3 tools/check_keychain_isolation.py
 
       - name: Formatting
         run: cargo fmt --all -- --check

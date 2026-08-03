@@ -51,6 +51,17 @@ if ! python3 tools/check_test_only_code.py >"$log" 2>&1; then
 fi
 ok "no new test-only code"
 
+info "checking keychain isolation"
+if ! python3 tools/check_keychain_isolation.py --self-test >"$log" 2>&1; then
+    cat "$log" >&2
+    die "the keychain-isolation checker's own self-test failed -- it cannot be trusted"
+fi
+if ! python3 tools/check_keychain_isolation.py >"$log" 2>&1; then
+    cat "$log" >&2
+    die "a test can reach the real OS keychain — divert it with enable_mock_store"
+fi
+ok "tests cannot reach the real keychain"
+
 info "checking formatting"
 if ! cargo fmt --all -- --check >"$log" 2>&1; then
     cat "$log" >&2

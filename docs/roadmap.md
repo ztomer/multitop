@@ -74,24 +74,31 @@ feature.
 The password handshake was verified live against three hosts once; the other
 three rows have not been.
 
-## 5. Open: a reported crash when entering a password in Server Settings
+## 5. Confirm the two 2026-08-03 fixes against real hosts
 
-Reported 2026-08-03, **not reproduced**. `crates/multitop/tests/config_panel_e2e.rs`
-was written for it and passes. What has been ruled out at `24294bb`:
+Both were diagnosed from a screenshot and fixed with tests, and neither has been
+seen working on a real machine yet.
 
-| Tried | Result |
-|-------|--------|
-| Every key sequence up to depth 4 from the open panel, rendering each frame | no panic |
-| SSO save, per-host override, draft password, multibyte input | no panic |
-| Terminal sizes 1x1, 20x5, 80x2, 200x60 | no panic |
-| The real binary in a pty: save, vault creation, save again with the vault unlocked | no panic |
-| The real binary against the real OS keychain (throwaway host) | no panic |
-| ~600 fuzzed keystrokes against the real binary, three seeds | no panic; the only exits were clean quits on `Esc` |
+**The app was stopped, not crashed.** The screenshot said
+`[1] + suspended (tty input)` -- `SIGTTIN`, raised when a process touches the
+controlling terminal from a background process group. At its default disposition
+it *stops* the process, and a stopped process runs no destructors, so
+`TerminalGuard` never restored the terminal: raw mode still on, alternate screen
+still active, and the shell's prompt drawn on top of the last frame. That is why
+the window looked empty and why a window screenshot showed nothing.
+`run.rs` now registers handlers for `SIGTTIN`/`SIGTTOU` (a caught signal does
+not stop the process) and rebuilds the terminal on `SIGCONT`.
 
-What is still needed to close this: the exact message printed when it died, or
-the keystrokes leading up to it. One candidate that would not look like a bug
-from the code but does from the user's seat -- `Esc` in the Passwords section
-closes the panel, and a second `Esc` quits the app, which reads as a crash.
+**"Not reachable" after entering the password was a deadlock, not the network.**
+The sudo handshake waited for the readiness sentinel with no time bound, and
+closed the child's stdin only on the success path. A remote that stayed silent
+left both sides waiting -- multitop for a line, the remote for its stdin to
+close. `tasks::deliver_sudo_password` now bounds the wait and closes the pipe on
+both paths, and says so instead of letting it surface as a connection failure.
+
+To confirm: run a real upgrade on a host that needs sudo and watch it complete;
+then `kill -TTIN` the running app from another terminal and check it keeps
+drawing rather than stopping.
 
 ## 6. Rotate the sudo password used during live verification
 

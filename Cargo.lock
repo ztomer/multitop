@@ -1093,6 +1093,7 @@ version = "0.24.0"
 dependencies = [
  "crossterm",
  "keyring",
+ "libc",
  "multitop-agent",
  "multitop-vault",
  "ratatui",

@@ -56,6 +56,7 @@ Three gates run on every commit via `.githooks/pre-commit`, and again in CI
 | Gate | Command |
 |------|---------|
 | No emoji | `python3 tools/check_no_emoji.py` |
+| Keychain isolation | `python3 tools/check_keychain_isolation.py` |
 | Formatting | `cargo fmt --all -- --check` |
 | Clippy | `cargo clippy --workspace --all-targets --all-features -- -D warnings` |
 
@@ -68,6 +69,24 @@ git config core.hooksPath .githooks
 Clippy runs with `--all-targets` on purpose: tests and benches inherit the
 workspace lint config, and that is exactly where warnings have accumulated.
 Fix warnings properly — do not silence them with `#[allow]`.
+
+### Keychain isolation
+
+An integration test binary is compiled without `cfg(test)`, so
+`password_store::is_mock_enabled()` is false unless the test says otherwise, and
+anything reaching `password_store` -- including `passwords::open`, via
+`Panel::ensure_sudo_password` -- then queries the **real** OS keychain. Every
+rebuild changes the binary's code signature, so macOS raises a keychain-access
+dialog and the suite stops dead waiting for someone to type their login
+password. A test can also overwrite or delete credentials the user depends on.
+
+Divert the store first, and hold the guard for the whole test body:
+
+```rust
+let _guard = password_store::lock_for_test();   // lock_for_test_async().await in #[tokio::test]
+password_store::enable_mock_store();
+password_store::clear_mock_store();
+```
 
 Only the Susan Kare icon set is permitted in place of emoji:
 `→ · ✓ ✗ ⚠ ↔ ↑ ↓`, plus the Mac key glyphs `← ⌘ ⌥ ⌨`.

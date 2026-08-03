@@ -4,7 +4,25 @@
 use crossterm::event::KeyCode;
 use multitop::app::App;
 use multitop::config::Server;
+use multitop::password_store;
 use multitop::passwords::{self, ConfigSection, PasswordAction};
+
+/// Divert credentials to the in-memory store, and hold the process-global
+/// guard for the test body.
+///
+/// Without this these tests read the developer's real OS keychain:
+/// `passwords::open` calls `Panel::ensure_sudo_password`, which calls
+/// `password_store::load`, which falls back to the SSO entry. An integration
+/// test binary is compiled without `cfg(test)`, so `is_mock_enabled()` is false
+/// unless something says otherwise -- and every rebuild changes the binary's
+/// code signature, so macOS puts up a keychain-access prompt and the suite
+/// stops dead waiting for a human. Tests must never touch real credentials.
+fn isolate() -> tokio::sync::MutexGuard<'static, ()> {
+    let guard = password_store::lock_for_test();
+    password_store::enable_mock_store();
+    password_store::clear_mock_store();
+    guard
+}
 
 fn server(host: &str) -> Server {
     Server {
@@ -17,6 +35,7 @@ fn server(host: &str) -> Server {
 
 #[test]
 fn password_entry_accepts_numeric_characters() {
+    let _keychain = isolate();
     let mut app = App::new(vec![server("one")]);
     passwords::open(&mut app, 0, false);
     let _ = passwords::handle_key(&mut app, KeyCode::Enter);
@@ -30,6 +49,7 @@ fn password_entry_accepts_numeric_characters() {
 
 #[test]
 fn server_settings_manager_opens_and_sets_resume_upgrade() {
+    let _keychain = isolate();
     let mut app = App::new(vec![server("one")]);
     passwords::open(&mut app, 0, true);
     let manager = app.password_manager.as_ref().expect("settings open");
@@ -39,6 +59,7 @@ fn server_settings_manager_opens_and_sets_resume_upgrade() {
 
 #[test]
 fn server_editor_creates_a_configured_server() {
+    let _keychain = isolate();
     let mut app = App::new(vec![server("one")]);
     passwords::open(&mut app, 0, false);
     let _ = passwords::handle_key(&mut app, KeyCode::Tab);
@@ -68,6 +89,7 @@ fn server_editor_creates_a_configured_server() {
 
 #[test]
 fn test_parse_ssh_config_multi_alias() {
+    let _keychain = isolate();
     let ssh_config = r"
 Host web db app
     HostName 192.168.1.100
@@ -83,6 +105,7 @@ Host web db app
 
 #[test]
 fn test_save_new_server_with_password() {
+    let _keychain = isolate();
     let mut app = App::new(vec![server("one")]);
     passwords::open(&mut app, 0, false);
     let _ = passwords::handle_key(&mut app, KeyCode::Tab);

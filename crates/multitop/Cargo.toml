@@ -13,8 +13,9 @@ workspace = true
 crossterm = { version = "0.29", features = ["event-stream"] }
 keyring = { version = "3", features = ["apple-native", "sync-secret-service"] }
 ratatui = { version = "0.30", default-features = false, features = ["crossterm"] }
-tokio = { version = "1", features = ["rt-multi-thread", "macros", "process", "io-util", "sync", "time"] }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "process", "io-util", "sync", "time", "signal"] }
 tokio-stream = { version = "0.1.19", default-features = false }
+libc = "0.2"
 toml = { version = "1", default-features = false, features = ["parse", "serde", "display"] }
 # Writes back without reformatting. `toml` reconstructs a file from its parsed
 # value, which silently drops every comment and blank line the user wrote.

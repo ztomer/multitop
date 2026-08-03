@@ -50,6 +50,85 @@ pub async fn run(
     event_loop(&mut terminal, servers, config_path, initial_theme).await
 }
 
+/// Signals that decide whether this process may keep the terminal.
+///
+/// `SIGTTIN` and `SIGTTOU` stop a process that touches the controlling terminal
+/// from a background process group. Left at their default disposition they stop
+/// *this* process, and a stopped process runs no destructors: `TerminalGuard`
+/// never fires, so the terminal is abandoned in raw mode inside the alternate
+/// screen and the shell's prompt is drawn on top of the last frame. That is what
+/// `[1] + suspended (tty input)` looks like from the user's seat -- a crash with
+/// a wrecked terminal.
+///
+/// Merely *registering* a handler is the fix: a caught signal does not stop the
+/// process, so the offending read or write fails and the loop carries on.
+/// `SIGCONT` repairs the aftermath of a stop this cannot prevent -- `SIGSTOP`,
+/// or anything that landed before these were installed -- by rebuilding the
+/// terminal state on resume.
+#[cfg(unix)]
+struct TerminalSignals {
+    ttin: tokio::signal::unix::Signal,
+    ttou: tokio::signal::unix::Signal,
+    cont: tokio::signal::unix::Signal,
+}
+
+#[cfg(unix)]
+impl TerminalSignals {
+    /// Numbers come from `libc`, never from this file. `SIGTTIN` and `SIGTTOU`
+    /// happen to agree across platforms, but `SIGCONT` does not -- it is 18 on
+    /// Linux and 19 on the BSDs, macOS included -- and a hardcoded 18 registers
+    /// a handler for `SIGTSTP` on a Mac while silently reporting success. The
+    /// test below caught exactly that.
+    fn install() -> std::io::Result<Self> {
+        use tokio::signal::unix::{signal, SignalKind};
+        Ok(Self {
+            ttin: signal(SignalKind::from_raw(libc::SIGTTIN))?,
+            ttou: signal(SignalKind::from_raw(libc::SIGTTOU))?,
+            cont: signal(SignalKind::from_raw(libc::SIGCONT))?,
+        })
+    }
+}
+
+/// Wait for the next terminal-ownership signal. Resolves to `true` when the
+/// process has just been resumed and the terminal needs rebuilding.
+///
+/// One future over all three, because `tokio::select!` evaluates every branch's
+/// future up front and three branches cannot each hold `&mut signals`.
+#[cfg(unix)]
+async fn next_terminal_signal(signals: &mut Option<TerminalSignals>) -> bool {
+    match signals.as_mut() {
+        Some(s) => {
+            tokio::select! {
+                // Caught, therefore not fatal and not a stop. Nothing to do but
+                // carry on -- the read or write that provoked it has already
+                // failed and the loop handles that.
+                _ = s.ttin.recv() => false,
+                _ = s.ttou.recv() => false,
+                _ = s.cont.recv() => true,
+            }
+        }
+        None => std::future::pending().await,
+    }
+}
+
+#[cfg(not(unix))]
+async fn next_terminal_signal(_signals: &mut Option<()>) -> bool {
+    std::future::pending().await
+}
+
+/// Rebuild the terminal after a resume. Anything that stopped this process left
+/// raw mode and the alternate screen behind, and the shell has since drawn over
+/// both.
+#[cfg(unix)]
+fn reclaim_terminal() {
+    use crossterm::terminal::{enable_raw_mode, EnterAlternateScreen};
+    let _ = enable_raw_mode();
+    let _ = execute!(std::io::stdout(), EnterAlternateScreen, EnableMouseCapture);
+}
+
+#[cfg(not(unix))]
+fn reclaim_terminal() {}
+
 /// Puts the terminal back on every exit path, including early returns.
 struct TerminalGuard;
 
@@ -197,6 +276,13 @@ async fn event_loop(
     let mut known_epoch = app.panels_epoch;
     let mut resize_at: Option<Instant> = None;
     let mut dirty = true;
+    // A failure to install these is not worth refusing to start over -- it only
+    // costs the terminal repair, which is exactly the state the app was in
+    // before they existed.
+    #[cfg(unix)]
+    let mut signals = TerminalSignals::install().ok();
+    #[cfg(not(unix))]
+    let mut signals: Option<()> = None;
 
     loop {
         if dirty {
@@ -213,6 +299,18 @@ async fn event_loop(
 
         tokio::select! {
             biased;
+
+            resumed = next_terminal_signal(&mut signals) => {
+                if resumed {
+                    // Whatever stopped us abandoned raw mode and the alternate
+                    // screen, and the shell has drawn over both since. Rebuild
+                    // rather than redraw: a plain redraw paints the frame into
+                    // whichever buffer the shell left showing.
+                    reclaim_terminal();
+                    let _ = terminal.clear();
+                    dirty = true;
+                }
+            }
 
             maybe = events.next() => {
                 match maybe {
@@ -707,3 +805,61 @@ fn restart_all_agents(
 /// Long-lived: streams monitor frames and reconnects on failure.
 mod spawn;
 use spawn::spawn_monitor;
+
+#[cfg(all(test, unix))]
+mod terminal_signal_tests {
+    #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+
+    use super::TerminalSignals;
+    use std::time::Duration;
+
+    /// One test, because signal dispositions are process-global.
+    ///
+    /// Split across two `#[test]`s these raced: the harness runs them on
+    /// parallel threads of the *same* process, so one test's `kill` lands in
+    /// the other's stream and both flap. There is only one signal table, so
+    /// there is only one test.
+    ///
+    /// What it protects:
+    ///
+    /// `SIGTTIN` at its default disposition *stops* this process, and a stopped
+    /// process runs no destructors -- `TerminalGuard` never restores the
+    /// terminal, so the shell draws its prompt on top of the last frame, inside
+    /// the alternate screen, with raw mode still on. From the user's seat that
+    /// is a crash that also wrecks the terminal; `zsh` reports
+    /// `suspended (tty input)`.
+    ///
+    /// `SIGCONT` must be registered as well, or a stop this cannot prevent
+    /// (`SIGSTOP`) leaves the terminal wrecked even after `fg`. Its number is
+    /// the one that differs by platform -- 18 on Linux, 19 on macOS -- and a
+    /// hardcoded 18 registered `SIGTSTP` on a Mac while reporting success.
+    ///
+    /// `kill` is spawned rather than called through `libc` because the
+    /// workspace denies `unsafe_code` and raising a signal is unsafe.
+    #[tokio::test]
+    async fn terminal_ownership_signals_are_caught_rather_than_fatal() {
+        let mut signals = TerminalSignals::install().expect("handlers must install");
+
+        for (flag, stream) in [("-TTIN", 0_u8), ("-TTOU", 1), ("-CONT", 2)] {
+            let sent = std::process::Command::new("kill")
+                .arg(flag)
+                .arg(std::process::id().to_string())
+                .status()
+                .expect("kill must run");
+            assert!(sent.success(), "could not send {flag}");
+
+            // Reaching the assertion at all is most of the point: with the
+            // default disposition the process is stopped by the line above and
+            // does not resume without an outside `fg`.
+            let waited = match stream {
+                0 => tokio::time::timeout(Duration::from_secs(5), signals.ttin.recv()).await,
+                1 => tokio::time::timeout(Duration::from_secs(5), signals.ttou.recv()).await,
+                _ => tokio::time::timeout(Duration::from_secs(5), signals.cont.recv()).await,
+            };
+            assert!(
+                waited.is_ok(),
+                "{flag} must reach the handler rather than stop the process"
+            );
+        }
+    }
+}
