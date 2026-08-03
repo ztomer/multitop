@@ -60,7 +60,8 @@ Additional views accessible via keys:
 
 - **Docker view** (`d`) — container list with CPU/memory usage, sorted by load
 - **Update view** (`u`) — per-server update status; press `u` again to run
-- **Configuration screen** (`p`) — manage passwords, vault, and server entries
+- **Configuration screen** (`e`) — servers, their passwords, and the vault
+- **Filter** (`/`) — narrow the grid to hosts matching what you type
 
 The update view is deliberately two presses. The first switches to it and
 starts nothing, showing for each server what command would run, when it last
@@ -75,13 +76,16 @@ returning with **s** is instant rather than reconnecting.
 
 | Key | Action |
 |-----|--------|
-| **ESC** / **Q** / **q** | Quit (terminates every SSH session) |
+| **ESC** / **Q** / **q** | Quit (terminates every SSH session). With a filter applied, the first **ESC** clears it |
 | **c** | Sort processes / Docker containers by CPU load |
 | **m** | Sort processes / Docker containers by Memory usage |
 | **d** | Toggle the Docker view on all panels |
 | **s** | Back to live stats |
 | **u** | Show the update status view; press again to run the updates |
-| **p** | Open Configuration: manage passwords, vault, and servers |
+| **f** | Toggle the Fetch view |
+| **e** | Open Configuration: servers, passwords, vault |
+| **/** | Filter the grid by host or user; **Enter** keeps it, **ESC** clears it |
+| **1**–**9** | Select a panel |
 | **t** | Cycle the active theme |
 
 ## Configuration
@@ -104,7 +108,10 @@ Multitop includes an encrypted vault for sudo passwords with biometric unlock:
 
 - **macOS**: Touch ID / Face ID via Secure Enclave (ECIES P-256)
 - **Linux**: Fingerprint via fprintd (D-Bus)
-- **Fallback**: Master password (Argon2id, auto-tuned to available RAM)
+- **Fallback**: the vault master password (Argon2id, auto-tuned to available RAM)
+
+The master password unlocks the vault. It is not a sudo password: each server
+has its own, kept inside.
 
 ### Features
 
@@ -114,7 +121,6 @@ Multitop includes an encrypted vault for sudo passwords with biometric unlock:
 - **Rate limiting** — exponential backoff (1s, 2s, 4s… max 60s), hard lockout after 10 failures (5 min)
 - **Rollback protection** — monotonic counter stored in OS keychain; rejects replaced/old vault files
 - **mlock** — vault key locked in RAM (best-effort on macOS/Linux)
-- **Secure overwrite** — 3-pass random/zero/random on key rotation (best-effort)
 - **Keychain storage** — rollback counter stored in OS keychain (`multitop-vault-rollback`)
 
 ### Vault Integration
@@ -125,12 +131,28 @@ Multitop includes an encrypted vault for sudo passwords with biometric unlock:
 
 ## Configuration and passwords
 
-Press **p** for the full-screen Configuration screen. **Tab** switches between
-Passwords and Servers. Server changes are written to the config file and take
-effect after restarting multitop. Passwords can be retained for the current
-session or saved with **S** in the OS credential store: macOS Keychain or the
-Linux desktop Secret Service. Saving the first password offers to create the
-encrypted vault.
+Press **e** for the full-screen Configuration screen: one list of servers with
+the password status of each.
+
+| Key | Action |
+|-----|--------|
+| **Enter** | Edit this server — host, user, port, upgrade command, password |
+| **A** | Add a server |
+| **D** | Delete a server (asks first) |
+| **I** | Add hosts from `~/.ssh/config` that are not configured yet |
+| **R** | Change the vault master password |
+| **S** | Toggle sparklines (experimental) |
+| **ESC** / **E** | Return |
+
+**Every server has its own sudo password**, typed in that server's row. There is
+no shared one. A password set for one host is set for that host and no other;
+leaving the field empty removes the one already stored. Passwords go to the OS
+credential store — macOS Keychain, or the Linux desktop Secret Service — and to
+the vault when it is unlocked. Saving the first password offers to create the
+vault.
+
+Server changes are written to the config file and take effect immediately;
+panels are rebuilt without a restart.
 
 Password values are never displayed or written to `config.toml`. A
 `sudo_password` key there is not supported — it is plaintext on disk and was

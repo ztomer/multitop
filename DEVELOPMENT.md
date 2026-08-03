@@ -7,9 +7,6 @@ Internal documentation for contributors and maintainers.
 | Topic | Document |
 |-------|----------|
 | **Release Process** | [RELEASE.md](RELEASE.md) |
-| **E2E Test Gaps** | [docs/e2e_test_gaps.md](docs/e2e_test_gaps.md) |
-| **E2E Test Phased Plan** | [docs/e2e_test_phased_plan.md](docs/e2e_test_phased_plan.md) |
-| **Upgrade E2E Test Plan** | [docs/upgrade_e2e_test_plan.md](docs/upgrade_e2e_test_plan.md) |
 | **Performance** | [docs/performance.md](docs/performance.md) |
 | **Roadmap** | [docs/roadmap.md](docs/roadmap.md) — the single forward-looking backlog |
 
@@ -90,6 +87,26 @@ password_store::clear_mock_store();
 
 Only the Susan Kare icon set is permitted in place of emoji:
 `→ · ✓ ✗ ⚠ ↔ ↑ ↓`, plus the Mac key glyphs `← ⌘ ⌥ ⌨`.
+
+## Tests
+
+Three shapes, and the distinction matters:
+
+| Shape | Where | What it proves |
+|-------|-------|----------------|
+| Unit | `#[cfg(test)]` in `src/` | One function's contract. Compiled with `cfg(test)`, so the credential store is mocked automatically. |
+| Integration | `crates/*/tests/` | A path through the real API. Compiled **without** `cfg(test)` — see Keychain isolation below. |
+| Keystroke-through-render | `config_panel_e2e.rs`, `filter_e2e.rs` | Real `KeyEvent`s through `run::handle_key`, then a real `ui::draw` into a `TestBackend`. |
+
+That third shape exists because the suite once had thorough coverage of
+`handle_key` and `password_actions::apply` and never once ran the renderer, so a
+panic in `config_ui::draw` was invisible to all of it. Anything that changes the
+Configuration panel or the grid belongs there.
+
+Both of those files end in a sweep that walks every key sequence the panel
+accepts to a fixed depth and draws each frame. The class being ruled out is "a
+state the UI can reach that the renderer cannot draw" — one reported crash is an
+instance of it, and only walking the reachable states covers the class.
 
 ## Test Commands
 
