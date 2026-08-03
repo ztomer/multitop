@@ -337,7 +337,11 @@ fn offer_vault_creation(app: &mut App) {
     {
         return;
     }
-    if app.begin_vault_creation() {
-        app.password_manager = None;
-    }
+    // Server Settings stays open behind the prompt. It used to be closed here,
+    // because `ui::draw` returned early for the configuration panel and the
+    // prompt would otherwise have been invisible -- so answering it dropped the
+    // user back on the stats screen, having lost the panel they were working
+    // in. The renderer now draws modals over the panel, so this is just a modal
+    // over the list, and Esc leaves the list where it was.
+    app.begin_vault_creation();
 }

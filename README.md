@@ -136,20 +136,26 @@ the password status of each.
 
 | Key | Action |
 |-----|--------|
-| **Enter** | Edit this server — host, user, port, upgrade command, password |
+| **Enter** / **E** | Edit this server — host, user, port, upgrade command, password |
 | **A** | Add a server |
 | **D** | Delete a server (asks first) |
 | **I** | Add hosts from `~/.ssh/config` that are not configured yet |
 | **R** | Change the vault master password |
 | **S** | Toggle sparklines (experimental) |
-| **ESC** / **E** | Return |
+| **ESC** / **Q** | Return |
 
 **Every server has its own sudo password**, typed in that server's row. There is
 no shared one. A password set for one host is set for that host and no other;
 leaving the field empty removes the one already stored. Passwords go to the OS
 credential store — macOS Keychain, or the Linux desktop Secret Service — and to
 the vault when it is unlocked. Saving the first password offers to create the
-vault.
+vault, over this screen: answering the offer leaves you where you were.
+
+Once a vault exists it is the source of truth, and the credential store is not
+consulted to *report* on credentials — only to fall back on if the vault turns
+out not to hold a host's password when a run needs it. That keeps a single
+upgrade to a single unlock instead of an OS credential dialog followed by the
+vault prompt.
 
 Server changes are written to the config file and take effect immediately;
 panels are rebuilt without a restart.

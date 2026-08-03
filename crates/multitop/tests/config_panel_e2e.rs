@@ -67,6 +67,11 @@ struct Harness {
     servers: Vec<Server>,
     tasks: Tasks,
     tx: mpsc::Sender<Msg>,
+    /// Kept, not dropped: the vault work a key press spawns reports back
+    /// through this channel, and a dropped receiver means every one of those
+    /// results silently disappears -- so a test could never see what the app
+    /// did with them.
+    rx: mpsc::Receiver<Msg>,
     dims_rx: Arc<watch::Receiver<(u16, u16)>>,
     terminal: Terminal<TestBackend>,
     /// Mirrors the event loop's `known_epoch`, so the harness refreshes
@@ -83,7 +88,7 @@ impl Harness {
         let mut app = App::new(servers.clone());
         let dir = tempfile::tempdir().unwrap();
         app.config_path = Some(dir.path().join("config.toml"));
-        let (tx, _rx) = mpsc::channel::<Msg>(256);
+        let (tx, rx) = mpsc::channel::<Msg>(256);
         let (dims_tx, drx) = watch::channel((80u16, 24u16));
         drop(dims_tx);
         let known_epoch = app.panels_epoch;
@@ -93,6 +98,7 @@ impl Harness {
             app,
             servers,
             tx,
+            rx,
             dims_rx: Arc::new(drx),
             known_epoch,
             _dir: dir,
@@ -131,6 +137,30 @@ impl Harness {
         for c in text.chars() {
             self.press(KeyCode::Char(c));
         }
+    }
+
+    /// Deliver every message the spawned work has produced, exactly as the
+    /// event loop does, and return how many there were.
+    ///
+    /// The wait is bounded: one attempt that produces nothing is the answer to
+    /// "did a second attempt start?", so it must not hang waiting for one.
+    async fn pump(&mut self, patience: std::time::Duration) -> usize {
+        let mut delivered = 0;
+        // A duplicate attempt is queued behind the first on this runtime, so
+        // the grace has to cover one more Argon2id run at test parameters
+        // (tens of milliseconds) with room to spare -- otherwise "no second
+        // attempt" would just mean "did not wait for it".
+        let grace = std::time::Duration::from_secs(3);
+        loop {
+            let wait = if delivered == 0 { patience } else { grace };
+            let Ok(Some(msg)) = tokio::time::timeout(wait, self.rx.recv()).await else {
+                break;
+            };
+            self.app.apply(msg);
+            delivered += 1;
+        }
+        self.draw();
+        delivered
     }
 
     /// Render the frame this state produces. The assertion is that it returns.
@@ -309,6 +339,143 @@ async fn the_vault_creation_offer_renders_and_can_be_declined() {
     assert!(!h.app.vault_creating(), "Esc must decline the offer");
 }
 
+/// Walk from the row editor to a created vault, the way a user does.
+///
+/// Returns with the vault made and every message delivered.
+async fn create_a_vault(h: &mut Harness, master: &str) -> usize {
+    h.press(KeyCode::Char('e'));
+    h.press(KeyCode::Enter);
+    for _ in 0..4 {
+        h.press(KeyCode::Tab);
+    }
+    h.type_str("host-secret");
+    h.press(KeyCode::Enter);
+    assert!(h.app.vault_creating(), "the first password offers a vault");
+    h.type_str(master);
+    h.press(KeyCode::Enter);
+    h.pump(std::time::Duration::from_secs(10)).await
+}
+
+/// Answering the vault offer must leave the user where they were.
+///
+/// Reported: "when setting the vault password, stay on the settings pane, do
+/// not switch back to the stats panel." It did switch, because the renderer
+/// drew either the configuration panel or a modal and never both, so the offer
+/// could only be shown by closing the panel first.
+#[tokio::test]
+async fn creating_a_vault_from_server_settings_stays_in_server_settings() {
+    let _guard = setup().await;
+    let mut h = Harness::new(&["host-a"]);
+
+    h.press(KeyCode::Char('e'));
+    h.press(KeyCode::Enter);
+    for _ in 0..4 {
+        h.press(KeyCode::Tab);
+    }
+    h.type_str("host-secret");
+    h.press(KeyCode::Enter);
+
+    assert!(h.app.vault_creating(), "the offer must appear");
+    assert!(
+        h.app.password_manager.is_some(),
+        "the offer must not close Server Settings"
+    );
+    assert!(
+        h.screen().contains("Create Vault"),
+        "and the prompt must be drawn over the panel, got:\n{}",
+        h.screen()
+    );
+
+    // Declining is the same story: back to the list, not to the stats screen.
+    h.press(KeyCode::Esc);
+    assert!(!h.app.vault_creating());
+    assert!(
+        h.app.password_manager.is_some(),
+        "Esc returns to the settings list"
+    );
+    assert!(
+        h.screen().contains("Server Settings"),
+        "got:\n{}",
+        h.screen()
+    );
+}
+
+/// The master password is taken once, however many times Enter is pressed.
+///
+/// Reported: "I had to enter the vault password three times when creating it."
+/// Enter handed the password to Argon2id and left the prompt on screen with an
+/// empty field, so it read as not having taken -- and every re-submission
+/// initialised the vault again. The later attempts failed (a vault existed by
+/// then) and their failures, carrying the same epoch as the first attempt's
+/// success, put the creation prompt back up over a working vault.
+#[tokio::test]
+async fn a_second_enter_cannot_start_a_second_vault_creation() {
+    let _guard = setup().await;
+    let mut h = Harness::new(&["host-a"]);
+
+    h.press(KeyCode::Char('e'));
+    h.press(KeyCode::Enter);
+    for _ in 0..4 {
+        h.press(KeyCode::Tab);
+    }
+    h.type_str("host-secret");
+    h.press(KeyCode::Enter);
+    assert!(h.app.vault_creating());
+
+    h.type_str("master-once");
+    h.press(KeyCode::Enter);
+    assert!(
+        h.app.vault_create_in_flight(),
+        "the prompt must report that it took the password"
+    );
+    let screen = h.screen();
+    assert!(
+        screen.contains("Creating Vault"),
+        "and say so on screen, got:\n{screen}"
+    );
+
+    // What a user does when a field looks empty: type it again. Twice.
+    h.type_str("master-once");
+    h.press(KeyCode::Enter);
+    h.type_str("master-once");
+    h.press(KeyCode::Enter);
+
+    let delivered = h.pump(std::time::Duration::from_secs(10)).await;
+    assert_eq!(
+        delivered, 1,
+        "one Enter, one attempt -- extra presses must not initialise the vault again"
+    );
+    assert!(
+        !h.app.vault_creating(),
+        "the prompt must be gone once the vault exists, not back with an error: {:?}",
+        h.app.vault_create_error()
+    );
+    assert!(h.app.vault.is_some(), "and the vault must exist");
+    assert!(
+        h.app.password_manager.is_some(),
+        "still in Server Settings afterwards"
+    );
+    assert!(
+        h.notice().contains("Vault created"),
+        "with the outcome said where the user is looking, got: {:?}",
+        h.notice()
+    );
+}
+
+/// The password that started all this must be in the vault it created.
+#[tokio::test]
+async fn the_password_that_offered_the_vault_is_stored_in_it() {
+    let _guard = setup().await;
+    let mut h = Harness::new(&["host-a"]);
+
+    assert_eq!(create_a_vault(&mut h, "master-once").await, 1);
+    assert!(h.app.vault.is_some());
+    assert_eq!(
+        h.app.panels[0].sudo_password.as_deref(),
+        Some("host-secret")
+    );
+}
+
 /// A terminal too small for the panel must clip, not panic.
 #[tokio::test]
 async fn the_panel_renders_in_a_terminal_too_small_for_it() {
@@ -361,7 +528,9 @@ async fn s_toggles_sparklines_from_the_experimental_block() {
 const SWEEP_KEYS: &[KeyCode] = &[
     KeyCode::Char('a'),
     KeyCode::Char('d'),
+    KeyCode::Char('e'),
     KeyCode::Char('i'),
+    KeyCode::Char('q'),
     KeyCode::Char('r'),
     KeyCode::Char('s'),
     KeyCode::Char('y'),

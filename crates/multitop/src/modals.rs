@@ -117,9 +117,48 @@ pub fn draw_upgrade_modal(f: &mut Frame, app: &App) {
     f.render_widget(paragraph, popup_rect);
 }
 
-/// The "please wait" modal, shown while a biometric prompt or an Argon2
-/// password verification is outstanding. `verifying` picks the wording.
-pub fn draw_vault_awaiting_biometric(f: &mut Frame, verifying: bool) {
+/// Which slow vault operation the "please wait" modal is reporting.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Waiting {
+    /// A Touch ID / fingerprint prompt is outstanding.
+    Biometric,
+    /// Argon2id is checking a typed master password.
+    Verifying,
+    /// Argon2id is deriving the key for a brand new vault.
+    Creating,
+}
+
+impl Waiting {
+    const fn title(self) -> &'static str {
+        match self {
+            Self::Biometric => " Vault Locked ",
+            Self::Verifying => " Unlocking Vault ",
+            Self::Creating => " Creating Vault ",
+        }
+    }
+
+    const fn headline(self) -> &'static str {
+        match self {
+            Self::Biometric => "  Unlocking with Touch ID / fingerprint\u{2026}",
+            Self::Verifying => "  Checking the master password\u{2026}",
+            Self::Creating => "  Encrypting the new vault\u{2026}",
+        }
+    }
+
+    const fn hint(self) -> &'static str {
+        match self {
+            Self::Biometric => "  Esc to cancel and use the vault password instead.",
+            Self::Verifying => "  This takes a moment by design. Esc to cancel.",
+            // Says not to retype, because retyping is exactly what the empty
+            // field invited before this modal existed -- and every extra Enter
+            // was another vault initialisation.
+            Self::Creating => "  This takes a moment by design \u{2014} no need to type it again.",
+        }
+    }
+}
+
+/// The "please wait" modal, shown while a slow vault operation is outstanding.
+pub fn draw_vault_awaiting_biometric(f: &mut Frame, waiting: Waiting) {
     let area = f.area();
     let popup_width = (64u16).min(area.width.saturating_sub(2));
     let popup_height = (8u16).min(area.height.saturating_sub(2));
@@ -142,11 +181,7 @@ pub fn draw_vault_awaiting_biometric(f: &mut Frame, verifying: bool) {
     );
 
     let block = ratatui::widgets::Block::default()
-        .title(if verifying {
-            " Unlocking Vault "
-        } else {
-            " Vault Locked "
-        })
+        .title(waiting.title())
         .title_style(
             Style::default()
                 .fg(accent_color)
@@ -160,20 +195,12 @@ pub fn draw_vault_awaiting_biometric(f: &mut Frame, verifying: bool) {
     let lines = vec![
         Line::from(""),
         Line::from(vec![Span::styled(
-            if verifying {
-                "  Checking the master password\u{2026}"
-            } else {
-                "  Unlocking with Touch ID / fingerprint\u{2026}"
-            },
+            waiting.headline(),
             Style::default().fg(Color::White),
         )]),
         Line::from(""),
         Line::from(vec![Span::styled(
-            if verifying {
-                "  This takes a moment by design. Esc to cancel."
-            } else {
-                "  Esc to cancel and use the vault password instead."
-            },
+            waiting.hint(),
             Style::default().fg(Color::DarkGray),
         )]),
     ];
@@ -185,7 +212,11 @@ pub fn draw_vault_awaiting_biometric(f: &mut Frame, verifying: bool) {
 pub fn draw_vault_password_prompt(f: &mut Frame, app: &App) {
     let area = f.area();
     let popup_width = (64u16).min(area.width.saturating_sub(2));
-    let popup_height = (10u16).min(area.height.saturating_sub(2));
+    // Creating explains what the password is for and carries three more lines
+    // for it. Sized to the content rather than left at the unlocking height,
+    // which clipped the "Press Enter to create" footer off the bottom.
+    let wanted = if app.vault_creating() { 12 } else { 10 };
+    let popup_height = wanted.min(area.height.saturating_sub(2));
 
     let x = (area.width.saturating_sub(popup_width)) / 2;
     let y = (area.height.saturating_sub(popup_height)) / 2;
@@ -241,14 +272,19 @@ pub fn draw_vault_password_prompt(f: &mut Frame, app: &App) {
         ]),
     ];
     if creating {
-        lines.push(Line::from(vec![Span::styled(
-            "  Sudo passwords are encrypted with it. Touch ID unlocks day to day;",
-            Style::default().fg(Color::DarkGray),
-        )]));
-        lines.push(Line::from(vec![Span::styled(
-            "  this password is the recovery path if that key is ever lost.",
-            Style::default().fg(Color::DarkGray),
-        )]));
+        // Kept inside the box: it is 64 columns wide at most, so 62 is the
+        // budget and the first of these used to be 68 -- the sentence about
+        // what the password is *for* lost its verb to the border.
+        for row in [
+            "  Sudo passwords are encrypted with it.",
+            "  Touch ID unlocks it day to day; this password is the",
+            "  recovery path if that key is ever lost.",
+        ] {
+            lines.push(Line::from(vec![Span::styled(
+                row,
+                Style::default().fg(Color::DarkGray),
+            )]));
+        }
     }
     if let Some(error) = app
         .vault_create_error()

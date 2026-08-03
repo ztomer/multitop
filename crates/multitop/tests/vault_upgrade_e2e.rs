@@ -516,3 +516,61 @@ async fn test_vault_biometric_failures_do_not_trigger_lockout() {
     );
     drop(unlocked);
 }
+
+/// The first `u` -- the read-only screen that says what an upgrade *would* do --
+/// must not reach the OS credential store when a vault exists.
+///
+/// Reported: "Upgrade - I had to enter the vault password twice - one to unlock
+/// the vault, and one when initiating updates." Entering the view asked the
+/// credential store about every host so it could report "password stored". On
+/// macOS that is a system credential dialog per host, raised *before* the vault
+/// is ever unlocked, because the binary's code signature changes on every
+/// rebuild and the keychain grant never sticks. Two prompts for one upgrade.
+///
+/// Once a vault exists it holds everything the credential store holds -- saving
+/// a password writes to both -- so the store has nothing to add and is not
+/// asked. The proxy for "was it asked" is whether the panel came back holding a
+/// password that only the store had.
+#[tokio::test]
+async fn entering_the_upgrade_view_does_not_read_the_credential_store_when_a_vault_exists() {
+    let _keychain = isolate_keychain_async().await;
+    let (mut app, _temp_dir) = app_with_vault(test_servers(), "test-master", HashMap::new()).await;
+    // Only the credential store knows this one.
+    password_store::save(&app.panels[0].server, "only-in-the-keychain").unwrap();
+    // A fresh start: the vault exists and is locked.
+    app.vault_state = VaultState::Locked;
+
+    app.enter_upgrade_view();
+
+    assert_eq!(
+        app.panels[0].sudo_password, None,
+        "the credential store must not be read behind a locked vault"
+    );
+    let pane = app.panels[0].view.join("\n");
+    assert!(
+        pane.contains("unlocks on run"),
+        "and the pane must say the vault will be asked, not guess: \n{pane}"
+    );
+    assert!(
+        !pane.contains("will prompt"),
+        "a locked vault is not a missing password: \n{pane}"
+    );
+}
+
+/// Without a vault the credential store is the only store there is, so the same
+/// screen must still read it -- that is what makes "password stored" true.
+#[tokio::test]
+async fn entering_the_upgrade_view_still_reads_the_credential_store_without_a_vault() {
+    let _keychain = isolate_keychain_async().await;
+    let mut app = App::new(test_servers());
+    password_store::save(&app.panels[0].server, "keychain-only").unwrap();
+
+    app.enter_upgrade_view();
+
+    assert_eq!(
+        app.panels[0].sudo_password.as_deref(),
+        Some("keychain-only"),
+        "with no vault, the credential store is the source of truth"
+    );
+    assert!(app.panels[0].view.join("\n").contains("password stored"));
+}

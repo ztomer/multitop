@@ -23,6 +23,11 @@ pub enum Credential {
     Session,
     /// Nothing available; the upgrade will prompt for this host.
     Missing,
+    /// A vault exists but is locked, so what it holds for this host is not
+    /// known yet. Reading the OS credential store to find out would raise a
+    /// system credential dialog on a screen the user only came to *read* --
+    /// which is one of the two password prompts a single upgrade used to cost.
+    VaultLocked,
     /// Nothing available and there is no vault at all, so every host will
     /// prompt separately. Called out on its own because the fix differs: one
     /// vault removes every prompt, whereas saving one host's password removes
@@ -238,6 +243,12 @@ pub fn header(status: &Status, pal: &Palette, now: u64, width: usize) -> Vec<Str
                     "{}will prompt \u{b7} no vault set up{}",
                     pal.meter_high(),
                     pal.reset
+                )
+            }
+            Credential::VaultLocked => {
+                format!(
+                    "{}from the vault \u{b7} unlocks on run{}",
+                    pal.reset, pal.reset
                 )
             }
         };

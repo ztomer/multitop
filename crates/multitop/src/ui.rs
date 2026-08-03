@@ -394,10 +394,37 @@ fn draw_no_matches(f: &mut Frame, app: &App, theme: &multitop_agent::color::Pale
     );
 }
 
+/// Whatever modal is on top of everything else, if any.
+///
+/// Split out because Server Settings needs it too. It used to be reachable only
+/// from the main view, so saving a password there had to *close* the panel to
+/// show the vault-creation prompt -- the user pressed Enter on a row and landed
+/// back on the stats screen.
+fn draw_modals(f: &mut Frame, app: &App) {
+    use crate::modals::Waiting;
+    let waiting = if app.vault_create_in_flight() {
+        Some(Waiting::Creating)
+    } else if app.vault_verifying() {
+        Some(Waiting::Verifying)
+    } else if app.vault_awaiting_biometric() {
+        Some(Waiting::Biometric)
+    } else {
+        None
+    };
+    if let Some(waiting) = waiting {
+        crate::modals::draw_vault_awaiting_biometric(f, waiting);
+    } else if app.show_vault_password_prompt() || app.vault_creating() {
+        crate::modals::draw_vault_password_prompt(f, app);
+    } else if app.show_upgrade_modal() {
+        crate::modals::draw_upgrade_modal(f, app);
+    }
+}
+
 #[allow(clippy::too_many_lines)]
 pub fn draw(f: &mut Frame, app: &App) {
     if app.password_manager.is_some() {
         crate::config_ui::draw(f, app);
+        draw_modals(f, app);
         return;
     }
     // Filtering hides panels rather than dimming them: the point of narrowing to
@@ -409,6 +436,7 @@ pub fn draw(f: &mut Frame, app: &App) {
     let theme = app.current_theme();
     if shown.is_empty() {
         draw_no_matches(f, app, theme);
+        draw_modals(f, app);
         return;
     }
     let (panel_areas, keybar) = regions(f.area(), shown.len());
@@ -532,11 +560,5 @@ pub fn draw(f: &mut Frame, app: &App) {
         keybar,
     );
 
-    if app.vault_awaiting_biometric() || app.vault_verifying() {
-        crate::modals::draw_vault_awaiting_biometric(f, app.vault_verifying());
-    } else if app.show_vault_password_prompt() || app.vault_creating() {
-        crate::modals::draw_vault_password_prompt(f, app);
-    } else if app.show_upgrade_modal() {
-        crate::modals::draw_upgrade_modal(f, app);
-    }
+    draw_modals(f, app);
 }

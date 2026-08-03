@@ -53,6 +53,19 @@ pub enum VaultState {
     /// it rather than needing to be set up in advance.
     Creating {
         error: Option<String>,
+        /// True once Enter has handed a master password to `Vault::initialize`
+        /// and the answer has not arrived yet.
+        ///
+        /// Argon2id at full strength takes seconds. Without this the prompt sat
+        /// there with an empty field the whole time, which reads as "it did not
+        /// take" -- so the password was typed and submitted again, and again,
+        /// each press initialising the same vault. The second attempt then
+        /// failed (the vault now existed) and its `VaultCreateFailed` carried
+        /// the same epoch as the first attempt's success, so it dropped the
+        /// user back onto the creation prompt with an error after the vault was
+        /// already made. That is the reported "I had to enter the vault
+        /// password three times".
+        in_flight: bool,
     },
 }
 
@@ -358,9 +371,53 @@ impl App {
     #[must_use]
     pub const fn vault_create_error(&self) -> Option<&String> {
         match &self.vault_state {
-            VaultState::Creating { error } => error.as_ref(),
+            VaultState::Creating { error, .. } => error.as_ref(),
             _ => None,
         }
+    }
+
+    /// True while a vault is being created off-thread.
+    #[must_use]
+    pub const fn vault_create_in_flight(&self) -> bool {
+        matches!(
+            self.vault_state,
+            VaultState::Creating {
+                in_flight: true,
+                ..
+            }
+        )
+    }
+
+    /// Take the typed master password and mark the creation as in flight.
+    ///
+    /// Returns `None` when there is nothing to submit -- an empty field, or an
+    /// attempt already running. One press, one attempt: the caller cannot start
+    /// a second `initialize` over the first.
+    pub fn begin_vault_create_attempt(&mut self) -> Option<String> {
+        if self.vault_create_in_flight() {
+            return None;
+        }
+        let master = std::mem::take(&mut self.vault_password_input);
+        if master.is_empty() {
+            self.vault_state = VaultState::Creating {
+                error: Some("Master password cannot be empty".into()),
+                in_flight: false,
+            };
+            return None;
+        }
+        self.vault_state = VaultState::Creating {
+            error: None,
+            in_flight: true,
+        };
+        Some(master)
+    }
+
+    /// Report a failed creation attempt back onto the prompt.
+    pub fn fail_vault_creation(&mut self, error: String) {
+        self.vault_state = VaultState::Creating {
+            error: Some(error),
+            in_flight: false,
+        };
     }
 
     /// Ask for a master password so a vault can be created.
@@ -374,7 +431,10 @@ impl App {
         }
         self.bump_vault_epoch();
         self.vault_password_input.clear();
-        self.vault_state = VaultState::Creating { error: None };
+        self.vault_state = VaultState::Creating {
+            error: None,
+            in_flight: false,
+        };
         true
     }
 
@@ -619,7 +679,13 @@ impl App {
         } else if p.sudo_password.is_some() {
             crate::upgrade_view::Credential::Session
         } else if self.vault.is_some() {
-            crate::upgrade_view::Credential::Missing
+            // A locked vault has not been asked yet, and asking is what `u`
+            // does. Claiming "will prompt" here was a guess dressed as a fact.
+            if matches!(self.vault_state, VaultState::Unlocked { .. }) {
+                crate::upgrade_view::Credential::Missing
+            } else {
+                crate::upgrade_view::Credential::VaultLocked
+            }
         } else {
             // No vault at all: every host will prompt separately, which is the
             // difference between one prompt and one per server.
@@ -657,20 +723,47 @@ impl App {
         }
     }
 
+    /// Fill in every password this session can reach *without* asking anyone
+    /// for anything.
+    ///
+    /// The order is the whole point. Once a vault exists it is where passwords
+    /// live -- `PasswordAction::Save` writes to both stores, so the credential
+    /// store holds nothing the unlocked vault does not. Reading it anyway costs
+    /// a macOS keychain-access dialog per host (the binary's code signature
+    /// changes on every rebuild, so the grant never sticks), and that dialog is
+    /// a *second* password prompt on top of the vault unlock. Hence: vault when
+    /// there is one, credential store only when there is not.
+    fn load_known_passwords(&mut self) {
+        if let VaultState::Unlocked { ref vault, .. } = self.vault_state {
+            for p in &mut self.panels {
+                if p.sudo_password.is_none() {
+                    let key = crate::password_store::account(&p.server);
+                    if let Some(pass) = vault.get_password(&key) {
+                        p.sudo_password = Some(pass.expose_secret().to_string());
+                        p.external_password = true;
+                    }
+                }
+            }
+        }
+        if self.vault.is_none() {
+            for p in &mut self.panels {
+                p.ensure_sudo_password();
+            }
+        }
+    }
+
     /// First `u`: put every panel into the Upgrade view without starting
     /// anything. This is the screen the user reads before deciding to press
     /// `u` again, so it must have no side effects.
     pub fn enter_upgrade_view(&mut self) {
         self.reset_scroll();
-        // Ask the credential store before reporting on credentials. Passwords
-        // are loaded lazily, so a panel that has not run an upgrade yet this
+        // Report on credentials from what can be read silently. Passwords are
+        // loaded lazily, so a panel that has not run an upgrade yet this
         // session holds nothing in memory -- and the pane read that emptiness
         // as "will prompt" for hosts whose password was saved long ago. Opening
         // this view is a deliberate user action, and telling them whether they
         // are about to be asked for a password is the point of it.
-        for p in &mut self.panels {
-            p.ensure_sudo_password();
-        }
+        self.load_known_passwords();
         for i in 0..self.panels.len() {
             self.panels[i].mode = Mode::Upgrade;
             let running = self.panels[i].upgrade_state == crate::panel::UpgradeState::STARTED;
@@ -684,18 +777,8 @@ impl App {
     pub fn run_upgrade(&mut self) -> Vec<Command> {
         self.reset_scroll();
         let pal = self.current_theme();
-        // Pre-load vault passwords if vault is unlocked
-        if let VaultState::Unlocked { ref vault, .. } = &self.vault_state {
-            for p in &mut self.panels {
-                if p.sudo_password.is_none() {
-                    let key = crate::password_store::account(&p.server);
-                    if let Some(pass) = vault.get_password(&key) {
-                        p.sudo_password = Some(pass.expose_secret().to_string());
-                        p.external_password = true;
-                    }
-                }
-            }
-        }
+        // Vault first, same as the view does.
+        self.load_known_passwords();
         let mut cmds = Vec::new();
         let mut started = Vec::new();
         let mut skipped = Vec::new();
@@ -1037,12 +1120,16 @@ impl App {
                 };
                 self.seed_vault_from_panels();
                 self.vault_password_input.clear();
+                let note = "Vault created. Sudo passwords are now stored encrypted; \
+                     unlock with Touch ID.";
+                // Said where the user is looking. Creating a vault starts in
+                // Server Settings, whose panel covers the whole screen, so a
+                // line appended to the panels behind it is a line nobody reads.
+                if let Some(manager) = self.password_manager.as_mut() {
+                    manager.notice = Some(note.to_string());
+                }
                 for p in &mut self.panels {
-                    p.view.push(
-                        "Vault created. Sudo passwords are now stored encrypted; \
-                         unlock with Touch ID."
-                            .to_string(),
-                    );
+                    p.view.push(note.to_string());
                 }
             }
             Msg::VaultUnlockFailed { epoch, error } => {
@@ -1054,10 +1141,14 @@ impl App {
                 self.vault_state = VaultState::PasswordPrompt { error: Some(error) };
             }
             Msg::VaultCreateFailed { epoch, error } => {
-                if !self.vault_epoch_current(epoch) {
+                // Also refuses to reopen the prompt over a vault that exists:
+                // the failing attempt may be a duplicate of one that already
+                // succeeded, and reporting it would take a working vault back
+                // off the user.
+                if !self.vault_epoch_current(epoch) || self.vault.is_some() {
                     return;
                 }
-                self.vault_state = VaultState::Creating { error: Some(error) };
+                self.fail_vault_creation(error);
             }
             Msg::VaultUnlocked { epoch, unlocked } => {
                 if !self.vault_epoch_current(epoch) {

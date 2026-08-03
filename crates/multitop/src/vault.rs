@@ -12,6 +12,30 @@ pub enum VaultState {
     Unlocked,
 }
 
+/// The settings every vault this process opens or creates is built with.
+///
+/// One place, because the two call sites disagreeing is a way to open a vault
+/// that cannot be unlocked. Both knobs follow `password_store::is_mock_enabled`:
+/// a test that has diverted the credential store must not have the vault reach
+/// the real keychain behind its back for lockout and rollback state, and must
+/// not pay Argon2id at a quarter of system RAM to make a throwaway vault.
+#[must_use]
+pub fn config_for(vault_path: std::path::PathBuf) -> VaultConfig {
+    let mocked = password_store::is_mock_enabled();
+    VaultConfig {
+        vault_path,
+        // 32 MiB is the floor the crypto layer accepts; anything lower is
+        // rejected outright rather than being quietly weakened.
+        argon2_params: mocked.then_some(multitop_vault::crypto::Argon2Params {
+            t: 1,
+            m_kib: 32768,
+            p: 1,
+        }),
+        // Real runs use the OS keychain for lockout and rollback state.
+        use_os_keychain: !mocked,
+    }
+}
+
 #[must_use]
 pub fn create_vault(config_path: &std::path::Path) -> Option<Vault> {
     let vault_dir = config_path.parent()?;
@@ -19,12 +43,7 @@ pub fn create_vault(config_path: &std::path::Path) -> Option<Vault> {
     if !vault_path.exists() {
         return None;
     }
-    Some(Vault::new(VaultConfig {
-        vault_path,
-        argon2_params: None,
-        // Real runs use the OS keychain for lockout and rollback state.
-        use_os_keychain: true,
-    }))
+    Some(Vault::new(config_for(vault_path)))
 }
 
 pub fn try_load_vault_password(panel: &mut Panel, unlocked: &UnlockedVault) {

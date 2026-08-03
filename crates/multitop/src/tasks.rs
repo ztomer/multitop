@@ -194,6 +194,38 @@ pub fn spawn_docker(
     })
 }
 
+/// The states one read line passed through, in the order they were painted.
+///
+/// A `\r` inside a line is a rewrite, not a line break. `apt`, `docker pull`
+/// and friends paint a progress display over itself with carriage returns and
+/// only emit `\n` when it is finished, so a single read line can carry every
+/// percentage it ever showed. Splitting on `\r` and logging each piece turned
+/// one progress bar into a screenful of near-identical lines -- the reported
+/// "updating a line in place adds all the update screen instead".
+///
+/// Every state is returned because a sentinel can be printed and then painted
+/// over, and the flags that come from scanning must not miss it. Only the last
+/// non-empty one is what a terminal would be showing, and that is the one worth
+/// keeping in the log.
+fn painted_states(line: &str) -> impl DoubleEndedIterator<Item = &str> {
+    line.trim_end_matches('\n')
+        .split('\r')
+        .map(|state| state.trim_end_matches('\r'))
+}
+
+/// Whether a line is sudo explaining that it could not ask for a password.
+///
+/// One copy, because the two streams disagreeing about what counts is how one
+/// of them stops recognising it.
+fn is_sudo_help(lower: &str) -> bool {
+    lower.contains("sudo")
+        && (lower.contains("terminal")
+            || lower.contains("password")
+            || lower.contains("pre-authorized")
+            || lower.contains("tty")
+            || lower.contains("prompt on"))
+}
+
 /// How many lines to look at before giving up on the readiness sentinel. A
 /// login shell may print a banner first; beyond this something is wrong and the
 /// run should proceed (and fail on sudo) rather than hang.
@@ -322,21 +354,26 @@ pub fn spawn_upgrade(
                 line = stdout_lines.next_line() => {
                     match line {
                         Ok(Some(line)) => {
-                            let line = line.trim_end_matches('\n').trim_end_matches('\r');
-                            for part in line.split('\r') {
-                                let clean = part.trim_end_matches('\r');
-                                if clean.trim() == ssh::SUDO_FAILED_SENTINEL {
+                            // Scan every state this line passed through, log
+                            // only the one it ended on.
+                            let mut visible = None;
+                            for state in painted_states(&line) {
+                                let trimmed = state.trim();
+                                if trimmed == ssh::SUDO_FAILED_SENTINEL {
                                     sudo_rejected = true;
                                     continue;
                                 }
-                                if !clean.trim().is_empty() {
-                                    let lower = clean.to_lowercase();
-                                    if lower.contains("sudo") && (lower.contains("terminal") || lower.contains("password") || lower.contains("pre-authorized") || lower.contains("tty") || lower.contains("prompt on")) {
-                                        sudo_help = true;
-                                    }
-                                    if tx.send(Msg::AuxLine { panel: idx, gen, line: clean.to_string() }).await.is_err() {
-                                        return;
-                                    }
+                                if trimmed.is_empty() {
+                                    continue;
+                                }
+                                if is_sudo_help(&trimmed.to_lowercase()) {
+                                    sudo_help = true;
+                                }
+                                visible = Some(state);
+                            }
+                            if let Some(state) = visible {
+                                if tx.send(Msg::AuxLine { panel: idx, gen, line: state.to_string() }).await.is_err() {
+                                    return;
                                 }
                             }
                         }
@@ -344,23 +381,29 @@ pub fn spawn_upgrade(
                     }
                 }
                 Ok(Some(line)) = stderr_lines.next_line() => {
-                    let line = line.trim_end_matches('\n').trim_end_matches('\r');
-                    for part in line.split('\r') {
-                        let clean = part.trim_end_matches('\r');
-                        let trimmed = clean.trim();
-                        if !trimmed.is_empty() {
-                            let lower = trimmed.to_lowercase();
-                            if lower.contains("sudo") && (lower.contains("terminal") || lower.contains("password") || lower.contains("pre-authorized") || lower.contains("tty") || lower.contains("prompt on")) {
-                                sudo_help = true;
-                            }
-                            if lower.contains("shared connection to") || (lower.contains("connection to") && lower.contains("closed")) {
-                                continue;
-                            }
-                            if errbuf.len() >= 100 {
-                                errbuf.remove(0);
-                            }
-                            errbuf.push(clean.to_string());
+                    // Same rule as stdout: apt writes its progress display here
+                    // too, and a hundred rewrites of one bar would evict the
+                    // actual error message from the buffer below.
+                    let mut visible = None;
+                    for state in painted_states(&line) {
+                        let trimmed = state.trim();
+                        if trimmed.is_empty() {
+                            continue;
                         }
+                        let lower = trimmed.to_lowercase();
+                        if is_sudo_help(&lower) {
+                            sudo_help = true;
+                        }
+                        if lower.contains("shared connection to") || (lower.contains("connection to") && lower.contains("closed")) {
+                            continue;
+                        }
+                        visible = Some(state);
+                    }
+                    if let Some(state) = visible {
+                        if errbuf.len() >= 100 {
+                            errbuf.remove(0);
+                        }
+                        errbuf.push(state.to_string());
                     }
                 }
             }
@@ -561,5 +604,66 @@ mod sudo_handshake_tests {
         let (ready, rest) = run("exit 0").await;
         assert!(!ready);
         assert!(rest.is_empty(), "got {rest:?}");
+    }
+}
+
+#[cfg(test)]
+mod painted_line_tests {
+    #![allow(clippy::unwrap_used, clippy::panic)]
+
+    use super::{is_sudo_help, painted_states, ssh};
+
+    /// The states of one progress line, and what survives into the log.
+    fn shown(line: &str) -> Option<&str> {
+        painted_states(line).rfind(|state| !state.trim().is_empty())
+    }
+
+    /// One progress bar is one line, not one line per tick.
+    #[test]
+    fn a_rewritten_line_logs_only_what_it_ended_on() {
+        let progress = "Downloading 10%\rDownloading 47%\rDownloading 100%\rDone.";
+        assert_eq!(
+            painted_states(progress).count(),
+            4,
+            "all states are scanned"
+        );
+        assert_eq!(shown(progress), Some("Done."));
+    }
+
+    /// A trailing `\r` (as in `\r\n`) is not an empty final state.
+    #[test]
+    fn a_crlf_line_is_one_state() {
+        assert_eq!(shown("plain output\r\n"), Some("plain output"));
+        assert_eq!(shown("plain output\n"), Some("plain output"));
+    }
+
+    /// A bar that ends mid-paint still shows its last drawn state rather than
+    /// nothing.
+    #[test]
+    fn a_bar_with_a_trailing_rewrite_shows_the_last_drawn_state() {
+        assert_eq!(shown("[##    ] 20%\r[#####] 90%\r"), Some("[#####] 90%"));
+    }
+
+    /// A marker that was painted over must still be seen by the scan, or a
+    /// refused sudo password would be reported as a failing command.
+    #[test]
+    fn an_overwritten_sentinel_is_still_scannable() {
+        let line = format!("{}\rcarrying on", ssh::SUDO_FAILED_SENTINEL);
+        assert!(
+            painted_states(&line).any(|state| state.trim() == ssh::SUDO_FAILED_SENTINEL),
+            "the scan sees every state"
+        );
+        assert_eq!(shown(&line), Some("carrying on"));
+    }
+
+    #[test]
+    fn sudo_help_is_recognised_on_both_streams() {
+        assert!(is_sudo_help(
+            "sudo: no tty present and no askpass program specified"
+        ));
+        assert!(is_sudo_help(
+            "sudo: a terminal is required to read the password"
+        ));
+        assert!(!is_sudo_help("installing sudo-1.9.0"));
     }
 }

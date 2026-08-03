@@ -14,7 +14,7 @@ use tokio::task::JoinHandle;
 use tokio::time::Instant;
 use tokio_stream::StreamExt as _;
 
-use crate::app::{App, Command, Msg, VaultState};
+use crate::app::{App, Command, Msg};
 use crate::config::Server;
 use crate::ui;
 use ratatui::layout::Rect;
@@ -471,30 +471,29 @@ pub fn handle_key(
     }
 
     if app.vault_creating() {
+        // While the creation is in flight the prompt is a progress message, not
+        // a field: Argon2id is running and there is nothing to type into. Only
+        // Esc, which gives up on waiting, still means anything.
+        if app.vault_create_in_flight() {
+            if matches!(key.code, KeyCode::Esc) {
+                app.cancel_vault_creation();
+            }
+            return;
+        }
         match key.code {
             KeyCode::Enter => {
-                let master = std::mem::take(app.vault_password_input_mut());
-                if master.is_empty() {
-                    app.vault_state = VaultState::Creating {
-                        error: Some("Master password cannot be empty".into()),
-                    };
+                let Some(master) = app.begin_vault_create_attempt() else {
                     return;
-                }
+                };
                 let epoch = app.vault_epoch;
                 let Some(path) = app.vault_path() else {
-                    app.vault_state = VaultState::Creating {
-                        error: Some("No config directory to create the vault in".into()),
-                    };
+                    app.fail_vault_creation("No config directory to create the vault in".into());
                     return;
                 };
                 let tx2 = tx.clone();
+                let vault_config = crate::vault::config_for(path);
                 tokio::spawn(async move {
-                    let vault = multitop_vault::Vault::new(multitop_vault::VaultConfig {
-                        vault_path: path,
-                        argon2_params: None,
-                        // Real runs use the OS keychain for lockout and rollback state.
-                        use_os_keychain: true,
-                    });
+                    let vault = multitop_vault::Vault::new(vault_config);
                     let msg = match vault.initialize(&master).await {
                         // Unlock with the same password we just set, so the
                         // vault is immediately usable and can take the password

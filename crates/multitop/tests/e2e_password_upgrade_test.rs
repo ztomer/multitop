@@ -227,3 +227,44 @@ async fn test_e2e_spawn_upgrade_emits_in_stream_tip_on_sudo_failure() {
         "In-stream guidance tip expected when sudo authentication is missing"
     );
 }
+
+/// A progress display that paints over itself is one line in the log, not one
+/// line per repaint.
+///
+/// Reported: "when updating a line in place (e.g. docker update percentages) it
+/// adds all the update screen instead". `apt` and `docker pull` rewrite their
+/// progress with carriage returns and only end the line when they are done, so
+/// one read line carries every state the bar ever showed -- and each of those
+/// states was being logged as a line of its own.
+#[tokio::test]
+async fn test_e2e_carriage_return_progress_logs_one_line() {
+    let _store = mock_store().await;
+    let server = test_server(
+        "127.0.0.1",
+        Some("printf '%s\\r%s\\r%s\\n' 'Fetch 10' 'Fetch 60' 'Fetch 100'"),
+    );
+    let (tx, mut rx) = tokio::sync::mpsc::channel::<Msg>(100);
+    let handle = spawn_upgrade(0, 7, server, None, tx);
+
+    let mut progress = Vec::new();
+    while let Ok(Some(msg)) =
+        tokio::time::timeout(std::time::Duration::from_secs(10), rx.recv()).await
+    {
+        match msg {
+            Msg::AuxLine { line, .. } if line.contains("Fetch") => progress.push(line),
+            Msg::AuxDone { .. } => break,
+            _ => {}
+        }
+    }
+    let _ = handle.await;
+
+    assert_eq!(
+        progress.len(),
+        1,
+        "one progress bar is one line, got: {progress:?}"
+    );
+    assert!(
+        progress[0].contains("Fetch 100"),
+        "and it is the state the bar ended on, got: {progress:?}"
+    );
+}
