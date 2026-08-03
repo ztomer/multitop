@@ -34,7 +34,220 @@ raised before the vault is ever unlocked. If a second prompt still appears, and
 it is multitop's own, the diagnosis was wrong and the state machine needs
 another pass.
 
-## 2. Decide the fate of two unused vault API functions
+## 2. What the UX panel found, by class
+
+Round B of the review (see item 4). Every claim below was verified against the
+source or against a rendered frame before it was written down; persona claims
+that did not survive checking are not here.
+
+Grouped by **class**, not by persona, because the value of the round was that
+four independent bars kept landing on the same few root causes. Fixing per
+finding would fix each symptom once and leave the cause alive -- which is
+exactly what happened earlier the same day, recorded under class B.
+
+### A. Row 0 has two owners  (high)
+
+`ui::visible` composes the scroll badge into `lines[0]` (`ui.rs:137`);
+`ui::draw` then overwrites `lines[0]` with the host banner unconditionally,
+every frame (`ui.rs:536`). Two pieces of code believe they own that row and the
+later one silently wins. Two symptoms, found independently from opposite ends:
+
+- **A one-line body is eaten.** `Panel::new` sets `view: ["connecting..."]`, so
+  a host coming up renders an **empty box** -- indistinguishable from a hung SSH
+  session or a dead app. `grep -rl connect target/views` matches none of the 88
+  rendered frames.
+- **The scroll badge can never appear.** `[↑ -N lines]` is built and destroyed
+  on the same frame, so the scroll-position indicator has never once been on
+  screen.
+
+The test that should have caught the badge (`upgrade_ux_test.rs:634`) calls
+`visible()` with `target_cols = 0`, which skips the whole badge path. It passes
+against code that renders nothing.
+
+**Fix (structural, not two patches):** make the ownership unrepresentable.
+`visible()` returns body rows plus the `badge_offset` as a value; `draw`
+composes row 0 exactly once, from banner + sparklines + badge together. Then pin
+it with a test that renders through `ui::draw` into a `TestBackend` and asserts
+the badge is in the buffer.
+
+### B. Fixed-width layout with no budget  (high)
+
+Every one of these is the same defect: content laid out to a constant, a
+terminal narrower than the constant, and `Paragraph` clipping mid-word.
+
+| Where | At 80 columns | At 40 |
+|-------|---------------|-------|
+| Keybar (`ui.rs:324`) | `[Sort: Cpu/Mem]` -- the only place the sort order is stated -- falls off; `[Theme: Kare` cut mid-word | dies at `Upgrad` |
+| Settings row (`config_ui.rs:85`, 75 fixed columns) | Password column reads `✓ S` / `· U`; header reads `Pas` | column gone entirely |
+| Modal copy (`modals.rs:114`, no `.wrap()`) | fits | `Press U or Enter to confirm, Esc t` -- a destructive dialog amputating its own cancel instruction |
+| Settings hint row (`config_ui.rs:144`) | fits | orphaned `[`, and `[Esc/Q] Return` is shed -- the only exit signage on a screen that covers the keybar |
+
+**This class was already open and got fixed at the instance level.** Earlier the
+same day the settings row's *command* column was given a `clip` helper, which
+cured the misalignment and left the row 75 fixed columns wide -- so the
+credential state still falls off. Rule 6, unlearned, by the person who wrote
+rule 6 into this file.
+
+**Fix:** one width-budget helper shared by all four. Fixed cells (marker, state,
+port) never give; flexible cells (host, user, command) share the remainder; a
+chunk is emitted whole or dropped whole, never sliced. Shed in a declared
+priority order, and put the thing the user cannot guess -- the way *out* --
+first, so it is never what gets dropped.
+
+Kare's rule, adopted: **a word is either whole or absent; there is no third
+state.**
+
+### C. The banner is not in the family, and it clips the identifying tail  (high)
+
+`fmt::fullwidth` maps the host name into U+FF01-FF5E for the panel banner
+(`ui.rs:524`). Two problems, the second serious:
+
+- Those codepoints are absent from Menlo, SF Mono, JetBrains Mono and Berkeley
+  Mono, so the banner falls back to a CJK face: a different typeface, weight and
+  baseline from every line beneath it.
+- It doubles the cell cost, so `ztomer@web-01` needs 26 cells in a 20-cell pane
+  and clips to `ｚｔｏｍｅｒ＠ｗｅ`. **The digits are what fall off** -- `web-01`
+  and `web-02` render identically at four panels on a small terminal, on a tool
+  where the selected panel is the machine `u` runs `apt upgrade` against.
+
+**Fix:** plain ASCII in the accent colour, bold -- already the only bold accent
+line in the pane. When it still will not fit, drop the `user@` prefix first (it
+is identical in every panel, so it carries no information), then ellipsize from
+the **left**, `…b-01`, so the distinguishing end survives.
+
+### D. Cost paid per frame for nothing  (med)
+
+- `app.rs:1056` and `:1066`: `last_upgrade.drain(..len - cap)` with
+  `cap = 5000`, twice per line, on the event-loop thread. Once the buffer fills,
+  every further line memmoves ~5000 `String` headers. `apt upgrade` on a
+  neglected box emits tens of thousands of lines, and this is the app's headline
+  feature. Fix: `VecDeque` + `pop_front`, or amortize (drain only at
+  `cap + 512`), and stop the `line.clone()`.
+- `run.rs:347`: a `TIOCGWINSZ` syscall plus two `Layout::split` allocations on
+  every mouse event -- including motion, which crossterm's `EnableMouseCapture`
+  requests with `?1003h` (any-event tracking) -- then discarded by `_ => {}` for
+  all but three event kinds. Fix: compute inside the three arms that use it, and
+  track terminal size from the `Resize` event instead of asking the kernel.
+- `run.rs:384`: `dirty = true` after every message. A `Monitor` packet for a
+  panel showing Docker changes nothing visible and still forces a full redraw of
+  every panel. Fix: `apply` returns whether anything visible changed;
+  `dirty |= app.apply(msg)`.
+
+### E. Names and labels  (med)
+
+- **Three names for one screen:** README says *Configuration* (`README.md:63`),
+  the keybar badge says *SEttings*, the panel title says *Server Settings*
+  (`config_ui.rs:182`). The third is wrong on its own terms -- that screen holds
+  the vault master password and a sparklines toggle, neither of which is a
+  server. Pick **Settings** and use it three times.
+- `[SEttings]` highlights the **second** letter (`ui.rs:219`) while every other
+  key in the bar highlights the first. A mnemonic that has to be explained is
+  not one. Print `[E] Settings`.
+- `format!("{:<11}", theme.name)` (`ui.rs:216`) pads a four-letter word with
+  seven dead columns, at exactly the width where the bar overflows.
+- `"/ "` renders the sort badge as `Cpu/ Mem` (`ui.rs:236`).
+- **The app tells the user to do by hand what the app does.** Both
+  `upgrade_view.rs:163` and `modals.rs:85` say to set `upgrade_cmd` in
+  `config.toml`, while the settings row editor has that field and writes it back
+  to that file. Replace with the in-app path.
+
+### F. The blast radius is not what the screen says it is  (high)
+
+The operator bar found the two worst defects of the round, and neither is
+cosmetic.
+
+- **The filter narrows the screen but not the run.** `ui::draw` honours
+  `filtered_indices()` (`ui.rs:435`); `run_upgrade` iterates
+  `0..self.panels.len()` (`app.rs:794`). `filtered_indices` has exactly two
+  callers -- the renderer and the selection clamp -- and the upgrade path is not
+  one of them. So `/db` Enter `u` `u` Enter runs `apt upgrade` on **every host in
+  config.toml** while one host is on screen, and the output and failures of the
+  hidden ones never render, because the grid is still filtered when they come
+  back. The modal's "all servers" is technically true and practically a trap:
+  the filter's whole purpose is that "all servers" is now a set the operator
+  cannot see. **Decide which it is** -- scope the run to the filter, or state in
+  the modal, in words, that the filter does not scope it. Silently disagreeing
+  with the screen is the one option not available.
+- **Esc quits, kills a live `apt upgrade`, and asks nothing.**
+  `upgrade_view.rs:151` prints "→ running -- do not quit" and nothing enforces
+  it: `run.rs:619` calls `app.quit()` unconditionally, `abort_all` drops every
+  handle, children are `kill_on_drop`, and dpkg dies mid-transaction on a
+  production box. Deleting one *row* in Settings takes two keys; killing a
+  package transaction on N production servers takes one, and it is the key an
+  operator presses to back out of a screen. **Fix:** when `upgrades_in_flight()`,
+  Esc/q/Ctrl-C confirms first, naming the hosts; and on quit, print to stderr
+  after terminal restore which hosts were killed and that the remote lock may
+  need removing.
+
+### G. Three help lines name two keys that do not exist  (med)
+
+`upgrade_view.rs:236` says `will prompt · p to save`. `tasks.rs:462` says
+`Set a password for this host with o in Settings`. `password_actions.rs:324`
+says `set those again with p`. Neither `p` nor `o` is bound anywhere:
+`grep -rn "Char('p'\|Char('o'" crates/multitop/src` returns nothing. The key is
+`e` -- which `tasks.rs:427` gets right, so the codebase names three different
+keys for one action and two of them do nothing. This is the worst shape a doc
+lie can take: it appears at the exact moment the operator is stuck and needs the
+instruction to work first time.
+
+**Fix:** one constant for the settings key and its human label, referenced by
+all four sites, plus a test that scans user-facing strings for key references
+and asserts each is a live arm of `run::handle_key`. Structural, not
+disciplinary -- this is the third naming defect in the same file set.
+
+### H. Two failures that are reported as something else  (med)
+
+The project already fixed this class once, for a refused sudo password (exit 111
+plus a marker line, so it is no longer indistinguishable from a failing
+command). Two siblings were never given the same treatment:
+
+- **A held remote lock reads as a failing command.**
+  `ssh.rs:287` ends `echo "Upgrade already in progress"; exit 1`, which lands in
+  the generic arm, so the panel says `⚠ upgrade command exited 1 -- host
+  reachable, command failed`. It did not fail; it never ran. A lock left by a
+  killed run is broken only after six hours, so for six hours every attempt
+  sends the operator to debug an apt command that is fine. Fix: a
+  `LOCK_HELD_CODE` and sentinel matched ahead of the generic arm, naming the
+  lock file to remove.
+- **The shipped example cannot work for the user it is written for.**
+  `config.example.toml` offers `upgrade_cmd = "apt update && apt upgrade -y"`
+  next to `user = ""`. Uncommented by a normal login, apt exits 100 with "are
+  you root?" -- the per-host sudo machinery does not save it, because the
+  preamble runs `sudo -v` and then the command runs *without* sudo. `is_sudo_help`
+  does not fire either, because apt's message contains no "sudo". Meanwhile
+  every rendered frame shows `sudo apt update && sudo apt upgrade -y`: the
+  product's own screenshots disagree with the file it ships. Fix: put `sudo` in
+  the example and say the command runs as the SSH user; teach `is_sudo_help` the
+  root-permission shapes.
+
+### Open tension: what to do about the confirmation modal
+
+Two personas reached the **same defect from opposite bars**, and then disagreed
+about the remedy. Worth recording precisely, because the agreement is the more
+useful half.
+
+**Both agree the aggregate wording is wrong.** Rams: the modal says *less* than
+the view it covers -- "all servers" instead of naming them, one aggregate
+`Last update` instead of the per-host truth, a skipped list duplicating the ⚠
+already in the panes, and in the rendered frame it physically obliterates db-02.
+Hashimoto: "all servers" is exactly the phrase that hides a filtered-away set
+(class F), so the modal must enumerate what it is about to touch.
+
+**They disagree on the fix.** Rams: delete `draw_upgrade_modal`; the Upgrade
+view *is* the confirmation screen, and the two-press design exists so it is read
+(`run.rs:691`); put the confirm in the keybar row, where the filter prompt
+already proves the pattern. Hashimoto: keep it and make it enumerate, because
+this is the blast-radius gate on a tool that runs `apt upgrade` against
+production -- and separately (class B, and his own finding) the box currently
+drops its own "Esc to cancel" line whenever a skipped host and an interrupted
+previous run co-occur, which are both ordinary states.
+
+Not resolved, and not for whoever edits next to resolve: it is a product
+decision for the owner. What is **not** in tension and should be done either
+way: the modal must name the hosts it will touch and must never be able to lose
+its own cancel line.
+
+## 3. Decide the fate of two unused vault API functions
 
 `UnlockedVault::remove_password` and `Vault::get_unlocked` are implemented and
 tested with no production callers. `remove_password` would be per-host removal
@@ -42,7 +255,7 @@ tested with no production callers. `remove_password` would be per-host removal
 emptied password field already performs — if that distinction is not wanted,
 delete it. Both are listed in `tools/test_only_baseline.txt`.
 
-## 3. The adversarial review is not finished
+## 4. The adversarial review is not finished
 
 Recorded because "are we done?" deserves an answer that is not a feeling.
 
@@ -143,6 +356,51 @@ epoch- or generation-guarded.
 **Next round:** terminal and process lifecycle, which has the worst record of
 the never-reviewed areas.
 
+#### Round B -- the UX panel, 2026-08-03
+
+**Scope:** the whole client UI, through four expert lenses chosen for bars that
+actually apply -- structure (Rams), legibility at real rendered size (Kare),
+frame loop and redraw cost (Carmack), operator experience (Hashimoto). Blow and
+McMillen were deliberately not run: their bars are game character and depth, and
+running a persona whose bar does not apply is how panels manufacture padding.
+
+**What made it possible:** `crates/multitop/tests/render_views.rs`, built for
+this round. 22 screens x 4 terminal sizes, rendered to `target/views/` as text,
+by one command. Before it, reviewing anything visual meant launching the app
+against real hosts and photographing a terminal -- which is why every visual
+defect so far was found by the user. It is also a gate: every screen at every
+size must render without panicking.
+
+It caught its own bug first. The initial version fed the agent's renderer the
+*terminal* size instead of the per-panel size `ui::agent_dims` returns, so every
+frame was drawn for a pane bigger than it gets and the tops were silently cut. A
+harness that misrepresents the product is worse than none.
+
+**Found:** 22 findings, all verified against source or a rendered frame before
+being written down. They are item 2, grouped by class rather than by persona.
+
+**The result worth keeping:** four independent bars kept landing on the same few
+root causes.
+
+- `lines[0]` having two owners was found by Kare (a one-line body is eaten, so
+  the connecting state is a blank box) and by Carmack (the scroll badge is built
+  and destroyed on the same frame, so it has never been on screen). Neither
+  could see the other's symptom.
+- The keybar overflow was found independently by Rams and Kare, and both
+  singled out the same `{:<11}` pad as the insult inside it.
+- The confirmation modal's aggregate "all servers" was condemned by Rams (it
+  says less than the view it covers) and by Hashimoto (it hides the hosts a
+  filter removed from the screen) -- from opposite directions, about the same
+  five words.
+
+Convergence from unrelated bars is much harder to dismiss than one loud opinion.
+
+**Two findings landed on this session's own work,** which is the argument for
+running the panel on work you are pleased with: the settings row's fixed 75
+columns survived the `clip` fix applied hours earlier -- instance cured, class
+alive, by the author of the rule against exactly that -- and `render_views.rs`
+was itself wrong on its first run.
+
 ### The next round: terminal and process lifecycle
 
 Round A is done (above). The next area is the one with the worst record among
@@ -163,7 +421,7 @@ What it should ask:
   `Drop` does not run -- `ratatui::init`'s hook is the only cover), `SIGHUP`,
   and the terminal going away mid-frame.
 
-## 4. Clear the test-only baseline
+## 5. Clear the test-only baseline
 
 `tools/test_only_baseline.txt` lists functions exercised by tests and by no
 production path. The gate (`tools/check_test_only_code.py`) stops new ones
@@ -174,8 +432,8 @@ Nine entries remain:
 
 | Entry | Shape |
 |-------|-------|
-| `crates/vault/src/api.rs:remove_password` | Item 2 above |
-| `crates/vault/src/api.rs:get_unlocked` | Item 2 above |
+| `crates/vault/src/api.rs:remove_password` | Item 3 above |
+| `crates/vault/src/api.rs:get_unlocked` | Item 3 above |
 | `crates/vault/src/crypto.rs:from_config` | Reached only when `argon2_params` is `Some`, which now happens only under the test-mock flag (`vault::config_for`) |
 | `crates/agent/src/render.rs:frame_height` | Accessor |
 | `crates/multitop/src/app.rs:had_upgrade` | Accessor |
@@ -189,7 +447,7 @@ a *duplicate* of its logic is what production calls, the tests guard the dead
 copy, and the live copy drifts unwatched. `rollback::parse_stored_counter` and
 `LockoutState::on_failure` were both exactly that.
 
-## 5. Finish keychain isolation for tests
+## 6. Finish keychain isolation for tests
 
 `tools/check_keychain_isolation.py` is a gate in the hook and in CI, and it
 reports clean. It is not yet the whole story:
@@ -210,7 +468,7 @@ reports clean. It is not yet the whole story:
 
 Until that reaches zero, running the suite can still raise a keychain dialog.
 
-## 6. The other half of in-place progress output
+## 7. The other half of in-place progress output
 
 Reported 2026-08-03: "when updating a line in place (e.g. docker update
 percentages) it adds all the update screen instead."
@@ -239,15 +497,15 @@ every frame (scrollback of what really happened) while only the live view is
 collapsed, or whether the collapsed view *is* the log. They are different
 products.
 
-## 7. Rotate the sudo password used during live verification
+## 8. Rotate the sudo password used during live verification
 
 The sudo password for the three test hosts was pasted into a Claude Code session
 transcript on 2026-08-02 in order to verify the stdin handshake. It is therefore
 on disk in `~/.claude/projects/`. Change it on all three machines.
 
-## 8. `G` — per-pane CPU / memory / network graphs
+## 9. `G` — per-pane CPU / memory / network graphs
 
-Requested 2026-08-03. **Last** — start only once items 1-7 are closed.
+Requested 2026-08-03. **Last** — start only once items 1-8 are closed.
 
 A new view alongside the existing ones, bound to `G` and placed immediately to
 the right of `F` (Fetch) in the keybar, drawing CPU, memory and network history
