@@ -4,24 +4,29 @@ The one forward-looking backlog. Shipped work is not listed here — it is in gi
 history and in the test suite. When an item here is finished, delete it rather
 than ticking it off.
 
-## 1. Filtering
+## 0. OPEN: upgrades fail because there is no stored sudo password
 
-**Status:** scaffolding only, with no way to reach it.
+**Cause, and it was mine.** Verifying the password flow on 2026-08-03 I drove
+the app through the SSO prompt with `XDG_CONFIG_HOME` isolated but *not* the
+keychain -- the credential store is per-user, not per-config-dir -- which wrote
+the literal string `test` over the real `multitop`/`__sso_master__` login-keychain
+item. I deleted it rather than leave a wrong password in place. A later check
+confirmed the state: no per-host entry exists for any of the four configured
+hosts, and no SSO entry either.
 
-`filter_query`, `is_filtering`, `filtered_indices`, `set_filtering`, and the
-`AppMode::Filtering` variant all exist in `crates/multitop/src/app.rs`
-(lines 31, 66, 490–512). `filtered_indices` implements substring matching on the
-host and has zero callers; nothing writes `filter_query`; no key is bound and the
-keybar does not mention it.
+So the app has no sudo password for any host. The remote `upgrade_cmd` needs
+sudo, gets none, and the run fails. Nothing in the SSH or handshake path is
+wrong -- the exact remote command was replayed against 192.168.0.33 by hand and
+behaved correctly: the readiness sentinel arrived, the password was consumed,
+and sudo rejected a deliberately wrong one with exit 1.
 
-**What is missing:** a key (`/` is conventional) that enters `AppMode::Filtering`
-and captures typed characters into `filter_query`, `Esc` to leave, `ui.rs`
-honouring `filtered_indices` when laying out panels, and a keybar hint. Decide
-whether filtering hides panels or dims them — hiding changes the grid geometry
-mid-session, which the region layout may not expect.
+**The fix is one action:** press `s` in Server Settings and enter the SSO master
+password again. Then confirm an upgrade completes.
 
-Either build it or delete the scaffolding. Leaving a half-feature in place is
-what kept it invisible this long.
+If it still fails afterwards, the next thing to capture is the exact text in the
+upgrade pane. No string in the workspace says "unreachable", so that wording is
+coming from ssh or sudo output being surfaced verbatim, and knowing which line
+it is decides where to look.
 
 ## 2. Decide the fate of two unused vault API functions
 
@@ -30,6 +35,31 @@ tested with no production callers. `remove_password` would be per-host removal
 *from the vault*, which is distinct from the credential-store deletion that `d`
 already performs in the Passwords section — if that distinction is not wanted,
 delete it. Both are listed in `tools/test_only_baseline.txt`.
+
+## 2a. The review is not finished
+
+Recorded because "are we done?" deserves an answer that is not a feeling.
+
+The bar set for this work was: **a full review round that produces no new
+findings.** No round has met it. The last four defects were all reported by the
+user rather than found by the suite or by a review pass:
+
+| Defect | Found by |
+|--------|----------|
+| `SIGTTIN` stopped the app and abandoned the terminal | user |
+| The sudo handshake deadlocked, reported as an unreachable host | user |
+| Tests reached the real OS keychain and blocked the suite on a dialog | user |
+| Upgrades failing for want of a stored password | user |
+
+By rule 1 -- fix the harness before the bug -- four in a row means the harness
+still has holes and user QA is still the detection layer. Two were closed with
+new gates (`check_keychain_isolation.py`) and new e2e coverage
+(`config_panel_e2e.rs`, `filter_e2e.rs`); that is the pattern to keep.
+
+Areas that have had no adversarial pass at all, and are where the last two bugs
+came from: process and terminal lifecycle (signals, suspend/resume, child
+process groups), and the rendering path (`ui.rs`, `refit.rs`, `ansi.rs`) beyond
+the Configuration panel.
 
 ## 3. Clear the test-only baseline
 
@@ -73,30 +103,6 @@ feature.
 
 The password handshake was verified live against three hosts once; the other
 three rows have not been.
-
-## 0. OPEN: upgrades fail because there is no stored sudo password
-
-**Cause, and it was mine.** Verifying the password flow on 2026-08-03 I drove
-the app through the SSO prompt with `XDG_CONFIG_HOME` isolated but *not* the
-keychain -- the credential store is per-user, not per-config-dir -- which wrote
-the literal string `test` over the real `multitop`/`__sso_master__` login-keychain
-item. I deleted it rather than leave a wrong password in place. A later check
-confirmed the state: no per-host entry exists for any of the four configured
-hosts, and no SSO entry either.
-
-So the app has no sudo password for any host. The remote `upgrade_cmd` needs
-sudo, gets none, and the run fails. Nothing in the SSH or handshake path is
-wrong -- the exact remote command was replayed against 192.168.0.33 by hand and
-behaved correctly: the readiness sentinel arrived, the password was consumed,
-and sudo rejected a deliberately wrong one with exit 1.
-
-**The fix is one action:** press `s` in Server Settings and enter the SSO master
-password again. Then confirm an upgrade completes.
-
-If it still fails afterwards, the next thing to capture is the exact text in the
-upgrade pane. No string in the workspace says "unreachable", so that wording is
-coming from ssh or sudo output being surfaced verbatim, and knowing which line
-it is decides where to look.
 
 ## 5. Confirm the two 2026-08-03 fixes against real hosts
 
