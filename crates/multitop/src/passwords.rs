@@ -320,7 +320,11 @@ fn row_key(app: &mut App, key: KeyCode) -> PasswordAction {
     }
 
     match key {
-        KeyCode::Esc | KeyCode::Char('e' | 'E') => app.password_manager = None,
+        // Leaving is Esc or `q`, the two keys that mean "back" everywhere else
+        // in the app. `e` used to close it -- the key that opens the panel is
+        // not the key that closes it, and `e` is needed for Edit, which is the
+        // one thing this list is for.
+        KeyCode::Esc | KeyCode::Char('q' | 'Q') => app.password_manager = None,
         KeyCode::Up | KeyCode::Char('k' | 'K') => {
             manager.selected = manager.selected.saturating_sub(1);
         }
@@ -328,8 +332,9 @@ fn row_key(app: &mut App, key: KeyCode) -> PasswordAction {
             manager.selected = (manager.selected + 1).min(app.panels.len().saturating_sub(1));
         }
         // Edit this host: name, user, port, upgrade command and password, all
-        // in one place.
-        KeyCode::Enter => {
+        // in one place. `e` as well as Enter, because the panel is a list of
+        // rows and "edit the row" is the action it exists for.
+        KeyCode::Enter | KeyCode::Char('e' | 'E') => {
             manager.draft = app.panels.get(manager.selected).map(|panel| {
                 ServerDraft::new(
                     Some(manager.selected),

@@ -7,6 +7,20 @@ use ratatui::Frame;
 
 use crate::app::App;
 
+/// Cut a cell's text to the width its column has.
+///
+/// `{:<26}` pads but never truncates, so a longer upgrade command simply pushed
+/// the Password column off to the right and the row stopped lining up with the
+/// header above it. Counted in characters, and the last one becomes an ellipsis
+/// so a clipped value cannot be mistaken for the whole of a short one.
+fn clip(text: &str, width: usize) -> String {
+    if text.chars().count() <= width {
+        return text.to_string();
+    }
+    let kept: String = text.chars().take(width.saturating_sub(1)).collect();
+    format!("{kept}\u{2026}")
+}
+
 #[allow(
     clippy::missing_panics_doc,
     clippy::too_many_lines,
@@ -44,7 +58,7 @@ pub fn draw(f: &mut Frame, app: &App) {
         } else {
             &panel.server.user
         };
-        let command = panel.server.upgrade_cmd.as_deref().unwrap_or("-");
+        let command = clip(panel.server.upgrade_cmd.as_deref().unwrap_or("-"), 26);
         let style = if index == manager.selected {
             Style::default().fg(accent)
         } else {
@@ -123,10 +137,18 @@ pub fn draw(f: &mut Frame, app: &App) {
             Style::default().fg(Color::DarkGray),
         )));
     } else {
-        lines.push(Line::from(Span::styled(
-            "[Enter] Edit  [A] Add  [D] Delete  [I] Import ~/.ssh/config  [R] Change vault master password  [Esc/E] Return",
-            Style::default().fg(Color::DarkGray),
-        )));
+        // Two lines, because one was 113 columns and the panel is as wide as
+        // the terminal: at 80 or 96 columns the tail was cut off, and the tail
+        // is where "how do I get out of here" lived.
+        for row in [
+            "[Enter/E] Edit  [A] Add  [D] Delete  [I] Import ~/.ssh/config",
+            "[R] Change vault master password  [Esc/Q] Return",
+        ] {
+            lines.push(Line::from(Span::styled(
+                row,
+                Style::default().fg(Color::DarkGray),
+            )));
+        }
         lines.push(Line::from(""));
         lines.push(Line::from(Span::styled(
             "Experimental",

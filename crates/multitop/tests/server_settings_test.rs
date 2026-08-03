@@ -69,20 +69,41 @@ fn reset_store() {
     password_store::clear_mock_store();
 }
 
+/// `e` opens the panel from the main view and edits a row inside it; Esc and
+/// `q` are what leave. `e` used to both open and close it, which cost the panel
+/// the obvious key for its main action.
 #[test]
-fn test_open_and_close_settings_manager_with_e_key() {
+fn test_open_and_close_settings_manager() {
     let _keychain = isolate_keychain();
-    let mut app = App::new(vec![test_server("host1"), test_server("host2")]);
-    assert!(app.password_manager.is_none());
+    for leave in [KeyCode::Esc, KeyCode::Char('q'), KeyCode::Char('Q')] {
+        let mut app = App::new(vec![test_server("host1"), test_server("host2")]);
+        assert!(app.password_manager.is_none());
 
-    // Open via passwords::open
-    passwords::open(&mut app, 0, false);
-    assert!(app.password_manager.is_some());
+        passwords::open(&mut app, 0, false);
+        assert!(app.password_manager.is_some());
 
-    // Press 'e' to close
-    let action = passwords::handle_key(&mut app, KeyCode::Char('e'));
-    assert_eq!(action, PasswordAction::None);
-    assert!(app.password_manager.is_none());
+        let action = passwords::handle_key(&mut app, leave);
+        assert_eq!(action, PasswordAction::None);
+        assert!(app.password_manager.is_none(), "{leave:?} must leave");
+    }
+}
+
+/// Inside the panel, `e` opens the row editor rather than closing the panel.
+#[test]
+fn test_e_edits_the_selected_row() {
+    let _keychain = isolate_keychain();
+    for edit in [KeyCode::Enter, KeyCode::Char('e'), KeyCode::Char('E')] {
+        let mut app = App::new(vec![test_server("host1"), test_server("host2")]);
+        passwords::open(&mut app, 0, false);
+
+        let action = passwords::handle_key(&mut app, edit);
+        assert_eq!(action, PasswordAction::None);
+        let manager = app
+            .password_manager
+            .as_ref()
+            .unwrap_or_else(|| panic!("{edit:?} must not close the panel"));
+        assert!(manager.draft.is_some(), "{edit:?} must open the row editor");
+    }
 }
 
 #[test]
