@@ -197,7 +197,15 @@ fn filter_prompt(query: &str, label: Style, accent: Color) -> Line<'static> {
     ])
 }
 
-/// The right-hand badges: Settings, Theme, Sort.
+/// The right-hand badges, as three whole units with their widths.
+///
+/// Three units, not seventeen loose spans, because they are shed whole or not
+/// at all -- and the previous flat `Vec<Span>` gave the caller no way to know
+/// where one badge ended and the next began, so it could only be guillotined.
+///
+/// The `{:<11}` pad on the theme name is gone with it: it spent seven dead
+/// columns on a four-letter word at exactly the width where the bar overflows,
+/// which both Rams and Kare called out independently.
 fn keybar_badges(
     sort: multitop_agent::SortBy,
     theme: &multitop_agent::color::Palette,
@@ -205,7 +213,7 @@ fn keybar_badges(
     key_hi: Style,
     sort_label: Style,
     accent_color: Color,
-) -> Vec<Span<'static>> {
+) -> Vec<(usize, Vec<Span<'static>>)> {
     let active = Style::default().fg(Color::White);
     let inactive = Style::default().fg(Color::DarkGray);
     let theme_val_style = Style::default().fg(accent_color);
@@ -213,31 +221,84 @@ fn keybar_badges(
         multitop_agent::SortBy::Mem => (active, inactive),
         multitop_agent::SortBy::Cpu => (inactive, active),
     };
-    let theme_name_padded = format!("{:<11}", theme.name);
-    vec![
-        Span::styled("[", sort_label),
-        Span::styled("S", label),
-        Span::styled("E", key_hi),
-        Span::styled("ttings", label),
-        Span::styled("]  ", sort_label),
-        Span::styled("[", sort_label),
-        Span::styled(
-            "T",
-            Style::default()
-                .fg(accent_color)
-                .add_modifier(ratatui::style::Modifier::BOLD),
-        ),
-        Span::styled("heme: ", sort_label),
-        Span::styled(theme_name_padded, theme_val_style),
-        Span::styled("]  ", sort_label),
-        Span::styled("[Sort: ", sort_label),
-        Span::styled("C", key_hi),
-        Span::styled("pu", cpu_style),
-        Span::styled("/ ", sort_label),
-        Span::styled("M", key_hi),
-        Span::styled("em", mem_style),
-        Span::styled("]", sort_label),
-    ]
+    let badges = vec![
+        // `[E] Settings`, not `[SEttings]`: every other key in the bar
+        // highlights the first letter, so highlighting the second here made the
+        // one mnemonic that has to be explained rather than seen.
+        vec![
+            Span::styled("[", sort_label),
+            Span::styled("E", key_hi),
+            Span::styled("] Settings", label),
+        ],
+        vec![
+            Span::styled("[", sort_label),
+            Span::styled(
+                "T",
+                Style::default()
+                    .fg(accent_color)
+                    .add_modifier(ratatui::style::Modifier::BOLD),
+            ),
+            Span::styled("heme: ", sort_label),
+            Span::styled(theme.name.to_string(), theme_val_style),
+            Span::styled("]", sort_label),
+        ],
+        vec![
+            Span::styled("[Sort: ", sort_label),
+            Span::styled("C", key_hi),
+            Span::styled("pu", cpu_style),
+            // Was "/ ", which rendered as `Cpu/ Mem`.
+            Span::styled("/", sort_label),
+            Span::styled("M", key_hi),
+            Span::styled("em", mem_style),
+            Span::styled("]", sort_label),
+        ],
+    ];
+    badges
+        .into_iter()
+        .map(|spans| (span_width(&spans), spans))
+        .collect()
+}
+
+/// Display width of a run of spans.
+fn span_width(spans: &[Span<'static>]) -> usize {
+    spans.iter().map(|s| s.content.chars().count()).sum()
+}
+
+/// The keybar for a terminal too narrow for words: one letter per key.
+///
+/// One chunk per key, so the narrow end sheds by the same rule as the wide end
+/// rather than being clipped. `Q` is deliberately absent from the shed order --
+/// quit is the one thing a user stuck in a twelve-column terminal most needs to
+/// find, and it is the only binding here that cannot be discovered by trying.
+fn keybar_initials(
+    keys: &[(&'static str, Style)],
+    keybar_width: u16,
+    label: Style,
+    filter: FilterHint<'_>,
+    accent: Color,
+) -> Line<'static> {
+    let mut chunks: Vec<Vec<Span<'static>>> = keys
+        .iter()
+        .map(|(text, style)| vec![Span::styled(*text, *style)])
+        .collect();
+    if let FilterHint::Active(query) = filter {
+        chunks.push(vec![Span::styled(
+            format!("[{query}]"),
+            Style::default().fg(accent),
+        )]);
+    }
+    let widths: Vec<usize> = chunks.iter().map(|c| span_width(c)).collect();
+    // Shed the views before the doors: Fetch, Docker, Upgrade, Stats, then
+    // Filter and Settings.
+    let kept = crate::layout::fit_row(&widths, 2, keybar_width as usize, &[3, 2, 4, 1, 5, 6]);
+    let mut out = Vec::new();
+    for (n, index) in kept.iter().enumerate() {
+        if n > 0 {
+            out.push(Span::styled("  ", label));
+        }
+        out.extend(chunks[*index].clone());
+    }
+    Line::from(out)
 }
 
 #[must_use]
@@ -282,6 +343,13 @@ pub fn keybar_line(
     let (d_hi, d_lbl) = pair(crate::app::Mode::Docker);
     let (s_hi, s_lbl) = pair(crate::app::Mode::Monitor);
     let (u_hi, u_lbl) = pair(crate::app::Mode::Upgrade);
+    let upgrade_word = if active_mode == crate::app::Mode::Upgrade {
+        // In the Upgrade view the same key starts the run, so say which of the
+        // two it will do rather than leaving the second press undiscoverable.
+        "pgrade: run"
+    } else {
+        "pgrade"
+    };
     let mut left_spans = vec![
         Span::styled("ESC / ", label),
         Span::styled("Q", key_hi),
@@ -296,41 +364,70 @@ pub fn keybar_line(
         Span::styled("etch", f_lbl),
         Span::styled("  ", label),
         Span::styled("U", u_hi),
-        // In the Upgrade view the same key starts the run, so say which of the
-        // two it will do rather than leaving the second press undiscoverable.
-        Span::styled(
-            if active_mode == crate::app::Mode::Upgrade {
-                "pgrade: run"
-            } else {
-                "pgrade"
-            },
-            u_lbl,
-        ),
+        Span::styled(upgrade_word, u_lbl),
         Span::styled("  ", label),
         Span::styled("/", key_hi),
         Span::styled(" Filter", label),
-        Span::styled("  ", label),
     ];
+    // A filter in force is never abbreviated away: panels are hidden, and a
+    // monitor that silently stops showing a host is worse than one showing it
+    // failing.
     if let FilterHint::Active(query) = filter {
         left_spans.push(Span::styled(
-            format!("[filter: {query}]  "),
+            format!("  [filter: {query}]"),
             Style::default().fg(accent_color),
         ));
     }
-    let left_width: usize = left_spans.iter().map(|s| s.content.len()).sum();
 
-    let badge_spans = keybar_badges(sort, theme, label, key_hi, sort_label, accent_color);
-    let badge_width: usize = badge_spans.iter().map(|s| s.content.len()).sum();
-    let pad = (keybar_width as usize).saturating_sub(left_width + badge_width);
-    let pad_str = if pad <= SPACES.len() {
-        &SPACES[..pad]
-    } else {
-        SPACES
-    };
-    let mut spans = Vec::with_capacity(left_spans.len() + 1 + badge_spans.len());
-    spans.extend(left_spans);
-    spans.push(Span::styled(pad_str, label));
-    spans.extend(badge_spans);
+    // Kare's ruling for the narrow end: below the width where the words fit,
+    // the mode row becomes initials and the accent highlight carries the
+    // meaning. `Paragraph` used to guillotine this instead -- at 40 columns the
+    // bar read `Upgrad`, a word cut in half, and Filter, Settings, Theme and
+    // Sort were simply gone with nothing to say they existed.
+    if span_width(&left_spans) > keybar_width as usize {
+        let keys = [
+            ("Q", key_hi),
+            ("S", s_hi),
+            ("D", d_hi),
+            ("F", f_hi),
+            ("U", u_hi),
+            ("/", key_hi),
+            ("E", key_hi),
+        ];
+        return keybar_initials(&keys, keybar_width, label, filter, accent_color);
+    }
+    let left_width = span_width(&left_spans);
+
+    // Shed whole badges rather than letting `Paragraph` slice the last one.
+    //
+    // The order is Kare's ruling as third expert: Sort goes first, then Theme,
+    // and Settings survives longest -- Settings is the door to configuration,
+    // while a sort order is recoverable by pressing `c` or `m` and watching what
+    // happens. Rams wanted the theme badge deleted outright instead; that is
+    // recorded as rejected in the roadmap, because a badge that fits at the
+    // width in front of you should be drawn.
+    let badges = keybar_badges(sort, theme, label, key_hi, sort_label, accent_color);
+    let gap = 2;
+    let budget = (keybar_width as usize).saturating_sub(left_width);
+    let widths: Vec<usize> = badges.iter().map(|(w, _)| *w).collect();
+    // The budget already excludes the left group, so the leading gap between it
+    // and the first badge has to come out too.
+    let kept = crate::layout::fit_row(&widths, gap, budget.saturating_sub(gap), &[2, 1, 0]);
+
+    let kept_width: usize =
+        kept.iter().map(|i| widths[*i]).sum::<usize>() + gap * kept.len().saturating_sub(1);
+    let pad = (keybar_width as usize)
+        .saturating_sub(left_width + kept_width)
+        .min(SPACES.len());
+
+    let mut spans = left_spans;
+    spans.push(Span::styled(&SPACES[..pad], label));
+    for (n, index) in kept.iter().enumerate() {
+        if n > 0 {
+            spans.push(Span::styled("  ", label));
+        }
+        spans.extend(badges[*index].1.clone());
+    }
     Line::from(spans)
 }
 /// What the keybar should say about the current filter.

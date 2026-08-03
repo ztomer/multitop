@@ -11,6 +11,7 @@ pub mod config_ui;
 pub mod consts;
 pub mod fetch_render;
 pub mod fmt;
+pub mod layout;
 pub mod modals;
 pub mod panel;
 pub mod password_actions;

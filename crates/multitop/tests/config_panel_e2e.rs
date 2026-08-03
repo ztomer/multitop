@@ -170,15 +170,20 @@ impl Harness {
             .unwrap();
     }
 
+    /// The buffer as text.
+    ///
+    /// Rows are split on the buffer's OWN width. This was hardcoded to 80, so
+    /// the moment a test resized the terminal the rows were reassembled at the
+    /// wrong stride and every assertion after it was reading scrambled text --
+    /// a harness that lies about the product, which is worse than no harness.
     fn screen(&self) -> String {
-        self.terminal
-            .backend()
-            .buffer()
-            .content()
+        let buf = self.terminal.backend().buffer();
+        let width = buf.area.width as usize;
+        buf.content()
             .iter()
             .map(ratatui::buffer::Cell::symbol)
             .collect::<Vec<_>>()
-            .chunks(80)
+            .chunks(width)
             .map(<[&str]>::concat)
             .collect::<Vec<_>>()
             .join("\n")
@@ -580,6 +585,51 @@ async fn every_short_key_sequence_in_the_panel_renders() {
                 h.app.cancel_vault_creation();
                 h.draw();
             }
+        }
+    }
+}
+
+/// The credential state and the way out must survive every width.
+///
+/// The row was 75 fixed columns before the state cell, so at 80 the Password
+/// header read `Pas` and the rows read `✓ S`; at 40 the column was gone. This
+/// is the one screen where a host is deleted and its stored password edited,
+/// and whether the host HAS one was the thing amputated at the right margin.
+/// The hint row had the same defect with worse consequences: the panel paints
+/// over the keybar, so `[Esc/Q] Return` was the only exit signage on screen and
+/// it was what got shed, leaving an orphaned `[` behind.
+#[tokio::test]
+async fn the_settings_panel_keeps_state_and_the_exit_at_every_width() {
+    let _guard = setup().await;
+    let mut h = Harness::new(&["host-a", "host-b"]);
+    password_store::save(&server("host-a"), "stored").unwrap();
+    h.app.panels[0].password_saved = true;
+    h.press(KeyCode::Char('e'));
+
+    for width in [40u16, 52, 64, 80, 120, 200] {
+        h.terminal = Terminal::new(TestBackend::new(width, 24)).unwrap();
+        h.draw();
+        let screen = h.screen();
+        assert!(
+            screen.contains("\u{2713} Stored"),
+            "{width} cols: the credential state must be visible, got:\n{screen}"
+        );
+        assert!(
+            screen.contains("\u{b7} Unset"),
+            "{width} cols: so must its absence, got:\n{screen}"
+        );
+        assert!(
+            screen.contains("[Esc/Q] Return"),
+            "{width} cols: the way out must never be what is dropped, got:\n{screen}"
+        );
+        // Nothing half-drawn: every bracket that opens, closes.
+        for line in screen.lines() {
+            let body = line.trim_matches(|c| c == '\u{2502}' || c == ' ');
+            assert_eq!(
+                body.matches('[').count(),
+                body.matches(']').count(),
+                "{width} cols: a hint was sliced: {body:?}"
+            );
         }
     }
 }

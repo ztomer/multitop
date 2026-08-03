@@ -182,3 +182,77 @@ fn keybar_shows_sort_by_mem() {
     assert!(text.contains("[Sort:"), "sort indicator missing");
     assert!(text.contains("Mem"), "Memory sort key missing from keybar");
 }
+
+/// The keybar must never emit a sliced word, at any width.
+///
+/// The class: a row laid out to a constant, handed to a `Paragraph`, which
+/// clips. At 80 columns it lost the sort badge and cut `[Theme: Kare` mid-word;
+/// at 40 it read `Upgrad`. Found independently by two reviewers, and the same
+/// defect had already been fixed by hand twice in other rows, which is what
+/// made it a class rather than a bug.
+///
+/// The assertion is structural, not a golden string: whatever the bar decides
+/// to show at a given width, it must fit, and every bracketed badge it shows
+/// must be closed.
+#[test]
+fn the_keybar_never_slices_a_word_at_any_width() {
+    let theme = &multitop_agent::color::KARE;
+    for width in 8u16..=200 {
+        for mode in [
+            multitop::app::Mode::Monitor,
+            multitop::app::Mode::Upgrade,
+            multitop::app::Mode::Docker,
+        ] {
+            for hint in [
+                multitop::ui::FilterHint::Off,
+                multitop::ui::FilterHint::Active("db"),
+            ] {
+                let text: String =
+                    keybar_line(multitop_agent::SortBy::Cpu, theme, width, mode, hint)
+                        .spans
+                        .iter()
+                        .map(|s| s.content.as_ref())
+                        .collect();
+                let shown = text.trim_end();
+                assert!(
+                    shown.chars().count() <= width as usize,
+                    "{width} cols, {mode:?}: bar is {} wide: {shown:?}",
+                    shown.chars().count()
+                );
+                assert_eq!(
+                    shown.matches('[').count(),
+                    shown.matches(']').count(),
+                    "{width} cols, {mode:?}: a badge was cut in half: {shown:?}"
+                );
+                // Whole words only: any label that appears must appear entire.
+                for word in ["Settings", "Theme", "Sort", "Filter", "Upgrade", "Docker"] {
+                    let head = &word[..word.len() - 1];
+                    if shown.contains(head) {
+                        assert!(
+                            shown.contains(word),
+                            "{width} cols, {mode:?}: {word:?} was sliced: {shown:?}"
+                        );
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// Quit survives a terminal too narrow for anything else.
+#[test]
+fn the_keybar_keeps_the_way_out_when_it_keeps_nothing_else() {
+    let theme = &multitop_agent::color::KARE;
+    let text: String = keybar_line(
+        multitop_agent::SortBy::Cpu,
+        theme,
+        8,
+        multitop::app::Mode::Monitor,
+        multitop::ui::FilterHint::Off,
+    )
+    .spans
+    .iter()
+    .map(|s| s.content.as_ref())
+    .collect();
+    assert!(text.contains('Q'), "quit must never be shed: {text:?}");
+}
