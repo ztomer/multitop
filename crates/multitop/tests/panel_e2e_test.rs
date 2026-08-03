@@ -50,7 +50,6 @@ fn enable_mock_store() -> tokio::sync::MutexGuard<'static, ()> {
 fn reset_store() {
     password_store::enable_mock_store();
     password_store::clear_mock_store();
-    password_store::delete_sso().unwrap();
 }
 
 #[test]

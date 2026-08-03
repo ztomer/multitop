@@ -5,7 +5,7 @@ use crossterm::event::KeyCode;
 use multitop::app::App;
 use multitop::config::Server;
 use multitop::password_store;
-use multitop::passwords::{self, ConfigSection, PasswordAction};
+use multitop::passwords::{self, PasswordAction};
 
 /// Divert credentials to the in-memory store, and hold the process-global
 /// guard for the test body.
@@ -38,13 +38,17 @@ fn password_entry_accepts_numeric_characters() {
     let _keychain = isolate();
     let mut app = App::new(vec![server("one")]);
     passwords::open(&mut app, 0, false);
+    // Enter opens the row editor; the password is its fifth field.
     let _ = passwords::handle_key(&mut app, KeyCode::Enter);
+    for _ in 0..4 {
+        let _ = passwords::handle_key(&mut app, KeyCode::Tab);
+    }
     for character in "pa55w0rd9".chars() {
         let _ = passwords::handle_key(&mut app, KeyCode::Char(character));
     }
     let manager = app.password_manager.as_ref().expect("configuration open");
-    assert!(manager.editing());
-    assert_eq!(manager.input, "pa55w0rd9");
+    let draft = manager.draft.as_ref().expect("the row editor is open");
+    assert_eq!(draft.password, "pa55w0rd9");
 }
 
 #[test]
@@ -53,7 +57,6 @@ fn server_settings_manager_opens_and_sets_resume_upgrade() {
     let mut app = App::new(vec![server("one")]);
     passwords::open(&mut app, 0, true);
     let manager = app.password_manager.as_ref().expect("settings open");
-    assert_eq!(manager.section, ConfigSection::Passwords);
     assert!(manager.resume_upgrade);
 }
 
@@ -62,7 +65,6 @@ fn server_editor_creates_a_configured_server() {
     let _keychain = isolate();
     let mut app = App::new(vec![server("one")]);
     passwords::open(&mut app, 0, false);
-    let _ = passwords::handle_key(&mut app, KeyCode::Tab);
     let _ = passwords::handle_key(&mut app, KeyCode::Char('a'));
     for character in "new-host".chars() {
         let _ = passwords::handle_key(&mut app, KeyCode::Char(character));
@@ -78,9 +80,13 @@ fn server_editor_creates_a_configured_server() {
         let _ = passwords::handle_key(&mut app, KeyCode::Char(character));
     }
     let action = passwords::handle_key(&mut app, KeyCode::Enter);
-    let PasswordAction::ApplyServers(servers) = action else {
+    let PasswordAction::ApplyServerEdit {
+        servers, password, ..
+    } = action
+    else {
         panic!("expected server update")
     };
+    assert_eq!(password, None, "no password was typed for the new host");
     assert_eq!(servers.len(), 2);
     assert_eq!(servers[1].host, "new-host");
     assert_eq!(servers[1].user, "deploy");
@@ -108,7 +114,6 @@ fn test_save_new_server_with_password() {
     let _keychain = isolate();
     let mut app = App::new(vec![server("one")]);
     passwords::open(&mut app, 0, false);
-    let _ = passwords::handle_key(&mut app, KeyCode::Tab);
     let _ = passwords::handle_key(&mut app, KeyCode::Char('a'));
     for character in "new-server".chars() {
         let _ = passwords::handle_key(&mut app, KeyCode::Char(character));
@@ -128,15 +133,19 @@ fn test_save_new_server_with_password() {
         let _ = passwords::handle_key(&mut app, KeyCode::Char(character));
     }
     let action = passwords::handle_key(&mut app, KeyCode::Enter);
-    let PasswordAction::SaveServerWithPassword {
+    let PasswordAction::ApplyServerEdit {
         servers,
         target_idx,
         password,
     } = action
     else {
-        panic!("expected SaveServerWithPassword action");
+        panic!("expected a server edit action");
     };
     assert_eq!(servers.len(), 2);
     assert_eq!(target_idx, 1);
-    assert_eq!(password, "secret123");
+    assert_eq!(
+        password.as_deref(),
+        Some("secret123"),
+        "a password typed in the row editor is that host's own"
+    );
 }

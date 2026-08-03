@@ -4,50 +4,27 @@ The one forward-looking backlog. Shipped work is not listed here — it is in gi
 history and in the test suite. When an item here is finished, delete it rather
 than ticking it off.
 
-## 0. Confirm: sudo rejection is now reported as a password problem
+## 0. Confirm the rebuilt Server Settings against real hosts
 
-Upgrades on the three Ubuntu hosts failed with
-`upgrade command exited 1 - host reachable, command failed`. The command never
-ran: `sudo` refused the password, and `preamble && command` exits 1 either way,
-so a rejected password and a broken upgrade script were indistinguishable.
+The panel was two lists with `Tab` between them, and "SSO" meant two unrelated
+things: the vault master password, and a single shared sudo password handed to
+any host without one of its own. That second meaning is gone.
 
-Fixed on both sides. The remote now prints `__multitop_sudo_failed__` and exits
-111, verified live against 192.168.0.33 (`rc = 111`, marker on stdout), and the
-panel says the password was refused and which host refused it.
+- One list: `Server | User | Port | Upgrade command | Password`.
+- `Enter` edits a row -- host, user, port, upgrade command, password.
+- `A` adds, `D` deletes (confirmed), `I` imports `~/.ssh/config`.
+- `R` changes the vault master password. That is the only master password.
+- `S` toggles sparklines, under an Experimental heading.
+- An emptied password field removes that host's stored password.
 
-The Configuration panel also claimed `> Stored` for every host the moment one
-SSO password was set, though nothing had checked it against any of them. Hosts
-borrowing the SSO password now read `> SSO (unverified)` in yellow; a password
-entered for a host with `o` supersedes it and reads `> Stored`.
+Also fixed with it: a refused sudo password used to be indistinguishable from a
+failing upgrade command -- `preamble && command` exits 1 either way -- so the
+panel blamed the command for a run that never happened. The remote now exits 111
+with a marker line, verified live against 192.168.0.33.
 
-**Not confirmed against a real host yet.** The Ubuntu boxes need their own sudo
-passwords set with `o` -- they do not share the Mac's. Then confirm an upgrade
-completes, and that a deliberately wrong password reports as refused rather than
-as a failing command.
-
-## 0b. DONE: the missing SSO entry
-
-**Cause, and it was mine.** Verifying the password flow on 2026-08-03 I drove
-the app through the SSO prompt with `XDG_CONFIG_HOME` isolated but *not* the
-keychain -- the credential store is per-user, not per-config-dir -- which wrote
-the literal string `test` over the real `multitop`/`__sso_master__` login-keychain
-item. I deleted it rather than leave a wrong password in place. A later check
-confirmed the state: no per-host entry exists for any of the four configured
-hosts, and no SSO entry either.
-
-So the app has no sudo password for any host. The remote `upgrade_cmd` needs
-sudo, gets none, and the run fails. Nothing in the SSH or handshake path is
-wrong -- the exact remote command was replayed against 192.168.0.33 by hand and
-behaved correctly: the readiness sentinel arrived, the password was consumed,
-and sudo rejected a deliberately wrong one with exit 1.
-
-**The fix is one action:** press `s` in Server Settings and enter the SSO master
-password again. Then confirm an upgrade completes.
-
-If it still fails afterwards, the next thing to capture is the exact text in the
-upgrade pane. No string in the workspace says "unreachable", so that wording is
-coming from ssh or sudo output being surfaced verbatim, and knowing which line
-it is decides where to look.
+**To confirm:** give each Ubuntu host its own password with `Enter`, run an
+upgrade, and check it completes. Then set one deliberately wrong and check the
+panel says the password was refused rather than that the command failed.
 
 ## 2. Decide the fate of two unused vault API functions
 

@@ -167,145 +167,100 @@ async fn setup() -> tokio::sync::MutexGuard<'static, ()> {
     let guard = password_store::lock_for_test_async().await;
     password_store::enable_mock_store();
     password_store::clear_mock_store();
-    let _ = password_store::delete_sso();
     guard
 }
 
 // ---------------------------------------------------------------------------
-// The reported flow: enter a password in Server Settings.
+// One list, one row editor. A password belongs to the host it is for.
 // ---------------------------------------------------------------------------
 
+/// The reported flow, in the shape the panel has now.
 #[tokio::test]
-async fn entering_an_sso_password_renders_at_every_keystroke() {
-    let _guard = setup().await;
-    let mut h = Harness::new(&["host-a", "host-b"]);
-
-    h.press(KeyCode::Char('e'));
-    assert!(h.app.password_manager.is_some(), "the panel must open");
-    h.press(KeyCode::Char('s'));
-    assert!(h.screen().contains("Password:"), "the prompt must be drawn");
-
-    h.type_str("hunter2");
-    assert!(
-        h.screen().contains("*******"),
-        "the typed password must be masked on screen, got:\n{}",
-        h.screen()
-    );
-
-    h.press(KeyCode::Enter);
-    assert_eq!(
-        password_store::load_sso().unwrap().as_deref(),
-        Some("hunter2"),
-        "the password must reach the credential store"
-    );
-}
-
-#[tokio::test]
-async fn entering_a_per_host_override_renders_at_every_keystroke() {
+async fn a_password_typed_in_the_row_editor_reaches_the_store() {
     let _guard = setup().await;
     let mut h = Harness::new(&["host-a", "host-b"]);
 
     h.press(KeyCode::Char('e'));
     h.press(KeyCode::Down);
-    h.press(KeyCode::Char('o'));
+    h.press(KeyCode::Enter);
     assert!(
-        h.screen().contains("host-b"),
-        "the override prompt must name the host it applies to, got:\n{}",
+        h.screen().contains("Editing server"),
+        "Enter must open the row editor, got:\n{}",
         h.screen()
     );
 
-    h.type_str("per-host");
+    for _ in 0..4 {
+        h.press(KeyCode::Tab);
+    }
+    h.type_str("just-for-b");
     h.press(KeyCode::Enter);
 
     assert_eq!(
         password_store::load(&server("host-b")).unwrap().as_deref(),
-        Some("per-host")
+        Some("just-for-b"),
+        "it is this host's password"
+    );
+    assert_eq!(
+        password_store::load(&server("host-a")).unwrap(),
+        None,
+        "and only this host's -- setting one password must not mark others as \
+         configured, which is what the shared fallback used to do"
     );
 }
 
-/// The Servers section carries a password field inside the draft.
+/// Adding a server carries its password in the same editor. There is nowhere
+/// else to put one.
 #[tokio::test]
-async fn entering_a_password_in_the_server_draft_renders_at_every_keystroke() {
+async fn a_new_server_gets_its_password_in_the_same_editor() {
     let _guard = setup().await;
     let mut h = Harness::new(&["host-a"]);
 
     h.press(KeyCode::Char('e'));
-    h.press(KeyCode::Tab); // to Servers
-    h.press(KeyCode::Char('a')); // new draft
+    h.press(KeyCode::Char('a'));
     h.type_str("host-new");
     h.press(KeyCode::Tab);
     h.type_str("admin");
+    // Port is pre-filled with the default; typing into it would append.
     h.press(KeyCode::Tab);
-    h.type_str("22");
     h.press(KeyCode::Tab);
     h.type_str("ls -l");
-    h.press(KeyCode::Tab); // password field
-    h.type_str("draft-secret");
-    assert!(
-        h.screen().contains("Sudo password: ************"),
-        "the draft password must be masked, got:\n{}",
-        h.screen()
-    );
-
+    h.press(KeyCode::Tab);
+    h.type_str("new-secret");
     h.press(KeyCode::Enter);
+
     assert_eq!(h.app.panels.len(), 2, "the server must be added");
-}
-
-/// Setting one SSO password flipped every host to "Stored", which reads as
-/// "configured and working". Nothing has checked that password against any of
-/// them, and when sudo later refused it the failure surfaced as a broken
-/// upgrade command. The panel has to say which credential a host is using.
-#[tokio::test]
-async fn an_sso_password_is_labelled_as_borrowed_not_verified() {
-    let _guard = setup().await;
-    let mut h = Harness::new(&["host-a", "host-b"]);
-
-    h.press(KeyCode::Char('e'));
-    h.press(KeyCode::Char('s'));
-    h.type_str("one-password-for-all");
-    h.press(KeyCode::Enter);
-
-    let screen = h.screen();
-    assert!(
-        screen.contains("SSO (unverified)"),
-        "a borrowed password must not be shown as this host's own, got:\n{screen}"
-    );
-    assert!(
-        !screen.contains("\u{2713} Stored"),
-        "nothing here was verified against a host, got:\n{screen}"
+    assert_eq!(
+        password_store::load(&server("host-new"))
+            .unwrap()
+            .as_deref(),
+        Some("new-secret")
     );
 }
 
-/// A password entered for one host specifically is that host's own.
+/// Clearing the field is how a password is taken back, now that the separate
+/// Passwords list is gone.
 #[tokio::test]
-async fn a_per_host_password_supersedes_the_sso_label() {
+async fn clearing_the_password_field_removes_the_stored_password() {
     let _guard = setup().await;
-    let mut h = Harness::new(&["host-a", "host-b"]);
+    let mut h = Harness::new(&["host-a"]);
+    password_store::save(&server("host-a"), "old-secret").unwrap();
+    h.app.panels[0].sudo_password = Some("old-secret".to_string());
+    h.app.panels[0].password_saved = true;
 
     h.press(KeyCode::Char('e'));
-    h.press(KeyCode::Char('s'));
-    h.type_str("shared");
     h.press(KeyCode::Enter);
-    // Now give host-a its own. Saving the first per-host password offers to
-    // create a vault, which closes the panel -- decline and reopen.
-    h.press(KeyCode::Char('o'));
-    h.type_str("just-for-a");
+    for _ in 0..4 {
+        h.press(KeyCode::Tab);
+    }
+    for _ in 0.."old-secret".len() {
+        h.press(KeyCode::Backspace);
+    }
     h.press(KeyCode::Enter);
-    if h.app.vault_creating() {
-        h.press(KeyCode::Esc);
-    }
-    if h.app.password_manager.is_none() {
-        h.press(KeyCode::Char('e'));
-    }
 
-    let screen = h.screen();
-    assert!(
-        screen.contains("\u{2713} Stored"),
-        "host-a now has its own password, got:\n{screen}"
-    );
-    assert!(
-        screen.contains("SSO (unverified)"),
-        "host-b is still borrowing, got:\n{screen}"
+    assert_eq!(
+        password_store::load(&server("host-a")).unwrap(),
+        None,
+        "an emptied field must not leave the old password behind"
     );
 }
 
@@ -316,15 +271,42 @@ async fn a_password_with_wide_and_multibyte_characters_renders() {
     let mut h = Harness::new(&["host-a"]);
 
     h.press(KeyCode::Char('e'));
-    h.press(KeyCode::Char('s'));
+    h.press(KeyCode::Enter);
+    for _ in 0..4 {
+        h.press(KeyCode::Tab);
+    }
     h.type_str("pä55wörd-\u{4f60}\u{597d}");
     h.press(KeyCode::Backspace);
     h.press(KeyCode::Enter);
 
     assert_eq!(
-        password_store::load_sso().unwrap().as_deref(),
+        password_store::load(&server("host-a")).unwrap().as_deref(),
         Some("pä55wörd-\u{4f60}")
     );
+}
+
+/// The vault offer follows the first stored password, and is part of the flow.
+#[tokio::test]
+async fn the_vault_creation_offer_renders_and_can_be_declined() {
+    let _guard = setup().await;
+    let mut h = Harness::new(&["host-a"]);
+
+    h.press(KeyCode::Char('e'));
+    h.press(KeyCode::Enter);
+    for _ in 0..4 {
+        h.press(KeyCode::Tab);
+    }
+    h.type_str("first-password");
+    h.press(KeyCode::Enter);
+
+    assert!(
+        h.app.vault_creating(),
+        "saving the first password must offer a vault"
+    );
+    h.type_str("master");
+    h.draw();
+    h.press(KeyCode::Esc);
+    assert!(!h.app.vault_creating(), "Esc must decline the offer");
 }
 
 /// A terminal too small for the panel must clip, not panic.
@@ -333,13 +315,42 @@ async fn the_panel_renders_in_a_terminal_too_small_for_it() {
     let _guard = setup().await;
     let mut h = Harness::new(&["host-a", "host-b"]);
     h.press(KeyCode::Char('e'));
-    h.press(KeyCode::Char('s'));
+    h.press(KeyCode::Enter);
     h.type_str("secret");
 
     for (w, hgt) in [(20u16, 5u16), (1, 1), (200, 60), (80, 2)] {
         h.terminal = Terminal::new(TestBackend::new(w, hgt)).unwrap();
         h.draw();
     }
+}
+
+/// Removing a server must leave the shorter list renderable and editable.
+#[tokio::test]
+async fn removing_a_server_leaves_a_renderable_panel() {
+    let _guard = setup().await;
+    let mut h = Harness::new(&["host-a", "host-b"]);
+
+    h.press(KeyCode::Char('e'));
+    h.press(KeyCode::Down);
+    h.press(KeyCode::Char('d'));
+    h.press(KeyCode::Char('y'));
+
+    assert_eq!(h.app.panels.len(), 1, "{}", h.notice());
+    h.press(KeyCode::Enter);
+}
+
+/// The Experimental block is where sparklines live, and `s` toggles them.
+#[tokio::test]
+async fn s_toggles_sparklines_from_the_experimental_block() {
+    let _guard = setup().await;
+    let mut h = Harness::new(&["host-a"]);
+    h.press(KeyCode::Char('e'));
+
+    let screen = h.screen();
+    assert!(screen.contains("Experimental"), "got:\n{screen}");
+    let before = h.app.show_sparklines();
+    h.press(KeyCode::Char('s'));
+    assert_ne!(h.app.show_sparklines(), before, "s must toggle sparklines");
 }
 
 // ---------------------------------------------------------------------------
@@ -351,8 +362,6 @@ const SWEEP_KEYS: &[KeyCode] = &[
     KeyCode::Char('a'),
     KeyCode::Char('d'),
     KeyCode::Char('i'),
-    KeyCode::Char('o'),
-    KeyCode::Char('p'),
     KeyCode::Char('r'),
     KeyCode::Char('s'),
     KeyCode::Char('y'),
@@ -368,19 +377,15 @@ const SWEEP_KEYS: &[KeyCode] = &[
 
 /// How many presses deep the sweep goes.
 ///
-/// Depth 4 (65536 sequences) has been run by hand and is clean, but takes about
-/// three minutes -- too slow to sit in front of every commit. Raise it here when
-/// hunting, not permanently.
+/// Depth 4 has been run by hand and is clean, but takes minutes -- too slow to
+/// sit in front of every commit. Raise it here when hunting, not permanently.
 const DEPTH: usize = 3;
 
 /// Every sequence of `DEPTH` presses from the open Configuration panel must
 /// produce a frame that renders.
 ///
-/// This is the part that generalises. The crash that prompted these tests was
-/// one path through the panel; the class is "a state the panel can reach that
-/// the renderer cannot draw", and only walking the reachable states rules that
-/// class out. Depth 3 covers every binding plus its two-key follow-ups
-/// (`d`-then-`y`, `s`-then-text-then-Enter, `a`-then-Tab).
+/// The class is "a state the panel can reach that the renderer cannot draw",
+/// and only walking the reachable states rules it out.
 #[tokio::test]
 async fn every_short_key_sequence_in_the_panel_renders() {
     let _guard = setup().await;
@@ -399,7 +404,7 @@ async fn every_short_key_sequence_in_the_panel_renders() {
         for &index in &sequence {
             h.press(SWEEP_KEYS[index]);
             // Answering the vault-creation prompt runs Argon2id sized to a
-            // quarter of system RAM. It is covered on its own below; here it
+            // quarter of system RAM. It is covered on its own above; here it
             // would turn a sweep into an out-of-memory hazard, so the offer is
             // declined the moment it appears. Declining is a real key path.
             if h.app.vault_creating() {
@@ -408,44 +413,4 @@ async fn every_short_key_sequence_in_the_panel_renders() {
             }
         }
     }
-}
-
-/// The vault-creation prompt is offered right after the first password is
-/// saved, so it is part of "entering a password" and has to draw.
-#[tokio::test]
-async fn the_vault_creation_offer_renders_and_can_be_declined() {
-    let _guard = setup().await;
-    let mut h = Harness::new(&["host-a"]);
-
-    h.press(KeyCode::Char('e'));
-    h.press(KeyCode::Char('o'));
-    h.type_str("first-password");
-    h.press(KeyCode::Enter);
-
-    assert!(
-        h.app.vault_creating(),
-        "saving the first password must offer a vault"
-    );
-    h.type_str("master");
-    h.draw();
-    h.press(KeyCode::Esc);
-    assert!(!h.app.vault_creating(), "Esc must decline the offer");
-}
-
-/// Removing a server mid-session shrinks the panel list; the panel must still
-/// draw against the shorter list on the very next frame.
-#[tokio::test]
-async fn removing_a_server_leaves_a_renderable_panel() {
-    let _guard = setup().await;
-    let mut h = Harness::new(&["host-a", "host-b"]);
-
-    h.press(KeyCode::Char('e'));
-    h.press(KeyCode::Tab);
-    h.press(KeyCode::Down); // select host-b, the last row
-    h.press(KeyCode::Char('d'));
-    h.press(KeyCode::Char('y'));
-
-    assert_eq!(h.app.panels.len(), 1, "{}", h.notice());
-    h.press(KeyCode::Tab); // back to Passwords, which indexes by `selected`
-    h.press(KeyCode::Char('o'));
 }

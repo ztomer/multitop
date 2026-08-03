@@ -42,7 +42,7 @@ pub fn apply(
                 });
             }
         }
-        PasswordAction::SaveServerWithPassword {
+        PasswordAction::ApplyServerEdit {
             servers: new_servers,
             target_idx,
             password,
@@ -55,63 +55,28 @@ pub fn apply(
                 tasks,
             );
             if target_idx < app.panels.len() {
-                apply(
-                    PasswordAction::Save {
-                        panel: target_idx,
-                        password,
-                        resume_upgrade: false,
-                    },
-                    app,
-                    servers,
-                    tx,
-                    tasks,
-                );
+                // `None` means the field was emptied on purpose: take the
+                // stored password back rather than keeping one the editor no
+                // longer shows.
+                let follow_up =
+                    password.map_or(PasswordAction::Delete { panel: target_idx }, |password| {
+                        PasswordAction::Save {
+                            panel: target_idx,
+                            password,
+                            resume_upgrade: false,
+                        }
+                    });
+                apply(follow_up, app, servers, tx, tasks);
             }
         }
         PasswordAction::Delete { panel } => {
             let result = crate::password_store::delete(&app.panels[panel].server);
             app.panels[panel].sudo_password = None;
             app.panels[panel].password_saved = false;
-            // `load` falls back to the SSO master password, so removing a
-            // per-host entry does not stop the host authenticating when an SSO
-            // password exists. Saying "removed" full stop was untrue: the next
-            // upgrade would pick the SSO one up and the user would have no idea
-            // why the password they just deleted still worked.
-            let sso_covers = matches!(crate::password_store::load_sso(), Ok(Some(_)));
-            if let Some(manager) = app.password_manager.as_mut() {
-                manager.notice = Some(match (result, sso_covers) {
-                    (Ok(()), false) => "Saved password removed.".to_string(),
-                    (Ok(()), true) => {
-                        "Saved password removed; this host will now use the SSO master password."
-                            .to_string()
-                    }
-                    (Err(error), _) => format!("Could not remove saved password: {error}"),
-                });
-            }
-        }
-        PasswordAction::SaveSso { password } => {
-            let result = crate::password_store::save_sso(&password);
-            for panel in &mut app.panels {
-                if panel.sudo_password.is_none() {
-                    panel.sudo_password = Some(password.clone());
-                    panel.password_saved = result.is_ok();
-                    // Borrowed, not verified. The panel says so.
-                    panel.uses_sso = true;
-                }
-            }
             if let Some(manager) = app.password_manager.as_mut() {
                 manager.notice = Some(match result {
-                    Ok(()) => "Single Sign-On (SSO) master password saved.".to_string(),
-                    Err(error) => format!("Could not save SSO password: {error}"),
-                });
-            }
-        }
-        PasswordAction::DeleteSso => {
-            let result = crate::password_store::delete_sso();
-            if let Some(manager) = app.password_manager.as_mut() {
-                manager.notice = Some(match result {
-                    Ok(()) => "Single Sign-On (SSO) master password removed.".to_string(),
-                    Err(error) => format!("Could not remove SSO password: {error}"),
+                    Ok(()) => "Saved password removed; this host now has none.".to_string(),
+                    Err(error) => format!("Could not remove saved password: {error}"),
                 });
             }
         }
@@ -207,8 +172,6 @@ pub fn apply(
             let result = crate::password_store::save(&app.panels[panel].server, &password);
             let stored = result.is_ok();
             app.panels[panel].password_saved = stored;
-            // A password entered for this host specifically supersedes the SSO one.
-            app.panels[panel].uses_sso = false;
             // Also save to vault if unlocked. The result is reported: dropping
             // it told the user "saved securely" whenever the keychain write
             // succeeded, even if the vault -- the thing they created to hold

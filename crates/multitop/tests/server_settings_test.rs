@@ -6,7 +6,7 @@ use crossterm::event::KeyCode;
 use multitop::app::{App, Mode, Msg};
 use multitop::config::Server;
 use multitop::password_store;
-use multitop::passwords::{self, ConfigSection, PasswordAction};
+use multitop::passwords::{self, PasswordAction};
 use std::sync::atomic::{AtomicU16, Ordering};
 
 /// Divert credentials to the in-memory store, and hold the process-global guard.
@@ -67,7 +67,6 @@ async fn setup_mock_store_async() -> tokio::sync::MutexGuard<'static, ()> {
 fn reset_store() {
     password_store::enable_mock_store();
     password_store::clear_mock_store();
-    password_store::delete_sso().unwrap();
 }
 
 #[test]
@@ -79,42 +78,11 @@ fn test_open_and_close_settings_manager_with_e_key() {
     // Open via passwords::open
     passwords::open(&mut app, 0, false);
     assert!(app.password_manager.is_some());
-    assert_eq!(
-        app.password_manager.as_ref().unwrap().section,
-        ConfigSection::Passwords
-    );
 
     // Press 'e' to close
     let action = passwords::handle_key(&mut app, KeyCode::Char('e'));
     assert_eq!(action, PasswordAction::None);
     assert!(app.password_manager.is_none());
-}
-
-#[test]
-fn test_tab_between_passwords_and_servers_sections() {
-    let _keychain = isolate_keychain();
-    let mut app = App::new(vec![test_server("host1")]);
-    passwords::open(&mut app, 0, false);
-    assert_eq!(
-        app.password_manager.as_ref().unwrap().section,
-        ConfigSection::Passwords
-    );
-
-    // Press Tab to switch to Servers section
-    let action = passwords::handle_key(&mut app, KeyCode::Tab);
-    assert_eq!(action, PasswordAction::None);
-    assert_eq!(
-        app.password_manager.as_ref().unwrap().section,
-        ConfigSection::Servers
-    );
-
-    // Press Tab to switch back to Passwords section
-    let action2 = passwords::handle_key(&mut app, KeyCode::Tab);
-    assert_eq!(action2, PasswordAction::None);
-    assert_eq!(
-        app.password_manager.as_ref().unwrap().section,
-        ConfigSection::Passwords
-    );
 }
 
 #[test]
@@ -221,10 +189,10 @@ fn test_save_server_with_password() {
     let mut tasks = multitop::run::Tasks::new(1);
 
     multitop::password_actions::apply(
-        PasswordAction::SaveServerWithPassword {
+        PasswordAction::ApplyServerEdit {
             servers: vec![test_server("host1"), test_server("host2")],
             target_idx: 1,
-            password: "new_password".to_string(),
+            password: Some("new_password".to_string()),
         },
         &mut app,
         &[test_server("host1"), test_server("host2")],
@@ -266,68 +234,6 @@ fn test_delete_password_removes_from_keychain() {
     assert!(!app.panels[0].password_saved);
 
     let loaded = password_store::load(&server).unwrap();
-    assert_eq!(loaded, None);
-
-    let _ = std::fs::remove_file(tmp_path);
-}
-
-#[test]
-fn test_save_sso_propagates_to_all_panels() {
-    let _store_guard = setup_mock_store();
-    let mut app = App::new(vec![test_server("host1"), test_server("host2")]);
-    let tmp_path =
-        std::env::temp_dir().join(format!("multitop_test_cfg_{}.toml", std::process::id()));
-    app.config_path = Some(tmp_path.clone());
-
-    let (tx, _rx) = tokio::sync::mpsc::channel::<Msg>(10);
-    let mut tasks = multitop::run::Tasks::new(2);
-    let servers = vec![test_server("host1"), test_server("host2")];
-
-    multitop::password_actions::apply(
-        PasswordAction::SaveSso {
-            password: "sso_pass".to_string(),
-        },
-        &mut app,
-        &servers,
-        &tx,
-        &mut tasks,
-    );
-
-    assert_eq!(app.panels[0].sudo_password.as_deref(), Some("sso_pass"));
-    assert_eq!(app.panels[1].sudo_password.as_deref(), Some("sso_pass"));
-    assert!(app.panels[0].password_saved);
-    assert!(app.panels[1].password_saved);
-
-    let loaded = password_store::load_sso().unwrap();
-    assert_eq!(loaded.as_deref(), Some("sso_pass"));
-
-    let _ = std::fs::remove_file(tmp_path);
-}
-
-#[test]
-fn test_delete_sso_clears_all() {
-    let _store_guard = setup_mock_store();
-    password_store::save_sso("sso_pass").unwrap();
-
-    let mut app = App::new(vec![test_server("host1"), test_server("host2")]);
-    let tmp_path =
-        std::env::temp_dir().join(format!("multitop_test_cfg_{}.toml", std::process::id()));
-    app.config_path = Some(tmp_path.clone());
-
-    let (tx, _rx) = tokio::sync::mpsc::channel::<Msg>(10);
-    let mut tasks = multitop::run::Tasks::new(2);
-    let servers = vec![test_server("host1"), test_server("host2")];
-
-    multitop::password_actions::apply(
-        PasswordAction::DeleteSso,
-        &mut app,
-        &servers,
-        &tx,
-        &mut tasks,
-    );
-
-    // SSO deleted from store
-    let loaded = password_store::load_sso().unwrap();
     assert_eq!(loaded, None);
 
     let _ = std::fs::remove_file(tmp_path);

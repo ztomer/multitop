@@ -10,7 +10,6 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 use multitop::app::{App, Msg};
 use multitop::config::Server;
-use multitop::password_store::{self, clear_mock_store, enable_mock_store};
 use multitop::state::{self, AppState};
 
 /// Divert credentials to the in-memory store, and hold the process-global guard.
@@ -89,49 +88,6 @@ fn test_upgrade_modal_workflow_and_state_saving() {
     assert_eq!(state.last_update, app.last_update);
 
     let _ = std::fs::remove_dir_all(&temp_dir);
-}
-
-#[test]
-fn test_sso_master_password_lifecycle_and_fallback() {
-    enable_mock_store();
-    clear_mock_store();
-    password_store::clear_sso_cache();
-
-    let server1 = test_server("user1", "host1.org");
-    let server2 = test_server("user2", "host2.org");
-
-    // Save SSO Master Password
-    password_store::save_sso("sso_master_secret_456").unwrap();
-    assert_eq!(
-        password_store::load_sso().unwrap().as_deref(),
-        Some("sso_master_secret_456")
-    );
-
-    // Server with no explicit password falls back to SSO password
-    assert_eq!(
-        password_store::load(&server1).unwrap().as_deref(),
-        Some("sso_master_secret_456")
-    );
-    assert_eq!(
-        password_store::load(&server2).unwrap().as_deref(),
-        Some("sso_master_secret_456")
-    );
-
-    // Explicit server password overrides SSO
-    password_store::save(&server1, "override_pass_789").unwrap();
-    assert_eq!(
-        password_store::load(&server1).unwrap().as_deref(),
-        Some("override_pass_789")
-    );
-    assert_eq!(
-        password_store::load(&server2).unwrap().as_deref(),
-        Some("sso_master_secret_456")
-    );
-
-    // Cleanup SSO
-    password_store::delete_sso().unwrap();
-    assert_eq!(password_store::load_sso().unwrap(), None);
-    assert_eq!(password_store::load(&server2).unwrap(), None);
 }
 
 #[test]

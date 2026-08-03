@@ -130,168 +130,35 @@ fn entry(server: &Server) -> Result<Entry, String> {
     Entry::new(SERVICE, &account(server)).map_err(|error| error.to_string())
 }
 
-pub const SSO_ACCOUNT: &str = "__sso_master__";
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-enum SsoCacheState {
-    Uncached,
-    NotFound,
-    Found(String),
-}
-
-static SSO_CACHE: RwLock<SsoCacheState> = RwLock::new(SsoCacheState::Uncached);
-
-// reachability: test-only reset for this module's process-global cache.
-// Production invalidates by recording a cached negative via `cache_sso(None)`
-// after the store agrees; this forces the next lookup to re-query instead,
-// which only a test between cases wants.
-pub fn clear_sso_cache() {
-    let mut cache = SSO_CACHE
-        .write()
-        .unwrap_or_else(std::sync::PoisonError::into_inner);
-    *cache = SsoCacheState::Uncached;
-}
-
-/// Load the SSO master password from the credential store.
+/// Read a password for one server. A missing or locked credential store is not
+/// an error.
 ///
-/// # Errors
+/// # There is no shared fallback
 ///
-/// Returns an error if the credential store cannot be accessed.
-pub fn load_sso() -> Result<Option<String>, String> {
-    {
-        let cache = SSO_CACHE
-            .read()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
-        match &*cache {
-            SsoCacheState::Found(p) => return Ok(Some(p.clone())),
-            SsoCacheState::NotFound => return Ok(None),
-            SsoCacheState::Uncached => {}
-        }
-    }
-
-    let pass = if is_mock_enabled() {
-        enable_mock_store();
-        let store = MOCK_STORE
-            .read()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
-        store.as_ref().and_then(|map| map.get(SSO_ACCOUNT).cloned())
-    } else {
-        let Ok(entry) = Entry::new(SERVICE, SSO_ACCOUNT) else {
-            return Ok(None);
-        };
-        entry.get_password().ok()
-    };
-
-    let mut cache = SSO_CACHE
-        .write()
-        .unwrap_or_else(std::sync::PoisonError::into_inner);
-    *cache = pass.as_ref().map_or_else(
-        || SsoCacheState::NotFound,
-        |p| SsoCacheState::Found(p.clone()),
-    );
-    drop(cache);
-    Ok(pass)
-}
-
-/// Save the SSO master password to the credential store.
-///
-/// # Errors
-///
-/// Returns an error if the credential store cannot be written.
-pub fn save_sso(password: &str) -> Result<(), String> {
-    // The cache is updated only after the store accepts the write. Recording it
-    // first meant a failed save still served the password for the rest of the
-    // session, so the user was told it had not been saved and then saw it work
-    // until they restarted.
-    if is_mock_enabled() {
-        enable_mock_store();
-        let mut store = MOCK_STORE
-            .write()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
-        if let Some(map) = store.as_mut() {
-            map.insert(SSO_ACCOUNT.to_string(), password.to_string());
-        }
-        drop(store);
-        cache_sso(Some(password));
-        return Ok(());
-    }
-    Entry::new(SERVICE, SSO_ACCOUNT)
-        .map_err(|e| e.to_string())?
-        .set_password(password)
-        .map_err(|e| e.to_string())?;
-    cache_sso(Some(password));
-    Ok(())
-}
-
-/// Record the SSO cache state. Call only after the store has agreed.
-fn cache_sso(password: Option<&str>) {
-    let mut cache = SSO_CACHE
-        .write()
-        .unwrap_or_else(std::sync::PoisonError::into_inner);
-    *cache = password.map_or(SsoCacheState::NotFound, |p| {
-        SsoCacheState::Found(p.to_string())
-    });
-}
-
-/// Delete the SSO master password from the credential store.
-///
-/// # Errors
-///
-/// Returns an error if the credential store cannot be accessed.
-pub fn delete_sso() -> Result<(), String> {
-    // Same rule as `save_sso`: the cache follows the store, never leads it.
-    if is_mock_enabled() {
-        enable_mock_store();
-        let mut store = MOCK_STORE
-            .write()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
-        if let Some(map) = store.as_mut() {
-            map.remove(SSO_ACCOUNT);
-        }
-        drop(store);
-        cache_sso(None);
-        return Ok(());
-    }
-    match Entry::new(SERVICE, SSO_ACCOUNT)
-        .map_err(|e| e.to_string())?
-        .delete_credential()
-    {
-        // Gone either way, so the cache must say so. Missing this is how
-        // "the cache follows the store" turns into the cache serving a
-        // password that was just deleted, for the rest of the session.
-        Ok(()) | Err(Error::NoEntry) => {
-            cache_sso(None);
-            Ok(())
-        }
-        Err(error) => Err(error.to_string()),
-    }
-}
-
-/// Read a password. A missing or locked credential store is not an error.
+/// This used to fall back to a single `__sso_master__` entry and hand it to any
+/// host with none of its own. That conflated two unrelated things: the master
+/// password unlocks the *vault*, and each server has its own sudo password
+/// inside it. The fallback meant setting one password marked every configured
+/// host as having one, and the assumption only surfaced later, when sudo
+/// refused it on hosts that never shared it -- reported as a failing upgrade
+/// command. A host has its own password or it has none.
 ///
 /// # Errors
 ///
 /// Returns an error if the credential store cannot be accessed.
 pub fn load(server: &Server) -> Result<Option<String>, String> {
-    let server_pass = if is_mock_enabled() {
+    if is_mock_enabled() {
         enable_mock_store();
         let store = MOCK_STORE
             .read()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
         let key = account(server);
-        store.as_ref().and_then(|map| map.get(&key).cloned())
-    } else {
-        let Ok(entry) = entry(server) else {
-            return load_sso();
-        };
-        entry.get_password().ok()
-    };
-
-    if server_pass.is_some() {
-        return Ok(server_pass);
+        return Ok(store.as_ref().and_then(|map| map.get(&key).cloned()));
     }
-
-    load_sso()
+    let Ok(entry) = entry(server) else {
+        return Ok(None);
+    };
+    Ok(entry.get_password().ok())
 }
 
 /// Save a password for a server.
@@ -388,44 +255,5 @@ mod mock_signal_tests {
         // variable, and honouring it sent a release binary's passwords to a
         // store that evaporates on exit. The signature is the guarantee --
         // there is nowhere for it to enter.
-    }
-}
-
-#[cfg(test)]
-mod sso_cache_tests {
-    #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
-
-    use super::*;
-
-    /// The cache must follow the store, never lead it.
-    ///
-    /// `save_sso` used to record `Found` before attempting the write and
-    /// `delete_sso` recorded `NotFound` before attempting the delete. On
-    /// failure the user was told it had not worked, and then watched it appear
-    /// to work for the rest of the session, because every later read came from
-    /// a cache that had already committed to the outcome.
-    #[tokio::test]
-    async fn the_sso_cache_reflects_what_the_store_accepted() {
-        let _guard = lock_for_test_async().await;
-        enable_mock_store();
-        clear_mock_store();
-        let _ = delete_sso();
-
-        assert_eq!(load_sso().unwrap(), None, "starts empty");
-
-        save_sso("master-1").unwrap();
-        assert_eq!(load_sso().unwrap().as_deref(), Some("master-1"));
-
-        // A delete must be visible immediately, not just after a restart.
-        delete_sso().unwrap();
-        assert_eq!(
-            load_sso().unwrap(),
-            None,
-            "a completed delete must not keep serving the old password"
-        );
-
-        // And a re-save is visible again.
-        save_sso("master-2").unwrap();
-        assert_eq!(load_sso().unwrap().as_deref(), Some("master-2"));
     }
 }

@@ -99,7 +99,10 @@ fn r_collects_the_current_password_then_the_new_one() {
     ));
     let m = app.password_manager.as_ref().unwrap();
     assert!(m.editing(), "a prompt must be open");
-    assert!(m.is_rotating(), "and it must be the rotation prompt");
+    assert!(
+        m.notice.as_deref().unwrap_or_default().contains("master"),
+        "and it must be the rotation prompt"
+    );
     assert!(
         m.notice.as_deref().unwrap_or_default().contains("CURRENT"),
         "the first prompt must ask for the current password, got {:?}",
@@ -113,7 +116,7 @@ fn r_collects_the_current_password_then_the_new_one() {
         "the first Enter must not act yet -- it only advances to the second prompt"
     );
     let m = app.password_manager.as_ref().unwrap();
-    assert!(m.is_rotating(), "still rotating after the first password");
+    assert!(m.editing(), "still prompting after the first password");
     assert!(
         m.notice.as_deref().unwrap_or_default().contains("NEW"),
         "the second prompt must ask for the new password, got {:?}",
@@ -146,7 +149,7 @@ fn escape_abandons_the_rotation_without_acting() {
     assert!(matches!(action, PasswordAction::None));
     let m = app.password_manager.as_ref().unwrap();
     assert!(!m.editing(), "the prompt must be closed");
-    assert!(!m.is_rotating(), "and the carried password released");
+    assert!(!m.editing(), "and the carried password released");
 
     let _ = std::fs::remove_dir_all(dir);
 }
@@ -195,12 +198,17 @@ fn r_is_ordinary_text_while_a_password_is_being_typed() {
     let _keychain = isolate_keychain();
     let (mut app, dir) = app_with_vault("text");
 
-    handle_key(&mut app, KeyCode::Char('s')); // SSO prompt
+    // Open the row editor and move to its password field.
+    handle_key(&mut app, KeyCode::Enter);
+    for _ in 0..4 {
+        handle_key(&mut app, KeyCode::Tab);
+    }
     type_in(&mut app, "supersecret");
     let m = app.password_manager.as_ref().unwrap();
-    assert!(!m.is_rotating(), "typing r must not start a rotation");
+    assert!(!m.editing(), "typing r must not start a rotation");
     assert_eq!(
-        m.input, "supersecret",
+        m.draft.as_ref().unwrap().password,
+        "supersecret",
         "the r in 'supersecret' must land in the field"
     );
 

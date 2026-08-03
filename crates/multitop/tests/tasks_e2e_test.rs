@@ -25,7 +25,6 @@ async fn enable_mock_store() -> tokio::sync::MutexGuard<'static, ()> {
     let guard = password_store::lock_for_test_async().await;
     password_store::enable_mock_store();
     password_store::clear_mock_store();
-    password_store::delete_sso().unwrap();
     guard
 }
 

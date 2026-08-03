@@ -6,12 +6,6 @@ use secrecy::{ExposeSecret, SecretString};
 use crate::app::App;
 use crate::config::{validate_host, validate_user, Server, DEFAULT_PORT};
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum ConfigSection {
-    Passwords,
-    Servers,
-}
-
 #[derive(Clone, Debug)]
 pub struct ServerDraft {
     pub original: Option<usize>,
@@ -69,7 +63,6 @@ impl ServerDraft {
 
 #[derive(Clone, Debug)]
 pub struct PasswordManager {
-    pub section: ConfigSection,
     pub selected: usize,
     /// What the current text entry is for, if any.
     ///
@@ -93,10 +86,6 @@ pub struct PasswordManager {
 /// What a text prompt in the Passwords section is collecting.
 #[derive(Clone, Debug)]
 pub enum PasswordEdit {
-    /// One password applied to every server.
-    Sso,
-    /// A password for the selected server only.
-    Override,
     /// The current vault master password, on the way to changing it.
     RotateCurrent,
     /// The replacement, carrying the current one that was just verified by
@@ -112,25 +101,9 @@ impl PasswordManager {
         self.edit.is_some()
     }
 
-    /// Whether the open prompt applies to every server.
-    #[must_use]
-    pub const fn is_sso(&self) -> bool {
-        matches!(self.edit, Some(PasswordEdit::Sso))
-    }
-
-    /// Whether the open prompt is part of changing the master password.
-    #[must_use]
-    pub const fn is_rotating(&self) -> bool {
-        matches!(
-            self.edit,
-            Some(PasswordEdit::RotateCurrent | PasswordEdit::RotateNew { .. })
-        )
-    }
-
     #[must_use]
     pub const fn new(selected: usize, resume_upgrade: bool) -> Self {
         Self {
-            section: ConfigSection::Passwords,
             selected,
             edit: None,
             input: String::new(),
@@ -150,13 +123,11 @@ pub enum PasswordAction {
         password: String,
         resume_upgrade: bool,
     },
+    /// Clear the stored password for a host, because its editor was saved with
+    /// an empty password field.
     Delete {
         panel: usize,
     },
-    SaveSso {
-        password: String,
-    },
-    DeleteSso,
     ToggleSparklines,
     /// Add hosts from `~/.ssh/config` that are not configured yet.
     ImportSshHosts,
@@ -167,10 +138,13 @@ pub enum PasswordAction {
         new: String,
     },
     ApplyServers(Vec<Server>),
-    SaveServerWithPassword {
+    /// The result of editing or adding one row: the new server list, and what
+    /// to do with that row's password. `None` means the field was left empty,
+    /// so any stored password for the host is removed.
+    ApplyServerEdit {
         servers: Vec<Server>,
         target_idx: usize,
-        password: String,
+        password: Option<String>,
     },
 }
 
@@ -182,141 +156,18 @@ pub fn open(app: &mut App, selected: usize, resume_upgrade: bool) {
     }
 }
 
+/// One list, one set of keys.
+///
+/// This was two sections with `Tab` between them: a Passwords list and a
+/// Servers list, showing the same hosts with different columns and different
+/// meanings for the same key -- `d` deleted a password on one side and a server
+/// on the other. The password for a host is a property of that host, so it is
+/// edited where the host is edited, and there is nothing left to switch between.
 pub fn handle_key(app: &mut App, key: KeyCode) -> PasswordAction {
-    let Some(manager) = app.password_manager.as_mut() else {
-        return PasswordAction::None;
-    };
-    if manager.draft.is_some() {
-        return server_key(app, key);
-    }
-    if key == KeyCode::Tab && !manager.editing() {
-        manager.section = match manager.section {
-            ConfigSection::Passwords => ConfigSection::Servers,
-            ConfigSection::Servers => ConfigSection::Passwords,
-        };
-        manager.notice = None;
-        // An armed removal refers to the list the user was just looking at.
-        manager.pending_delete = None;
+    if app.password_manager.is_none() {
         return PasswordAction::None;
     }
-    match manager.section {
-        ConfigSection::Passwords => password_key(app, key),
-        ConfigSection::Servers => server_key(app, key),
-    }
-}
-
-#[allow(clippy::expect_used)]
-fn password_key(app: &mut App, key: KeyCode) -> PasswordAction {
-    let manager = app.password_manager.as_mut().expect("manager exists");
-    if manager.edit.is_some() {
-        match key {
-            KeyCode::Esc => {
-                manager.edit = None;
-                manager.input.clear();
-                manager.notice = None;
-            }
-            KeyCode::Enter => {
-                let typed = std::mem::take(&mut manager.input);
-                let stage = manager.edit.take();
-                if typed.is_empty() {
-                    manager.notice = Some("Password was not changed.".to_string());
-                    return PasswordAction::None;
-                }
-                match stage {
-                    Some(PasswordEdit::Sso) => {
-                        return PasswordAction::SaveSso { password: typed };
-                    }
-                    Some(PasswordEdit::Override) => {
-                        return PasswordAction::Save {
-                            panel: manager.selected,
-                            password: typed,
-                            resume_upgrade: manager.resume_upgrade,
-                        };
-                    }
-                    Some(PasswordEdit::RotateCurrent) => {
-                        // The current password is not checked here. Verifying it
-                        // means running the KDF, which belongs off the event
-                        // loop, so the rotation attempt does it once and reports
-                        // back -- rather than paying for it twice and freezing
-                        // the UI to tell the user something they will learn a
-                        // moment later anyway.
-                        manager.edit = Some(PasswordEdit::RotateNew {
-                            current: SecretString::from(typed),
-                        });
-                        manager.notice = Some("Enter the NEW master password:".to_string());
-                    }
-                    Some(PasswordEdit::RotateNew { current }) => {
-                        return PasswordAction::RotateVaultPassword {
-                            current: current.expose_secret().to_string(),
-                            new: typed,
-                        };
-                    }
-                    None => {}
-                }
-            }
-            KeyCode::Backspace => {
-                manager.input.pop();
-            }
-            KeyCode::Char(character) => manager.input.push(character),
-            _ => {}
-        }
-        return PasswordAction::None;
-    }
-    match key {
-        KeyCode::Esc | KeyCode::Char('e' | 'E') => app.password_manager = None,
-        KeyCode::Up | KeyCode::Char('k' | 'K') => {
-            manager.selected = manager.selected.saturating_sub(1);
-        }
-        KeyCode::Down | KeyCode::Char('j' | 'J') => {
-            manager.selected = (manager.selected + 1).min(app.panels.len().saturating_sub(1));
-        }
-        KeyCode::Char('s' | 'S') | KeyCode::Enter => {
-            manager.edit = Some(PasswordEdit::Sso);
-            manager.input.clear();
-            manager.notice =
-                Some("Enter Single Sign-On (SSO) password for all servers:".to_string());
-        }
-        KeyCode::Char('o' | 'O') => {
-            manager.edit = Some(PasswordEdit::Override);
-            manager.input.clear();
-            manager.notice = Some(format!(
-                "Enter server password override for {}:",
-                app.panels[manager.selected].server.target()
-            ));
-        }
-        // Change the vault master password. Offered only when a vault exists:
-        // without one there is nothing to rotate, and the prompt would collect a
-        // password with nowhere to put it.
-        KeyCode::Char('r' | 'R') => {
-            if app.vault.is_some() {
-                manager.edit = Some(PasswordEdit::RotateCurrent);
-                manager.input.clear();
-                manager.notice = Some("Enter the CURRENT master password:".to_string());
-            } else {
-                manager.notice =
-                    Some("No vault to rotate; save a password to create one.".to_string());
-            }
-        }
-        KeyCode::Char('p' | 'P') => return PasswordAction::ToggleSparklines,
-        KeyCode::Char('a' | 'A') => {
-            manager.draft = Some(ServerDraft::new(None, None, None));
-            manager.section = ConfigSection::Servers;
-        }
-        // In the Passwords section, delete the PASSWORD. It used to remove the
-        // whole server from config.toml -- unconfirmed, one keystroke, under a
-        // hint that just read "[D] Delete" while the user was looking at a list
-        // of passwords. Server removal lives in the Servers section, where the
-        // hint says so. This also gives `PasswordAction::Delete` a caller: it
-        // was implemented and tested but no key produced it, so a saved
-        // password could not be removed from the UI at all.
-        KeyCode::Char('d' | 'D') => {
-            return PasswordAction::Delete {
-                panel: manager.selected,
-            };
-        }
-        _ => {}
-    }
-    PasswordAction::None
+    row_key(app, key)
 }
 
 /// Resolve a removal the user has been asked to confirm.
@@ -351,54 +202,116 @@ fn answer_pending_delete(app: &mut App, key: KeyCode) -> PasswordAction {
     PasswordAction::ApplyServers(servers)
 }
 
+/// Keys while a text prompt is open. The prompt owns every printable key.
 #[allow(clippy::expect_used)]
-fn server_key(app: &mut App, key: KeyCode) -> PasswordAction {
+fn prompt_key(app: &mut App, key: KeyCode) -> PasswordAction {
     let manager = app.password_manager.as_mut().expect("manager exists");
-    if let Some(draft) = manager.draft.as_mut() {
-        match key {
-            KeyCode::Esc => manager.draft = None,
-            KeyCode::Tab | KeyCode::Down => draft.field = (draft.field + 1) % 5,
-            KeyCode::Up => draft.field = draft.field.checked_sub(1).unwrap_or(4),
-            KeyCode::Backspace => {
-                draft.active_field().pop();
+    match key {
+        KeyCode::Esc => {
+            manager.edit = None;
+            manager.input.clear();
+            manager.notice = None;
+        }
+        KeyCode::Enter => {
+            let typed = std::mem::take(&mut manager.input);
+            let stage = manager.edit.take();
+            if typed.is_empty() {
+                manager.notice = Some("Password was not changed.".to_string());
+                return PasswordAction::None;
             }
-            KeyCode::Char(character) => draft.active_field().push(character),
-            KeyCode::Enter => {
-                let draft = manager.draft.take().expect("draft exists");
-                let pass_input = draft.password.clone();
-                let original_idx = draft.original;
-                match draft.clone().into_server() {
-                    Ok(server) => {
-                        let mut servers: Vec<Server> = app
-                            .panels
-                            .iter()
-                            .map(|panel| panel.server.clone())
-                            .collect();
-                        let target_idx = if let Some(index) = original_idx {
-                            servers[index] = server;
-                            index
-                        } else {
-                            servers.push(server);
-                            servers.len() - 1
-                        };
-                        if !pass_input.trim().is_empty() {
-                            return PasswordAction::SaveServerWithPassword {
-                                servers,
-                                target_idx,
-                                password: pass_input,
-                            };
-                        }
-                        return PasswordAction::ApplyServers(servers);
-                    }
-                    Err(error) => {
-                        manager.notice = Some(error);
-                        manager.draft = Some(draft);
-                    }
+            match stage {
+                Some(PasswordEdit::RotateCurrent) => {
+                    // Not checked here: verifying it means running the KDF,
+                    // which belongs off the event loop. The rotation attempt
+                    // does it once and reports back, rather than paying for it
+                    // twice and freezing the UI to say something the user
+                    // learns a moment later anyway.
+                    manager.edit = Some(PasswordEdit::RotateNew {
+                        current: SecretString::from(typed),
+                    });
+                    manager.notice = Some("Enter the NEW master password:".to_string());
+                }
+                Some(PasswordEdit::RotateNew { current }) => {
+                    return PasswordAction::RotateVaultPassword {
+                        current: current.expose_secret().to_string(),
+                        new: typed,
+                    };
+                }
+                None => {}
+            }
+        }
+        KeyCode::Backspace => {
+            manager.input.pop();
+        }
+        KeyCode::Char(character) => manager.input.push(character),
+        _ => {}
+    }
+    PasswordAction::None
+}
+
+/// Keys while a server row is open for editing.
+#[allow(clippy::expect_used)]
+fn draft_key(app: &mut App, key: KeyCode) -> PasswordAction {
+    let manager = app.password_manager.as_mut().expect("manager exists");
+    let Some(draft) = manager.draft.as_mut() else {
+        return PasswordAction::None;
+    };
+    match key {
+        KeyCode::Esc => manager.draft = None,
+        KeyCode::Tab | KeyCode::Down => draft.field = (draft.field + 1) % 5,
+        KeyCode::Up => draft.field = draft.field.checked_sub(1).unwrap_or(4),
+        KeyCode::Backspace => {
+            draft.active_field().pop();
+        }
+        KeyCode::Char(character) => draft.active_field().push(character),
+        KeyCode::Enter => {
+            let draft = manager.draft.take().expect("draft exists");
+            let typed = draft.password.clone();
+            let original_idx = draft.original;
+            match draft.clone().into_server() {
+                Ok(server) => {
+                    let mut servers: Vec<Server> = app
+                        .panels
+                        .iter()
+                        .map(|panel| panel.server.clone())
+                        .collect();
+                    let target_idx = if let Some(index) = original_idx {
+                        servers[index] = server;
+                        index
+                    } else {
+                        servers.push(server);
+                        servers.len() - 1
+                    };
+                    return PasswordAction::ApplyServerEdit {
+                        servers,
+                        target_idx,
+                        // An emptied password field means "this host has no
+                        // password of its own". Keeping the old one would
+                        // contradict what the editor showed when it was saved,
+                        // and there is no other way to take one back now that
+                        // the separate Passwords list is gone.
+                        password: (!typed.trim().is_empty()).then_some(typed),
+                    };
+                }
+                Err(error) => {
+                    manager.notice = Some(error);
+                    manager.draft = Some(draft);
                 }
             }
-            _ => {}
         }
-        return PasswordAction::None;
+        _ => {}
+    }
+    PasswordAction::None
+}
+
+#[allow(clippy::expect_used)]
+fn row_key(app: &mut App, key: KeyCode) -> PasswordAction {
+    let manager = app.password_manager.as_mut().expect("manager exists");
+    if manager.edit.is_some() {
+        return prompt_key(app, key);
+    }
+    if manager.draft.is_some() {
+        return draft_key(app, key);
     }
     // A pending removal owns the next keystroke, so no other binding can be hit
     // by accident while the question is on screen.
@@ -414,10 +327,8 @@ fn server_key(app: &mut App, key: KeyCode) -> PasswordAction {
         KeyCode::Down | KeyCode::Char('j' | 'J') => {
             manager.selected = (manager.selected + 1).min(app.panels.len().saturating_sub(1));
         }
-        KeyCode::Char('a' | 'A') => manager.draft = Some(ServerDraft::new(None, None, None)),
-        // Import from ~/.ssh/config. Additive only: see `config::merge_ssh_hosts`
-        // for why nothing already configured is touched.
-        KeyCode::Char('i' | 'I') => return PasswordAction::ImportSshHosts,
+        // Edit this host: name, user, port, upgrade command and password, all
+        // in one place.
         KeyCode::Enter => {
             manager.draft = app.panels.get(manager.selected).map(|panel| {
                 ServerDraft::new(
@@ -427,6 +338,7 @@ fn server_key(app: &mut App, key: KeyCode) -> PasswordAction {
                 )
             });
         }
+        KeyCode::Char('a' | 'A') => manager.draft = Some(ServerDraft::new(None, None, None)),
         KeyCode::Char('d' | 'D') if app.panels.len() > 1 => {
             let host = app
                 .panels
@@ -439,6 +351,21 @@ fn server_key(app: &mut App, key: KeyCode) -> PasswordAction {
         }
         KeyCode::Char('d' | 'D') => {
             manager.notice = Some("Cannot remove the last remaining server.".to_string());
+        }
+        KeyCode::Char('s' | 'S') => return PasswordAction::ToggleSparklines,
+        // Import from ~/.ssh/config. Additive only: see `config::merge_ssh_hosts`
+        // for why nothing already configured is touched.
+        KeyCode::Char('i' | 'I') => return PasswordAction::ImportSshHosts,
+        // Change the vault master password. Offered only when a vault exists.
+        KeyCode::Char('r' | 'R') => {
+            if app.vault.is_some() {
+                manager.edit = Some(PasswordEdit::RotateCurrent);
+                manager.input.clear();
+                manager.notice = Some("Enter the CURRENT master password:".to_string());
+            } else {
+                manager.notice =
+                    Some("No vault to rotate; save a password to create one.".to_string());
+            }
         }
         _ => {}
     }
@@ -604,7 +531,7 @@ mod tests {
         let action = crate::passwords::handle_key(&mut app, KeyCode::Enter);
         assert!(matches!(
             action,
-            PasswordAction::ApplyServers(_) | PasswordAction::SaveServerWithPassword { .. }
+            PasswordAction::ApplyServers(_) | PasswordAction::ApplyServerEdit { .. }
         ));
     }
 
@@ -645,53 +572,24 @@ mod tests {
         assert!(app.password_manager.as_ref().unwrap().draft.is_none());
     }
 
+    /// `s` toggles sparklines. It used to set a shared sudo password, which is
+    /// a thing that no longer exists.
     #[test]
-    fn password_key_sparkline_toggle() {
+    fn s_toggles_sparklines() {
         let mut app = App::new(vec![test_server("host1")]);
         crate::passwords::open(&mut app, 0, false);
 
-        let action = crate::passwords::handle_key(&mut app, KeyCode::Char('p'));
+        let action = crate::passwords::handle_key(&mut app, KeyCode::Char('s'));
         assert_eq!(action, PasswordAction::ToggleSparklines);
     }
 
-    /// In the Passwords section, `d` deletes the password, not the server.
-    ///
-    /// It used to remove the whole server from config.toml -- unconfirmed, one
-    /// keystroke, under a hint that read only "[D] Delete" while the user was
-    /// looking at a list of passwords. It also meant `PasswordAction::Delete`
-    /// had no caller at all: removing a saved password was implemented and
-    /// tested but unreachable from the keyboard.
+    /// `d` removes the server, and is the only meaning `d` has now. It used to
+    /// mean "delete the password" in one section and "delete the server" in the
+    /// other, on the same key, over the same list of hosts.
     #[test]
-    fn password_key_d_deletes_the_password_not_the_server() {
+    fn d_removes_a_server_after_confirmation() {
         let mut app = App::new(vec![test_server("host1"), test_server("host2")]);
         crate::passwords::open(&mut app, 0, false);
-
-        let action = crate::passwords::handle_key(&mut app, KeyCode::Char('d'));
-        assert_eq!(action, PasswordAction::Delete { panel: 0 });
-    }
-
-    /// Even with one server left, `d` here is about the password, so there is
-    /// nothing to refuse.
-    #[test]
-    fn password_key_d_works_with_a_single_server() {
-        let mut app = App::new(vec![test_server("host1")]);
-        crate::passwords::open(&mut app, 0, false);
-
-        let action = crate::passwords::handle_key(&mut app, KeyCode::Char('d'));
-        assert_eq!(
-            action,
-            PasswordAction::Delete { panel: 0 },
-            "deleting a password must not be blocked by the server count"
-        );
-    }
-
-    /// Removing a server still works, in the section that says so -- now behind
-    /// a confirmation.
-    #[test]
-    fn server_section_d_still_removes_a_server() {
-        let mut app = App::new(vec![test_server("host1"), test_server("host2")]);
-        crate::passwords::open(&mut app, 0, false);
-        crate::passwords::handle_key(&mut app, KeyCode::Tab);
 
         crate::passwords::handle_key(&mut app, KeyCode::Char('d'));
         let action = crate::passwords::handle_key(&mut app, KeyCode::Char('y'));
@@ -710,7 +608,6 @@ mod tests {
     fn server_delete_asks_before_removing() {
         let mut app = App::new(vec![test_server("host1"), test_server("host2")]);
         crate::passwords::open(&mut app, 0, false);
-        crate::passwords::handle_key(&mut app, KeyCode::Tab);
 
         let action = crate::passwords::handle_key(&mut app, KeyCode::Char('d'));
         assert_eq!(action, PasswordAction::None, "the first press must not act");
@@ -726,7 +623,6 @@ mod tests {
     fn server_delete_goes_ahead_on_confirmation() {
         let mut app = App::new(vec![test_server("host1"), test_server("host2")]);
         crate::passwords::open(&mut app, 0, false);
-        crate::passwords::handle_key(&mut app, KeyCode::Tab);
         crate::passwords::handle_key(&mut app, KeyCode::Char('d'));
 
         let action = crate::passwords::handle_key(&mut app, KeyCode::Char('y'));
@@ -743,7 +639,6 @@ mod tests {
         for cancel in [KeyCode::Esc, KeyCode::Char('n')] {
             let mut app = App::new(vec![test_server("host1"), test_server("host2")]);
             crate::passwords::open(&mut app, 0, false);
-            crate::passwords::handle_key(&mut app, KeyCode::Tab);
             crate::passwords::handle_key(&mut app, KeyCode::Char('d'));
 
             let action = crate::passwords::handle_key(&mut app, cancel);
@@ -760,7 +655,6 @@ mod tests {
     fn a_cancelled_removal_stays_cancelled() {
         let mut app = App::new(vec![test_server("host1"), test_server("host2")]);
         crate::passwords::open(&mut app, 0, false);
-        crate::passwords::handle_key(&mut app, KeyCode::Tab);
         crate::passwords::handle_key(&mut app, KeyCode::Char('d'));
         crate::passwords::handle_key(&mut app, KeyCode::Esc);
 
@@ -773,34 +667,10 @@ mod tests {
         assert_eq!(app.panels.len(), 2);
     }
 
-    /// Leaving the section must not leave a removal armed against a list the
-    /// user is no longer looking at.
-    #[test]
-    fn switching_sections_disarms_a_pending_removal() {
-        let mut app = App::new(vec![test_server("host1"), test_server("host2")]);
-        crate::passwords::open(&mut app, 0, false);
-        crate::passwords::handle_key(&mut app, KeyCode::Tab);
-        crate::passwords::handle_key(&mut app, KeyCode::Char('d'));
-        assert!(app
-            .password_manager
-            .as_ref()
-            .unwrap()
-            .pending_delete
-            .is_some());
-
-        crate::passwords::handle_key(&mut app, KeyCode::Tab);
-        assert_eq!(
-            app.password_manager.as_ref().unwrap().pending_delete,
-            None,
-            "the armed removal must not survive leaving the section"
-        );
-    }
-
     #[test]
     fn the_last_server_still_cannot_be_removed() {
         let mut app = App::new(vec![test_server("host1")]);
         crate::passwords::open(&mut app, 0, false);
-        crate::passwords::handle_key(&mut app, KeyCode::Tab);
 
         let action = crate::passwords::handle_key(&mut app, KeyCode::Char('d'));
         assert_eq!(action, PasswordAction::None);

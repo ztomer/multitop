@@ -9,7 +9,7 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 use multitop::app::{App, Msg};
 use multitop::config::Server;
-use multitop::passwords::{self, ConfigSection, PasswordAction};
+use multitop::passwords::{self, PasswordAction};
 use multitop::tasks::spawn_upgrade;
 
 /// Divert credentials to the in-memory store, and hold the process-global guard.
@@ -48,7 +48,6 @@ async fn mock_store() -> tokio::sync::MutexGuard<'static, ()> {
     let guard = multitop::password_store::lock_for_test_async().await;
     multitop::password_store::enable_mock_store();
     multitop::password_store::clear_mock_store();
-    let _ = multitop::password_store::delete_sso();
     guard
 }
 
@@ -66,14 +65,8 @@ async fn test_e2e_password_storage_and_os_keyring_lifecycle() {
     let _store = mock_store().await;
     let server = test_server("localhost", Some("echo 'hello'"));
     let mut app = App::new(vec![server.clone()]);
-
-    // Open passwords section
     passwords::open(&mut app, 0, false);
     assert!(app.password_manager.is_some());
-    assert_eq!(
-        app.password_manager.as_ref().unwrap().section,
-        ConfigSection::Passwords
-    );
 
     // Save a password
     let save_action = PasswordAction::Save {

@@ -6,7 +6,6 @@ use ratatui::widgets::{Block, Borders, Paragraph};
 use ratatui::Frame;
 
 use crate::app::App;
-use crate::passwords::ConfigSection;
 
 #[allow(
     clippy::missing_panics_doc,
@@ -34,170 +33,121 @@ pub fn draw(f: &mut Frame, app: &App) {
         theme.ratatui_keybar_bg.1,
         theme.ratatui_keybar_bg.2,
     );
-    let mut lines =
-        vec![Line::from(Span::styled(
-        "[Tab] Sudo Passwords / Servers — passwords are saved securely or kept for session.",
+    let mut lines = vec![Line::from(Span::styled(
+        "  Server                    User          Port  Upgrade command            Password",
         Style::default().fg(Color::DarkGray),
-    )), Line::from("")];
-    if manager.section == ConfigSection::Servers {
-        lines.push(Line::from(Span::styled(
-            "  Server                          User              Port  Upgrade command",
-            Style::default().fg(Color::DarkGray),
-        )));
-        for (index, panel) in app.panels.iter().enumerate() {
-            let marker = if index == manager.selected { ">" } else { " " };
-            let user = if panel.server.user.is_empty() {
-                "default"
-            } else {
-                &panel.server.user
-            };
-            let command = panel.server.upgrade_cmd.as_deref().unwrap_or("-");
-            let style = if index == manager.selected {
-                Style::default().fg(accent)
-            } else {
-                Style::default()
-            };
-            lines.push(Line::from(Span::styled(
-                format!(
-                    "{marker} {:<31} {:<17} {:<5} {command}",
-                    panel.server.host, user, panel.server.port
-                ),
-                style,
-            )));
-        }
-        lines.push(Line::from(""));
-        if let Some(draft) = &manager.draft {
-            lines.push(Line::from(Span::styled(
-                "Editing Server Configuration & Password",
-                Style::default().fg(accent),
-            )));
-            let masked_pass = crate::fmt::mask_secret(&draft.password);
-            for (index, (label, value)) in [
-                ("Host", &draft.host),
-                ("User", &draft.user),
-                ("Port", &draft.port),
-                ("Upgrade command", &draft.upgrade_cmd),
-                ("Sudo password", &masked_pass),
-            ]
-            .iter()
-            .enumerate()
-            {
-                lines.push(Line::from(format!(
-                    "{} {label}: {value}",
-                    if index == draft.field { ">" } else { " " }
-                )));
-            }
-            lines.push(Line::from(Span::styled(
-                "[Tab/Up/Down] Field  [Enter] Save All Settings  [Esc] Cancel",
-                Style::default().fg(Color::DarkGray),
-            )));
+    ))];
+    for (index, panel) in app.panels.iter().enumerate() {
+        let marker = if index == manager.selected { ">" } else { " " };
+        let user = if panel.server.user.is_empty() {
+            "default"
         } else {
-            lines.push(Line::from(Span::styled(
-                "[A] Add  [I] Import ~/.ssh/config  [Enter/E] Edit  [D] Delete (confirms)  [Esc/E] Return",
-                Style::default().fg(Color::DarkGray),
-            )));
-        }
-    } else {
-        lines.push(Line::from(Span::styled(
-            "  Server                         User              Password Status",
-            Style::default().fg(Color::DarkGray),
-        )));
-        for (index, panel) in app.panels.iter().enumerate() {
-            let marker = if index == manager.selected { ">" } else { " " };
-            let user = if panel.server.user.is_empty() {
-                "default"
-            } else {
-                &panel.server.user
-            };
-            // Kare set only. These were a padlock and a white circle, written
-            // as unicode escapes, which is how they sat in a repo with a
-            // no-emoji gate: the escape is plain ASCII in the source, so a
-            // character scan saw nothing while the UI drew emoji.
-            // Say WHICH credential a host will use. Setting one SSO password
-            // flipped all four hosts from "Unset" to "Stored" at once, which
-            // reads as "these are configured and working" -- but an SSO
-            // password has never been checked against any of them, and sudo
-            // rejecting it later surfaced as a failing upgrade command. "SSO"
-            // is the honest word for a password that was assumed to apply.
-            let (state, state_color) = if panel.password_saved && !panel.uses_sso {
-                ("\u{2713} Stored", Color::Green)
-            } else if panel.password_saved || panel.sudo_password.is_some() {
-                ("\u{2713} SSO (unverified)", Color::Yellow)
-            } else {
-                ("\u{b7} Unset", Color::DarkGray)
-            };
-            let style = if index == manager.selected {
-                Style::default().fg(accent)
-            } else {
-                Style::default()
-            };
-            lines.push(Line::from(vec![
-                Span::styled(
-                    format!(
-                        "{marker} {:<30} {:<17} ",
-                        format!("{}:{}", panel.server.host, panel.server.port),
-                        user
-                    ),
-                    style,
-                ),
-                Span::styled(state, Style::default().fg(state_color)),
-            ]));
-        }
-        lines.push(Line::from(""));
-        let spark_status = if app.show_sparklines() {
-            "Enabled"
-        } else {
-            "Disabled"
+            &panel.server.user
         };
-        let spark_color = if app.show_sparklines() {
-            Color::Green
+        let command = panel.server.upgrade_cmd.as_deref().unwrap_or("-");
+        let style = if index == manager.selected {
+            Style::default().fg(accent)
         } else {
-            Color::DarkGray
+            Style::default()
+        };
+        // Kare set only. These were a padlock and a white circle written as
+        // unicode escapes, which is how they sat in a repo with a no-emoji
+        // gate: the escape is plain ASCII in the source, so a character scan
+        // saw nothing while the UI drew emoji.
+        //
+        // Two states, and they mean one thing each: this host has its own
+        // sudo password, or it does not. There used to be a third, for a host
+        // borrowing a shared password -- that shared password was a conflation
+        // of the vault master password with a per-host sudo password, and it is
+        // gone.
+        let (state, state_color) = if panel.password_saved || panel.sudo_password.is_some() {
+            ("\u{2713} Stored", Color::Green)
+        } else {
+            ("\u{b7} Unset", Color::DarkGray)
         };
         lines.push(Line::from(vec![
-            Span::raw("Sparklines (Experimental): "),
-            Span::styled(spark_status, Style::default().fg(spark_color)),
-        ]));
-        lines.push(Line::from(""));
-        if manager.editing() {
-            // Rotation is checked first: it is also "not SSO", so without this
-            // the panel labelled the master-password prompt as a password
-            // override for whichever server happened to be selected.
-            let target_desc = if manager.is_rotating() {
-                "Changing the vault master password".to_string()
-            } else if manager.is_sso() {
-                "Editing Single Sign-On (SSO) password (applies to all servers)".to_string()
-            } else {
+            Span::styled(
                 format!(
-                    "Editing password override for {}",
-                    app.panels[manager.selected].server.target()
-                )
-            };
-            lines.push(Line::from(target_desc));
-            lines.push(Line::from(vec![
-                Span::raw("Password: "),
-                Span::styled(
-                    crate::fmt::mask_secret(&manager.input),
-                    Style::default().fg(accent),
+                    "{marker} {:<25} {:<13} {:<5} {:<26} ",
+                    panel.server.host, user, panel.server.port, command
                 ),
-            ]));
-            // A rotation does not touch the OS credential store, so saying it
-            // does would be a plain lie about where the secret goes.
-            let footer = if manager.is_rotating() {
-                "[Enter] Continue  [Esc] Cancel"
-            } else {
-                "[Enter] Save to OS credential store  [Esc] Cancel"
-            };
-            lines.push(Line::from(Span::styled(
-                footer,
-                Style::default().fg(Color::DarkGray),
-            )));
-        } else {
-            lines.push(Line::from(Span::styled(
-                "[Enter/S] SSO Password  [O] Override  [A] Add  [D] Delete Password  [R] Change Master Password  [P] Sparklines",
-                Style::default().fg(Color::DarkGray),
+                style,
+            ),
+            Span::styled(state, Style::default().fg(state_color)),
+        ]));
+    }
+    lines.push(Line::from(""));
+
+    if let Some(draft) = &manager.draft {
+        lines.push(Line::from(Span::styled(
+            "Editing server",
+            Style::default().fg(accent),
+        )));
+        let masked_pass = crate::fmt::mask_secret(&draft.password);
+        for (index, (label, value)) in [
+            ("Host", &draft.host),
+            ("User", &draft.user),
+            ("Port", &draft.port),
+            ("Upgrade command", &draft.upgrade_cmd),
+            ("Password", &masked_pass),
+        ]
+        .iter()
+        .enumerate()
+        {
+            lines.push(Line::from(format!(
+                "{} {label:<16}: {value}",
+                if index == draft.field { ">" } else { " " }
             )));
         }
+        lines.push(Line::from(Span::styled(
+            "  Leave Password empty to remove this host's own password.",
+            Style::default().fg(Color::DarkGray),
+        )));
+        lines.push(Line::from(Span::styled(
+            "[Tab/Up/Down] Field  [Enter] Save  [Esc] Cancel",
+            Style::default().fg(Color::DarkGray),
+        )));
+    } else if manager.editing() {
+        lines.push(Line::from("Changing the vault master password".to_string()));
+        lines.push(Line::from(vec![
+            Span::raw("Password: "),
+            Span::styled(
+                crate::fmt::mask_secret(&manager.input),
+                Style::default().fg(accent),
+            ),
+        ]));
+        // A rotation does not touch the OS credential store, so saying it does
+        // would be a plain lie about where the secret goes.
+        lines.push(Line::from(Span::styled(
+            "[Enter] Continue  [Esc] Cancel",
+            Style::default().fg(Color::DarkGray),
+        )));
+    } else {
+        lines.push(Line::from(Span::styled(
+            "[Enter] Edit  [A] Add  [D] Delete  [I] Import ~/.ssh/config  [R] Change vault master password  [Esc/E] Return",
+            Style::default().fg(Color::DarkGray),
+        )));
+        lines.push(Line::from(""));
+        lines.push(Line::from(Span::styled(
+            "Experimental",
+            Style::default().fg(accent),
+        )));
+        let spark_on = app.show_sparklines();
+        lines.push(Line::from(vec![
+            Span::raw("  Sparklines  "),
+            Span::styled(
+                if spark_on { "[On]" } else { "[Off]" },
+                Style::default().fg(if spark_on {
+                    Color::Green
+                } else {
+                    Color::DarkGray
+                }),
+            ),
+        ]));
+        lines.push(Line::from(Span::styled(
+            "  [S] Toggle sparklines",
+            Style::default().fg(Color::DarkGray),
+        )));
     }
     if let Some(notice) = &manager.notice {
         lines.push(Line::from(""));
