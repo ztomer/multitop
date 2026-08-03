@@ -96,6 +96,9 @@ pub fn apply(
             let epoch = app.bump_vault_epoch();
             let tx2 = tx.clone();
             if let Some(manager) = app.password_manager.as_mut() {
+                // Marked before the work starts, so `r` is refused for as long
+                // as it runs rather than only until the notice is read.
+                manager.rotating = true;
                 manager.notice = Some("Changing the master password...".to_string());
             }
             tokio::task::spawn_blocking(move || {
@@ -201,8 +204,23 @@ pub fn apply(
             if stored {
                 offer_vault_creation(app);
             }
-            let should_resume =
-                resume_upgrade || app.panels[panel].mode == crate::app::Mode::Upgrade;
+            // A resume is for an upgrade that stopped for want of a password.
+            // A host in the middle of one must not be restarted: the spawn
+            // below replaces the panel's task and aborts what was there, every
+            // child is `kill_on_drop`, and so saving a password would kill the
+            // SSH session of a running `apt upgrade` -- interrupting a package
+            // transaction on the real machine and leaving the remote lock file
+            // behind. `execute_cmds` refuses to abort a running upgrade for
+            // exactly this reason; this path disagreed with it.
+            //
+            // The condition is broad on purpose otherwise: `mode == Upgrade`
+            // holds for the whole session once `u` has been pressed, which is
+            // what makes "set the password, watch it resume" work at all.
+            let already_running =
+                app.panels[panel].upgrade_state == crate::panel::UpgradeState::STARTED;
+            let should_resume = (resume_upgrade
+                || app.panels[panel].mode == crate::app::Mode::Upgrade)
+                && !already_running;
             if should_resume
                 && servers
                     .get(panel)

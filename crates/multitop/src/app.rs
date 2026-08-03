@@ -438,6 +438,23 @@ impl App {
         true
     }
 
+    /// Report how a master-password rotation ended, and let another one start.
+    ///
+    /// The outcome goes to the panels too when Server Settings has been closed
+    /// in the meantime. Whether the password that unlocks the vault changed is
+    /// not something the user may find out only if they happened to still be on
+    /// the right screen.
+    fn report_rotation(&mut self, outcome: String) {
+        if let Some(manager) = self.password_manager.as_mut() {
+            manager.rotating = false;
+            manager.notice = Some(outcome);
+            return;
+        }
+        for p in &mut self.panels {
+            p.view.push(outcome.clone());
+        }
+    }
+
     /// Where a new vault file belongs: beside the config file.
     #[must_use]
     pub fn vault_path(&self) -> Option<std::path::PathBuf> {
@@ -1167,20 +1184,15 @@ impl App {
                 // The vault key is unchanged by a rotation, so an unlocked
                 // handle stays valid and any Secure Enclave wrapper still
                 // decrypts. Only the password that unwraps it has moved.
-                if let Some(manager) = self.password_manager.as_mut() {
-                    manager.notice = Some("Master password changed.".to_string());
-                }
+                self.report_rotation("Master password changed.".to_string());
             }
             Msg::VaultPasswordRotationFailed { epoch, error } => {
                 if !self.vault_epoch_current(epoch) {
                     return;
                 }
-                if let Some(manager) = self.password_manager.as_mut() {
-                    // Said plainly, because the common cause is a mistyped
-                    // current password and the useful fact is that nothing
-                    // changed.
-                    manager.notice = Some(format!("Master password NOT changed: {error}"));
-                }
+                // Said plainly, because the common cause is a mistyped current
+                // password and the useful fact is that nothing changed.
+                self.report_rotation(format!("Master password NOT changed: {error}"));
             }
             Msg::VaultBiometricFailed { epoch } => {
                 if !self.vault_epoch_current(epoch) {

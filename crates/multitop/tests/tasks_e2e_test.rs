@@ -150,8 +150,21 @@ async fn test_task_cancellation_on_panel_switch() {
     assert!(tasks.aux[1].is_some());
     assert!(tasks.aux_is_upgrade[1]);
 
-    // Now start another upgrade on panel 0 - this SHOULD cancel panel 0's old task
-    let handle0 = tasks.aux[0].take().expect("task should exist");
+    // Saving a password again for a host that is already mid-upgrade must
+    // change nothing about the run.
+    //
+    // This block used to assert the opposite -- "this SHOULD cancel panel 0's
+    // old task" -- and so was pinning a defect rather than a requirement. The
+    // spawn it was asserting replaces the panel's task and aborts what was
+    // there, and every child is spawned with `kill_on_drop`, so the behaviour
+    // this test protected was: saving a password kills the SSH session of a
+    // running `apt upgrade`, interrupting a package transaction on the real
+    // machine and leaving the remote lock file behind. `execute_cmds` refuses
+    // to abort a running upgrade for exactly that reason.
+    //
+    // The resume path is for an upgrade that *stopped* for want of a password.
+    // A run that is still going does not need resuming.
+    let gen_before = app.panels[0].gen;
 
     multitop::password_actions::apply(
         multitop::passwords::PasswordAction::Save {
@@ -165,13 +178,19 @@ async fn test_task_cancellation_on_panel_switch() {
         &mut tasks,
     );
 
-    // Panel 0's old task should have been replaced (completed or aborted)
-    let _result = handle0.await;
-    // Panel 0 should have new task
-    assert!(tasks.aux[0].is_some());
-
-    // Panel 0 should have new task
-    assert!(tasks.aux[0].is_some());
+    assert!(
+        tasks.aux[0].is_some(),
+        "panel 0's running upgrade must still be there"
+    );
+    assert_eq!(
+        app.panels[0].gen, gen_before,
+        "and must not have been superseded by a new generation"
+    );
+    assert_eq!(
+        app.panels[0].sudo_password.as_deref(),
+        Some("test_pass3"),
+        "the new password is still stored for the next run"
+    );
 }
 
 #[tokio::test]

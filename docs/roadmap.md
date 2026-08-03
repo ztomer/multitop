@@ -93,30 +93,75 @@ keep is what closed the last four: e2e tests that drive real `KeyEvent`s through
 asserting on the final state. The final state can look correct while three
 vaults' worth of work happened.
 
-### There is no review log
+### The review log
 
-Findings exist only in commit messages. "What did round 4 look at and decide was
-fine?" is unanswerable, which is why the table above can say which areas were
-*touched* and not which are *clean*. Any future round should leave a record of
-its scope and its negative results, not only its fixes.
+Findings from the vault rounds exist only in commit messages. "What did round 4
+look at and decide was fine?" is unanswerable, which is why the table above can
+say which areas were *touched* and not which are *clean*. Rounds from here down
+record their scope and their negative results, not only their fixes.
 
-### The next round, and why it is this one
+#### Round A -- async prompts, 2026-08-03
 
-A class was named on 2026-08-03 that nothing in the suite was looking for:
-**a prompt that starts slow asynchronous work and then looks unchanged.** Two of
-that day's four defects were instances -- and the unlock path had solved the
-same class months before the creation path was written and never learned from
-it, which is the signature of a class-level miss rather than two bugs.
+**Scope:** every site in `run::handle_key` and `password_actions::apply` that
+spawns a task. Seven of them. Each asked: what does the second press do while
+the first is in flight; what happens when a stale result arrives after a newer
+one succeeded; does the UI say work is happening.
 
-The audit is bounded and mechanical: every keypress in `run::handle_key` that
-spawns a task, asked
+**Found (2):**
 
-- what does the **second** press do while the first is in flight?
-- what happens when a **stale** result arrives after a newer one succeeded?
-- does the UI **say** work is happening, or does it look untouched?
+- *Master-password rotation had no in-flight state.* The prompt closes on
+  Enter because the work goes off-thread, so `r` was accepted again
+  immediately. `change_password` reads the vault, rewraps the key and writes it
+  back; two overlapping both unlock with the *old* password and both write, so
+  the last silently wins while both report success. A mistyped current password
+  also spends two of the kill-resistant limiter's tries instead of one.
+- *Saving a password killed an upgrade already running on that host.*
+  `mode == Upgrade` holds for the whole session once `u` has been pressed, so
+  any save while the upgrade view was showing took the resume branch -- which
+  replaces the panel's task and aborts what was there. Children are
+  `kill_on_drop`, so that killed the SSH session of a running `apt upgrade`,
+  interrupting a package transaction on the real machine and leaving the remote
+  lock file behind. `execute_cmds` refuses to abort a running upgrade for
+  exactly this reason; this path disagreed with it.
 
-Roughly a dozen call sites. Start there; then terminal lifecycle, which has the
-worst record of the never-reviewed areas.
+**Worth its own line:** the second defect was *pinned by an existing test*.
+`tasks_e2e_test::test_task_cancellation_on_panel_switch` asserted "this SHOULD
+cancel panel 0's old task". A test asserting the defect is worse than no test:
+it makes the bug a requirement and the fix a regression. Check what a failing
+test is actually protecting before believing it.
+
+**Checked and already correct (5):** vault unlock by password
+(`vault_verifying` gates re-entry, each attempt bumps the epoch); biometric
+unlock (`vault_awaiting_biometric` gates it, only fires from `Locked`); vault
+creation (fixed earlier the same day); upgrade start from the modal
+(`upgrades_in_flight` blocks a second run, and `execute_cmds` will not abort a
+running upgrade); fetch/docker/monitor respawns (replace-and-abort is correct
+for them, and `c`/`m` no-op when the sort has not changed). Every `Msg` handler
+that writes state on failure was re-checked for the stale-result class; all are
+epoch- or generation-guarded.
+
+**Next round:** terminal and process lifecycle, which has the worst record of
+the never-reviewed areas.
+
+### The next round: terminal and process lifecycle
+
+Round A is done (above). The next area is the one with the worst record among
+those never reviewed: `run.rs`'s event loop, signal handling, and the child
+process groups behind every SSH session.
+
+What it should ask:
+
+- Suspend and resume (`SIGTSTP` arriving before the handlers are installed,
+  `SIGCONT` racing a redraw), and what a `SIGWINCH` during either does.
+- Whether any child can outlive the app. Every child is `kill_on_drop`, but a
+  task that is never dropped -- one leaked by a `replace` that does not abort --
+  keeps its SSH session alive against a host that is no longer shown.
+- The quit path: `abort_all` marks `STARTED` panels `DONE`, but an upgrade
+  killed mid-transaction leaves the *remote* lock file behind, and nothing tells
+  the user that happened.
+- Terminal restoration on every exit: panic (the release profile aborts, so
+  `Drop` does not run -- `ratatui::init`'s hook is the only cover), `SIGHUP`,
+  and the terminal going away mid-frame.
 
 ## 4. Clear the test-only baseline
 

@@ -354,3 +354,88 @@ fn test_apply_servers_preserves_existing_passwords() {
 
     let _ = std::fs::remove_file(tmp_path);
 }
+
+/// Saving a password must not kill an upgrade already running on that host.
+///
+/// Found by the audit item 3 asks for. `mode == Upgrade` holds for the whole
+/// session once `u` has been pressed, so any password save while the upgrade
+/// view was showing took the "resume the upgrade" branch -- which replaces the
+/// panel's task and aborts what was there. Every child is spawned with
+/// `kill_on_drop`, so that killed the SSH session of a running `apt upgrade`,
+/// interrupting a package transaction on the real machine and leaving the
+/// remote lock file behind. `execute_cmds` refuses to abort a running upgrade
+/// for exactly this reason; this path disagreed with it.
+#[tokio::test]
+async fn test_saving_a_password_does_not_restart_a_running_upgrade() {
+    let _store_guard = setup_mock_store_async().await;
+
+    let mut app = App::new(vec![test_server("host1")]);
+    app.panels[0].mode = Mode::Upgrade;
+    app.panels[0].upgrade_state = multitop::panel::UpgradeState::STARTED;
+    app.panels[0].upgrade_gen = app.panels[0].gen;
+    let gen_before = app.panels[0].gen;
+
+    let (tx, _rx) = tokio::sync::mpsc::channel::<Msg>(10);
+    let mut tasks = multitop::run::Tasks::new(1);
+    let servers = vec![test_server("host1")];
+
+    multitop::password_actions::apply(
+        PasswordAction::Save {
+            panel: 0,
+            password: "mypassword".to_string(),
+            resume_upgrade: false,
+        },
+        &mut app,
+        &servers,
+        &tx,
+        &mut tasks,
+    );
+
+    assert_eq!(
+        app.panels[0].gen, gen_before,
+        "no new generation -- a running upgrade must not be superseded"
+    );
+    assert!(
+        tasks.aux[0].is_none(),
+        "and no replacement task may be spawned over it"
+    );
+    assert_eq!(
+        app.panels[0].sudo_password.as_deref(),
+        Some("mypassword"),
+        "the password is still saved; only the restart is refused"
+    );
+}
+
+/// The resume itself must keep working: an upgrade that stopped for want of a
+/// password is exactly what it is for.
+#[tokio::test]
+async fn test_saving_a_password_resumes_a_finished_upgrade() {
+    let _store_guard = setup_mock_store_async().await;
+
+    let mut app = App::new(vec![test_server("host1")]);
+    app.panels[0].mode = Mode::Upgrade;
+    app.panels[0].upgrade_state = multitop::panel::UpgradeState::DONE;
+
+    let (tx, _rx) = tokio::sync::mpsc::channel::<Msg>(10);
+    let mut tasks = multitop::run::Tasks::new(1);
+    let servers = vec![test_server("host1")];
+
+    multitop::password_actions::apply(
+        PasswordAction::Save {
+            panel: 0,
+            password: "mypassword".to_string(),
+            resume_upgrade: false,
+        },
+        &mut app,
+        &servers,
+        &tx,
+        &mut tasks,
+    );
+
+    assert_eq!(
+        app.panels[0].upgrade_state,
+        multitop::panel::UpgradeState::STARTED,
+        "a run that already finished must resume with the new password"
+    );
+    assert!(tasks.aux[0].is_some(), "and a task must be spawned for it");
+}

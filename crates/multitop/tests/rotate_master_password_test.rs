@@ -51,15 +51,15 @@ fn server(host: &str) -> Server {
     }
 }
 
-/// An app with a real vault file present, so rotation is offered.
-fn app_with_vault(tag: &str) -> (App, std::path::PathBuf) {
+/// The parts of the fixture that do not need a runtime: a temp directory, an
+/// app pointed at it, and an uninitialised vault beside its config.
+fn app_and_vault(tag: &str) -> (App, multitop_vault::Vault, std::path::PathBuf) {
     let dir = std::env::temp_dir().join(format!("mt_rot_{tag}_{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(&dir).unwrap();
-    let config = dir.join("config.toml");
 
     let mut app = App::new(vec![server("host-a")]);
-    app.config_path = Some(config);
+    app.config_path = Some(dir.join("config.toml"));
     let vault = multitop_vault::Vault::new(multitop_vault::VaultConfig {
         vault_path: dir.join("vault.bin"),
         argon2_params: Some(multitop_vault::crypto::Argon2Params {
@@ -69,15 +69,35 @@ fn app_with_vault(tag: &str) -> (App, std::path::PathBuf) {
         }),
         use_os_keychain: false,
     });
+    (app, vault, dir)
+}
+
+fn finish(mut app: App, vault: multitop_vault::Vault) -> App {
+    app.vault = Some(std::sync::Arc::new(vault));
+    app.password_manager = Some(PasswordManager::new(0, false));
+    app
+}
+
+/// An app with a real vault file present, so rotation is offered.
+fn app_with_vault(tag: &str) -> (App, std::path::PathBuf) {
+    let (app, vault, dir) = app_and_vault(tag);
     tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()
         .unwrap()
         .block_on(vault.initialize("old-master"))
         .unwrap();
-    app.vault = Some(std::sync::Arc::new(vault));
-    app.password_manager = Some(PasswordManager::new(0, false));
-    (app, dir)
+    (finish(app, vault), dir)
+}
+
+/// The same fixture from inside a `#[tokio::test]`.
+///
+/// `block_on` cannot be called from a thread already driving a runtime, so the
+/// synchronous version panics there rather than building the vault.
+async fn app_with_vault_async(tag: &str) -> (App, std::path::PathBuf) {
+    let (app, vault, dir) = app_and_vault(tag);
+    vault.initialize("old-master").await.unwrap();
+    (finish(app, vault), dir)
 }
 
 fn type_in(app: &mut App, text: &str) -> PasswordAction {
@@ -210,6 +230,104 @@ fn r_is_ordinary_text_while_a_password_is_being_typed() {
         m.draft.as_ref().unwrap().password,
         "supersecret",
         "the r in 'supersecret' must land in the field"
+    );
+
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+/// A second `r` cannot start a second rotation over the first.
+///
+/// Found by the audit item 3 asks for: every keypress that spawns work, asked
+/// "what does the second press do?". The rotation prompt closes the instant
+/// Enter is pressed, because the work happens off-thread, so the panel went
+/// straight back to accepting `r` with only a one-line notice to say why it
+/// should not be pressed. `change_password` reads the vault, rewraps the key
+/// and writes it back; two of those overlapping both unlock with the *old*
+/// password and both write, so the last one silently wins while both report
+/// success -- and a mistyped current password spends two of the kill-resistant
+/// limiter's tries instead of one.
+#[tokio::test]
+async fn a_second_rotation_cannot_start_while_one_is_running() {
+    let _keychain = isolate_keychain_async().await;
+    let (mut app, dir) = app_with_vault_async("no-double-rotation").await;
+    let (tx, mut rx) = tokio::sync::mpsc::channel::<multitop::app::Msg>(16);
+    let servers = vec![server("host-a")];
+    let mut tasks = multitop::run::Tasks::new(1);
+
+    handle_key(&mut app, KeyCode::Char('r'));
+    type_in(&mut app, "old-master");
+    handle_key(&mut app, KeyCode::Enter);
+    type_in(&mut app, "new-master");
+    let action = handle_key(&mut app, KeyCode::Enter);
+    multitop::password_actions::apply(action, &mut app, &servers, &tx, &mut tasks);
+
+    assert!(
+        app.password_manager.as_ref().unwrap().rotating,
+        "the panel must know a rotation is running"
+    );
+
+    // What a user does when nothing appears to have happened.
+    let again = handle_key(&mut app, KeyCode::Char('r'));
+    assert_eq!(again, PasswordAction::None, "a second r must not act");
+    let manager = app.password_manager.as_ref().unwrap();
+    assert!(
+        !manager.editing(),
+        "and must not reopen the prompt, which is what would collect a second rotation"
+    );
+    assert!(
+        manager
+            .notice
+            .as_deref()
+            .unwrap_or_default()
+            .contains("already being changed"),
+        "it must say why, got {:?}",
+        manager.notice
+    );
+
+    // Exactly one rotation reports back, and it clears the flag.
+    let msg = tokio::time::timeout(std::time::Duration::from_secs(20), rx.recv())
+        .await
+        .expect("the rotation must report back")
+        .expect("channel open");
+    app.apply(msg);
+    let manager = app.password_manager.as_ref().unwrap();
+    assert!(!manager.rotating, "the flag must clear when it finishes");
+    assert!(
+        manager
+            .notice
+            .as_deref()
+            .unwrap_or_default()
+            .contains("Master password changed"),
+        "got {:?}",
+        manager.notice
+    );
+
+    // And `r` works again afterwards.
+    handle_key(&mut app, KeyCode::Char('r'));
+    assert!(app.password_manager.as_ref().unwrap().editing());
+
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+/// Closing the panel mid-rotation must not swallow the outcome.
+///
+/// Whether the password that unlocks every stored credential actually changed
+/// is not something to learn only if you happened to still be on the right
+/// screen when the answer arrived.
+#[tokio::test]
+async fn the_rotation_outcome_survives_the_panel_being_closed() {
+    let _keychain = isolate_keychain_async().await;
+    let (mut app, dir) = app_with_vault_async("outcome-survives").await;
+
+    app.password_manager = None;
+    app.apply(multitop::app::Msg::VaultPasswordRotated {
+        epoch: app.vault_epoch,
+    });
+
+    assert!(
+        app.panels[0].view.iter().any(|l| l.contains("changed")),
+        "the outcome must reach the panels, got {:?}",
+        app.panels[0].view
     );
 
     let _ = std::fs::remove_dir_all(dir);

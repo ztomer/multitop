@@ -81,6 +81,18 @@ pub struct PasswordManager {
     /// two keys. Running an upgrade already asks first; removing a server was
     /// the more destructive of the two and asked for nothing.
     pub pending_delete: Option<usize>,
+    /// True while a master-password rotation is running off-thread.
+    ///
+    /// The rotation prompt closes the moment Enter is pressed, because the work
+    /// happens elsewhere -- so the panel went straight back to accepting `r`,
+    /// with nothing on screen but a one-line notice to say why it should not be
+    /// pressed. `Vault::change_password` reads the vault, rewraps the key and
+    /// writes it back; two of those overlapping both unlock with the *old*
+    /// password, both write, and the last one wins. Both then report success,
+    /// so the user is told twice that their master password changed when only
+    /// one of the two actually does anything. A mistyped current password on
+    /// each attempt also spends two of the kill-resistant limiter's tries.
+    pub rotating: bool,
 }
 
 /// What a text prompt in the Passwords section is collecting.
@@ -111,6 +123,7 @@ impl PasswordManager {
             draft: None,
             notice: None,
             pending_delete: None,
+            rotating: false,
         }
     }
 }
@@ -361,9 +374,13 @@ fn row_key(app: &mut App, key: KeyCode) -> PasswordAction {
         // Import from ~/.ssh/config. Additive only: see `config::merge_ssh_hosts`
         // for why nothing already configured is touched.
         KeyCode::Char('i' | 'I') => return PasswordAction::ImportSshHosts,
-        // Change the vault master password. Offered only when a vault exists.
+        // Change the vault master password. Offered only when a vault exists,
+        // and only when one is not already being changed.
         KeyCode::Char('r' | 'R') => {
-            if app.vault.is_some() {
+            if manager.rotating {
+                manager.notice =
+                    Some("The master password is already being changed; one moment.".to_string());
+            } else if app.vault.is_some() {
                 manager.edit = Some(PasswordEdit::RotateCurrent);
                 manager.input.clear();
                 manager.notice = Some("Enter the CURRENT master password:".to_string());
