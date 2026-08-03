@@ -75,12 +75,17 @@ it: shed in order, never delete a badge that is affordable at the width in
 front of you, and never slice one. Rams' `{:<11}` complaint survives untouched
 -- both of them raised it, so it is not a tension at all.
 
-**Sent to the third expert:** the confirmation modal, below. Rams and Hashimoto
-disagree, so it goes to a third rather than to whoever is editing -- and for the
-part that is UI, that third is Kare. Her ruling is recorded there when it
-arrives. The part that is not UI -- whether a tool that runs `apt upgrade` on
-production may drop its confirmation step at all -- is Hashimoto's bar, and a
-third expert does not overrule a safety bar; it stays the owner's call.
+**Settled by the third expert:** the confirmation modal. Rams and Hashimoto
+disagreed, it went to Kare, and she ruled. See "The confirmation, as ruled"
+below -- it is a decision, not an open question, and it needs nothing from the
+owner.
+
+The safety half turned out not to exist. It was recorded here as "whether a tool
+that runs `apt upgrade` on production may drop its confirmation step at all",
+and that was a misreading of Rams: he proposed *moving* the confirmation to the
+keybar row, never removing the gate. Both experts wanted a confirmation
+throughout; they disagreed only about its form, which is entirely Kare's. The
+splitting rule was right and simply had nothing to split here.
 
 Grouped by **class**, not by persona, because the value of the round was that
 four independent bars kept landing on the same few root causes. Fixing per
@@ -136,8 +141,14 @@ chunk is emitted whole or dropped whole, never sliced. Shed in a declared
 priority order, and put the thing the user cannot guess -- the way *out* --
 first, so it is never what gets dropped.
 
-Kare's rule, adopted: **a word is either whole or absent; there is no third
+Kare's rule, binding: **a label is whole or it is absent; there is no third
 state.**
+
+**Build this helper first.** Her ruling on the confirmation (below) *deletes*
+the modal-clipping row of the table above rather than fixing it -- a single
+keybar row cannot clip if it is assembled from whole chunks -- and the same
+mechanism serves the keybar badges and the settings hint row. Three defects and
+one new feature, one helper. Anything built before it will be rebuilt by it.
 
 ### C. The banner is not in the family, and it clips the identifying tail  (high)
 
@@ -262,32 +273,74 @@ command). Two siblings were never given the same treatment:
   the example and say the command runs as the SSH user; teach `is_sudo_help` the
   root-permission shapes.
 
-### Open tension: what to do about the confirmation modal
+### The confirmation, as ruled  (Kare, third expert, 2026-08-03)
 
-Two personas reached the **same defect from opposite bars**, and then disagreed
-about the remedy. Worth recording precisely, because the agreement is the more
-useful half.
+**Rams takes the placement, Hashimoto takes the content, neither gets what he
+asked for.** Binding.
 
-**Both agree the aggregate wording is wrong.** Rams: the modal says *less* than
-the view it covers -- "all servers" instead of naming them, one aggregate
-`Last update` instead of the per-host truth, a skipped list duplicating the ⚠
-already in the panes, and in the rendered frame it physically obliterates db-02.
-Hashimoto: "all servers" is exactly the phrase that hides a filtered-away set
-(class F), so the modal must enumerate what it is about to touch.
+**1. A keybar row, not a box.** The frames decided it: at 40x12 the box is 38
+cells wide and clips its own cancel line to `Esc t`, while at the same size the
+filter prompt renders every word whole. One of those two patterns survives the
+smallest size in the product and it is not the box. A box that has to be taught
+to wrap, to compute its own height, and to shed lines in priority order is a box
+being rebuilt into a row the hard way.
 
-**They disagree on the fix.** Rams: delete `draw_upgrade_modal`; the Upgrade
-view *is* the confirmation screen, and the two-press design exists so it is read
-(`run.rs:691`); put the confirm in the keybar row, where the filter prompt
-already proves the pattern. Hashimoto: keep it and make it enumerate, because
-this is the blast-radius gate on a tool that runs `apt upgrade` against
-production -- and separately (class B, and his own finding) the box currently
-drops its own "Esc to cancel" line whenever a skipped host and an interrupted
-previous run co-occur, which are both ordinary states.
+And the covering is real: at 40x12 the box sits on top of db-02. You do not
+print a summary over the thing it summarises.
 
-Not resolved, and not for whoever edits next to resolve: it is a product
-decision for the owner. What is **not** in tension and should be done either
-way: the modal must name the hosts it will touch and must never be able to lose
-its own cancel line.
+**2. Hashimoto's hidden set gets SHOWN, not listed.** He was right that "all
+servers" conceals a set the operator cannot see, and wrong about the remedy: a
+list of eight hostnames typeset over the eight panes that already name those
+hostnames is the same information twice, once badly. The Upgrade view *is* the
+enumeration. So -- **arming the confirmation clears the visual filter for its
+duration.** The grid springs from one pane to eight and the operator sees the
+six he was about to touch blind, in full detail, in the layout he already knows.
+Disclosure by uncovering rather than by overprinting.
+
+**3. The row, matching the filter prompt's grammar exactly** -- state left, keys
+right, two spaces between:
+
+```
+Upgrade 8 hosts · 2 skipped  [U] go  [Esc] cancel      (>= 56 cols)
+Upgrade 8 hosts  [U] go  [Esc] cancel                  (40 cols, 37 used)
+```
+
+Shed order, whole chunks only: `· 2 skipped` goes first, because the ⚠ is
+already in those panes. `[Esc] cancel` goes last and in practice never -- it is
+the only thing on the line the operator cannot guess, since he pressed `U` to
+get here.
+
+**The count is the alarm.** If the grid was showing one host and the row says 8,
+that discrepancy is louder than any sentence that would fit in the remaining
+cells.
+
+**Build-order consequence, and it is the good kind.** This ruling *deletes* the
+modal-clipping finding rather than fixing it -- a single row cannot clip if it
+is built from chunks emitted whole or not at all. That is the same mechanism the
+keybar badges and the settings hint row need. Three defects, one small helper,
+one rule: **a label is whole or it is absent.** Build the helper first and the
+confirmation row falls out of it for free.
+
+### Still open, and not a UI question
+
+Kare's ruling settles *disclosure* -- the operator sees every host he is about
+to touch. It does not settle **scope**: `run_upgrade` still iterates every panel
+while `ui::draw` honours the filter (class F). Un-filtering at the confirmation
+makes the disagreement visible instead of silent, which is the minimum bar, but
+"a filter narrows the screen and not the run" remains a semantics decision. The
+alternative -- scoping the run to `filtered_indices()` so `/db` then `u` upgrades
+db-02 alone -- is defensible and is the owner's call, not a reviewer's.
+
+**What each argued, for the record.** Rams: the modal says *less* than the view
+it covers -- "all servers" instead of naming them, one aggregate `Last update`
+instead of the per-host truth, a skipped list duplicating the ⚠ already in the
+panes, and in the rendered frame it obliterates db-02; delete
+`draw_upgrade_modal` and put the confirm in the keybar row, where the filter
+prompt already proves the pattern (`run.rs:691`, `ui.rs:191`). Hashimoto: keep
+the box and make it enumerate, because "all servers" is the phrase that hides a
+filtered-away set (class F) -- and separately the box drops its own "Esc to
+cancel" line whenever a skipped host and an interrupted previous run co-occur,
+which are both ordinary states.
 
 ## 3. Decide the fate of two unused vault API functions
 
