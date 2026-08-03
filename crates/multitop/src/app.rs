@@ -314,7 +314,7 @@ impl App {
     }
 
     /// Invalidate any in-flight vault operation and return the new token.
-    fn bump_vault_epoch(&mut self) -> u64 {
+    pub fn bump_vault_epoch(&mut self) -> u64 {
         self.vault_epoch = self.vault_epoch.wrapping_add(1);
         self.vault_epoch
     }
@@ -1068,6 +1068,28 @@ impl App {
                     awaiting_biometric: false,
                 };
                 self.mode = AppMode::ShowUpgradeModal;
+            }
+            Msg::VaultPasswordRotated { epoch } => {
+                if !self.vault_epoch_current(epoch) {
+                    return;
+                }
+                // The vault key is unchanged by a rotation, so an unlocked
+                // handle stays valid and any Secure Enclave wrapper still
+                // decrypts. Only the password that unwraps it has moved.
+                if let Some(manager) = self.password_manager.as_mut() {
+                    manager.notice = Some("Master password changed.".to_string());
+                }
+            }
+            Msg::VaultPasswordRotationFailed { epoch, error } => {
+                if !self.vault_epoch_current(epoch) {
+                    return;
+                }
+                if let Some(manager) = self.password_manager.as_mut() {
+                    // Said plainly, because the common cause is a mistyped
+                    // current password and the useful fact is that nothing
+                    // changed.
+                    manager.notice = Some(format!("Master password NOT changed: {error}"));
+                }
             }
             Msg::VaultBiometricFailed { epoch } => {
                 if !self.vault_epoch_current(epoch) {

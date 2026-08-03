@@ -737,8 +737,11 @@ impl Vault {
     /// # Errors
     /// Returns `VaultError` if old password is wrong, new password encryption fails,
     /// or writing the vault fails.
-    #[allow(clippy::unused_async, clippy::unused_async_trait_impl)]
-    pub async fn change_password(
+    /// Synchronous on purpose: nothing here awaits. It was `async` while
+    /// awaiting nothing, which reads as "this yields" and forces a caller on a
+    /// blocking thread to drive a future for no reason. It does run Argon2id
+    /// twice, so callers should still keep it off an event loop.
+    pub fn change_password(
         &self,
         old_password: &str,
         new_password: &str,
@@ -938,7 +941,7 @@ mod tests {
         let new_pass = "new-password-456";
 
         vault.initialize(old_pass).await.unwrap();
-        vault.change_password(old_pass, new_pass).await.unwrap();
+        vault.change_password(old_pass, new_pass).unwrap();
 
         assert!(vault.unlock_with_password(old_pass).is_err());
 

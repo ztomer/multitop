@@ -22,7 +22,6 @@ crates/multitop/src/app.rs:vault_unlocked
 crates/multitop/src/config.rs:parse_ssh_config
 crates/multitop/src/panel.rs:set_sudo_password
 crates/multitop/src/sparkline.rs:render_bar
-crates/vault/src/api.rs:change_password
 crates/vault/src/api.rs:get_unlocked
 crates/vault/src/api.rs:remove_password
 crates/vault/src/crypto.rs:from_config

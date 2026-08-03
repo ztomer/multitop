@@ -60,8 +60,7 @@ fn the_new_password_works_and_the_old_one_stops() {
     let path = scratch("swap");
     let vault = seeded(&path);
 
-    rt().block_on(vault.change_password("old-master", "new-master"))
-        .unwrap();
+    vault.change_password("old-master", "new-master").unwrap();
 
     let opened = vault
         .unlock_with_password("new-master")
@@ -89,8 +88,8 @@ fn a_wrong_current_password_leaves_the_vault_untouched() {
     let vault = seeded(&path);
     let before = std::fs::read(&path).unwrap();
 
-    let err = rt()
-        .block_on(vault.change_password("not-the-master", "new-master"))
+    let err = vault
+        .change_password("not-the-master", "new-master")
         .unwrap_err();
     assert!(
         !matches!(err, VaultError::Io(_)),
@@ -113,8 +112,7 @@ fn the_vault_file_is_never_left_unreadable() {
     let path = scratch("intact");
     let vault = seeded(&path);
 
-    rt().block_on(vault.change_password("old-master", "new-master"))
-        .unwrap();
+    vault.change_password("old-master", "new-master").unwrap();
 
     // Parsing the header is what a shredded file would fail: the old code
     // overwrote the file with random bytes before writing the replacement.
@@ -142,8 +140,7 @@ fn rotation_advances_the_counter_so_a_restored_old_vault_is_detectable() {
         .unwrap()
         .counter;
 
-    rt().block_on(vault.change_password("old-master", "new-master"))
-        .unwrap();
+    vault.change_password("old-master", "new-master").unwrap();
 
     let after = VaultHeader::from_bytes(&std::fs::read(&path).unwrap())
         .unwrap()

@@ -17,6 +17,10 @@ pub enum Msg {
         payload: multitop_agent::proto::Payload,
         dims: (u16, u16),
     },
+    /// The master password was replaced.
+    VaultPasswordRotated { epoch: u64 },
+    /// The replacement did not happen; the old password still works.
+    VaultPasswordRotationFailed { epoch: u64, error: String },
     Frame {
         panel: usize,
         /// Which panel *list* the sender was started for.

@@ -24,7 +24,7 @@ fn password_entry_accepts_numeric_characters() {
         let _ = passwords::handle_key(&mut app, KeyCode::Char(character));
     }
     let manager = app.password_manager.as_ref().expect("configuration open");
-    assert!(manager.editing);
+    assert!(manager.editing());
     assert_eq!(manager.input, "pa55w0rd9");
 }
 

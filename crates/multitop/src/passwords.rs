@@ -1,6 +1,7 @@
 //! State and input handling for the full-screen configuration panel.
 
 use crossterm::event::KeyCode;
+use secrecy::{ExposeSecret, SecretString};
 
 use crate::app::App;
 use crate::config::{validate_host, validate_user, Server, DEFAULT_PORT};
@@ -70,8 +71,13 @@ impl ServerDraft {
 pub struct PasswordManager {
     pub section: ConfigSection,
     pub selected: usize,
-    pub editing: bool,
-    pub is_sso: bool,
+    /// What the current text entry is for, if any.
+    ///
+    /// This replaced an `editing: bool` plus an `is_sso: bool`. Rotating the
+    /// master password needs two prompts in sequence, and the second has to
+    /// carry the first's answer -- which a pair of flags cannot express without
+    /// a third flag and an untyped side channel.
+    pub edit: Option<PasswordEdit>,
     pub input: String,
     pub resume_upgrade: bool,
     pub draft: Option<ServerDraft>,
@@ -84,14 +90,49 @@ pub struct PasswordManager {
     pub pending_delete: Option<usize>,
 }
 
+/// What a text prompt in the Passwords section is collecting.
+#[derive(Clone, Debug)]
+pub enum PasswordEdit {
+    /// One password applied to every server.
+    Sso,
+    /// A password for the selected server only.
+    Override,
+    /// The current vault master password, on the way to changing it.
+    RotateCurrent,
+    /// The replacement, carrying the current one that was just verified by
+    /// being typed. Held as a `SecretString` because it lives across two
+    /// keystroke rounds rather than being consumed immediately.
+    RotateNew { current: SecretString },
+}
+
 impl PasswordManager {
+    /// Whether a text prompt is open, for rendering.
+    #[must_use]
+    pub const fn editing(&self) -> bool {
+        self.edit.is_some()
+    }
+
+    /// Whether the open prompt applies to every server.
+    #[must_use]
+    pub const fn is_sso(&self) -> bool {
+        matches!(self.edit, Some(PasswordEdit::Sso))
+    }
+
+    /// Whether the open prompt is part of changing the master password.
+    #[must_use]
+    pub const fn is_rotating(&self) -> bool {
+        matches!(
+            self.edit,
+            Some(PasswordEdit::RotateCurrent | PasswordEdit::RotateNew { .. })
+        )
+    }
+
     #[must_use]
     pub const fn new(selected: usize, resume_upgrade: bool) -> Self {
         Self {
             section: ConfigSection::Passwords,
             selected,
-            editing: false,
-            is_sso: false,
+            edit: None,
             input: String::new(),
             resume_upgrade,
             draft: None,
@@ -117,6 +158,12 @@ pub enum PasswordAction {
     },
     DeleteSso,
     ToggleSparklines,
+    /// Replace the vault master password. Both are plain `String` because they
+    /// are handed straight to the vault and dropped.
+    RotateVaultPassword {
+        current: String,
+        new: String,
+    },
     ApplyServers(Vec<Server>),
     SaveServerWithPassword {
         servers: Vec<Server>,
@@ -140,7 +187,7 @@ pub fn handle_key(app: &mut App, key: KeyCode) -> PasswordAction {
     if manager.draft.is_some() {
         return server_key(app, key);
     }
-    if key == KeyCode::Tab && !manager.editing {
+    if key == KeyCode::Tab && !manager.editing() {
         manager.section = match manager.section {
             ConfigSection::Passwords => ConfigSection::Servers,
             ConfigSection::Servers => ConfigSection::Passwords,
@@ -159,28 +206,50 @@ pub fn handle_key(app: &mut App, key: KeyCode) -> PasswordAction {
 #[allow(clippy::expect_used)]
 fn password_key(app: &mut App, key: KeyCode) -> PasswordAction {
     let manager = app.password_manager.as_mut().expect("manager exists");
-    if manager.editing {
+    if manager.edit.is_some() {
         match key {
             KeyCode::Esc => {
-                manager.editing = false;
-                manager.is_sso = false;
+                manager.edit = None;
                 manager.input.clear();
+                manager.notice = None;
             }
             KeyCode::Enter => {
-                let password = std::mem::take(&mut manager.input);
-                let is_sso = manager.is_sso;
-                manager.editing = false;
-                manager.is_sso = false;
-                if password.is_empty() {
+                let typed = std::mem::take(&mut manager.input);
+                let stage = manager.edit.take();
+                if typed.is_empty() {
                     manager.notice = Some("Password was not changed.".to_string());
-                } else if is_sso {
-                    return PasswordAction::SaveSso { password };
-                } else {
-                    return PasswordAction::Save {
-                        panel: manager.selected,
-                        password,
-                        resume_upgrade: manager.resume_upgrade,
-                    };
+                    return PasswordAction::None;
+                }
+                match stage {
+                    Some(PasswordEdit::Sso) => {
+                        return PasswordAction::SaveSso { password: typed };
+                    }
+                    Some(PasswordEdit::Override) => {
+                        return PasswordAction::Save {
+                            panel: manager.selected,
+                            password: typed,
+                            resume_upgrade: manager.resume_upgrade,
+                        };
+                    }
+                    Some(PasswordEdit::RotateCurrent) => {
+                        // The current password is not checked here. Verifying it
+                        // means running the KDF, which belongs off the event
+                        // loop, so the rotation attempt does it once and reports
+                        // back -- rather than paying for it twice and freezing
+                        // the UI to tell the user something they will learn a
+                        // moment later anyway.
+                        manager.edit = Some(PasswordEdit::RotateNew {
+                            current: SecretString::from(typed),
+                        });
+                        manager.notice = Some("Enter the NEW master password:".to_string());
+                    }
+                    Some(PasswordEdit::RotateNew { current }) => {
+                        return PasswordAction::RotateVaultPassword {
+                            current: current.expose_secret().to_string(),
+                            new: typed,
+                        };
+                    }
+                    None => {}
                 }
             }
             KeyCode::Backspace => {
@@ -200,20 +269,31 @@ fn password_key(app: &mut App, key: KeyCode) -> PasswordAction {
             manager.selected = (manager.selected + 1).min(app.panels.len().saturating_sub(1));
         }
         KeyCode::Char('s' | 'S') | KeyCode::Enter => {
-            manager.editing = true;
-            manager.is_sso = true;
+            manager.edit = Some(PasswordEdit::Sso);
             manager.input.clear();
             manager.notice =
                 Some("Enter Single Sign-On (SSO) password for all servers:".to_string());
         }
         KeyCode::Char('o' | 'O') => {
-            manager.editing = true;
-            manager.is_sso = false;
+            manager.edit = Some(PasswordEdit::Override);
             manager.input.clear();
             manager.notice = Some(format!(
                 "Enter server password override for {}:",
                 app.panels[manager.selected].server.target()
             ));
+        }
+        // Change the vault master password. Offered only when a vault exists:
+        // without one there is nothing to rotate, and the prompt would collect a
+        // password with nowhere to put it.
+        KeyCode::Char('r' | 'R') => {
+            if app.vault.is_some() {
+                manager.edit = Some(PasswordEdit::RotateCurrent);
+                manager.input.clear();
+                manager.notice = Some("Enter the CURRENT master password:".to_string());
+            } else {
+                manager.notice =
+                    Some("No vault to rotate; save a password to create one.".to_string());
+            }
         }
         KeyCode::Char('p' | 'P') => return PasswordAction::ToggleSparklines,
         KeyCode::Char('a' | 'A') => {

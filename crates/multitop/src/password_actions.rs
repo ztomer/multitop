@@ -113,6 +113,35 @@ pub fn apply(
                 });
             }
         }
+        PasswordAction::RotateVaultPassword { current, new } => {
+            let Some(vault) = app.vault.clone() else {
+                if let Some(manager) = app.password_manager.as_mut() {
+                    manager.notice = Some("There is no vault to rotate.".to_string());
+                }
+                return;
+            };
+            // Argon2id runs twice here -- once to open with the old password,
+            // once to wrap with the new -- so this cannot happen on the event
+            // loop without freezing the UI for seconds. Same treatment as the
+            // unlock path: hand it to a blocking thread, report by message, and
+            // stamp it with the vault epoch so a result the user has already
+            // moved on from is discarded.
+            let epoch = app.bump_vault_epoch();
+            let tx2 = tx.clone();
+            if let Some(manager) = app.password_manager.as_mut() {
+                manager.notice = Some("Changing the master password...".to_string());
+            }
+            tokio::task::spawn_blocking(move || {
+                let msg = match vault.change_password(&current, &new) {
+                    Ok(()) => crate::app::Msg::VaultPasswordRotated { epoch },
+                    Err(e) => crate::app::Msg::VaultPasswordRotationFailed {
+                        epoch,
+                        error: e.to_string(),
+                    },
+                };
+                let _ = tx2.blocking_send(msg);
+            });
+        }
         PasswordAction::ToggleSparklines => {
             let show = !app.show_sparklines();
             app.toggle_sparklines();

@@ -151,8 +151,13 @@ pub fn draw(f: &mut Frame, app: &App) {
             Span::styled(spark_status, Style::default().fg(spark_color)),
         ]));
         lines.push(Line::from(""));
-        if manager.editing {
-            let target_desc = if manager.is_sso {
+        if manager.editing() {
+            // Rotation is checked first: it is also "not SSO", so without this
+            // the panel labelled the master-password prompt as a password
+            // override for whichever server happened to be selected.
+            let target_desc = if manager.is_rotating() {
+                "Changing the vault master password".to_string()
+            } else if manager.is_sso() {
                 "Editing Single Sign-On (SSO) password (applies to all servers)".to_string()
             } else {
                 format!(
@@ -168,13 +173,20 @@ pub fn draw(f: &mut Frame, app: &App) {
                     Style::default().fg(accent),
                 ),
             ]));
+            // A rotation does not touch the OS credential store, so saying it
+            // does would be a plain lie about where the secret goes.
+            let footer = if manager.is_rotating() {
+                "[Enter] Continue  [Esc] Cancel"
+            } else {
+                "[Enter] Save to OS credential store  [Esc] Cancel"
+            };
             lines.push(Line::from(Span::styled(
-                "[Enter] Save to OS credential store  [Esc] Cancel",
+                footer,
                 Style::default().fg(Color::DarkGray),
             )));
         } else {
             lines.push(Line::from(Span::styled(
-                "[P] Toggle Sparklines (Experimental)  [Enter/S] SSO Password  [O] Override  [A] Add  [D] Delete Password",
+                "[Enter/S] SSO Password  [O] Override  [A] Add  [D] Delete Password  [R] Change Master Password  [P] Sparklines",
                 Style::default().fg(Color::DarkGray),
             )));
         }
