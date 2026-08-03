@@ -74,11 +74,52 @@ feature.
 The password handshake was verified live against three hosts once; the other
 three rows have not been.
 
-## 5. Rotate the sudo password used during live verification
+## 5. Open: a reported crash when entering a password in Server Settings
+
+Reported 2026-08-03, **not reproduced**. `crates/multitop/tests/config_panel_e2e.rs`
+was written for it and passes. What has been ruled out at `24294bb`:
+
+| Tried | Result |
+|-------|--------|
+| Every key sequence up to depth 4 from the open panel, rendering each frame | no panic |
+| SSO save, per-host override, draft password, multibyte input | no panic |
+| Terminal sizes 1x1, 20x5, 80x2, 200x60 | no panic |
+| The real binary in a pty: save, vault creation, save again with the vault unlocked | no panic |
+| The real binary against the real OS keychain (throwaway host) | no panic |
+| ~600 fuzzed keystrokes against the real binary, three seeds | no panic; the only exits were clean quits on `Esc` |
+
+What is still needed to close this: the exact message printed when it died, or
+the keystrokes leading up to it. One candidate that would not look like a bug
+from the code but does from the user's seat -- `Esc` in the Passwords section
+closes the panel, and a second `Esc` quits the app, which reads as a crash.
+
+## 6. Rotate the sudo password used during live verification
 
 The sudo password for the three test hosts was pasted into a Claude Code session
 transcript on 2026-08-02 in order to verify the stdin handshake. It is therefore
 on disk in `~/.claude/projects/`. Change it on all three machines.
+
+## 7. `G` — per-pane CPU / memory / network graphs
+
+Requested 2026-08-03. **Last** — start only once items 1-6 are closed.
+
+A new view alongside the existing ones, bound to `G` and placed immediately to
+the right of `F` (Fetch) in the keybar, drawing CPU, memory and network history
+as graphs inside each pane. Use btop's graph glyphs — the braille-style
+sub-cell blocks that give several vertical steps per character row — rather
+than the single-row bar the sparkline uses today.
+
+Points to settle before writing any of it:
+
+- The agent currently ships point-in-time samples; a graph needs history. Decide
+  whether the ring buffer lives in the agent (more data over the wire, survives
+  a view switch) or in `Panel` (cheap, but empty for the first N seconds after
+  a panel is rebuilt by `replace_panels`).
+- `crates/multitop/src/sparkline.rs` already holds per-panel history and a
+  renderer. Extend it rather than starting a second one — a parallel renderer
+  is how the six drifted previews happened elsewhere.
+- Sparklines are still behind the `P` toggle and marked experimental. Decide
+  whether `G` replaces that toggle or sits beside it.
 
 ## Deferred
 
