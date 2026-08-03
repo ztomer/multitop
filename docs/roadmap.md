@@ -40,6 +40,48 @@ Round B of the review (see item 4). Every claim below was verified against the
 source or against a rendered frame before it was written down; persona claims
 that did not survive checking are not here.
 
+### How disagreements are settled  (owner decree, 2026-08-03)
+
+**Two experts disagreeing is not resolved by the orchestrator. Bring in a
+third.** Whoever is running the review does not get to average two opinions, or
+to pick the one they already agreed with. Find a third expert whose bar bears on
+the question, put the disagreement to them as posed, and take their answer.
+
+**For UX and UI questions the third is Kare, and her call is final.** Layout,
+legibility, labels, glyphs, what a screen shows and how it degrades: no further
+arbitration.
+
+**The boundary, and it matters.** Correctness, safety, gates and cost are not UI
+questions and do not go to Kare:
+
+**The boundary, and it matters.** Correctness, safety, gates and cost are not UI
+questions and do not go to this tiebreak:
+
+- Whether an action can destroy something the operator did not intend -- and
+  whether they were told first -- is Hashimoto's, and it stays binding.
+- Frame-loop and allocation cost is Carmack's, and it stays binding.
+- The structural gates (no emoji, keychain isolation, clippy, fmt, test-only
+  code) answer to nobody.
+
+A question does not become a UI question by being visible. "Is this word
+truncated" is UI. "Does this key kill a package transaction on a production
+server" is not, however it is drawn.
+
+**Resolved by the decree, immediately:** the keybar. Rams wants the theme badge
+*deleted* outright to buy back columns; Kare wants all three badges kept and
+**shed whole, in priority order** (Sort, then Theme, then Settings) as the width
+runs out, with initials below ~44 columns. That is a UI question and Kare has
+it: shed in order, never delete a badge that is affordable at the width in
+front of you, and never slice one. Rams' `{:<11}` complaint survives untouched
+-- both of them raised it, so it is not a tension at all.
+
+**Sent to the third expert:** the confirmation modal, below. Rams and Hashimoto
+disagree, so it goes to a third rather than to whoever is editing -- and for the
+part that is UI, that third is Kare. Her ruling is recorded there when it
+arrives. The part that is not UI -- whether a tool that runs `apt upgrade` on
+production may drop its confirmation step at all -- is Hashimoto's bar, and a
+third expert does not overrule a safety bar; it stays the owner's call.
+
 Grouped by **class**, not by persona, because the value of the round was that
 four independent bars kept landing on the same few root causes. Fixing per
 finding would fix each symptom once and leave the cause alive -- which is
