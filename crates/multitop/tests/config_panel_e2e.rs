@@ -251,6 +251,64 @@ async fn entering_a_password_in_the_server_draft_renders_at_every_keystroke() {
     assert_eq!(h.app.panels.len(), 2, "the server must be added");
 }
 
+/// Setting one SSO password flipped every host to "Stored", which reads as
+/// "configured and working". Nothing has checked that password against any of
+/// them, and when sudo later refused it the failure surfaced as a broken
+/// upgrade command. The panel has to say which credential a host is using.
+#[tokio::test]
+async fn an_sso_password_is_labelled_as_borrowed_not_verified() {
+    let _guard = setup().await;
+    let mut h = Harness::new(&["host-a", "host-b"]);
+
+    h.press(KeyCode::Char('e'));
+    h.press(KeyCode::Char('s'));
+    h.type_str("one-password-for-all");
+    h.press(KeyCode::Enter);
+
+    let screen = h.screen();
+    assert!(
+        screen.contains("SSO (unverified)"),
+        "a borrowed password must not be shown as this host's own, got:\n{screen}"
+    );
+    assert!(
+        !screen.contains("\u{2713} Stored"),
+        "nothing here was verified against a host, got:\n{screen}"
+    );
+}
+
+/// A password entered for one host specifically is that host's own.
+#[tokio::test]
+async fn a_per_host_password_supersedes_the_sso_label() {
+    let _guard = setup().await;
+    let mut h = Harness::new(&["host-a", "host-b"]);
+
+    h.press(KeyCode::Char('e'));
+    h.press(KeyCode::Char('s'));
+    h.type_str("shared");
+    h.press(KeyCode::Enter);
+    // Now give host-a its own. Saving the first per-host password offers to
+    // create a vault, which closes the panel -- decline and reopen.
+    h.press(KeyCode::Char('o'));
+    h.type_str("just-for-a");
+    h.press(KeyCode::Enter);
+    if h.app.vault_creating() {
+        h.press(KeyCode::Esc);
+    }
+    if h.app.password_manager.is_none() {
+        h.press(KeyCode::Char('e'));
+    }
+
+    let screen = h.screen();
+    assert!(
+        screen.contains("\u{2713} Stored"),
+        "host-a now has its own password, got:\n{screen}"
+    );
+    assert!(
+        screen.contains("SSO (unverified)"),
+        "host-b is still borrowing, got:\n{screen}"
+    );
+}
+
 /// Non-ASCII input must survive the round trip through the mask and the buffer.
 #[tokio::test]
 async fn a_password_with_wide_and_multibyte_characters_renders() {

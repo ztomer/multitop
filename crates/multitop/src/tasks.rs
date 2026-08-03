@@ -314,6 +314,8 @@ pub fn spawn_upgrade(
             .await;
 
         let mut sudo_help = false;
+        // Set when the remote says sudo refused the password we handed it.
+        let mut sudo_rejected = false;
         let mut errbuf = Vec::new();
         loop {
             tokio::select! {
@@ -323,6 +325,10 @@ pub fn spawn_upgrade(
                             let line = line.trim_end_matches('\n').trim_end_matches('\r');
                             for part in line.split('\r') {
                                 let clean = part.trim_end_matches('\r');
+                                if clean.trim() == ssh::SUDO_FAILED_SENTINEL {
+                                    sudo_rejected = true;
+                                    continue;
+                                }
                                 if !clean.trim().is_empty() {
                                     let lower = clean.to_lowercase();
                                     if lower.contains("sudo") && (lower.contains("terminal") || lower.contains("password") || lower.contains("pre-authorized") || lower.contains("tty") || lower.contains("prompt on")) {
@@ -404,6 +410,17 @@ pub fn spawn_upgrade(
         // host the stats view was talking to perfectly well at the time.
         let note = match exit_status {
             Ok(s) if s.success() => status_line("\u{2500} done"),
+            // A rejected sudo password is not a failing upgrade command, and
+            // saying so sent the user to read their upgrade script when the
+            // problem was the password. The command never ran at all.
+            Ok(s) if sudo_rejected || s.code() == Some(ssh::SUDO_FAILED_CODE) => status_line(
+                format!(
+                    "\u{26A0} sudo refused the stored password on {} \u{2014} the upgrade did not run. \
+                     Set a password for this host with o in Settings; an SSO password is \
+                     only right if every host shares it.",
+                    server.host
+                ),
+            ),
             Ok(s) => s.code().map_or_else(
                 || status_line("\u{26A0} upgrade command was killed by a signal"),
                 |code| {

@@ -113,8 +113,16 @@ pub fn draw(f: &mut Frame, app: &App) {
             // as unicode escapes, which is how they sat in a repo with a
             // no-emoji gate: the escape is plain ASCII in the source, so a
             // character scan saw nothing while the UI drew emoji.
-            let (state, state_color) = if panel.password_saved || panel.sudo_password.is_some() {
+            // Say WHICH credential a host will use. Setting one SSO password
+            // flipped all four hosts from "Unset" to "Stored" at once, which
+            // reads as "these are configured and working" -- but an SSO
+            // password has never been checked against any of them, and sudo
+            // rejecting it later surfaced as a failing upgrade command. "SSO"
+            // is the honest word for a password that was assumed to apply.
+            let (state, state_color) = if panel.password_saved && !panel.uses_sso {
                 ("\u{2713} Stored", Color::Green)
+            } else if panel.password_saved || panel.sudo_password.is_some() {
+                ("\u{2713} SSO (unverified)", Color::Yellow)
             } else {
                 ("\u{b7} Unset", Color::DarkGray)
             };

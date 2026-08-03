@@ -95,6 +95,8 @@ pub fn apply(
                 if panel.sudo_password.is_none() {
                     panel.sudo_password = Some(password.clone());
                     panel.password_saved = result.is_ok();
+                    // Borrowed, not verified. The panel says so.
+                    panel.uses_sso = true;
                 }
             }
             if let Some(manager) = app.password_manager.as_mut() {
@@ -205,6 +207,8 @@ pub fn apply(
             let result = crate::password_store::save(&app.panels[panel].server, &password);
             let stored = result.is_ok();
             app.panels[panel].password_saved = stored;
+            // A password entered for this host specifically supersedes the SSO one.
+            app.panels[panel].uses_sso = false;
             // Also save to vault if unlocked. The result is reported: dropping
             // it told the user "saved securely" whenever the keychain write
             // succeeded, even if the vault -- the thing they created to hold

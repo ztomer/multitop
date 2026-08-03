@@ -113,6 +113,19 @@ fn ssh_command(server: &Server) -> Command {
 /// echoes whatever arrives before `stty -echo` has run.
 pub const PW_READY_SENTINEL: &str = "__multitop_pw_ready__";
 
+/// Printed by the remote when `sudo` refuses the password it was handed.
+///
+/// Without a distinct signal, a rejected password and a failing upgrade command
+/// are the same thing to the caller: `preamble && command` exits 1 either way.
+/// The panel then said "upgrade command exited 1 -- host reachable, command
+/// failed" for a command that never ran, which sent the user looking at their
+/// upgrade script instead of at their password.
+pub const SUDO_FAILED_SENTINEL: &str = "__multitop_sudo_failed__";
+
+/// Exit status the remote uses for that case, so it survives even if the line
+/// is lost in a noisy login shell.
+pub const SUDO_FAILED_CODE: i32 = 111;
+
 /// Take the sudo password on stdin instead of putting it in the command.
 ///
 /// The password used to be interpolated as `echo '<password>' | sudo -S`, and
@@ -130,7 +143,8 @@ fn password_preamble() -> String {
     format!(
         "stty -echo 2>/dev/null; printf '{PW_READY_SENTINEL}\\n'; IFS= read -r __mt_pw; \
          stty echo 2>/dev/null; printf '%s\\n' \"$__mt_pw\" | sudo -S -p '' -v 2>/dev/null; \
-         __mt_rc=$?; unset __mt_pw; [ $__mt_rc -eq 0 ]"
+         __mt_rc=$?; unset __mt_pw; \
+         if [ $__mt_rc -ne 0 ]; then printf '{SUDO_FAILED_SENTINEL}\\n'; exit {SUDO_FAILED_CODE}; fi"
     )
 }
 
@@ -359,7 +373,7 @@ pub fn spawn_command(
                 "setopt expand_aliases 2>/dev/null; shopt -s expand_aliases 2>/dev/null; source ~/.zshrc 2>/dev/null; source ~/.zprofile 2>/dev/null; source ~/.bashrc 2>/dev/null; eval {quoted}"
             )),
             Some(_pass) => wrap(format!(
-                "{} && setopt expand_aliases 2>/dev/null; shopt -s expand_aliases 2>/dev/null; source ~/.zshrc 2>/dev/null; source ~/.zprofile 2>/dev/null; source ~/.bashrc 2>/dev/null; eval {quoted}",
+                "{}; setopt expand_aliases 2>/dev/null; shopt -s expand_aliases 2>/dev/null; source ~/.zshrc 2>/dev/null; source ~/.zprofile 2>/dev/null; source ~/.bashrc 2>/dev/null; eval {quoted}",
                 password_preamble(),
             )),
             None => wrap(format!(
@@ -392,7 +406,7 @@ pub fn spawn_command(
         Some(_pass) => {
             let preamble = password_preamble();
             wrap_with_upgrade_lock(&format!(
-                "{preamble} && if command -v zsh >/dev/null 2>&1; then zsh -l -i -c 'setopt expand_aliases 2>/dev/null; source ~/.zshrc 2>/dev/null; source ~/.zprofile 2>/dev/null; eval {quoted_escaped}'; elif command -v bash >/dev/null 2>&1; then bash -i -c 'shopt -s expand_aliases 2>/dev/null; source ~/.bashrc 2>/dev/null; source ~/.bash_profile 2>/dev/null; eval {quoted_escaped}'; else sh -c {quoted}; fi"
+                "{preamble}; if command -v zsh >/dev/null 2>&1; then zsh -l -i -c 'setopt expand_aliases 2>/dev/null; source ~/.zshrc 2>/dev/null; source ~/.zprofile 2>/dev/null; eval {quoted_escaped}'; elif command -v bash >/dev/null 2>&1; then bash -i -c 'shopt -s expand_aliases 2>/dev/null; source ~/.bashrc 2>/dev/null; source ~/.bash_profile 2>/dev/null; eval {quoted_escaped}'; else sh -c {quoted}; fi"
             ))
         }
         None => wrap_with_upgrade_lock(&format!(
@@ -494,5 +508,57 @@ pub async fn probe_remote_arch(server: &Server) -> Option<Arch> {
         Arch::from_uname(&arch_str)
     } else {
         None
+    }
+}
+
+#[cfg(test)]
+mod sudo_preamble_tests {
+    #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+
+    use super::{password_preamble, SUDO_FAILED_CODE, SUDO_FAILED_SENTINEL};
+
+    /// A rejected password must be distinguishable from a failing command.
+    ///
+    /// The preamble used to end in `[ $rc -eq 0 ]` and be joined to the upgrade
+    /// with `&&`, so both cases exited 1 and the panel reported "upgrade
+    /// command exited 1 -- host reachable, command failed" for a command that
+    /// never ran. That sent the user to read their upgrade script when the
+    /// problem was the password.
+    #[test]
+    fn a_refused_password_reports_itself() {
+        let p = password_preamble();
+        assert!(
+            p.contains(SUDO_FAILED_SENTINEL),
+            "the remote must name the failure on stdout: {p}"
+        );
+        assert!(
+            p.contains(&format!("exit {SUDO_FAILED_CODE}")),
+            "and carry a distinct exit status, in case the line is lost in \
+             login-shell noise: {p}"
+        );
+        assert!(
+            !p.trim_end().ends_with("[ $__mt_rc -eq 0 ]"),
+            "the old shape: indistinguishable from any other failure"
+        );
+    }
+
+    /// Echo has to be off before the password is read, or the pty prints it.
+    #[test]
+    fn echo_is_disabled_before_the_password_is_read() {
+        let p = password_preamble();
+        let stty = p.find("stty -echo").expect("echo must be turned off");
+        let read = p.find("read -r __mt_pw").expect("the password is read");
+        assert!(stty < read, "echo must be off first: {p}");
+    }
+
+    /// The password must never appear in an argument.
+    #[test]
+    fn the_password_is_never_an_argument() {
+        let p = password_preamble();
+        assert!(p.contains("sudo -S"), "sudo must read it from stdin: {p}");
+        assert!(
+            !p.contains("echo '") && !p.contains("--password"),
+            "argv is world-readable through /proc on Linux: {p}"
+        );
     }
 }

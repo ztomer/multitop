@@ -4,7 +4,28 @@ The one forward-looking backlog. Shipped work is not listed here — it is in gi
 history and in the test suite. When an item here is finished, delete it rather
 than ticking it off.
 
-## 0. OPEN: upgrades fail because there is no stored sudo password
+## 0. Confirm: sudo rejection is now reported as a password problem
+
+Upgrades on the three Ubuntu hosts failed with
+`upgrade command exited 1 - host reachable, command failed`. The command never
+ran: `sudo` refused the password, and `preamble && command` exits 1 either way,
+so a rejected password and a broken upgrade script were indistinguishable.
+
+Fixed on both sides. The remote now prints `__multitop_sudo_failed__` and exits
+111, verified live against 192.168.0.33 (`rc = 111`, marker on stdout), and the
+panel says the password was refused and which host refused it.
+
+The Configuration panel also claimed `> Stored` for every host the moment one
+SSO password was set, though nothing had checked it against any of them. Hosts
+borrowing the SSO password now read `> SSO (unverified)` in yellow; a password
+entered for a host with `o` supersedes it and reads `> Stored`.
+
+**Not confirmed against a real host yet.** The Ubuntu boxes need their own sudo
+passwords set with `o` -- they do not share the Mac's. Then confirm an upgrade
+completes, and that a deliberately wrong password reports as refused rather than
+as a failing command.
+
+## 0b. DONE: the missing SSO entry
 
 **Cause, and it was mine.** Verifying the password flow on 2026-08-03 I drove
 the app through the SSO prompt with `XDG_CONFIG_HOME` isolated but *not* the

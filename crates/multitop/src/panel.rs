@@ -33,6 +33,9 @@ pub struct Panel {
     pub scroll_offset: usize,
     pub sudo_password: Option<String>,
     pub password_saved: bool,
+    /// This host has no password of its own; it is borrowing the SSO master
+    /// password, which nothing has checked against this host.
+    pub uses_sso: bool,
     pub external_password: bool,
     /// Leading lines of `view` that must stay on screen while the rest
     /// scrolls. 1 for the host banner; more in the Upgrade view, where the
@@ -60,6 +63,7 @@ impl Panel {
             scroll_offset: 0,
             sudo_password: None,
             password_saved: false,
+            uses_sso: false,
             external_password: false,
             pinned_lines: 1,
         }
