@@ -4,76 +4,134 @@ The one forward-looking backlog. Shipped work is not listed here — it is in gi
 history and in the test suite. When an item here is finished, delete it rather
 than ticking it off.
 
-## 0. Confirm the rebuilt Server Settings against real hosts
+## 1. Live confirmation of everything that is green but unseen
 
-The panel was two lists with `Tab` between them, and "SSO" meant two unrelated
-things: the vault master password, and a single shared sudo password handed to
-any host without one of its own. That second meaning is gone.
+The whole "never run against a real terminal, a real vault, or a real host" list,
+in one place. It used to be three sections describing three batches of work; the
+batches are shipped and only the confirmation is outstanding, and it is the same
+kind of work every time.
 
-- One list: `Server | User | Port | Upgrade command | Password`.
-- `Enter` edits a row -- host, user, port, upgrade command, password.
-- `A` adds, `D` deletes (confirmed), `I` imports `~/.ssh/config`.
-- `R` changes the vault master password. That is the only master password.
-- `S` toggles sparklines, under an Experimental heading.
-- An emptied password field removes that host's stored password.
+Green tests are not a shipped feature. Each row is one sitting with the real app.
 
-Also fixed with it: a refused sudo password used to be indistinguishable from a
-failing upgrade command -- `preamble && command` exits 1 either way -- so the
-panel blamed the command for a run that never happened. The remote now exits 111
-with a marker line, verified live against 192.168.0.33.
+| Path | How to exercise it | Ever done? |
+|------|--------------------|-----------|
+| Per-host sudo passwords | Give each Ubuntu host its own password with `Enter`, run an upgrade, check it completes | no |
+| Refused password vs failing command | Set one host's password deliberately wrong; the panel must say the password was refused, not that the command failed | remote side only, against 192.168.0.33 |
+| Master-password rotation | `R`, rotate, quit, restart; the stored sudo passwords must decrypt with the new master password and not the old one | no |
+| SSH import | `I` against a real `~/.ssh/config`; nothing already configured may lose its `upgrade_cmd` | no |
+| Server-list editing | Add and remove a server while running; panels respawn, stats land on the right host, no panel keeps a dead host's sparkline | no |
+| Sudo handshake over stdin | A real upgrade on a host that needs sudo; the password must reach `sudo -S` and never appear in `ps` | yes, three hosts |
+| `SIGTTIN` no longer stops the app | `kill -TTIN` the running app from another terminal; it must keep drawing rather than stopping and abandoning the terminal | no |
+| Sudo handshake deadlock | A remote that stays silent must report a bounded wait, not surface as an unreachable host | no |
+| **One prompt per upgrade** | With a vault present, press `u` twice from a fresh start and count the password prompts. Exactly one, and it must be multitop's own "Enter vault master password", not a macOS keychain dialog | no |
+| **Vault creation asks once** | Save a first password, type a master password, press Enter once and wait. One prompt, one vault, and Server Settings still on screen underneath | no |
+| **Progress output** | Run an upgrade whose command has a `\r` progress bar (`apt upgrade`); the log must gain one line per bar, not one per tick | no |
 
-**To confirm:** give each Ubuntu host its own password with `Enter`, run an
-upgrade, and check it completes. Then set one deliberately wrong and check the
-panel says the password was refused rather than that the command failed.
+The last three are the 2026-08-03 evening fixes. The upgrade-prompt row is the
+one that matters most: the diagnosis was that the *first* `u` read the OS
+credential store to report on credentials, and on macOS that is a system dialog
+raised before the vault is ever unlocked. If a second prompt still appears, and
+it is multitop's own, the diagnosis was wrong and the state machine needs
+another pass.
 
 ## 2. Decide the fate of two unused vault API functions
 
 `UnlockedVault::remove_password` and `Vault::get_unlocked` are implemented and
 tested with no production callers. `remove_password` would be per-host removal
-*from the vault*, which is distinct from the credential-store deletion that `d`
-already performs in the Passwords section — if that distinction is not wanted,
+*from the vault*, which is distinct from the credential-store deletion that an
+emptied password field already performs — if that distinction is not wanted,
 delete it. Both are listed in `tools/test_only_baseline.txt`.
 
-## 2a. The review is not finished
+## 3. The adversarial review is not finished
 
 Recorded because "are we done?" deserves an answer that is not a feeling.
 
-The bar set for this work was: **a full review round that produces no new
-findings.** No round has met it. The last four defects were all reported by the
-user rather than found by the suite or by a review pass:
+**The bar: a full review round that produces no new findings.** No round has
+ever met it. Not "we stopped early" -- the review has never once terminated
+correctly.
 
-| Defect | Found by |
-|--------|----------|
-| `SIGTTIN` stopped the app and abandoned the terminal | user |
-| The sudo handshake deadlocked, reported as an unreachable host | user |
-| Tests reached the real OS keychain and blocked the suite on a dialog | user |
-| Upgrades failing for want of a stored password | user |
+### Where it has been
 
-By rule 1 -- fix the harness before the bug -- four in a row means the harness
-still has holes and user QA is still the detection layer. Two were closed with
-new gates (`check_keychain_isolation.py`) and new e2e coverage
-(`config_panel_e2e.rs`, `filter_e2e.rs`); that is the pattern to keep.
+| Area | Coverage | How it ended |
+|------|----------|--------------|
+| Vault + credential path | 7 rounds (1, 2, 3, 4, 4b, 5, 6), all 2026-08-01 | **On a finding.** Round 6 found that a release binary could silently use the mock keystore, and the review stopped there. The next day `29bdbb3` -- rotating the master password could destroy the vault -- turned up during feature work. The subsystem was still producing defects when review stopped looking. |
+| Agent parsing / protocol | 6 fuzz targets, 114M iterations, 0 crashes; plus targeted hardening (bogus chunk size, >64 KiB payload desync, null `ifa_addr`) | Mechanized, still running when asked. The only area no user-reported defect has come from. |
+| Configuration panel | Keystroke-through-render e2e plus a bounded sweep of every key sequence | Not a review round; a harness that closes one class. |
 
-Areas that have had no adversarial pass at all, and are where the last two bugs
-came from: process and terminal lifecycle (signals, suspend/resume, child
-process groups), and the rendering path (`ui.rs`, `refit.rs`, `ansi.rs`) beyond
-the Configuration panel.
+Every round that ran found something. That is evidence the rounds were
+productive *and* evidence they stopped too early.
 
-## 3. Clear the test-only baseline
+### Where it has never been
+
+| Area | Files | What that has already cost |
+|------|-------|----------------------------|
+| Terminal / process lifecycle | `run.rs` event loop, signal handling, child process groups | `SIGTTIN` stopped the app and abandoned the terminal -- found by the user |
+| SSH + upgrade transport | `ssh.rs`, `tasks.rs` | The sudo handshake deadlock, and a refused password reported as a failing command -- both found by the user |
+| Rendering | `ui.rs`, `refit.rs`, `ansi.rs` beyond the Configuration panel | A footer clipped at 80 and 96 columns, and a modal clipping its own footer -- found by rendering a frame and looking at it, not by any test |
+| Persistence | `config.rs`, `state.rs` | Non-atomic state writes, and config comments destroyed on every write -- both found ad hoc |
+
+### The detection record
+
+Every defect below was reported by the user, not by the suite or by a review
+pass:
+
+| Defect | Closed with |
+|--------|-------------|
+| `SIGTTIN` stopped the app and abandoned the terminal | Signal handlers + `SIGCONT` rebuild |
+| The sudo handshake deadlocked, reported as an unreachable host | Bounded wait, pipe closed on both paths |
+| Tests reached the real OS keychain and blocked the suite on a dialog | `check_keychain_isolation.py` gate |
+| Upgrades failing for want of a stored password | Per-host passwords; sudo rejection signalled distinctly |
+| Answering the vault offer dropped the user out of Server Settings | Modals compose over the panel |
+| The creation prompt took the master password three times | In-flight state; stale failure cannot undo a success |
+| One upgrade cost two password prompts | Vault is the source of truth; no credential-store read to *report* |
+| A `\r` progress bar logged one line per tick | `tasks::painted_states` |
+
+Eight in a row. By rule 1 -- fix the harness before the bug -- that means the
+harness still has holes and user QA is still the detection layer. The pattern to
+keep is what closed the last four: e2e tests that drive real `KeyEvent`s through
+`run::handle_key` and **count what the presses actually started**, rather than
+asserting on the final state. The final state can look correct while three
+vaults' worth of work happened.
+
+### There is no review log
+
+Findings exist only in commit messages. "What did round 4 look at and decide was
+fine?" is unanswerable, which is why the table above can say which areas were
+*touched* and not which are *clean*. Any future round should leave a record of
+its scope and its negative results, not only its fixes.
+
+### The next round, and why it is this one
+
+A class was named on 2026-08-03 that nothing in the suite was looking for:
+**a prompt that starts slow asynchronous work and then looks unchanged.** Two of
+that day's four defects were instances -- and the unlock path had solved the
+same class months before the creation path was written and never learned from
+it, which is the signature of a class-level miss rather than two bugs.
+
+The audit is bounded and mechanical: every keypress in `run::handle_key` that
+spawns a task, asked
+
+- what does the **second** press do while the first is in flight?
+- what happens when a **stale** result arrives after a newer one succeeded?
+- does the UI **say** work is happening, or does it look untouched?
+
+Roughly a dozen call sites. Start there; then terminal lifecycle, which has the
+worst record of the never-reviewed areas.
+
+## 4. Clear the test-only baseline
 
 `tools/test_only_baseline.txt` lists functions exercised by tests and by no
 production path. The gate (`tools/check_test_only_code.py`) stops new ones
 appearing; the existing list has to be worked down by hand, and the file can only
 shrink — a stale entry fails the gate too.
 
-Ten entries remain:
+Nine entries remain:
 
 | Entry | Shape |
 |-------|-------|
 | `crates/vault/src/api.rs:remove_password` | Item 2 above |
 | `crates/vault/src/api.rs:get_unlocked` | Item 2 above |
-| `crates/multitop/src/app.rs:set_filtering` | Item 1 above |
-| `crates/vault/src/crypto.rs:from_config` | Production always passes `argon2_params: None`, so the config path is unreachable |
+| `crates/vault/src/crypto.rs:from_config` | Reached only when `argon2_params` is `Some`, which now happens only under the test-mock flag (`vault::config_for`) |
 | `crates/agent/src/render.rs:frame_height` | Accessor |
 | `crates/multitop/src/app.rs:had_upgrade` | Accessor |
 | `crates/multitop/src/app.rs:vault_unlocked` | Accessor |
@@ -86,49 +144,7 @@ a *duplicate* of its logic is what production calls, the tests guard the dead
 copy, and the live copy drifts unwatched. `rollback::parse_stored_counter` and
 `LockoutState::on_failure` were both exactly that.
 
-## 4. Live validation of the recently shipped UI paths
-
-These landed with unit and policy tests but have never been exercised against a
-real terminal, a real vault, or real hosts. Green tests are not a shipped
-feature.
-
-| Path | How to exercise it |
-|------|--------------------|
-| Master-password rotation | `R` in the Passwords section; rotate, quit, restart, confirm the stored sudo passwords still decrypt with the new master password and not the old one |
-| SSH import | `I` in the Servers section against a real `~/.ssh/config`; confirm nothing already configured lost its `upgrade_cmd` |
-| Server-list editing | Add and remove a server while the app is running; confirm panels respawn, stats land on the right host, and no panel keeps a dead host's sparkline |
-| Sudo-password handshake | A real upgrade on a host that needs sudo, confirming the password reaches `sudo -S` over stdin and never appears in `ps` |
-
-The password handshake was verified live against three hosts once; the other
-three rows have not been.
-
-## 5. Confirm the two 2026-08-03 fixes against real hosts
-
-Both were diagnosed from a screenshot and fixed with tests, and neither has been
-seen working on a real machine yet.
-
-**The app was stopped, not crashed.** The screenshot said
-`[1] + suspended (tty input)` -- `SIGTTIN`, raised when a process touches the
-controlling terminal from a background process group. At its default disposition
-it *stops* the process, and a stopped process runs no destructors, so
-`TerminalGuard` never restored the terminal: raw mode still on, alternate screen
-still active, and the shell's prompt drawn on top of the last frame. That is why
-the window looked empty and why a window screenshot showed nothing.
-`run.rs` now registers handlers for `SIGTTIN`/`SIGTTOU` (a caught signal does
-not stop the process) and rebuilds the terminal on `SIGCONT`.
-
-**"Not reachable" after entering the password was a deadlock, not the network.**
-The sudo handshake waited for the readiness sentinel with no time bound, and
-closed the child's stdin only on the success path. A remote that stayed silent
-left both sides waiting -- multitop for a line, the remote for its stdin to
-close. `tasks::deliver_sudo_password` now bounds the wait and closes the pipe on
-both paths, and says so instead of letting it surface as a connection failure.
-
-To confirm: run a real upgrade on a host that needs sudo and watch it complete;
-then `kill -TTIN` the running app from another terminal and check it keeps
-drawing rather than stopping.
-
-## 5a. Finish keychain isolation for tests
+## 5. Finish keychain isolation for tests
 
 `tools/check_keychain_isolation.py` is a gate in the hook and in CI, and it
 reports clean. It is not yet the whole story:
@@ -138,24 +154,55 @@ reports clean. It is not yet the whole story:
   and the vault's keychain use (`lockout.rs`, `rollback.rs`) is gated on a
   `use_keychain` flag rather than on `cfg(test)`, so a unit test can reach the
   real keychain.
-- A probe that makes every real-keychain call panic still reported **9 hits**
-  across the workspace after the `tests/` directories were cleaned. Those
-  remaining hits have not been attributed yet. Reproduce with: replace each
-  `keyring::Entry::new(...)` in `crates/vault/src/{lockout,rollback}.rs` and the
-  non-mock branches of `crates/multitop/src/password_store.rs` with a `panic!`,
-  then run the workspace suite and read the failing test names.
+- A probe that makes every real-keychain call panic reported **9 hits** across
+  the workspace after the `tests/` directories were cleaned. Those hits have not
+  been attributed yet. Reproduce with: replace each `keyring::Entry::new(...)` in
+  `crates/vault/src/{lockout,rollback}.rs` and the non-mock branches of
+  `crates/multitop/src/password_store.rs` with a `panic!`, then run the workspace
+  suite and read the failing test names. Re-run the probe first — one source of
+  hits was multitop's own vault construction, which now follows the mock flag
+  through `vault::config_for`, so the count may already be lower.
 
 Until that reaches zero, running the suite can still raise a keychain dialog.
 
-## 6. Rotate the sudo password used during live verification
+## 6. The other half of in-place progress output
+
+Reported 2026-08-03: "when updating a line in place (e.g. docker update
+percentages) it adds all the update screen instead."
+
+Half of it is fixed. A tool that repaints **one** line with carriage returns
+(`apt`, `curl`, a single-layer `docker pull`) now contributes one line to the
+log -- the state it ended on -- instead of one line per tick. `tasks::painted_states`
+does it and `test_e2e_carriage_return_progress_logs_one_line` pins it.
+
+The half that is not: a tool that repaints **several** lines does it with cursor
+movement, not carriage returns -- `docker compose pull` prints a block per
+layer, then `ESC[nA` back up and prints the whole block again. Every repaint is
+a genuine run of `\n`-terminated lines, so the log grows by a screenful per
+frame and nothing above catches it.
+
+Fixing that means interpreting the movement rather than stripping it: a small
+virtual screen per panel (`CUU`/`CUD`/`CR`/`EL`/`ED`, absolute `CUP` ignored)
+that upgrade output is written *into*, with the panel rendering the screen
+rather than a list of lines. `ansi.rs` already parses SGR and drops everything
+else, so this is a second, smaller state machine beside it -- not a dependency
+on a full terminal emulator crate, and not the multiplexer the shape of it
+suggests.
+
+Worth deciding before starting: whether the durable `last_upgrade` log keeps
+every frame (scrollback of what really happened) while only the live view is
+collapsed, or whether the collapsed view *is* the log. They are different
+products.
+
+## 7. Rotate the sudo password used during live verification
 
 The sudo password for the three test hosts was pasted into a Claude Code session
 transcript on 2026-08-02 in order to verify the stdin handshake. It is therefore
 on disk in `~/.claude/projects/`. Change it on all three machines.
 
-## 7. `G` — per-pane CPU / memory / network graphs
+## 8. `G` — per-pane CPU / memory / network graphs
 
-Requested 2026-08-03. **Last** — start only once items 1-6 are closed.
+Requested 2026-08-03. **Last** — start only once items 1-7 are closed.
 
 A new view alongside the existing ones, bound to `G` and placed immediately to
 the right of `F` (Fetch) in the keybar, drawing CPU, memory and network history
@@ -172,8 +219,8 @@ Points to settle before writing any of it:
 - `crates/multitop/src/sparkline.rs` already holds per-panel history and a
   renderer. Extend it rather than starting a second one — a parallel renderer
   is how the six drifted previews happened elsewhere.
-- Sparklines are still behind the `P` toggle and marked experimental. Decide
-  whether `G` replaces that toggle or sits beside it.
+- Sparklines are still behind the `S` toggle in Server Settings and marked
+  experimental. Decide whether `G` replaces that toggle or sits beside it.
 
 ## Deferred
 
