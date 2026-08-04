@@ -45,9 +45,24 @@ pub async fn run(
     // Panics are already covered: `ratatui::init` installs a panic hook that
     // restores the terminal, which matters because the release profile aborts
     // and would not run this `Drop`.
-    let _restore = TerminalGuard;
+    let restore = TerminalGuard;
     execute!(std::io::stdout(), EnableMouseCapture)?;
-    event_loop(&mut terminal, servers, config_path, initial_theme).await
+    let killed = event_loop(&mut terminal, servers, config_path, initial_theme).await?;
+    // Restore the terminal before saying anything on stderr: writing while raw
+    // mode and the alternate screen are still up renders the notice into the
+    // wreck the shell is about to redraw over.
+    drop(restore);
+    if !killed.is_empty() {
+        eprintln!(
+            "multitop quit with upgrades still running on: {}",
+            killed.join(", ")
+        );
+        eprintln!(
+            "  Those SSH sessions were terminated mid-run. The remote lock file\n\
+             \x20 on each host may need removing before the next upgrade can start."
+        );
+    }
+    Ok(())
 }
 
 /// Signals that decide whether this process may keep the terminal.
@@ -228,7 +243,7 @@ async fn event_loop(
     mut servers: Vec<Server>,
     config_path: PathBuf,
     initial_theme: Option<String>,
-) -> std::io::Result<()> {
+) -> std::io::Result<Vec<String>> {
     let n = servers.len();
     let mut app = App::new(servers.clone());
     app.config_path = Some(config_path.clone());
@@ -237,6 +252,11 @@ async fn event_loop(
     // OS keychain access dialogs on every app launch.
     if let Ok(cfg) = crate::config::load(&config_path) {
         app.upgrade_history_lines = cfg.upgrade_history_lines;
+        // The ring was created at the default capacity; the config's value is
+        // what the streaming log must honour.
+        for p in &mut app.panels {
+            p.last_upgrade.set_cap(cfg.upgrade_history_lines);
+        }
         if cfg.show_sparklines {
             app.toggle_sparklines();
         }
@@ -344,21 +364,37 @@ async fn event_loop(
                         dirty = true;
                     }
                     Some(Ok(Event::Mouse(mouse))) => {
-                        let term_size = terminal.size().unwrap_or_default();
-                        let term_area = Rect::new(0, 0, term_size.width, term_size.height);
-                        let target_panel = panel_at_pos(mouse.column, mouse.row, term_area, app.panels.len());
+                        // `EnableMouseCapture`'s `?1003h` asks for *any*-event
+                        // tracking, so motion floods these in even when nothing
+                        // happens. The `terminal.size()` syscall and the layout
+                        // split inside `panel_at_pos` used to run on every one
+                        // of them before being discarded by `_ => {}`.
                         match mouse.kind {
-                            MouseEventKind::Down(crossterm::event::MouseButton::Left) => {
-                                app.selected_panel = target_panel;
-                                dirty = true;
-                            }
-                            MouseEventKind::ScrollUp => {
-                                app.scroll_panel_up(target_panel, 3);
-                                dirty = true;
-                            }
-                            MouseEventKind::ScrollDown => {
-                                app.scroll_panel_down(target_panel, 3);
-                                dirty = true;
+                            MouseEventKind::Down(crossterm::event::MouseButton::Left)
+                            | MouseEventKind::ScrollUp
+                            | MouseEventKind::ScrollDown => {
+                                let term_size = terminal.size().unwrap_or_default();
+                                let term_area =
+                                    Rect::new(0, 0, term_size.width, term_size.height);
+                                let target_panel =
+                                    panel_at_pos(mouse.column, mouse.row, term_area, app.panels.len());
+                                match mouse.kind {
+                                    MouseEventKind::Down(
+                                        crossterm::event::MouseButton::Left,
+                                    ) => {
+                                        app.selected_panel = target_panel;
+                                        dirty = true;
+                                    }
+                                    MouseEventKind::ScrollUp => {
+                                        app.scroll_panel_up(target_panel, 3);
+                                        dirty = true;
+                                    }
+                                    MouseEventKind::ScrollDown => {
+                                        app.scroll_panel_down(target_panel, 3);
+                                        dirty = true;
+                                    }
+                                    _ => {}
+                                }
                             }
                             _ => {}
                         }
@@ -375,12 +411,17 @@ async fn event_loop(
             }
 
             Some(msg) = rx.recv() => {
-                app.apply(msg);
-                // A burst of frames should cost one draw, not one each.
+                // A burst of frames should cost one draw, not one each — and a
+                // message that changes nothing on screen should cost none. The
+                // agent streams one Packet per panel per tick even when every
+                // panel is showing another view; draining those without a redraw
+                // is the difference between a smooth idle TUI and a flickering
+                // one.
+                let mut change = app.apply(msg);
                 while let Ok(msg) = rx.try_recv() {
-                    app.apply(msg);
+                    change |= app.apply(msg);
                 }
-                dirty = true;
+                dirty |= change;
             }
             () = resize_wait, if resize_at.is_some() => {
                 resize_at = None;
@@ -396,8 +437,10 @@ async fn event_loop(
         }
 
         if app.should_quit() {
+            // Named before `abort_all` flips the STARTED flags to DONE.
+            let killed = app.running_upgrade_hosts();
             tasks.abort_all(&mut app);
-            return Ok(());
+            return Ok(killed);
         }
     }
 }
@@ -465,6 +508,25 @@ pub fn handle_key(
             KeyCode::Esc | KeyCode::Char('q' | 'Q' | 'n' | 'N') => {
                 app.set_show_upgrade_modal(false);
             }
+            _ => {}
+        }
+        return;
+    }
+
+    // A quit armed by Esc/q/Ctrl-C while upgrades were in flight. `q` confirms,
+    // Esc stands down. Every other key is ignored until one of the two: the
+    // row is a modal in all but shape, and letting stray keys through while it
+    // is up would be acting on a screen the user has asked a question of.
+    if app.quit_armed() {
+        match key.code {
+            // Only the keys the row names, plus Ctrl-C, which means the same
+            // thing everywhere. `Enter` and `y` used to confirm too, and they
+            // are exactly the wrong keys to accept here: this press kills a
+            // running dpkg transaction on N production hosts, and `Enter` is
+            // what an operator hits to dismiss something they have not read.
+            KeyCode::Char('q' | 'Q') => app.quit(),
+            KeyCode::Char('c') if key.modifiers.contains(KeyModifiers::CONTROL) => app.quit(),
+            KeyCode::Esc => app.cancel_quit(),
             _ => {}
         }
         return;
@@ -617,11 +679,11 @@ pub fn handle_key(
             return;
         }
         KeyCode::Esc | KeyCode::Char('q' | 'Q') => {
-            app.quit();
+            app.request_quit();
             return;
         }
         KeyCode::Char('c') if key.modifiers.contains(KeyModifiers::CONTROL) => {
-            app.quit();
+            app.request_quit();
             return;
         }
         KeyCode::Char('e' | 'E') => {

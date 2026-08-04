@@ -217,6 +217,11 @@ fn painted_states(line: &str) -> impl DoubleEndedIterator<Item = &str> {
 ///
 /// One copy, because the two streams disagreeing about what counts is how one
 /// of them stops recognising it.
+///
+/// Also matches the shape a non-root `upgrade_cmd` produces: apt's "are you
+/// root?" and dpkg's "permission denied" on its own lock files contain no
+/// "sudo", so without these arms a command that merely forgot the `sudo`
+/// prefix was reported as a failing command with no hint why.
 fn is_sudo_help(lower: &str) -> bool {
     lower.contains("sudo")
         && (lower.contains("terminal")
@@ -224,6 +229,11 @@ fn is_sudo_help(lower: &str) -> bool {
             || lower.contains("pre-authorized")
             || lower.contains("tty")
             || lower.contains("prompt on"))
+        || lower.contains("are you root")
+        || (lower.contains("permission denied")
+            && (lower.contains("/var/lib/dpkg")
+                || lower.contains("/var/lib/apt")
+                || lower.contains("lock-frontend")))
 }
 
 /// How many lines to look at before giving up on the readiness sentinel. A
@@ -348,6 +358,8 @@ pub fn spawn_upgrade(
         let mut sudo_help = false;
         // Set when the remote says sudo refused the password we handed it.
         let mut sudo_rejected = false;
+        // Set when the remote says another run already holds the upgrade lock.
+        let mut lock_held = false;
         let mut errbuf = Vec::new();
         loop {
             tokio::select! {
@@ -391,6 +403,10 @@ pub fn spawn_upgrade(
                             continue;
                         }
                         let lower = trimmed.to_lowercase();
+                        if trimmed == ssh::LOCK_HELD_SENTINEL {
+                            lock_held = true;
+                            continue;
+                        }
                         if is_sudo_help(&lower) {
                             sudo_help = true;
                         }
@@ -462,6 +478,17 @@ pub fn spawn_upgrade(
                      Set this host's password with {} in Settings.",
                     server.host,
                     crate::consts::SETTINGS_KEY
+                ),
+            ),
+            // A held lock is not a failing command either: the command never ran.
+            // The lock lives at `~/.cache/multitop/upgrade.lock` and is only
+            // broken automatically after six hours, so naming it is the whole
+            // fix -- a leftover from a killed run needs removing by hand.
+            Ok(s) if lock_held || s.code() == Some(ssh::LOCK_HELD_CODE) => status_line(
+                format!(
+                    "\u{26A0} another upgrade holds the lock on {} \u{2014} this one never ran. \
+                     If no other run is active, remove ~/.cache/multitop/upgrade.lock.",
+                    server.host
                 ),
             ),
             Ok(s) => s.code().map_or_else(
@@ -665,5 +692,32 @@ mod painted_line_tests {
             "sudo: a terminal is required to read the password"
         ));
         assert!(!is_sudo_help("installing sudo-1.9.0"));
+    }
+
+    /// A non-root upgrade command fails with apt's "are you root?" shape, which
+    /// contains no "sudo" -- it must still be recognised as a help situation,
+    /// not reported as a bare command failure.
+    #[test]
+    fn a_command_that_needs_root_is_recognised_as_help() {
+        assert!(is_sudo_help(
+            "e: could not open lock file /var/lib/dpkg/lock-frontend - open (13: permission denied)"
+        ));
+        assert!(is_sudo_help(
+            "e: unable to acquire the dpkg frontend lock. are you root?"
+        ));
+        assert!(is_sudo_help(
+            "e: could not open lock file /var/lib/apt/lists/lock - open (13: permission denied)"
+        ));
+        // A permission error that is not about a package lock is not this shape.
+        assert!(!is_sudo_help("permission denied (publickey)"));
+    }
+
+    /// The upgrade lock sentinel the wrapper prints must survive the scan like
+    /// any other painted marker, so a held lock is never reported as a generic
+    /// exit-1 failure.
+    #[test]
+    fn the_lock_held_sentinel_is_scannable() {
+        let line = format!("{}\r\n", ssh::LOCK_HELD_SENTINEL);
+        assert!(painted_states(&line).any(|state| state.trim() == ssh::LOCK_HELD_SENTINEL));
     }
 }

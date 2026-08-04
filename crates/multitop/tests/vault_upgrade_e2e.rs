@@ -546,7 +546,12 @@ async fn entering_the_upgrade_view_does_not_read_the_credential_store_when_a_vau
         app.panels[0].sudo_password, None,
         "the credential store must not be read behind a locked vault"
     );
-    let pane = app.panels[0].view.join("\n");
+    // Through the renderer, not `panels[0].view`: the Upgrade pane is composed
+    // from the status header and the `last_upgrade` ring, and `view` is the
+    // buffer the *other* modes use.
+    let pane = multitop::ui::pane_lines(&app, 0, usize::MAX, 0, 0)
+        .0
+        .join("\n");
     assert!(
         pane.contains("unlocks on run"),
         "and the pane must say the vault will be asked, not guess: \n{pane}"
@@ -572,5 +577,8 @@ async fn entering_the_upgrade_view_still_reads_the_credential_store_without_a_va
         Some("keychain-only"),
         "with no vault, the credential store is the source of truth"
     );
-    assert!(app.panels[0].view.join("\n").contains("password stored"));
+    assert!(multitop::ui::pane_lines(&app, 0, usize::MAX, 0, 0)
+        .0
+        .join("\n")
+        .contains("password stored"));
 }

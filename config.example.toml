@@ -1,5 +1,5 @@
 # Servers to monitor. Sudo passwords are NOT configured here: each server has
-# its own, set in the Configuration screen (`e`) and kept in the OS credential
+# its own, set in the Settings screen (`e`) and kept in the OS credential
 # store and the encrypted vault. A `sudo_password` key in this file is not
 # supported -- it is plaintext on disk, and if one is found at startup it is
 # moved into the credential store and deleted from here.
@@ -8,19 +8,21 @@
 host = "192.168.0.33"
 port = 22
 user = ""
-# upgrade_cmd = "apt update && apt upgrade -y"
+# upgrade_cmd = "sudo apt update && sudo apt upgrade -y"
+# The command runs as the SSH `user`, not as root, so prefix any privileged
+# step with `sudo` -- apt and dpkg will refuse to run as a normal user.
 
 [[servers]]
 host = "192.168.0.90"
 port = 22
 user = ""
-# upgrade_cmd = "apt update && apt upgrade -y"
+# upgrade_cmd = "sudo apt update && sudo apt upgrade -y"
 
 [[servers]]
 host = "192.168.0.158"
 port = 22
 user = ""
-# upgrade_cmd = "apt update && apt upgrade -y"
+# upgrade_cmd = "sudo apt update && sudo apt upgrade -y"
 
-# show_sparklines = false  # Experimental sparklines; toggle with S in Configuration
+# show_sparklines = false  # Experimental sparklines; toggle with S in Settings
 

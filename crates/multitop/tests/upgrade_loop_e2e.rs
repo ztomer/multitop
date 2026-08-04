@@ -270,7 +270,8 @@ async fn test_upgrade_state_machine_roundtrip() {
     );
     assert!(app.panels[0]
         .last_upgrade
-        .contains(&"drwxr-xr-x 1 root root 4096 Jan 1 00:00 bin".to_string()));
+        .iter()
+        .any(|l| l == "drwxr-xr-x 1 root root 4096 Jan 1 00:00 bin"));
 }
 
 /// Test 7: Empty output handled gracefully
@@ -479,12 +480,20 @@ async fn test_upgrade_generation_staleness() {
         line: "CURRENT_LINE".to_string(),
     });
 
+    // The pane (header + ring) must not leak the stale generation's line, and
+    // must show the current one.
     assert!(
-        !app.panels[0].view.contains(&"STALE_LINE".to_string()),
+        !multitop::ui::pane_lines(&app, 0, usize::MAX, 0, 0)
+            .0
+            .join("\n")
+            .contains("STALE_LINE"),
         "Stale message should be dropped"
     );
     assert!(
-        app.panels[0].view.contains(&"CURRENT_LINE".to_string()),
+        multitop::ui::pane_lines(&app, 0, usize::MAX, 0, 0)
+            .0
+            .join("\n")
+            .contains("CURRENT_LINE"),
         "Current message should be visible"
     );
 }
@@ -573,9 +582,10 @@ fn test_ui_upgrade_then_return_shows_last_result() {
     app.enter_upgrade_view();
     assert_eq!(app.panels[0].mode, Mode::Upgrade);
     assert!(
-        app.panels[0]
-            .view
-            .contains(&"important upgrade output".to_string()),
+        multitop::ui::pane_lines(&app, 0, usize::MAX, 0, 0)
+            .0
+            .join("\n")
+            .contains("important upgrade output"),
         "Last upgrade output should be visible"
     );
 }
@@ -822,7 +832,10 @@ fn test_ui_no_upgrade_cmd_shows_message_without_command() {
         "No RunUpgrade command for servers without upgrade_cmd"
     );
     assert!(
-        app.panels[0].view.join("\n").contains("No upgrade_cmd"),
+        multitop::ui::pane_lines(&app, 0, usize::MAX, 0, 0)
+            .0
+            .join("\n")
+            .contains("No upgrade_cmd"),
         "Should show 'No upgrade_cmd' message"
     );
 }
@@ -864,9 +877,10 @@ fn test_ui_upgrade_output_persists_across_view_switches() {
     // Switch back to upgrade view
     app.enter_upgrade_view();
     assert!(
-        app.panels[0]
-            .view
-            .contains(&"persistent output line".to_string()),
+        multitop::ui::pane_lines(&app, 0, usize::MAX, 0, 0)
+            .0
+            .join("\n")
+            .contains("persistent output line"),
         "Output should persist across view switches"
     );
 }
@@ -920,9 +934,10 @@ fn test_ui_returning_to_completed_shows_output() {
 
     assert_eq!(app.panels[0].mode, Mode::Upgrade);
     assert!(
-        app.panels[0]
-            .view
-            .contains(&"completed upgrade output".to_string()),
+        multitop::ui::pane_lines(&app, 0, usize::MAX, 0, 0)
+            .0
+            .join("\n")
+            .contains("completed upgrade output"),
         "Should show last upgrade output, not start new"
     );
     // Verify no new RunUpgrade command was generated
@@ -1020,7 +1035,9 @@ fn test_upgrade_skip_server_reaches_terminal_state() {
         "skip must record the generation it was decided at"
     );
     assert!(!p.last_upgrade.is_empty(), "skip message must be persisted");
-    let view = p.view.join("\n");
+    let view = multitop::ui::pane_lines(&app, 0, usize::MAX, 0, 0)
+        .0
+        .join("\n");
     assert!(view.contains("192.168.0.90"), "message must name the host");
     assert!(view.contains("skipped"), "message must say it was skipped");
     assert!(
@@ -1048,7 +1065,10 @@ fn test_upgrade_mixed_servers_only_configured_run() {
     assert_eq!(app.panels[0].upgrade_state, UpgradeState::STARTED);
     assert_eq!(app.panels[1].upgrade_state, UpgradeState::DONE);
     assert!(
-        app.panels[1].view.join("\n").contains("192.168.0.90"),
+        multitop::ui::pane_lines(&app, 1, usize::MAX, 0, 0)
+            .0
+            .join("\n")
+            .contains("192.168.0.90"),
         "skipped panel must still show why it was skipped"
     );
 }
@@ -1060,7 +1080,7 @@ fn test_upgrade_skip_message_persists_across_views() {
     let _store_guard = enable_test_mock_store_blocking();
     let mut app = App::new(vec![no_upgrade_server("192.168.0.90")]);
     app.run_upgrade();
-    let msg = app.panels[0].last_upgrade.clone();
+    let msg: Vec<String> = app.panels[0].last_upgrade.iter().cloned().collect();
 
     app.switch_stats();
     assert_eq!(app.panels[0].mode, Mode::Monitor);
@@ -1070,16 +1090,13 @@ fn test_upgrade_skip_message_persists_across_views() {
     // The Upgrade pane now always opens with a status header, so the previous
     // output follows it rather than being the whole view. The message itself
     // must still survive intact.
-    let view = &app.panels[0].view;
+    let (header, _) = app.upgrade_pane_header(0);
     assert!(
-        view.len() > msg.len(),
+        !header.is_empty(),
         "expected a status header above the previous output"
     );
-    assert_eq!(
-        &view[view.len() - msg.len()..],
-        msg.as_slice(),
-        "skip message must persist across view switches"
-    );
+    let ring: Vec<String> = app.panels[0].last_upgrade.iter().cloned().collect();
+    assert_eq!(ring, msg, "skip message must persist across view switches");
 }
 
 /// Bug a: the confirm modal data helper must list exactly the hosts that will
@@ -1121,7 +1138,10 @@ fn test_upgrade_skip_then_u_shows_message_not_modal() {
     }
 
     assert!(
-        app.panels[0].view.join("\n").contains("skipped"),
+        multitop::ui::pane_lines(&app, 0, usize::MAX, 0, 0)
+            .0
+            .join("\n")
+            .contains("skipped"),
         "must show the skip message, not the modal"
     );
     assert!(!app.show_upgrade_modal());

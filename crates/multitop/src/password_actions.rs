@@ -246,11 +246,16 @@ pub fn apply(
                     };
                     let _ = crate::state::save_state(path, &state);
                 }
-                app.panels[panel].view = vec![format!(
-                    "{}\u{2192} Upgrade running...{}",
-                    palette.meter_mid(),
-                    palette.reset
-                )];
+                // Into the ring, not `view`: this panel is in Upgrade mode and
+                // the Upgrade pane is composed from the ring, so a line put in
+                // `view` here would be one nothing draws.
+                app.panels[panel]
+                    .last_upgrade
+                    .replace_with(std::iter::once(format!(
+                        "{}\u{2192} Upgrade running...{}",
+                        palette.meter_mid(),
+                        palette.reset
+                    )));
                 let handle = crate::tasks::spawn_upgrade(
                     panel,
                     gen,
@@ -329,7 +334,7 @@ pub fn port_plaintext_passwords(
     }
 
     for p in &mut app.panels {
-        p.view.push(note.clone());
+        p.note(note.clone());
     }
 
     // Porting is adding passwords, so it earns a vault the same way an

@@ -143,7 +143,9 @@ impl Live {
         let deadline = tokio::time::Instant::now() + limit;
         while tokio::time::Instant::now() < deadline {
             match tokio::time::timeout(Duration::from_millis(250), self.rx.recv()).await {
-                Ok(Some(msg)) => self.app.apply(msg),
+                Ok(Some(msg)) => {
+                    self.app.apply(msg);
+                }
                 Ok(None) => break,
                 Err(_) => {}
             }

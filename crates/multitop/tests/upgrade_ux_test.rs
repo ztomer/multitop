@@ -83,9 +83,13 @@ impl Harness {
     }
 
     fn press(&mut self, c: char) {
+        self.press_key(KeyCode::Char(c));
+    }
+
+    fn press_key(&mut self, code: KeyCode) {
         handle_key(
             KeyEvent {
-                code: KeyCode::Char(c),
+                code,
                 modifiers: KeyModifiers::NONE,
                 kind: KeyEventKind::Press,
                 state: crossterm::event::KeyEventState::NONE,
@@ -109,7 +113,11 @@ impl Harness {
     }
 
     fn pane_text(&self, panel: usize) -> String {
-        strip_ansi(&self.app.panels[panel].view.join("\n"))
+        strip_ansi(
+            &multitop::ui::pane_lines(&self.app, panel, usize::MAX, 0, 0)
+                .0
+                .join("\n"),
+        )
     }
 }
 
@@ -169,7 +177,7 @@ async fn first_press_is_the_same_before_and_after_an_upgrade_has_run() {
 
     let mut used = Harness::new(vec![server("web-01", Some("apt upgrade"))]);
     used.app.panels[0].upgrade_state = multitop::panel::UpgradeState::DONE;
-    used.app.panels[0].last_upgrade = vec!["previous output".to_string()];
+    used.app.panels[0].last_upgrade = vec!["previous output".to_string()].into();
     used.press('u');
 
     assert_eq!(
@@ -352,6 +360,201 @@ async fn presses_are_ignored_while_an_upgrade_is_running() {
         !h.app.show_upgrade_modal(),
         "u must not re-arm an upgrade that is already running"
     );
+}
+
+// ---------------------------------------------------------------------------
+// 3b. The filter scopes the run (class F). A filter that narrowed the grid to
+//     one host used to still run `apt upgrade` on every host in config.toml,
+//     while the hidden hosts' output and failures never rendered. What you see
+//     is what you run.
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn an_active_filter_scopes_the_upgrade_run() {
+    let _keychain = isolate_keychain_async().await;
+    let mut h = Harness::new(vec![
+        server("web-01", Some("apt upgrade")),
+        server("db-02", Some("apt upgrade")),
+        server("cache-03", Some("apt upgrade")),
+    ]);
+    // Narrow the grid to db-02 and keep the filter.
+    h.press('/');
+    for c in "db-02".chars() {
+        h.press(c);
+    }
+    h.press_key(KeyCode::Enter);
+    assert_eq!(h.app.filtered_indices(), vec![1]);
+
+    h.press('u');
+    h.press('u');
+    assert!(
+        h.app.show_upgrade_modal(),
+        "the second press must still ask for confirmation"
+    );
+
+    let cmds = h.app.confirm_upgrade();
+    let panels: Vec<usize> = cmds
+        .iter()
+        .filter_map(|c| match c {
+            multitop::types::Command::RunUpgrade { panel, .. } => Some(*panel),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(
+        panels,
+        vec![1],
+        "the run must be scoped to the filtered host, got {panels:?}"
+    );
+}
+
+#[tokio::test]
+async fn the_confirm_row_counts_only_the_filtered_scope() {
+    let _keychain = isolate_keychain_async().await;
+    let mut h = Harness::new(vec![
+        server("web-01", Some("apt upgrade")),
+        server("db-02", Some("apt upgrade")),
+        server("cache-03", None),
+    ]);
+    h.press('/');
+    for c in "web".chars() {
+        h.press(c);
+    }
+    h.press_key(KeyCode::Enter);
+    h.press('u');
+    h.press('u');
+
+    // The scoped set is web-01 only: one host, nothing to skip.
+    let cmds = h.app.confirm_upgrade();
+    let panels: Vec<usize> = cmds
+        .iter()
+        .filter_map(|c| match c {
+            multitop::types::Command::RunUpgrade { panel, .. } => Some(*panel),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(panels, vec![0], "only the visible host runs: {panels:?}");
+}
+
+#[tokio::test]
+async fn a_filter_matching_only_unconfigured_hosts_has_nothing_to_run() {
+    let _keychain = isolate_keychain_async().await;
+    let mut h = Harness::new(vec![
+        server("web-01", Some("apt upgrade")),
+        server("db-02", None),
+    ]);
+    h.press('/');
+    for c in "db".chars() {
+        h.press(c);
+    }
+    h.press_key(KeyCode::Enter);
+
+    h.press('u');
+    h.press('u');
+
+    assert!(
+        !h.app.show_upgrade_modal(),
+        "a filter showing only unconfigured hosts has nothing to confirm"
+    );
+    assert!(
+        !h.app.upgrades_in_flight(),
+        "and must not have started anything"
+    );
+    let text = h.pane_text(1);
+    assert!(text.contains("nothing to run"), "{text}");
+}
+
+// ---------------------------------------------------------------------------
+// 3c. Quitting while upgrades are in flight (class F). `Esc` is the key an
+//     operator presses to back out of a screen, and it used to kill a live
+//     `apt upgrade` on every host with no question asked. The first press
+//     now arms a confirmation that names the hosts; `q` confirms, `Esc`
+//     stands down.
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn first_quit_press_arms_confirmation_when_upgrades_are_running() {
+    let _keychain = isolate_keychain_async().await;
+    let mut h = Harness::new(vec![server("web-01", Some("apt upgrade"))]);
+    start_upgrade(&mut h);
+    assert!(h.app.upgrades_in_flight());
+
+    h.press('q');
+    assert!(
+        !h.app.should_quit(),
+        "the first press must not kill a running upgrade"
+    );
+    assert!(h.app.quit_armed(), "it must arm the confirmation instead");
+    assert_eq!(
+        h.app.running_upgrade_hosts(),
+        vec!["web-01"],
+        "the confirm row must be able to name the host it would kill"
+    );
+}
+
+#[tokio::test]
+async fn second_quit_press_quits_and_esc_stands_down() {
+    let _keychain = isolate_keychain_async().await;
+    let mut h = Harness::new(vec![server("web-01", Some("apt upgrade"))]);
+    start_upgrade(&mut h);
+
+    h.press('q');
+    assert!(h.app.quit_armed());
+
+    h.press_key(KeyCode::Esc);
+    h.press('q');
+    assert!(
+        h.app.quit_armed(),
+        "Esc stands the armed quit down, so the next q must arm again"
+    );
+    assert!(!h.app.should_quit());
+
+    h.press('q');
+    h.press('q');
+    assert!(h.app.should_quit(), "q while armed confirms the quit");
+}
+
+#[tokio::test]
+async fn quit_is_immediate_when_nothing_is_running() {
+    let _keychain = isolate_keychain_async().await;
+    let mut h = Harness::new(vec![server("web-01", Some("apt upgrade"))]);
+    h.press('q');
+    assert!(
+        h.app.should_quit(),
+        "with nothing in flight, q must still quit in one press"
+    );
+    assert!(
+        !h.app.quit_armed(),
+        "and must not have armed a confirmation"
+    );
+}
+
+#[tokio::test]
+async fn ctrl_c_arms_the_same_confirmation_while_upgrades_are_running() {
+    let _keychain = isolate_keychain_async().await;
+    let mut h = Harness::new(vec![server("web-01", Some("apt upgrade"))]);
+    start_upgrade(&mut h);
+
+    let ctrl_c = KeyEvent {
+        code: KeyCode::Char('c'),
+        modifiers: KeyModifiers::CONTROL,
+        kind: KeyEventKind::Press,
+        state: crossterm::event::KeyEventState::NONE,
+    };
+    handle_key(
+        ctrl_c,
+        &mut h.app,
+        &h.servers,
+        (80, 24),
+        Arc::clone(&h.dims_rx),
+        &h.tx,
+        &mut h.tasks,
+    );
+
+    assert!(
+        !h.app.should_quit(),
+        "Ctrl-C must not kill a running upgrade either"
+    );
+    assert!(h.app.quit_armed());
 }
 
 // ---------------------------------------------------------------------------
@@ -630,14 +833,11 @@ async fn the_status_block_stays_pinned_under_heavy_output() {
         });
     }
 
-    // What the renderer would actually show in a 20-row panel.
-    let (shown, _) = multitop::ui::visible(
-        &h.app.panels[0].view,
-        20,
-        h.app.panels[0].pinned_lines.max(1),
-        0,
-        0,
-    );
+    // What the renderer would actually show in a 20-row panel: the status
+    // header pinned over the ring's tail.
+    let (header, _) = h.app.upgrade_pane_header(0);
+    let (shown, _) =
+        multitop::ui::visible_upgrade(&header, &h.app.panels[0].last_upgrade, 20, 0, 0);
     let text = strip_ansi(&shown.join("\n"));
     assert!(
         text.contains("Command"),
@@ -749,4 +949,124 @@ async fn the_pane_reports_a_saved_password_rather_than_promising_a_prompt() {
         !text.contains("will prompt"),
         "and must not threaten a prompt that will not happen: {text}"
     );
+}
+
+/// Rendered text of the keybar row, whatever it is showing right now.
+fn keybar_text(app: &App, width: u16) -> String {
+    let theme = multitop_agent::color::ANSI;
+    multitop::ui::keybar_content(app, &theme, width, Mode::Monitor)
+        .spans
+        .iter()
+        .map(|s| s.content.as_ref())
+        .collect()
+}
+
+/// The one chunk of the confirm row an operator cannot guess is the way out,
+/// and it must never be what the width budget drops.
+///
+/// The shed list used to be built by position -- `shed.push(2)` -- while which
+/// index held what depended on whether the optional `· N skipped` chunk was
+/// present at all. With nothing skipped, index 2 *was* `[Esc] cancel`, so the
+/// first row too narrow to fit shed its own cancel instruction: the exact
+/// defect (`Esc t`) the row was built to remove, rebuilt.
+#[tokio::test]
+async fn the_confirm_row_never_sheds_its_own_way_out() {
+    let _k = isolate_keychain_async().await;
+    let mut h = Harness::new(vec![
+        server("web-01", Some("apt upgrade")),
+        server("web-02", Some("apt upgrade")),
+    ]);
+    h.press('u');
+    h.press('u');
+    assert!(h.app.show_upgrade_modal(), "the confirmation must be armed");
+
+    for width in 10..=100u16 {
+        let row = keybar_text(&h.app, width);
+        assert!(
+            row.contains("[Esc] cancel"),
+            "at {width} columns the row lost its cancel instruction: {row:?}"
+        );
+        assert!(
+            !row.contains("[Esc] canc") || row.contains("[Esc] cancel"),
+            "and never a fragment of it: {row:?}"
+        );
+    }
+}
+
+/// The row is assembled from whole chunks against a budget, so it must never be
+/// wider than the keybar it is drawn into -- whichever chunks survive.
+#[tokio::test]
+async fn no_confirm_row_overruns_the_keybar_width() {
+    let _k = isolate_keychain_async().await;
+    let mut h = Harness::new(vec![
+        server("web-01", Some("apt upgrade")),
+        server("db-02", None),
+        server("db-03", None),
+    ]);
+    h.press('u');
+    h.press('u');
+    for width in 24..=120u16 {
+        let row = keybar_text(&h.app, width);
+        let cells = row.chars().count();
+        assert!(
+            cells <= width as usize,
+            "the armed confirm row used {cells} cells of {width}: {row:?}"
+        );
+    }
+}
+
+/// A previous run that never finished is the one fact on this screen that
+/// appears nowhere else. The box this row replaced said so; deleting the box
+/// dropped the warning with it, which was not what the ruling decided.
+#[tokio::test]
+async fn the_confirm_row_warns_that_a_previous_run_never_finished() {
+    let _k = isolate_keychain_async().await;
+    let mut h = Harness::new(vec![server("web-01", Some("apt upgrade"))]);
+    // A run was stamped as started and no completion ever landed.
+    h.app.upgrade_started_at = Some(1_722_000_000);
+    h.app.last_update = None;
+    h.press('u');
+    h.press('u');
+
+    let row = keybar_text(&h.app, 100);
+    assert!(
+        row.contains("previous run interrupted"),
+        "an unfinished previous run must be stated before starting another: {row:?}"
+    );
+
+    // A completed run afterwards clears it.
+    h.app.last_update = Some(1_722_000_600);
+    let row = keybar_text(&h.app, 100);
+    assert!(
+        !row.contains("previous run interrupted"),
+        "a run that finished is not an interrupted one: {row:?}"
+    );
+}
+
+/// The quit confirmation kills a live `apt upgrade` on N production hosts. It
+/// must act on the keys it names and nothing else -- `Enter` is what an
+/// operator presses to dismiss something they have not read.
+#[tokio::test]
+async fn the_quit_confirmation_ignores_keys_it_does_not_name() {
+    let _k = isolate_keychain_async().await;
+    let mut h = Harness::new(vec![server("web-01", Some("apt upgrade"))]);
+    start_upgrade(&mut h);
+    assert!(h.app.upgrades_in_flight());
+
+    h.press_key(KeyCode::Esc);
+    assert!(h.app.quit_armed(), "the first press asks rather than kills");
+
+    h.press_key(KeyCode::Enter);
+    assert!(!h.app.should_quit(), "Enter must not confirm a kill");
+    h.press('y');
+    assert!(!h.app.should_quit(), "nor y, which the row does not name");
+    assert!(h.app.quit_armed(), "and the question is still standing");
+
+    let row = keybar_text(&h.app, 100);
+    assert!(row.contains("[Q] quit anyway"), "row: {row:?}");
+    assert!(row.contains("[Esc] stay"), "row: {row:?}");
+    assert!(row.contains("web-01"), "the host at risk is named: {row:?}");
+
+    h.press('q');
+    assert!(h.app.should_quit(), "the key the row names does confirm");
 }

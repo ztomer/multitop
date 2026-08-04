@@ -60,7 +60,7 @@ Additional views accessible via keys:
 
 - **Docker view** (`d`) — container list with CPU/memory usage, sorted by load
 - **Update view** (`u`) — per-server update status; press `u` again to run
-- **Configuration screen** (`e`) — servers, their passwords, and the vault
+- **Settings screen** (`e`) — servers, their passwords, and the vault
 - **Filter** (`/`) — narrow the grid to hosts matching what you type
 
 The update view is deliberately two presses. The first switches to it and
@@ -83,7 +83,7 @@ returning with **s** is instant rather than reconnecting.
 | **s** | Back to live stats |
 | **u** | Show the update status view; press again to run the updates |
 | **f** | Toggle the Fetch view |
-| **e** | Open Configuration: servers, passwords, vault |
+| **e** | Open Settings: servers, passwords, vault |
 | **/** | Filter the grid by host or user; **Enter** keeps it, **ESC** clears it |
 | **1**–**9** | Select a panel |
 | **t** | Cycle the active theme |
@@ -131,7 +131,7 @@ has its own, kept inside.
 
 ## Configuration and passwords
 
-Press **e** for the full-screen Configuration screen: one list of servers with
+Press **e** for the full-screen Settings screen: one list of servers with
 the password status of each.
 
 | Key | Action |

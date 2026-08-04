@@ -51,20 +51,27 @@ open. Fixed classes are kept here rather than deleted only until their live
 confirmation in item 1 is done -- they are described in git history, and this
 section should shrink to just the open ones once someone has watched them work.
 
+**Status, 2026-08-04.** D, F and H are now fixed too, and the three-names half
+of E is settled -- **Settings** everywhere (README, keybar `[E] Settings`,
+panel title). Nothing in this section is open. The classes below are kept until
+item 1's live confirmation, then this section is deleted.
+
 | Class | State |
 |-------|-------|
 | A. Row 0 has two owners | **fixed** -- `visible` returns the offset as a value, `draw` composes row 0 once |
 | B. Fixed-width layout with no budget | **fixed** -- `layout::fit_row` / `share_width`, applied to the keybar, the settings row and the settings hints |
 | C. The banner clips the identifying tail | **fixed** -- `layout::fit_banner`, plain ASCII, `user@` dropped first, cut from the left |
-| D. Cost paid per frame for nothing | **open** |
-| E. Names and labels | **fixed** with B and G (`[E] Settings`, the `{:<11}` pad, `Cpu/ Mem`) except the three-names question below |
-| F. Blast radius is not what the screen says | **open**, and the scope half is a decision for the owner |
+| D. Cost paid per frame for nothing | **fixed** -- `push_capped` amortises the trim (drain only past `cap + 512`), mouse handling gated to the three actionable kinds, `apply` returns whether anything visible changed and the loop does `dirty |= apply(msg)` |
+| E. Names and labels | **fixed** -- `[E] Settings`, the `{:<11}` pad, `Cpu/ Mem`, and one name (**Settings**) for the screen |
+| F. Blast radius is not what the screen says | **fixed** -- the filter scopes the run (owner's call, see below), and Esc/q/Ctrl-C confirm before killing a live upgrade, naming the hosts |
 | G. Key hints naming keys that do not exist | **fixed** -- one constant, plus `tools/check_key_hints.py` in the hook and CI |
-| H. Failures reported as something else | **open** |
+| H. Failures reported as something else | **fixed** -- `LOCK_HELD_SENTINEL`/`LOCK_HELD_CODE` matched ahead of the generic arm and naming the lock file; `sudo` in the example; `is_sudo_help` learns the root-permission shapes |
 
-Still unresolved inside E: the screen has three names -- README says
-*Configuration*, the panel title says *Server Settings*, and the keybar now says
-*Settings*. Pick one and use it three times.
+**Settled (owner, 2026-08-04): the filter scopes the run.** The class F
+either/or is resolved the safe way: `run_upgrade`, `upgrade_runnable`,
+`upgrade_skip_hosts` and the confirmation all iterate `filtered_indices()`, so
+what is on screen is exactly what `u` upgrades. The "all servers" modal count
+now counts the filtered scope.
 
 ### How disagreements are settled  (owner decree, 2026-08-03)
 
@@ -643,8 +650,71 @@ Points to settle before writing any of it:
 - `crates/multitop/src/sparkline.rs` already holds per-panel history and a
   renderer. Extend it rather than starting a second one — a parallel renderer
   is how the six drifted previews happened elsewhere.
-- Sparklines are still behind the `S` toggle in Server Settings and marked
-  experimental. Decide whether `G` replaces that toggle or sits beside it.
+- Sparklines are still behind the `S` toggle in Settings and marked
+  experimental. Item 10 deletes them outright, so `G` replaces the toggle
+  rather than sitting beside it — settle item 10 first.
+
+## 10. Delete sparklines; bring back the double-width banner, behind Appearance
+
+Owner's call, 2026-08-04. Three pieces, and the second one reopens a decision
+this project made the day before, deliberately.
+
+**a. Remove sparklines completely.** Not the `S` toggle — the feature.
+`crates/multitop/src/sparkline.rs`, the per-panel history in `App`
+(`sparklines_cpu`/`sparklines_mem`), the row `ui::draw` composes into the banner,
+the `show_sparklines` config key and its writer (`config::save_show_sparklines`),
+the Settings row and its `[S]` hint, and every test that pins them. `G` (item 9)
+is the replacement and it is a better one: braille sub-cell graphs with real
+history, in the pane, instead of one bar squeezed onto the banner row.
+
+Do it before item 9 rather than after. `render_bar` is in the test-only baseline
+(item 5), so this closes an entry there too.
+
+**b. Restore the double-width banner when the font can draw it.** Class C
+removed `fmt::fullwidth` from the banner path for two reasons; this brings it
+back for the users the first reason does not apply to, and only for them.
+
+**c. Put it under an Appearance section in Settings.** The Settings screen has no
+sections today — it is one list of hosts plus a few loose toggles. Appearance is
+the first one, and the double-width banner is its first row. Sparklines would
+have been its second; they are being deleted instead.
+
+**The tension, stated plainly, because it is the whole difficulty.** Class C did
+not remove the fullwidth banner only because it was ugly. It removed it because:
+
+1. U+FF01–FF5E are absent from Menlo, SF Mono, JetBrains Mono and Berkeley Mono,
+   so the banner fell back to a CJK face — a different typeface, weight and
+   baseline from every line beneath it. This is the half the option fixes: a user
+   whose font *does* have the glyphs opts in.
+2. It doubles the cell cost, so `ztomer@web-01` needed 26 cells in a 20-cell pane
+   and clipped to `ｚｔｏｍｅｒ＠ｗｅ` — **the digits are what fell off**, and the
+   digits are what tell `web-01` from `web-02` on a tool where the selected panel
+   is the machine `u` runs `apt upgrade` against.
+
+Reason 2 is not a font problem and the option does not fix it. So the fullwidth
+path must go through `layout::fit_banner` exactly like the ASCII path does —
+budget in cells, `user@` dropped first, cut from the **left** — with the width
+function counting each fullwidth char as two. Turning the option on must never
+be able to produce two panels that name themselves identically. That is a
+regression test, not a comment.
+
+**And "if the system has a supporting font" cannot be detected.** A TUI is
+handed a byte stream; it does not know the terminal's font and there is no
+escape sequence that asks. Nothing here can probe it. Three ways to honour the
+intent, in preference order:
+
+- **A user setting with an honest name** — `banner_style = "wide"`, defaulting to
+  `"plain"`, described as "requires a font with fullwidth Latin glyphs". The user
+  knows their font; the app does not. This is the only one that is not a guess.
+- **Cursor-position probe.** Print one fullwidth char to a scratch position, ask
+  the terminal where the cursor is with `ESC[6n`, and see whether it advanced by
+  two cells. That measures the *terminal's* width table, which is what decides
+  layout — it does **not** tell you whether the glyph renders in the current
+  font or comes from a CJK fallback. It answers a different question than the
+  one asked, and answering it wrongly is what reason 1 was.
+- **Never auto-detect.** Ship the setting, default it off.
+
+Recommend the first, with the third as the discipline: no auto-detection.
 
 ## Deferred
 

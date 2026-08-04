@@ -282,7 +282,7 @@ pub fn draw(f: &mut Frame, app: &App) {
         )));
     }
     let block = Block::default()
-        .title(" Server Settings ")
+        .title(" Settings ")
         .borders(Borders::ALL)
         .border_style(Style::default().fg(border))
         .style(Style::default().bg(bg));

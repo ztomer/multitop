@@ -1,6 +1,142 @@
 use crate::config::Server;
 use multitop_agent::fetch::FetchSnapshot;
 
+/// A bounded ring of lines that reuses its memory.
+///
+/// At most `cap` slots indexed by a head pointer: once the ring is full,
+/// pushing a line overwrites the oldest slot in place -- its `String`
+/// allocation is cleared and reused for the new line. Nothing is shifted and
+/// nothing is freed on the hot path. The `Vec::drain(0..k)` that `apt upgrade`
+/// output used to pay on every line once the buffer filled -- a memmove of
+/// thousands of `String` headers -- is gone, and a log that streams forever
+/// settles into one allocation per slot.
+///
+/// The slots are grown on demand rather than reserved up front, so eight idle
+/// panels do not each carry `upgrade_history_lines` (5000 by default) empty
+/// `String` headers for a log that may never be written to.
+#[derive(Clone, Debug)]
+pub struct RingLines {
+    /// The live lines, oldest at `head`. Never longer than `cap`; shorter until
+    /// the ring has filled once, and `head` is 0 for exactly that long.
+    slots: Vec<String>,
+    /// Index of the oldest live line. Meaningful only once `slots.len() == cap`.
+    head: usize,
+    /// Maximum live lines; the oldest is overwritten when this is reached.
+    cap: usize,
+}
+
+impl RingLines {
+    #[must_use]
+    pub const fn new(cap: usize) -> Self {
+        Self {
+            slots: Vec::new(),
+            head: 0,
+            cap,
+        }
+    }
+
+    /// Change the capacity, keeping the newest `cap` lines.
+    ///
+    /// Called when configuration loads and when the panel list is rebuilt,
+    /// never on the streaming path.
+    pub fn set_cap(&mut self, cap: usize) {
+        if cap == self.cap {
+            return;
+        }
+        let drop_front = self.slots.len().saturating_sub(cap);
+        let keep: Vec<String> = self.iter().skip(drop_front).cloned().collect();
+        self.slots = keep;
+        self.head = 0;
+        self.cap = cap;
+    }
+
+    pub fn push(&mut self, line: String) {
+        if self.cap == 0 {
+            return;
+        }
+        if self.slots.len() < self.cap {
+            // Not full yet, so `head` is still 0 and appending keeps the order.
+            self.slots.push(line);
+        } else {
+            // Full: overwrite the oldest slot in place, reusing its allocation.
+            let slot = &mut self.slots[self.head];
+            slot.clear();
+            slot.push_str(&line);
+            self.head = (self.head + 1) % self.cap;
+        }
+    }
+
+    /// Replace the contents, keeping the capacity. Used to reset a log to a
+    /// fixed initial state (a skip message, a test fixture) while it must
+    /// still hold `upgrade_history_lines` lines.
+    pub fn replace_with(&mut self, lines: impl IntoIterator<Item = String>) {
+        self.clear();
+        for line in lines {
+            self.push(line);
+        }
+    }
+
+    pub fn clear(&mut self) {
+        self.slots.clear();
+        self.head = 0;
+    }
+
+    #[must_use]
+    pub fn len(&self) -> usize {
+        self.slots.len()
+    }
+
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.slots.is_empty()
+    }
+
+    #[must_use]
+    pub fn last(&self) -> Option<&String> {
+        self.get(self.slots.len().checked_sub(1)?)
+    }
+
+    /// The `i`th live line, oldest first.
+    #[must_use]
+    pub fn get(&self, i: usize) -> Option<&String> {
+        let n = self.slots.len();
+        (i < n).then(|| &self.slots[(self.head + i) % n])
+    }
+
+    pub fn iter(&self) -> impl Iterator<Item = &String> {
+        (0..self.slots.len()).filter_map(move |i| self.get(i))
+    }
+
+    /// The `count` lines starting at `start`, as an iterator over the live
+    /// slots. Out-of-range requests yield nothing.
+    pub fn slice(&self, start: usize, count: usize) -> impl Iterator<Item = &String> {
+        let start = start.min(self.slots.len());
+        let count = count.min(self.slots.len() - start);
+        (0..count).filter_map(move |i| self.get(start + i))
+    }
+}
+
+impl From<Vec<String>> for RingLines {
+    /// A ring holding exactly the fixture that built it, with a real capacity
+    /// so it keeps behaving like one afterwards.
+    ///
+    /// The capacity is *not* the fixture's length. It was, and that made
+    /// `RingLines::from(Vec::new())` a ring of capacity zero whose every
+    /// subsequent `push` was a silent no-op -- a seeded panel that then
+    /// streamed an upgrade would have shown nothing, and nothing would have
+    /// said why.
+    fn from(lines: Vec<String>) -> Self {
+        let cap = lines
+            .len()
+            .max(crate::config::DEFAULT_UPGRADE_HISTORY_LINES);
+        Self {
+            slots: lines,
+            head: 0,
+            cap,
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Mode {
     Monitor,
@@ -24,7 +160,7 @@ pub struct Panel {
     pub gen: u64,
     pub last_frame: Option<Vec<String>>,
     pub last_fetch: Option<FetchSnapshot>,
-    pub last_upgrade: Vec<String>,
+    pub last_upgrade: RingLines,
     pub upgrade_state: UpgradeState,
     pub upgrade_gen: u64,
     pub last_monitor: Option<multitop_agent::proto::Payload>,
@@ -51,7 +187,7 @@ impl Panel {
             gen: 0,
             last_frame: None,
             last_fetch: None,
-            last_upgrade: Vec::new(),
+            last_upgrade: RingLines::new(crate::config::DEFAULT_UPGRADE_HISTORY_LINES),
             upgrade_state: UpgradeState::NIL,
             upgrade_gen: 0,
             last_monitor: None,
@@ -70,6 +206,22 @@ impl Panel {
             password_saved: false,
             external_password: false,
             pinned_lines: 1,
+        }
+    }
+
+    /// Append a user-facing notice to whichever pane this panel is showing.
+    ///
+    /// There are two pane sources now -- `view` for every ordinary mode, and
+    /// the `last_upgrade` ring the Upgrade pane is composed from -- and a
+    /// notice written to the wrong one is a notice nobody reads. That is the
+    /// same failure as the banner overwriting `view[0]`: a message built,
+    /// stored, and never drawn. Every site that wants to tell the user
+    /// something goes through here so the choice is made in one place.
+    pub fn note(&mut self, line: String) {
+        if self.mode == Mode::Upgrade {
+            self.last_upgrade.push(line);
+        } else {
+            self.view.push(line);
         }
     }
 
@@ -104,6 +256,103 @@ impl Panel {
                 ]
             },
             std::clone::Clone::clone,
+        );
+    }
+}
+
+#[cfg(test)]
+mod ring_tests {
+    #![allow(clippy::unwrap_used)]
+
+    use super::*;
+
+    /// The trap that shipped: `From<Vec<String>>` set the capacity to the
+    /// fixture's length, so an empty fixture built a ring of capacity zero and
+    /// every subsequent `push` was a silent no-op.
+    #[test]
+    fn a_ring_seeded_from_an_empty_vec_still_accepts_lines() {
+        let mut ring = RingLines::from(Vec::new());
+        ring.push("first".to_string());
+        assert_eq!(ring.len(), 1, "an empty fixture is not a capacity of zero");
+        assert_eq!(ring.last().map(String::as_str), Some("first"));
+    }
+
+    /// Same defect one step along: a short fixture must not pin the capacity to
+    /// its own length and start discarding the moment output arrives.
+    #[test]
+    fn a_short_fixture_does_not_cap_the_log_at_its_own_length() {
+        let mut ring = RingLines::from(vec!["seed".to_string()]);
+        for i in 0..100 {
+            ring.push(format!("line {i}"));
+        }
+        assert_eq!(ring.len(), 101);
+        assert_eq!(ring.get(0).map(String::as_str), Some("seed"));
+    }
+
+    #[test]
+    fn the_oldest_line_is_what_falls_off_when_the_cap_is_reached() {
+        let mut ring = RingLines::new(3);
+        for i in 0..5 {
+            ring.push(format!("{i}"));
+        }
+        let got: Vec<&str> = ring.iter().map(String::as_str).collect();
+        assert_eq!(got, vec!["2", "3", "4"]);
+        assert_eq!(ring.last().map(String::as_str), Some("4"));
+    }
+
+    /// `slice` is the renderer's window; it must read the wrapped ring in
+    /// oldest-first order, not the raw slot order.
+    #[test]
+    fn a_window_over_a_wrapped_ring_is_in_order() {
+        let mut ring = RingLines::new(4);
+        for i in 0..6 {
+            ring.push(format!("{i}"));
+        }
+        let got: Vec<&str> = ring.slice(1, 2).map(String::as_str).collect();
+        assert_eq!(got, vec!["3", "4"]);
+        assert!(
+            ring.slice(9, 3).next().is_none(),
+            "out of range yields none"
+        );
+    }
+
+    #[test]
+    fn shrinking_the_cap_keeps_the_newest_lines() {
+        let mut ring = RingLines::new(10);
+        for i in 0..6 {
+            ring.push(format!("{i}"));
+        }
+        ring.set_cap(3);
+        let got: Vec<&str> = ring.iter().map(String::as_str).collect();
+        assert_eq!(got, vec!["3", "4", "5"]);
+        ring.push("6".to_string());
+        assert_eq!(ring.len(), 3, "the new cap is in force");
+    }
+
+    /// A notice must land in the pane the panel is actually showing. Written to
+    /// `view` while the Upgrade pane renders from the ring, it is a message
+    /// built, stored and never drawn -- the same failure as the banner
+    /// overwriting row 0.
+    #[test]
+    fn a_notice_lands_in_the_pane_the_panel_is_showing() {
+        let mut p = Panel::new(Server {
+            host: "web-01".into(),
+            port: 22,
+            user: "admin".into(),
+            upgrade_cmd: None,
+        });
+        p.note("while monitoring".to_string());
+        assert!(p.view.iter().any(|l| l == "while monitoring"));
+
+        p.mode = Mode::Upgrade;
+        p.note("while upgrading".to_string());
+        assert!(
+            p.last_upgrade.iter().any(|l| l == "while upgrading"),
+            "an Upgrade-mode notice belongs in the ring the pane draws"
+        );
+        assert!(
+            !p.view.iter().any(|l| l == "while upgrading"),
+            "and not in the buffer that pane ignores"
         );
     }
 }

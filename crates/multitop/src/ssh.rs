@@ -126,6 +126,18 @@ pub const SUDO_FAILED_SENTINEL: &str = "__multitop_sudo_failed__";
 /// is lost in a noisy login shell.
 pub const SUDO_FAILED_CODE: i32 = 111;
 
+/// Printed by the remote when the upgrade lock is already held by another run.
+///
+/// A held lock used to end in `echo "Upgrade already in progress"; exit 1`,
+/// which landed in the generic arm and the panel said "upgrade command exited 1
+/// -- host reachable, command failed". It did not fail; it never ran. The lock
+/// is only broken after six hours, so for six hours every attempt pointed the
+/// operator at an apt command that was fine.
+pub const LOCK_HELD_SENTINEL: &str = "__multitop_lock_held__";
+
+/// Exit status for that case, so it is still recognisable if the line is lost.
+pub const LOCK_HELD_CODE: i32 = 125;
+
 /// Take the sudo password on stdin instead of putting it in the command.
 ///
 /// The password used to be interpolated as `echo '<password>' | sudo -S`, and
@@ -284,8 +296,8 @@ fn wrap_with_upgrade_lock(inner: &str) -> String {
            rm -rf \"$LOCK\"; \
            exit $rc; \
          else \
-           echo \"Upgrade already in progress on this server\" >&2; \
-           exit 1; \
+           echo \"{LOCK_HELD_SENTINEL}\" >&2; \
+           exit {LOCK_HELD_CODE}; \
          fi"
     )
 }
@@ -323,8 +335,8 @@ fn wrap_with_local_upgrade_lock(inner: &str) -> String {
            rm -rf \"$LOCK\"; \
            exit $rc; \
          else \
-           echo \"Upgrade already in progress on this machine\" >&2; \
-           exit 1; \
+           echo \"{LOCK_HELD_SENTINEL}\" >&2; \
+           exit {LOCK_HELD_CODE}; \
          fi"
     )
 }
@@ -515,7 +527,27 @@ pub async fn probe_remote_arch(server: &Server) -> Option<Arch> {
 mod sudo_preamble_tests {
     #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
-    use super::{password_preamble, SUDO_FAILED_CODE, SUDO_FAILED_SENTINEL};
+    use super::{
+        password_preamble, wrap_with_upgrade_lock, LOCK_HELD_CODE, LOCK_HELD_SENTINEL,
+        SUDO_FAILED_CODE, SUDO_FAILED_SENTINEL,
+    };
+
+    /// A held lock must be distinguishable from a failing command. The wrapper
+    /// used to print "Upgrade already in progress" and exit 1, which the panel
+    /// reported as "upgrade command exited 1 -- command failed" for a command
+    /// that never ran, for the six hours the stale lock lasts.
+    #[test]
+    fn a_held_lock_reports_itself() {
+        let w = wrap_with_upgrade_lock("true");
+        assert!(
+            w.contains(LOCK_HELD_SENTINEL),
+            "the remote must name the held lock on stderr: {w}"
+        );
+        assert!(
+            w.contains(&format!("exit {LOCK_HELD_CODE}")),
+            "and carry a distinct exit status, in case the line is lost: {w}"
+        );
+    }
 
     /// A rejected password must be distinguishable from a failing command.
     ///

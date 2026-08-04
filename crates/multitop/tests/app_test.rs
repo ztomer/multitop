@@ -263,7 +263,9 @@ fn aux_output_is_capped() {
         gen,
         header: None,
     });
-    for i in 0..cap + 500 {
+    // Push well past the cap plus the whole amortisation band, so a trim must
+    // have happened at least once.
+    for i in 0..cap + 4 * multitop::app::LOG_AMORTIZE {
         a.apply(Msg::AuxLine {
             panel: 0,
             gen,
@@ -271,8 +273,53 @@ fn aux_output_is_capped() {
         });
     }
     let view = &a.panels[0].view;
-    assert_eq!(view.len(), cap);
-    assert_eq!(view.last().unwrap(), &format!("l{}", cap + 499));
+    // This panel never started an upgrade (`upgrade_cmd` is None), so its lines
+    // went to the visible pane only — the one remaining capped `Vec` path. The
+    // trim is amortised: it never exceeds cap + LOG_AMORTIZE, and the tail (the
+    // newest lines) is always intact.
+    assert!(view.len() <= cap + multitop::app::LOG_AMORTIZE);
+    let last_idx = cap + 4 * multitop::app::LOG_AMORTIZE - 1;
+    assert_eq!(view.last().unwrap(), &format!("l{last_idx}"));
+}
+
+/// The upgrade log itself is a `RingLines`: exactly `cap` slots, overwriting
+/// the oldest in place, with the newest line always surviving.
+#[test]
+fn upgrade_ring_is_exactly_capped() {
+    let _keychain = isolate_keychain();
+    let mut servers = servers(1);
+    servers[0].upgrade_cmd = Some("apt upgrade -y".into());
+    let mut a = App::new(servers);
+    let cmds = a.run_upgrade();
+    let Command::RunUpgrade { gen, .. } = cmds[0] else {
+        panic!("Expected RunUpgrade")
+    };
+    let cap = a.upgrade_history_lines;
+    let over = cap + 1024;
+    for i in 0..over {
+        a.apply(Msg::AuxLine {
+            panel: 0,
+            gen,
+            line: format!("l{i}"),
+        });
+    }
+    let ring = &a.panels[0].last_upgrade;
+    assert_eq!(
+        ring.len(),
+        cap,
+        "the ring must stay exactly at cap, not a bounded band above it"
+    );
+    let last_idx = over - 1;
+    assert_eq!(
+        ring.last().unwrap(),
+        &format!("l{last_idx}"),
+        "the newest line must always survive"
+    );
+    assert_eq!(
+        ring.iter().next().unwrap(),
+        &format!("l{}", over - cap),
+        "the oldest surviving line must be the first one past the cap"
+    );
 }
 
 #[test]
@@ -281,7 +328,10 @@ fn upgrade_without_command_explains_itself() {
     let mut a = app(1);
     let cmds = a.run_upgrade();
     assert!(cmds.is_empty(), "nothing to run");
-    assert!(text(&a.panels[0]).contains("No upgrade_cmd"));
+    assert!(multitop::ui::pane_lines(&a, 0, usize::MAX, 0, 0)
+        .0
+        .join("\n")
+        .contains("No upgrade_cmd"));
 }
 
 #[test]
@@ -322,10 +372,15 @@ fn upgrade_with_command_is_scheduled() {
     // The running state is shown by the pane's status header. It used to be a
     // line 0 "Upgrade running..." message, which `ui::draw` overwrote with the
     // host banner on every frame — the user never actually saw it.
-    let running = text(&a.panels[0]);
+    let running = multitop::ui::pane_lines(&a, 0, usize::MAX, 0, 0)
+        .0
+        .join("\n");
     assert!(running.contains("running"), "{running}");
     assert!(running.contains("do not quit"), "{running}");
-    assert!(text(&a.panels[1]).contains("No upgrade_cmd"));
+    assert!(multitop::ui::pane_lines(&a, 1, usize::MAX, 0, 0)
+        .0
+        .join("\n")
+        .contains("No upgrade_cmd"));
 }
 
 #[test]
@@ -361,7 +416,10 @@ fn upgrade_output_persists_until_dismissed() {
         lines: vec!["cpu stats".into()],
     });
 
-    assert!(text(&a.panels[0]).contains("42 packages upgraded"));
+    assert!(multitop::ui::pane_lines(&a, 0, usize::MAX, 0, 0)
+        .0
+        .join("\n")
+        .contains("42 packages upgraded"));
     a.switch_stats();
     assert_eq!(text(&a.panels[0]), "cpu stats");
 }
@@ -546,5 +604,29 @@ fn cleanup_old_agents_command_keeps_current_hashes() {
         // Verify the command structure is well-formed
         assert!(cmd.contains("esac"));
         assert!(cmd.contains("done"));
+    }
+}
+
+/// Editing the server list rebuilds every panel. The rebuilt panels used to
+/// come back at the compiled-in default scrollback, because the configured
+/// `upgrade_history_lines` is applied once at startup and `Panel::new` knows
+/// nothing about it -- so adding one host silently reset everyone's log depth.
+#[test]
+fn rebuilt_panels_keep_the_configured_upgrade_history() {
+    let _k = isolate_keychain();
+    let mut a = App::new(servers(1));
+    a.upgrade_history_lines = 3;
+
+    a.replace_panels(servers(2));
+
+    for p in &mut a.panels {
+        for i in 0..10 {
+            p.last_upgrade.push(format!("line {i}"));
+        }
+        assert_eq!(
+            p.last_upgrade.len(),
+            3,
+            "a rebuilt panel must inherit the configured history depth"
+        );
     }
 }

@@ -398,11 +398,7 @@ async fn creating_a_vault_from_server_settings_stays_in_server_settings() {
         h.app.password_manager.is_some(),
         "Esc returns to the settings list"
     );
-    assert!(
-        h.screen().contains("Server Settings"),
-        "got:\n{}",
-        h.screen()
-    );
+    assert!(h.screen().contains("Settings"), "got:\n{}", h.screen());
 }
 
 /// The master password is taken once, however many times Enter is pressed.

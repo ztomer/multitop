@@ -218,7 +218,8 @@ const SCREENS: &[Screen] = &[
                 "Building dependency tree...".to_string(),
                 "Get:1 http://archive.ubuntu.com noble InRelease [256 kB]".to_string(),
                 "Unpacking libc6:amd64 (2.39-0ubuntu8.3) over (2.39-0ubuntu8.2)...".to_string(),
-            ];
+            ]
+            .into();
         }
         app.mode = AppMode::Running;
         app
@@ -231,17 +232,20 @@ const SCREENS: &[Screen] = &[
         app.enter_upgrade_view();
         for p in &mut app.panels {
             p.upgrade_state = UpgradeState::STARTED;
-            // Row 0 reserved for the banner, then a pinned status block, then
-            // the log -- the shape `upgrade_pane` produces.
-            let mut view = vec![String::new(), " Status     running".to_string()];
-            view.extend((0..200).map(|i| format!("Unpacking package-{i}...")));
-            p.view = view;
-            p.pinned_lines = 2;
+            // The ring holds the log; the status header is composed over it at
+            // draw time, and scrolling moves the ring's tail under the pinned
+            // header. The scroll badge sits on row 0 and, until row 0 had one
+            // owner, was built and destroyed on the same frame -- so it had
+            // never appeared on screen.
+            p.last_upgrade = (0..200)
+                .map(|i| format!("Unpacking package-{i}..."))
+                .collect::<Vec<String>>()
+                .into();
             p.scroll_offset = 40;
         }
         app
     }},
-    Screen { name: "upgrade-confirm-modal", build: |t| {
+    Screen { name: "upgrade-confirm-row", build: |t| {
         let mut app = base(2, t);
         app.enter_upgrade_view();
         app.set_show_upgrade_modal(true);

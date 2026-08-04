@@ -81,6 +81,40 @@ pub fn agent_dims(size: Size, panels: usize) -> (u16, u16) {
 
 pub use crate::refit::{refit_header, refit_line};
 
+/// Clamp the pinned block and locate the body window for one pane.
+///
+/// Returns `(pinned, window_start, window_end, badge_offset)` in *absolute*
+/// line coordinates over the whole pane (prefix + body). Shared by the slice
+/// and ring windowing paths so the pinning rule cannot drift: the pinned block
+/// must never crowd the body out (half the panel at most), the banner always
+/// survives, and the body shows its tail with the newest line at the bottom.
+fn pane_window(
+    total: usize,
+    height: usize,
+    pinned: usize,
+    scroll_offset: usize,
+) -> (usize, usize, usize, usize) {
+    let pinned = pinned
+        .min(total)
+        .min((height / 2).max(1))
+        .min(height.saturating_sub(1));
+    let body_budget = height.saturating_sub(pinned.max(1));
+    if pinned > 0 && total > pinned {
+        let body_len = total - pinned;
+        let max_offset = body_len.saturating_sub(body_budget);
+        let eff = scroll_offset.min(max_offset);
+        let end = body_len.saturating_sub(eff);
+        let start = end.saturating_sub(body_budget);
+        (pinned, pinned + start, pinned + end, eff)
+    } else {
+        let max_offset = total.saturating_sub(height);
+        let eff = scroll_offset.min(max_offset);
+        let end = total.saturating_sub(eff);
+        let start = end.saturating_sub(height);
+        (0, start, end, 0)
+    }
+}
+
 /// Show the tail when there is more content than room, optionally pinning
 /// the header (line 0) so the server name stays visible. Supports scrolling via `scroll_offset`.
 ///
@@ -105,56 +139,106 @@ pub fn visible(
     target_cols: usize,
     scroll_offset: usize,
 ) -> (Vec<String>, usize) {
-    if lines.is_empty() || height == 0 {
+    if height == 0 || lines.is_empty() {
         return (Vec::new(), 0);
     }
-    if lines.len() <= height {
-        let mut out = lines.to_vec();
-        if target_cols > 0 {
-            for line in &mut out {
-                *line = refit_line(line, target_cols);
-            }
-        }
-        return (out, 0);
-    }
-
-    // The pinned block must never crowd the body out, or a tall header on a
-    // short panel would leave a single row for the output it is describing.
-    // Half the panel is the most it may take; the banner always survives.
-    let pinned = pinned
-        .min(lines.len())
-        .min((height / 2).max(1))
-        .min(height.saturating_sub(1));
-    let body_budget = height.saturating_sub(pinned.max(1));
-    let mut out = Vec::with_capacity(height);
-    let mut badge_offset = 0;
-
-    if pinned > 0 && lines.len() > pinned {
-        let body_lines = &lines[pinned..];
-        let max_offset = body_lines.len().saturating_sub(body_budget);
-        let eff_offset = scroll_offset.min(max_offset);
-        badge_offset = eff_offset;
-
-        let end = body_lines.len().saturating_sub(eff_offset);
-        let start = end.saturating_sub(body_budget);
-
+    let total = lines.len();
+    let (pinned, start, end, badge) = pane_window(total, height, pinned, scroll_offset);
+    let mut out = Vec::with_capacity(height.min(total));
+    if pinned > 0 {
         out.extend_from_slice(&lines[..pinned]);
-        out.extend_from_slice(&body_lines[start..end]);
-    } else {
-        let max_offset = lines.len().saturating_sub(height);
-        let eff_offset = scroll_offset.min(max_offset);
-        let end = lines.len().saturating_sub(eff_offset);
-        let start = end.saturating_sub(height);
-        out.extend_from_slice(&lines[start..end]);
     }
-
+    out.extend_from_slice(&lines[start..end]);
     if !out.is_empty() && target_cols > 0 {
         for line in &mut out {
             *line = refit_line(line, target_cols);
         }
     }
+    (out, badge)
+}
 
-    (out, if pinned > 0 { badge_offset } else { 0 })
+/// Window a pinned header over a `RingLines` body, like `visible` for the
+/// Upgrade pane.
+///
+/// The pane is composed at draw time from the ring rather than mirrored into
+/// `view`, so this is the one path that must not materialise the whole log to
+/// show it: the window takes at most `height` lines from either source, and the
+/// ring's slots are borrowed, not cloned. The windowing rule itself is
+/// `pane_window`, shared with `visible`.
+#[must_use]
+pub fn visible_upgrade(
+    header: &[String],
+    body: &crate::panel::RingLines,
+    height: usize,
+    target_cols: usize,
+    scroll_offset: usize,
+) -> (Vec<String>, usize) {
+    if height == 0 {
+        return (Vec::new(), 0);
+    }
+    let total = header.len() + body.len();
+    if total == 0 {
+        return (Vec::new(), 0);
+    }
+    let (pinned, start, end, badge) = pane_window(total, height, header.len(), scroll_offset);
+    // `height` is the caller's; a caller asking for a height larger than the
+    // content must not make this reserve it.
+    let mut out = Vec::with_capacity(height.min(total));
+    if pinned > 0 {
+        out.extend_from_slice(&header[..pinned]);
+    }
+    // The body window may straddle the header/ring boundary (a header taller
+    // than the pinned clamp scrolls into the body). Take from each source.
+    let header_end = header.len();
+    let h_hi = end.min(header_end);
+    if start < h_hi {
+        out.extend_from_slice(&header[start..h_hi]);
+    }
+    let b_start = start.max(header_end).saturating_sub(header_end);
+    let b_end = end.saturating_sub(header_end);
+    if b_end > b_start {
+        out.extend(body.slice(b_start, b_end - b_start).cloned());
+    }
+    if !out.is_empty() && target_cols > 0 {
+        for line in &mut out {
+            *line = refit_line(line, target_cols);
+        }
+    }
+    (out, badge)
+}
+
+/// The lines one panel's pane shows, windowed to `height` and fitted to
+/// `target_cols`, plus the scroll-badge offset.
+///
+/// **The single entry point to "what is in that pane".** There are two pane
+/// sources -- `view` for the ordinary modes, and the status header composed
+/// over the `last_upgrade` ring for the Upgrade pane -- and which one applies
+/// is decided here and nowhere else. `draw` calls it, and so does every test
+/// that wants the text a user would see; a test reading `panel.view` directly
+/// is reading a buffer the Upgrade pane does not draw.
+#[must_use]
+pub fn pane_lines(
+    app: &App,
+    panel: usize,
+    height: usize,
+    target_cols: usize,
+    scroll_offset: usize,
+) -> (Vec<String>, usize) {
+    let Some(p) = app.panels.get(panel) else {
+        return (Vec::new(), 0);
+    };
+    if p.mode == crate::app::Mode::Upgrade {
+        let (header, _) = app.upgrade_pane_header(panel);
+        visible_upgrade(&header, &p.last_upgrade, height, target_cols, scroll_offset)
+    } else {
+        visible(
+            &p.view,
+            height,
+            p.pinned_lines.max(1),
+            target_cols,
+            scroll_offset,
+        )
+    }
 }
 
 #[must_use]
@@ -446,6 +530,185 @@ pub fn keybar_line(
     }
     Line::from(spans)
 }
+
+/// Assemble a keybar row from whole chunks, shedding in a declared order.
+///
+/// The same rule as every other row: a chunk is drawn whole or not at all, and
+/// the shed order is a priority list, never "drop from the right". The way out
+/// is never in the shed list.
+///
+/// Each chunk's width is measured from the spans that will be drawn, never
+/// declared alongside them. A hand-written number is a second copy of the
+/// string's length that drifts the moment the string is edited -- `[Esc] stay`
+/// was declared as 11 cells and is 10 -- and the whole point of the budget is
+/// that it is describing what actually goes on screen.
+fn chunk_row(
+    chunks: &[Vec<Span<'static>>],
+    keybar_width: u16,
+    shed: &[usize],
+    sep_style: Style,
+) -> Line<'static> {
+    let widths: Vec<usize> = chunks
+        .iter()
+        .map(|spans| spans.iter().map(Span::width).sum())
+        .collect();
+    let kept = crate::layout::fit_row(&widths, 2, keybar_width as usize, shed);
+    let mut out = Vec::new();
+    for (n, index) in kept.iter().enumerate() {
+        if n > 0 {
+            out.push(Span::styled("  ", sep_style));
+        }
+        out.extend(chunks[*index].clone());
+    }
+    Line::from(out)
+}
+
+/// The confirmation that replaces the keybar while an upgrade is armed.
+///
+/// Kare's ruling, review round B: a keybar row rather than a box -- the box
+/// was 38 cells wide at 40 columns and clipped its own cancel line to `Esc t`,
+/// while the filter prompt renders every word whole at the same size. State
+/// left, keys right, two spaces between. Shed order: the `· M skipped` tail
+/// first (the ⚠ is already in those panes), then the count itself before the
+/// keys; `[Esc] cancel` is last and in practice never -- it is the only thing
+/// on the line the operator cannot guess.
+///
+/// The count is the alarm: with the run scoped to the filter, a grid showing
+/// one host says "Upgrade 1 host", never a sentence long enough to hide the
+/// others.
+///
+/// # The interrupted-run warning
+///
+/// The box this replaced also said "Previous upgrade was interrupted! Check
+/// server state." when a run started and no completion followed. Rams
+/// condemned the box's aggregate `Last update` *timestamp* and the ruling
+/// dropped it; the warning is a different thing and dropping it with the box
+/// was an accident. It is back, and it sheds **after** the count: how many
+/// machines are about to be touched is a number the operator can recover by
+/// looking at the grid, whereas "one of these has a half-finished dpkg
+/// transaction on it" appears nowhere else on the screen.
+fn upgrade_confirm_row(
+    app: &App,
+    accent: Color,
+    key_hi: Style,
+    label: Style,
+    keybar_width: u16,
+) -> Line<'static> {
+    let scope = app.filtered_indices();
+    let skipped = app.upgrade_skip_hosts();
+    let runnable = scope.len().saturating_sub(skipped.len());
+
+    // The count is styled as the alarm: a grid showing one host that says
+    // "Upgrade 8 hosts" must be louder than any sentence that would fit.
+    let count = format!(
+        "Upgrade {runnable} host{}",
+        if runnable == 1 { "" } else { "s" }
+    );
+    let mut chunks: Vec<Vec<Span<'static>>> = vec![vec![Span::styled(
+        count,
+        Style::default()
+            .fg(accent)
+            .add_modifier(ratatui::style::Modifier::BOLD),
+    )]];
+    let count_at = 0;
+    // Shed order is built by identity, not by position: which index holds what
+    // depends on whether the optional chunks are present at all.
+    let mut skipped_at = None;
+    let mut interrupted_at = None;
+    if !skipped.is_empty() {
+        skipped_at = Some(chunks.len());
+        chunks.push(vec![Span::styled(
+            format!("\u{b7} {} skipped", skipped.len()),
+            label,
+        )]);
+    }
+    if app.previous_upgrade_interrupted() {
+        interrupted_at = Some(chunks.len());
+        chunks.push(vec![Span::styled(
+            "\u{26a0} previous run interrupted",
+            Style::default().fg(Color::Yellow),
+        )]);
+    }
+    chunks.push(vec![
+        Span::styled("[", label),
+        Span::styled("U", key_hi),
+        Span::styled("] go", label),
+    ]);
+    // Neither key ever sheds. Together they are 20 cells; a terminal too narrow
+    // for that is too narrow for the grid underneath, and a confirmation with
+    // no stated way out is the defect this row exists to remove.
+    chunks.push(vec![
+        Span::styled("[", label),
+        Span::styled("Esc", key_hi),
+        Span::styled("] cancel", label),
+    ]);
+    let shed: Vec<usize> = skipped_at
+        .into_iter()
+        .chain(std::iter::once(count_at))
+        .chain(interrupted_at)
+        .collect();
+    chunk_row(&chunks, keybar_width, &shed, label)
+}
+
+/// The confirmation that replaces the keybar once Esc/q/Ctrl-C asked to quit
+/// while upgrades were in flight. Names the hosts, states the cost, and gives
+/// the two ways out.
+fn quit_confirm_row(app: &App, key_hi: Style, label: Style, keybar_width: u16) -> Line<'static> {
+    let hosts = app.running_upgrade_hosts();
+    let n = hosts.len();
+    let mut chunks: Vec<Vec<Span<'static>>> = vec![vec![Span::styled(
+        format!("{n} upgrade{} running", if n == 1 { "" } else { "s" }),
+        Style::default().fg(Color::Yellow),
+    )]];
+    // The host list is the first thing to go: it is long, and every one of
+    // those names is already on the grid behind this row. The count is not --
+    // it is what says the quit has a cost at all.
+    let mut shed = Vec::new();
+    let host_list = hosts.join(", ");
+    if !host_list.is_empty() {
+        shed.push(chunks.len());
+        chunks.push(vec![Span::styled(format!("\u{b7} {host_list}"), label)]);
+    }
+    chunks.push(vec![
+        Span::styled("[", label),
+        Span::styled("Q", key_hi),
+        Span::styled("] quit anyway", label),
+    ]);
+    chunks.push(vec![
+        Span::styled("[", label),
+        Span::styled("Esc", key_hi),
+        Span::styled("] stay", label),
+    ]);
+    chunk_row(&chunks, keybar_width, &shed, label)
+}
+
+/// What the keybar row should be right now: a confirm row for a quit or an
+/// upgrade when one is armed, the filter prompt while typing, and the ordinary
+/// keybar otherwise.
+#[must_use]
+pub fn keybar_content(
+    app: &App,
+    theme: &multitop_agent::color::Palette,
+    keybar_width: u16,
+    active_mode: crate::app::Mode,
+) -> Line<'static> {
+    let label = Style::default().fg(Color::DarkGray);
+    let accent_color = Color::Rgb(
+        theme.ratatui_accent.0,
+        theme.ratatui_accent.1,
+        theme.ratatui_accent.2,
+    );
+    let key_hi = Style::default()
+        .fg(Color::White)
+        .add_modifier(ratatui::style::Modifier::BOLD);
+    if app.quit_armed() {
+        return quit_confirm_row(app, key_hi, label, keybar_width);
+    }
+    if app.show_upgrade_modal() {
+        return upgrade_confirm_row(app, accent_color, key_hi, label, keybar_width);
+    }
+    keybar_line(app.sort, theme, keybar_width, active_mode, filter_hint(app))
+}
 /// What the keybar should say about the current filter.
 fn filter_hint(app: &App) -> FilterHint<'_> {
     if app.is_filtering() {
@@ -495,12 +758,11 @@ fn draw_no_matches(f: &mut Frame, app: &App, theme: &multitop_agent::color::Pale
         body,
     );
     f.render_widget(
-        Paragraph::new(keybar_line(
-            app.sort,
+        Paragraph::new(keybar_content(
+            app,
             theme,
             keybar.width,
             crate::app::Mode::Monitor,
-            filter_hint(app),
         ))
         .style(Style::default().bg(bg_color)),
         keybar,
@@ -528,8 +790,6 @@ fn draw_modals(f: &mut Frame, app: &App) {
         crate::modals::draw_vault_awaiting_biometric(f, waiting);
     } else if app.show_vault_password_prompt() || app.vault_creating() {
         crate::modals::draw_vault_password_prompt(f, app);
-    } else if app.show_upgrade_modal() {
-        crate::modals::draw_upgrade_modal(f, app);
     }
 }
 
@@ -570,10 +830,10 @@ pub fn draw(f: &mut Frame, app: &App) {
         if inner.width == 0 || inner.height == 0 {
             continue;
         }
-        let (mut lines, badge_offset) = visible(
-            &panel.view,
+        let (mut lines, badge_offset) = pane_lines(
+            app,
+            idx,
             inner.height as usize,
-            panel.pinned_lines.max(1),
             inner.width as usize,
             panel.scroll_offset,
         );
@@ -690,14 +950,8 @@ pub fn draw(f: &mut Frame, app: &App) {
         .map_or(crate::app::Mode::Monitor, |p| p.mode);
 
     f.render_widget(
-        Paragraph::new(keybar_line(
-            app.sort,
-            theme,
-            keybar.width,
-            active_mode,
-            filter_hint(app),
-        ))
-        .style(Style::default().bg(bg_color)),
+        Paragraph::new(keybar_content(app, theme, keybar.width, active_mode))
+            .style(Style::default().bg(bg_color)),
         keybar,
     );
 

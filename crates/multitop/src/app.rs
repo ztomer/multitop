@@ -103,6 +103,11 @@ pub struct App {
     pub show_sparklines: bool,
     /// Terminal flag, independent of `mode`.
     pub should_quit: bool,
+    /// A quit is armed but not confirmed: upgrades are in flight, and the first
+    /// `q`/Esc/Ctrl-C asked rather than killed. `q` again quits; Esc stands
+    /// down. Without this, the one key an operator presses to back out of a
+    /// screen was also the one that killed a live `apt upgrade` on N servers.
+    pub quit_armed: bool,
     /// Which incarnation of the panel *list* is current.
     ///
     /// Advanced only by `replace_panels`. Long-lived tasks that captured a panel
@@ -110,6 +115,27 @@ pub struct App {
     /// edit to the server list retires them without disturbing the per-panel
     /// `gen` that mode switches rely on.
     pub panels_epoch: u64,
+}
+
+/// Lines of headroom before a capped log is trimmed.
+///
+/// The upgrade log lives in a `RingLines` now and never drains, so this exists
+/// only for the *visible pane* of the one-shot views (fetch/docker error
+/// output), whose per-run output is small anyway. Draining only when the buffer
+/// is this far over cap makes each append amortised O(1) while keeping the
+/// buffer within a bounded band of its cap.
+pub const LOG_AMORTIZE: usize = 512;
+
+/// Push a line onto a capped log, amortising the trim.
+///
+/// `cap` is the target maximum length; the buffer may sit up to `LOG_AMORTIZE`
+/// over it between trims. The single caller-class is the visible pane for
+/// one-shot view output; the upgrade log uses `RingLines` and does not drain.
+fn push_capped(log: &mut Vec<String>, line: String, cap: usize) {
+    log.push(line);
+    if log.len() > cap + LOG_AMORTIZE {
+        log.drain(..log.len() - cap);
+    }
 }
 
 impl App {
@@ -143,6 +169,7 @@ impl App {
             host_updates: std::collections::BTreeMap::new(),
             show_sparklines: false,
             should_quit: false,
+            quit_armed: false,
             panels_epoch: 0,
         }
     }
@@ -171,6 +198,11 @@ impl App {
         let mut panels: Vec<Panel> = servers.into_iter().map(Panel::new).collect();
         for panel in &mut panels {
             panel.gen = next_gen;
+            // `Panel::new` builds the ring at the compiled-in default. The
+            // configured `upgrade_history_lines` is applied once at startup, so
+            // without this an edit to the server list silently reset every
+            // panel's scrollback to the default whatever the config said.
+            panel.last_upgrade.set_cap(self.upgrade_history_lines);
             // Carry the credential across when the same account survives the
             // edit, matched on the full identity rather than the host: two
             // entries on one machine with different users or ports are
@@ -217,13 +249,15 @@ impl App {
     }
 
     /// Hosts that an upgrade will skip because no `upgrade_cmd` is configured.
-    /// Surfaced in the confirm modal so the user knows before running.
+    /// Surfaced in the confirm row so the user knows before running. Scoped
+    /// to the filter, like the run itself: a filter that hides a host means
+    /// that host is not being touched.
     #[must_use]
     pub fn upgrade_skip_hosts(&self) -> Vec<String> {
-        self.panels
+        self.filtered_indices()
             .iter()
-            .filter(|p| p.server.upgrade_cmd.is_none())
-            .map(|p| p.server.host.clone())
+            .filter(|&&i| self.panels[i].server.upgrade_cmd.is_none())
+            .map(|&i| self.panels[i].server.host.clone())
             .collect()
     }
 
@@ -451,7 +485,7 @@ impl App {
             return;
         }
         for p in &mut self.panels {
-            p.view.push(outcome.clone());
+            p.note(outcome.clone());
         }
     }
 
@@ -492,7 +526,7 @@ impl App {
                  they remain in the OS credential store."
             );
             for p in &mut self.panels {
-                p.view.push(note.clone());
+                p.note(note.clone());
             }
         }
     }
@@ -577,6 +611,11 @@ impl App {
         }
     }
 
+    /// The panels the grid shows, or all of them when no filter is in force.
+    ///
+    /// This is also the scope an upgrade acts on: the renderer, the selection
+    /// clamp and the upgrade path all agree on it, so a filter that narrows the
+    /// screen narrows the run too.
     #[must_use]
     pub fn filtered_indices(&self) -> Vec<usize> {
         if self.filter_query.trim().is_empty() {
@@ -680,16 +719,21 @@ impl App {
         Vec::new()
     }
 
-    /// The Upgrade pane for one panel: a status header, then whatever output
-    /// the last run produced.
+    /// The status header for one panel's Upgrade pane.
     ///
-    /// The header is always present — before, during and after a run — so the
-    /// pane has one shape and `u` always means the same thing in it.
-    fn upgrade_pane(&self, panel: usize, running: bool) -> (Vec<String>, usize) {
+    /// The renderer composes this over the panel's `last_upgrade` ring on every
+    /// frame, so the pane is never mirrored into `view` and the log is not
+    /// cloned once per line. The header is always present — before, during and
+    /// after a run — so the pane has one shape and `u` always means the same
+    /// thing in it. The returned `usize` is the pinned count: the block that
+    /// must not scroll away while the output under it does.
+    #[must_use]
+    pub fn upgrade_pane_header(&self, panel: usize) -> (Vec<String>, usize) {
         let pal = self.current_theme();
         let Some(p) = self.panels.get(panel) else {
             return (Vec::new(), 1);
         };
+        let running = p.upgrade_state == crate::panel::UpgradeState::STARTED;
 
         let credential = if p.external_password || p.password_saved {
             crate::upgrade_view::Credential::Stored
@@ -717,10 +761,30 @@ impl App {
         };
 
         let header = crate::upgrade_view::header(&status, pal, Self::now_secs(), 0);
-        let header_len = header.len();
-        let mut out = header;
-        out.extend(p.last_upgrade.iter().cloned());
-        (out, header_len)
+        let pinned = header.len();
+        (header, pinned)
+    }
+
+    /// How many lines a panel's pane can scroll through, whatever view it is in.
+    ///
+    /// The Upgrade pane is composed at draw time from the status header and the
+    /// ring, so its scrollable length is those two -- not the `view` the other
+    /// modes keep materialised, which the Upgrade pane does not draw at all.
+    ///
+    /// The header length is recomputed rather than read from `pinned_lines`:
+    /// that field is stamped when the view is entered and the header changes
+    /// shape when a run finishes, so it is a second copy of a number that
+    /// moves.
+    fn pane_len(&self, panel: usize) -> usize {
+        let Some(p) = self.panels.get(panel) else {
+            return 0;
+        };
+        if p.mode == Mode::Upgrade {
+            let (header, _) = self.upgrade_pane_header(panel);
+            header.len().saturating_add(p.last_upgrade.len())
+        } else {
+            p.view.len()
+        }
     }
 
     /// Second `u` with no host configured to upgrade: there is nothing to
@@ -734,8 +798,8 @@ impl App {
             pal.reset
         );
         for p in &mut self.panels {
-            if p.view.last() != Some(&note) {
-                p.view.push(note.clone());
+            if p.last_upgrade.last() != Some(&note) {
+                p.last_upgrade.push(note.clone());
             }
         }
     }
@@ -783,14 +847,20 @@ impl App {
         self.load_known_passwords();
         for i in 0..self.panels.len() {
             self.panels[i].mode = Mode::Upgrade;
-            let running = self.panels[i].upgrade_state == crate::panel::UpgradeState::STARTED;
-            let (view, pinned) = self.upgrade_pane(i, running);
-            self.panels[i].view = view;
+            // The pane itself is composed by the renderer from the ring each
+            // frame; all the view-switch needs to record is how much of the
+            // header must stay pinned while the log scrolls under it.
+            let (_, pinned) = self.upgrade_pane_header(i);
             self.panels[i].pinned_lines = pinned;
         }
     }
 
     /// `u`: run each server's configured upgrade command.
+    ///
+    /// Iterates the *filtered* set, not every panel. The run must agree with
+    /// the screen: with a filter in force the hidden hosts used to be upgraded
+    /// anyway while their output and failures never rendered -- "all servers"
+    /// became a set the operator could not see. What you see is what you run.
     pub fn run_upgrade(&mut self) -> Vec<Command> {
         self.reset_scroll();
         let pal = self.current_theme();
@@ -799,7 +869,7 @@ impl App {
         let mut cmds = Vec::new();
         let mut started = Vec::new();
         let mut skipped = Vec::new();
-        for i in 0..self.panels.len() {
+        for i in self.filtered_indices() {
             let gen = self.bump(i);
             let p = &mut self.panels[i];
             p.mode = Mode::Upgrade;
@@ -817,31 +887,24 @@ impl App {
                 // that may only be forty columns wide.
                 p.upgrade_state = crate::panel::UpgradeState::DONE;
                 p.upgrade_gen = gen;
-                p.last_upgrade = vec![format!(
+                p.last_upgrade.replace_with(std::iter::once(format!(
                     "{}No upgrade_cmd configured for {} \u{2014} skipped{}",
                     pal.meter_high(),
                     p.server.host,
                     pal.reset
-                )];
+                )));
                 skipped.push(i);
             }
         }
 
-        // Rebuild both kinds of panel through the same header the pane always
-        // shows. Done after the loop because building the header needs `&self`
-        // while the loop holds `&mut self.panels`.
-        //
-        // This also stops the skip message from being swallowed: it used to sit
-        // at view[0], which `ui::draw` overwrites with the host banner on every
-        // frame, so the user only ever saw the follow-up hint.
-        for i in started {
-            let (view, pinned) = self.upgrade_pane(i, true);
-            self.panels[i].view = view;
-            self.panels[i].pinned_lines = pinned;
-        }
-        for i in skipped {
-            let (view, pinned) = self.upgrade_pane(i, false);
-            self.panels[i].view = view;
+        // Record the pinned-header count for both kinds of panel. Done after
+        // the loop because building the header needs `&self` while the loop
+        // holds `&mut self.panels`. The pane itself is composed by the renderer
+        // each frame, so the skip message can never be swallowed by `ui::draw`
+        // overwriting view row 0 again: it lives in the ring, not in a slot the
+        // banner owns.
+        for i in started.into_iter().chain(skipped) {
+            let (_, pinned) = self.upgrade_pane_header(i);
             self.panels[i].pinned_lines = pinned;
         }
         cmds
@@ -880,11 +943,14 @@ impl App {
             })
     }
 
-    /// True when at least one host has an `upgrade_cmd` to run. With none, an
-    /// upgrade could only skip every panel, so there is nothing to confirm.
+    /// True when at least one host *in the current filter scope* has an
+    /// `upgrade_cmd` to run. With none, an upgrade could only skip every panel,
+    /// so there is nothing to confirm.
     #[must_use]
     pub fn upgrade_runnable(&self) -> bool {
-        self.panels.iter().any(|p| p.server.upgrade_cmd.is_some())
+        self.filtered_indices()
+            .iter()
+            .any(|&i| self.panels[i].server.upgrade_cmd.is_some())
     }
 
     /// Confirm upgrade from modal and execute `run_upgrade`.
@@ -896,9 +962,9 @@ impl App {
             // Mark each runnable host as started with no finish time. If the
             // app dies mid-upgrade this is what is left on disk, and it is
             // exactly how an interrupted run is detected next time.
-            for p in &self.panels {
-                if p.server.upgrade_cmd.is_some() {
-                    let key = crate::password_store::account(&p.server);
+            for i in self.filtered_indices() {
+                if self.panels[i].server.upgrade_cmd.is_some() {
+                    let key = crate::password_store::account(&self.panels[i].server);
                     self.host_updates.insert(
                         key,
                         crate::state::HostUpdate {
@@ -918,6 +984,57 @@ impl App {
         self.should_quit = true;
     }
 
+    /// Whether a quit is armed but waiting for confirmation.
+    #[must_use]
+    pub const fn quit_armed(&self) -> bool {
+        self.quit_armed
+    }
+
+    /// Stand the pending-quit confirmation down without quitting.
+    pub const fn cancel_quit(&mut self) {
+        self.quit_armed = false;
+    }
+
+    /// The `q`/Esc/Ctrl-C handler. When upgrades are in flight the first press
+    /// arms a confirmation instead of quitting -- `Esc` is the key an operator
+    /// presses to back out of a screen, and it used to kill a live `apt
+    /// upgrade` on every host with a dpkg transaction mid-flight. A second
+    /// `q` confirms.
+    pub fn request_quit(&mut self) {
+        if self.quit_armed {
+            self.quit_armed = false;
+            self.should_quit = true;
+        } else if self.upgrades_in_flight() {
+            self.quit_armed = true;
+        } else {
+            self.should_quit = true;
+        }
+    }
+
+    /// A previous run started and no completion was ever recorded after it.
+    ///
+    /// `upgrade_started_at` is stamped when a run begins and cleared when one
+    /// finishes, so it outliving `last_update` means the app went away with a
+    /// package transaction open on at least one host. The confirmation says so
+    /// before starting another one -- it is the only place on the screen that
+    /// carries this, and it survived the modal's deletion by being put back on
+    /// the row that replaced it.
+    #[must_use]
+    pub fn previous_upgrade_interrupted(&self) -> bool {
+        self.upgrade_started_at
+            .is_some_and(|started| self.last_update.is_none_or(|last| started > last))
+    }
+
+    /// The hosts a quit would kill: those with an upgrade still in flight.
+    #[must_use]
+    pub fn running_upgrade_hosts(&self) -> Vec<String> {
+        self.panels
+            .iter()
+            .filter(|p| p.upgrade_state == crate::panel::UpgradeState::STARTED)
+            .map(|p| p.server.host.clone())
+            .collect()
+    }
+
     /// True when a message is still relevant to the panel it targets.
     fn accepts(&self, panel: usize, gen: u64) -> bool {
         self.panels.get(panel).is_some_and(|p| p.gen == gen)
@@ -928,7 +1045,7 @@ impl App {
         clippy::cast_possible_truncation,
         clippy::cast_precision_loss
     )]
-    pub fn apply(&mut self, msg: Msg) {
+    pub fn apply(&mut self, msg: Msg) -> bool {
         match msg {
             Msg::Packet {
                 panel,
@@ -940,10 +1057,13 @@ impl App {
                 let sort = self.sort;
                 let accepts = self.accepts(panel, gen);
                 let Some(p) = self.panels.get_mut(panel) else {
-                    return;
+                    return false;
                 };
 
                 match &payload {
+                    // The banner host name and the sparkline bars are drawn on
+                    // every panel whatever view it is in, so a Monitor packet
+                    // always changes what is on screen.
                     multitop_agent::proto::Payload::Monitor(snap) => {
                         p.last_monitor = Some(payload.clone());
                         if panel < self.sparklines_cpu.len() {
@@ -961,18 +1081,22 @@ impl App {
                         if p.mode == Mode::Monitor {
                             p.view = lines;
                         }
+                        true
                     }
                     multitop_agent::proto::Payload::Docker { .. } => {
                         p.last_docker = Some(payload.clone());
-                        if p.mode == Mode::Docker && accepts {
+                        let shown = p.mode == Mode::Docker && accepts;
+                        if shown {
                             let lines =
                                 crate::render_payload::render_payload(&payload, dims, sort, pal);
                             p.view = lines;
                         }
+                        shown
                     }
                     multitop_agent::proto::Payload::Fetch(snap) => {
                         p.last_fetch = Some(snap.clone());
-                        if p.mode == Mode::Fetch && accepts {
+                        let shown = p.mode == Mode::Fetch && accepts;
+                        if shown {
                             let lines = crate::fetch_render::render_fetch(
                                 snap,
                                 dims.0 as usize,
@@ -981,6 +1105,7 @@ impl App {
                             );
                             p.view = lines;
                         }
+                        shown
                     }
                 }
             }
@@ -990,15 +1115,18 @@ impl App {
                 lines,
             } => {
                 if epoch != self.panels_epoch {
-                    return;
+                    return false;
                 }
                 let Some(p) = self.panels.get_mut(panel) else {
-                    return;
+                    return false;
                 };
                 p.last_frame = Some(lines);
                 // Only paint it if stats is what the user is looking at.
                 if p.mode == Mode::Monitor {
                     p.show_last_frame();
+                    true
+                } else {
+                    false
                 }
             }
             Msg::Status { panel, gen, text } => {
@@ -1010,11 +1138,13 @@ impl App {
                         // status header *and* every line of output collected so
                         // far, which is what left panels showing nothing but
                         // "sudo ready" in the middle of a run.
-                        p.last_upgrade.push(text.clone());
-                        p.view.push(text);
+                        p.last_upgrade.push(text);
                     } else {
                         p.view = vec![text];
                     }
+                    true
+                } else {
+                    false
                 }
             }
             Msg::FetchData {
@@ -1026,6 +1156,9 @@ impl App {
                 if self.accepts(panel, gen) {
                     self.panels[panel].last_fetch = Some(snap);
                     self.panels[panel].view = lines;
+                    true
+                } else {
+                    false
                 }
             }
             Msg::AuxBegin { panel, gen, header } => {
@@ -1036,37 +1169,42 @@ impl App {
                     // here threw that away on every single run, leaving nothing
                     // but a bare "Upgrade on <host>" line that the panel banner
                     // then overwrote. Other views use this as their reset.
-                    if p.mode != Mode::Upgrade {
+                    if p.mode == Mode::Upgrade {
+                        false
+                    } else {
                         p.view = header.into_iter().collect();
+                        true
                     }
+                } else {
+                    false
                 }
             }
             Msg::AuxLine { panel, gen, line } => {
                 let cap = self.upgrade_history_lines;
                 let Some(p) = self.panels.get_mut(panel) else {
-                    return;
+                    return false;
                 };
                 // `last_upgrade` is the durable log for this panel's upgrade. It
                 // is keyed on `upgrade_gen`, not `gen`, so it keeps filling while
-                // the user is looking at another view.
+                // the user is looking at another view. Pushing into the ring
+                // reuses the oldest slot's allocation in place -- no clone, no
+                // shift -- and the pane renders from it, so there is no separate
+                // view copy to keep in sync.
                 let belongs =
                     p.upgrade_state == crate::panel::UpgradeState::STARTED && p.upgrade_gen == gen;
+                let visible = if belongs {
+                    p.mode == Mode::Upgrade
+                } else {
+                    p.gen == gen
+                };
                 if belongs {
-                    p.last_upgrade.push(line.clone());
-                    if p.last_upgrade.len() > cap {
-                        p.last_upgrade.drain(..p.last_upgrade.len() - cap);
-                    }
+                    p.last_upgrade.push(line);
+                } else if p.gen == gen {
+                    // Output for the current view's own run (fetch/docker error
+                    // lines): it belongs to the visible pane only.
+                    push_capped(&mut p.view, line, cap);
                 }
-                // Mirror into the visible pane when this is the view's own
-                // generation, or when the panel is showing the upgrade this line
-                // belongs to — the latter is what lets output keep streaming
-                // after switching away to stats and back.
-                if p.gen == gen || (belongs && p.mode == Mode::Upgrade) {
-                    p.view.push(line);
-                    if p.view.len() > cap {
-                        p.view.drain(..p.view.len() - cap);
-                    }
-                }
+                visible
             }
             Msg::AuxDone {
                 panel,
@@ -1080,8 +1218,9 @@ impl App {
                             && p.upgrade_state == crate::panel::UpgradeState::STARTED
                     })
                 {
-                    return;
+                    return false;
                 }
+                let cap = self.upgrade_history_lines;
                 // Captured before the state flips to DONE below.
                 let belongs = self.panels[panel].upgrade_state
                     == crate::panel::UpgradeState::STARTED
@@ -1113,20 +1252,17 @@ impl App {
                     if belongs {
                         p.last_upgrade.push(note);
                     } else if p.gen == gen {
-                        p.view.push(note);
+                        push_capped(&mut p.view, note, cap);
                     }
                 }
-                // Rebuild the pane so a finished run stops advertising itself as
-                // running and picks up the outcome just recorded.
-                if belongs && self.panels[panel].mode == Mode::Upgrade {
-                    let (view, pinned) = self.upgrade_pane(panel, false);
-                    self.panels[panel].view = view;
-                    self.panels[panel].pinned_lines = pinned;
-                }
+                // The pane's status header is recomposed by the renderer from
+                // `upgrade_state` every frame, so a finished run stops
+                // advertising itself as running without a rebuild here.
+                true
             }
             Msg::VaultCreated { epoch, unlocked } => {
                 if !self.vault_epoch_current(epoch) {
-                    return;
+                    return false;
                 }
                 if let Some(ref path) = self.config_path {
                     self.vault = crate::vault::create_vault(path).map(Arc::new);
@@ -1146,16 +1282,18 @@ impl App {
                     manager.notice = Some(note.to_string());
                 }
                 for p in &mut self.panels {
-                    p.view.push(note.to_string());
+                    p.note(note.to_string());
                 }
+                true
             }
             Msg::VaultUnlockFailed { epoch, error } => {
                 if !self.vault_epoch_current(epoch) {
-                    return;
+                    return false;
                 }
                 // Back to the prompt with the reason, rather than silently
                 // dropping the user somewhere with no explanation.
                 self.vault_state = VaultState::PasswordPrompt { error: Some(error) };
+                true
             }
             Msg::VaultCreateFailed { epoch, error } => {
                 // Also refuses to reopen the prompt over a vault that exists:
@@ -1163,54 +1301,59 @@ impl App {
                 // succeeded, and reporting it would take a working vault back
                 // off the user.
                 if !self.vault_epoch_current(epoch) || self.vault.is_some() {
-                    return;
+                    return false;
                 }
                 self.fail_vault_creation(error);
+                true
             }
             Msg::VaultUnlocked { epoch, unlocked } => {
                 if !self.vault_epoch_current(epoch) {
-                    return;
+                    return false;
                 }
                 self.vault_state = VaultState::Unlocked {
                     vault: unlocked,
                     awaiting_biometric: false,
                 };
                 self.mode = AppMode::ShowUpgradeModal;
+                true
             }
             Msg::VaultPasswordRotated { epoch } => {
                 if !self.vault_epoch_current(epoch) {
-                    return;
+                    return false;
                 }
                 // The vault key is unchanged by a rotation, so an unlocked
                 // handle stays valid and any Secure Enclave wrapper still
                 // decrypts. Only the password that unwraps it has moved.
                 self.report_rotation("Master password changed.".to_string());
+                true
             }
             Msg::VaultPasswordRotationFailed { epoch, error } => {
                 if !self.vault_epoch_current(epoch) {
-                    return;
+                    return false;
                 }
                 // Said plainly, because the common cause is a mistyped current
                 // password and the useful fact is that nothing changed.
                 self.report_rotation(format!("Master password NOT changed: {error}"));
+                true
             }
             Msg::VaultBiometricFailed { epoch } => {
                 if !self.vault_epoch_current(epoch) {
-                    return;
+                    return false;
                 }
                 // Biometrics unavailable or cancelled: fall back to the password
                 // prompt. `Unlocking { awaiting_biometric: false }` would be a
                 // dead end — no prompt, no modal, nothing for the user to do.
                 self.vault_state = VaultState::PasswordPrompt { error: None };
                 self.vault_password_input.clear();
+                true
             }
         }
     }
 
     pub fn scroll_up(&mut self, delta: usize) {
         if self.selected_panel < self.panels.len() {
+            let max_scroll = self.pane_len(self.selected_panel).saturating_sub(1);
             let p = &mut self.panels[self.selected_panel];
-            let max_scroll = p.view.len().saturating_sub(1);
             p.scroll_offset = (p.scroll_offset + delta).min(max_scroll);
         }
     }
@@ -1224,8 +1367,8 @@ impl App {
 
     pub fn scroll_panel_up(&mut self, panel: usize, delta: usize) {
         if panel < self.panels.len() {
+            let max_scroll = self.pane_len(panel).saturating_sub(1);
             let p = &mut self.panels[panel];
-            let max_scroll = p.view.len().saturating_sub(1);
             p.scroll_offset = (p.scroll_offset + delta).min(max_scroll);
         }
     }
