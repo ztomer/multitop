@@ -372,3 +372,60 @@ fn a_usable_history_setting_is_used_as_written() {
     assert_eq!(config.upgrade_history_lines, 200);
     assert_eq!(config.history_lines_raised_from, None);
 }
+
+/// Two entries on one machine must not have their hand-written keys merged.
+///
+/// `save_servers` reuses an existing `[[servers]]` table so the comment above it
+/// survives a rewrite. It found that table by **host alone** -- and this project
+/// is explicit everywhere else that two entries on one machine with different
+/// users or ports are different things: `replace_panels` was fixed for exactly
+/// this, because handing the first entry's password to the rest would send one
+/// account's sudo password to another's session.
+///
+/// The writer kept the host-only match. So on every save -- adding a server,
+/// editing any row, importing from ~/.ssh/config -- both entries cloned the
+/// *first* matching table: one entry silently acquired the other's hand-written
+/// keys, and the second entry's own were destroyed.
+#[test]
+fn two_entries_on_one_host_keep_their_own_hand_written_keys() {
+    let tmp = TempDir::new().unwrap();
+    let config_path = tmp.path().join("config.toml");
+    fs::write(
+        &config_path,
+        r#"
+[[servers]]
+host = "web-01"
+port = 22
+user = "deploy"
+notes = "production"
+
+[[servers]]
+host = "web-01"
+port = 2222
+user = "admin"
+notes = "staging"
+"#,
+    )
+    .unwrap();
+
+    let loaded = load(&config_path).unwrap();
+    assert_eq!(loaded.servers.len(), 2, "both entries must load");
+
+    // A save that changes nothing at all.
+    multitop::config::save_servers(&config_path, &loaded.servers).unwrap();
+
+    let text = fs::read_to_string(&config_path).unwrap();
+    assert!(
+        text.contains("production"),
+        "the first entry's key must survive: {text}"
+    );
+    assert!(
+        text.contains("staging"),
+        "and so must the second's -- it was overwritten by the first's: {text}"
+    );
+    assert_eq!(
+        text.matches("production").count(),
+        1,
+        "and the first entry's key must not be copied onto the second: {text}"
+    );
+}

@@ -373,13 +373,40 @@ pub fn save_servers(path: &Path, servers: &[Server]) -> Result<(), String> {
         .map(|a| a.iter().cloned().collect())
         .unwrap_or_default();
 
+    // Matched on the full identity -- host, port and user -- and each existing
+    // table is handed out at most once.
+    //
+    // The match was on `host` alone. Two entries on one machine with different
+    // users or ports are different things, and this project is explicit about
+    // that everywhere else: `replace_panels` carries credentials across an edit
+    // keyed on the full identity precisely because handing the first entry's
+    // password to the rest would send one account's sudo password to another's
+    // session. The writer kept the host-only match, so on every save both
+    // entries cloned the *first* matching table -- one silently acquired the
+    // other's hand-written keys and the other's were destroyed.
+    //
+    // `claimed` is what makes it at-most-once; full-identity matching alone
+    // would still hand one table to two genuinely identical entries.
+    let mut claimed = vec![false; existing.len()];
     let mut out = toml_edit::ArrayOfTables::new();
     for server in servers {
-        let mut table = existing
-            .iter()
-            .find(|t| t.get("host").and_then(|v| v.as_str()) == Some(server.host.as_str()))
-            .cloned()
-            .unwrap_or_else(toml_edit::Table::new);
+        let matches_identity = |t: &toml_edit::Table| {
+            t.get("host").and_then(|v| v.as_str()) == Some(server.host.as_str())
+                && t.get("port").and_then(toml_edit::Item::as_integer)
+                    == Some(i64::from(server.port))
+                && t.get("user").and_then(|v| v.as_str()).unwrap_or_default() == server.user
+        };
+        let found = (0..existing.len()).find(|&i| !claimed[i] && matches_identity(&existing[i]));
+        // A row whose identity the user has just edited matches nothing. Give it
+        // the first table nobody has claimed, in order, so the comment above it
+        // survives the edit. A row that was *added* leaves none unclaimed --
+        // every existing entry matched itself -- so it correctly gets a fresh
+        // table rather than inheriting a stranger's keys.
+        let found = found.or_else(|| (0..existing.len()).find(|&i| !claimed[i]));
+        let mut table = found.map_or_else(toml_edit::Table::new, |i| {
+            claimed[i] = true;
+            existing[i].clone()
+        });
         table["host"] = toml_edit::value(server.host.clone());
         table["port"] = toml_edit::value(i64::from(server.port));
         table["user"] = toml_edit::value(server.user.clone());
