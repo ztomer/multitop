@@ -76,12 +76,12 @@ returning with **s** is instant rather than reconnecting.
 
 | Key | Action |
 |-----|--------|
-| **ESC** / **Q** / **q** | Quit (terminates every SSH session). With a filter applied, the first **ESC** clears it |
+| **ESC** / **Q** / **q** | Quit (terminates every SSH session). With a filter applied, the first **ESC** clears it. **With an upgrade running it asks first**, naming the hosts — **Q** confirms, **ESC** stands down |
 | **c** | Sort processes / Docker containers by CPU load |
 | **m** | Sort processes / Docker containers by Memory usage |
 | **d** | Toggle the Docker view on all panels |
 | **s** | Back to live stats |
-| **u** | Show the update status view; press again to run the updates |
+| **u** | Show the update status view; press again to run the updates. **The run is scoped to the filter** — what is on screen is what gets upgraded |
 | **f** | Toggle the Fetch view |
 | **e** | Open Settings: servers, passwords, vault |
 | **/** | Filter the grid by host or user; **Enter** keeps it, **ESC** clears it |
@@ -93,11 +93,21 @@ returning with **s** is instant rather than reconnecting.
 `~/.config/multitop/config.toml`:
 
 ```toml
+# How the panel banner draws the host name: "plain" (default) or "wide".
+# Wide uses fullwidth Latin glyphs, which most mono terminal fonts do not have
+# -- multitop cannot see your font, so this is your call. Toggle with B in
+# Settings.
+banner_style = "plain"
+
 [[servers]]
 host = "192.168.0.33"
 port = 22            # optional, default 22
 user = ""            # optional
-# upgrade_cmd = "apt update && apt upgrade -y"
+# The command runs as the SSH user, so it needs its own `sudo`. Without it apt
+# exits 100 with "are you root?" -- the per-host sudo password does not save
+# you, because the preamble authenticates sudo and the command then runs
+# without it.
+# upgrade_cmd = "sudo apt update && sudo apt upgrade -y"
 ```
 
 Pass a different path with `--config`.
@@ -146,7 +156,8 @@ the password status of each.
 
 **Every server has its own sudo password**, typed in that server's row. There is
 no shared one. A password set for one host is set for that host and no other;
-leaving the field empty removes the one already stored. Passwords go to the OS
+leaving the field empty removes the one already stored — from the vault as well
+as from the credential store, so it does not come back on the next unlock. Passwords go to the OS
 credential store — macOS Keychain, or the Linux desktop Secret Service — and to
 the vault when it is unlocked. Saving the first password offers to create the
 vault, over this screen: answering the offer leaves you where you were.

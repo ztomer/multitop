@@ -30,10 +30,14 @@ Green tests are not a shipped feature. Each row is one sitting with the real app
 | **Scrolling an upgrade log** | Scroll back during a long run; `[↑ -N lines]` must appear on row 0 | no |
 | **Narrow terminals** | Resize to 40 columns with four panels: every host banner must still name its own machine, and the keybar must degrade to initials rather than cutting a word | no |
 | **The wide banner** | `B` in Settings, on a terminal whose font has fullwidth Latin glyphs and on one that does not. On the first the banner must be legible and still name each machine at 40 columns; on the second it will be a CJK fallback face, which is what the caveat in the row warns about and what the user is choosing | no |
+| **A deleted password stays deleted** | With a vault present, save a host's password, then empty the field. Quit, restart, unlock, press `u`: the pane must say the password is missing. It used to come back -- the delete skipped the vault, and the vault is what is read first | no |
+| **Quitting during an upgrade** | Press Esc while a real `apt upgrade` is running. The keybar must ask, naming the hosts; Esc again must stand down and the run continue; `q` must quit and print to stderr, after the terminal is restored, which hosts were killed and that the remote lock may need removing | no |
+| **A held remote lock** | Start an upgrade, kill multitop mid-run, start another upgrade on the same host. The panel must say another run holds the lock and name the file to remove -- not "command exited 1" | no |
+| **The filter scopes the run** | `/db` Enter, then `u` `u`. The confirm row's count must be the filtered count, and only the hosts on screen may be touched | no |
 | **A second rotation** | Press `r` twice while a master-password change is running; the second must be refused, not start a second rotation | no |
 | **Saving during an upgrade** | Edit a host's password while its upgrade is running; the run must continue rather than being killed and restarted | no |
 
-The last three are the 2026-08-03 evening fixes. The upgrade-prompt row is the
+The bold rows are the 2026-08-03 and 2026-08-04 fixes. The upgrade-prompt row is the
 one that matters most: the diagnosis was that the *first* `u` read the OS
 credential store to report on credentials, and on macOS that is a system dialog
 raised before the vault is ever unlocked. If a second prompt still appears, and
@@ -46,16 +50,23 @@ Round B of the review (see item 3). Every claim below was verified against the
 source or against a rendered frame before it was written down; persona claims
 that did not survive checking are not here.
 
-**Status, 2026-08-03 evening.** A, B, C and G are fixed and pushed, each with a
-gate or a regression test run red against the old code first. D, F and H are
-open. Fixed classes are kept here rather than deleted only until their live
-confirmation in item 1 is done -- they are described in git history, and this
-section should shrink to just the open ones once someone has watched them work.
+**Status, 2026-08-04.** All eight classes are fixed, each with a gate or a
+regression test run red against the old code before it was believed. Nothing in
+this section is open.
 
-**Status, 2026-08-04.** D, F and H are now fixed too, and the three-names half
-of E is settled -- **Settings** everywhere (README, keybar `[E] Settings`,
-panel title). Nothing in this section is open. The classes below are kept until
-item 1's live confirmation, then this section is deleted.
+The classes are kept here rather than deleted **only** until their live
+confirmation in item 1 is done -- they are described in git history, and this
+whole section should be deleted once someone has watched them work against a
+real terminal and a real host. Fixed is not shipped.
+
+Worth recording, because it is the argument for reviewing the review: the
+2026-08-04 pass over the D/F/H work found that the fix for class A had been
+reintroduced in a new shape. Five sites wrote user-facing notices into
+`panel.view` while the Upgrade pane draws from the `last_upgrade` ring, so those
+messages were built, stored, and never shown -- the same defect as the banner
+overwriting row 0, one refactor later. `Panel::note` makes the choice once. A
+class is not closed by fixing its instances; it is closed when the shape cannot
+be written again.
 
 | Class | State |
 |-------|-------|
@@ -84,9 +95,6 @@ the question, put the disagreement to them as posed, and take their answer.
 **For UX and UI questions the third is Kare, and her call is final.** Layout,
 legibility, labels, glyphs, what a screen shows and how it degrades: no further
 arbitration.
-
-**The boundary, and it matters.** Correctness, safety, gates and cost are not UI
-questions and do not go to Kare:
 
 **The boundary, and it matters.** Correctness, safety, gates and cost are not UI
 questions and do not go to this tiebreak:
@@ -640,9 +648,10 @@ Points to settle before writing any of it:
   whether the ring buffer lives in the agent (more data over the wire, survives
   a view switch) or in `Panel` (cheap, but empty for the first N seconds after
   a panel is rebuilt by `replace_panels`).
-- There is no per-panel history renderer any more: item 10(a) deleted
-  `sparkline.rs`. `G` starts from nothing, which is the right footing — one
-  renderer, built for the job, rather than a second one beside a drifting first.
+- There is no per-panel history renderer any more: `sparkline.rs` was deleted
+  on 2026-08-04 (`6aaf8bb`). `G` starts from nothing, which is the right
+  footing — one renderer, built for the job, rather than a second one beside a
+  drifting first.
 - `s` is free in Settings now, if the graph view wants a preference there.
 
 ## Deferred
