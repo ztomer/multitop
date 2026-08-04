@@ -23,6 +23,38 @@ fn frame(idx: usize, epoch: u64, line: String) -> super::Msg {
     }
 }
 
+/// Replace the agent on a host whose version did not match ours, and say what
+/// happened -- either way.
+///
+/// A `Result` rather than an `Option` and a silent else, because there is
+/// exactly one caller and it reports both arms through one send. Nothing here
+/// can fail quietly: a mismatch that cannot be repaired repeats on every
+/// reconnect for the rest of the session, so the reason it cannot be repaired
+/// is the only thing that makes the loop legible.
+async fn replace_agent(server: &Server) -> Result<String, String> {
+    // A local panel does not run `ssh` at all -- it spawns the agent binary
+    // directly -- so there is nothing to upload and nowhere to upload it. The
+    // old code sent `ssh` at `localhost:0` and threw the failure away.
+    if ssh::is_local(server) {
+        return Err(
+            "the local agent is a different version and cannot be replaced over SSH -- \
+             a stale multitop-agent is ahead of this build on PATH, or beside it; \
+             remove it or rebuild with ./build.sh"
+                .to_string(),
+        );
+    }
+    let Some(arch) = ssh::probe_remote_arch(server).await else {
+        return Err(format!(
+            "could not read the architecture of {} to replace its agent -- \
+             the version mismatch will repeat on every reconnect until it is replaced by hand",
+            server.host
+        ));
+    };
+    let token = format!("{}", std::process::id());
+    ssh::upload_agent(server, arch, &token).await?;
+    Ok(format!("\u{2713} agent replaced on {}", server.host))
+}
+
 pub fn spawn_monitor(
     idx: usize,
     epoch: u64,
@@ -92,34 +124,47 @@ pub fn spawn_monitor(
                         }
                     }
 
-                    let detail = errbuf
-                        .last()
-                        .cloned()
-                        .unwrap_or_else(|| format!("Connection to {} closed", server.host));
-                    let _ = tx
-                        .send(super::Msg::Frame {
-                            panel: idx,
-                            epoch,
-                            lines: vec![error_line(detail)],
-                        })
-                        .await;
+                    // Not when the break above was ours. The version-mismatch
+                    // branch ends the session on purpose, and reporting that as
+                    // `Connection to <host> closed` put a failure the host never
+                    // had between "replacing..." and "agent replaced" -- the one
+                    // line in the sequence that is not true.
+                    if !mismatched {
+                        let detail = errbuf
+                            .last()
+                            .cloned()
+                            .unwrap_or_else(|| format!("Connection to {} closed", server.host));
+                        let _ = tx
+                            .send(super::Msg::Frame {
+                                panel: idx,
+                                epoch,
+                                lines: vec![error_line(detail)],
+                            })
+                            .await;
+                    }
 
                     if mismatched {
-                        if let Some(arch) = ssh::probe_remote_arch(&server).await {
-                            let token = format!("{}", std::process::id());
-                            if ssh::upload_agent(&server, arch, &token).await.is_ok() {
-                                let _ = tx
-                                    .send(super::Msg::Frame {
-                                        panel: idx,
-                                        epoch,
-                                        lines: vec![format!(
-                                            "\u{2713} agent replaced on {}",
-                                            server.host
-                                        )],
-                                    })
-                                    .await;
-                            }
-                        }
+                        // One send, whatever happened. Both failure paths used
+                        // to be silent -- `probe_remote_arch` returning `None`
+                        // and `upload_agent` returning `Err` were both swallowed
+                        // by an `if ... .is_ok()` -- so a mismatch that could not
+                        // be repaired left the panel saying "replacing..." and
+                        // then nothing, forever, once every backoff interval.
+                        // `upload_agent`'s own message ("No aarch64 agent was
+                        // built into this binary. Rebuild with ./build.sh") is
+                        // written to be acted on, and was the message being
+                        // thrown away.
+                        let line = match replace_agent(&server).await {
+                            Ok(note) => note,
+                            Err(reason) => error_line(reason),
+                        };
+                        let _ = tx
+                            .send(super::Msg::Frame {
+                                panel: idx,
+                                epoch,
+                                lines: vec![line],
+                            })
+                            .await;
                     }
                     if delivered {
                         SessionOutcome::Delivered
@@ -137,4 +182,43 @@ pub fn spawn_monitor(
             sleep(Duration::from_secs(wait)).await;
         }
     })
+}
+
+#[cfg(test)]
+mod replace_agent_tests {
+    #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+
+    use super::replace_agent;
+    use crate::config::Server;
+
+    fn server(host: &str, port: u16) -> Server {
+        Server {
+            host: host.to_string(),
+            port,
+            user: "admin".to_string(),
+            upgrade_cmd: None,
+        }
+    }
+
+    /// A local panel has no SSH session to replace an agent over, and saying
+    /// nothing left the panel repeating "agent version mismatch ... replacing"
+    /// once per backoff interval for the rest of the session with no hint that
+    /// the replacement could never happen.
+    ///
+    /// This arm reaches no network, which is the whole reason it is the one
+    /// under test: the other two need a host.
+    #[tokio::test]
+    async fn a_local_panel_says_why_it_cannot_replace_its_agent() {
+        let reason = replace_agent(&server("localhost", 0))
+            .await
+            .expect_err("a local panel cannot be replaced over SSH");
+        assert!(
+            reason.contains("multitop-agent"),
+            "the message must name the binary to remove: {reason}"
+        );
+        assert!(
+            !reason.is_empty(),
+            "and must exist at all -- silence is the defect"
+        );
+    }
 }

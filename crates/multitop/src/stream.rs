@@ -187,12 +187,48 @@ pub async fn connect(
     unreachable!("loop returns on both attempts")
 }
 
-/// Read next packet from stream.
+/// Read next packet from stream, and leave any failure where the panel will
+/// find it.
+///
+/// Every `Err` below reaches the panel by one path, because none of them reach
+/// it by any other. All three readers of this stream pattern-match
+/// `while let Ok(Some(payload))`, which ends their loop and drops the error;
+/// what they report afterwards is built from `errbuf`. The framing failure was
+/// given that treatment on its own first, which left its three siblings -- the
+/// two short header reads and the payload read -- still silent: an I/O error
+/// mid-stream stopped the monitor with `Connection to <host> closed` and
+/// stopped fetch and docker with nothing at all. Noting the error here rather
+/// than at each `return Err` is what stops the next one being added silently.
 ///
 /// # Errors
 ///
 /// Returns an error if reading from stdout/stderr fails or process exits.
 pub async fn next_packet(
+    stream: &mut PacketStream,
+    errbuf: &mut Vec<String>,
+) -> std::io::Result<Option<multitop_agent::proto::Payload>> {
+    let outcome = read_packet(stream, errbuf).await;
+    if let Err(e) = &outcome {
+        note(errbuf, describe_failure(e));
+    }
+    outcome
+}
+
+/// Why the stream stopped, in a line an operator can act on.
+fn describe_failure(e: &std::io::Error) -> String {
+    if e.kind() == std::io::ErrorKind::InvalidData {
+        // Composed by `framing_lost`, which already names the cause and what to
+        // do about it. Prefixing it would bury that.
+        e.to_string()
+    } else {
+        format!(
+            "reading from the agent failed: {e} -- the host may still be reachable; \
+             the session is being restarted"
+        )
+    }
+}
+
+async fn read_packet(
     stream: &mut PacketStream,
     errbuf: &mut Vec<String>,
 ) -> std::io::Result<Option<multitop_agent::proto::Payload>> {
@@ -227,7 +263,7 @@ pub async fn next_packet(
     }
 
     if &header[..4] != proto::MAGIC {
-        return Err(framing_lost(&header, stream.preamble.take(), errbuf));
+        return Err(framing_lost(&header, stream.preamble.take()));
     }
     let len = u16::from_le_bytes([header[6], header[7]]) as usize;
     let mut payload_bytes = vec![0u8; len];
@@ -254,25 +290,17 @@ fn note(errbuf: &mut Vec<String>, reason: String) {
     errbuf.push(reason);
 }
 
-/// Say why a packet header was not the agent's framing, and leave the reason
-/// where the panel will find it.
+/// Say why a packet header was not the agent's framing.
 ///
-/// The error itself is not enough, and that is the defect this closes. All
-/// three readers of this stream pattern-match `while let Ok(Some(payload))`,
-/// so an `Err` ends the loop and is dropped on the floor: the monitor then
-/// reported `Connection to <host> closed` about a host that was up and
-/// talking, and the fetch and docker panels reported nothing whatsoever. The
-/// reason goes into `errbuf` -- the same bounded buffer the stderr lines use,
-/// which every one of those three already drains -- so it reaches the panel by
-/// the path that exists rather than by a fourth one each caller must remember.
+/// The message is the whole point: it is what [`next_packet`] puts in `errbuf`,
+/// which is the only path by which any failure here reaches the panel. Before
+/// it existed the monitor reported `Connection to <host> closed` about a host
+/// that was up and talking, and the fetch and docker panels reported nothing
+/// whatsoever.
 ///
 /// Class H, and the fifth sibling of it this round: a failure reported as
 /// something else.
-fn framing_lost(
-    header: &[u8],
-    preamble: Option<String>,
-    errbuf: &mut Vec<String>,
-) -> std::io::Error {
+fn framing_lost(header: &[u8], preamble: Option<String>) -> std::io::Error {
     let reason = preamble.map_or_else(
         || {
             format!(
@@ -289,7 +317,6 @@ fn framing_lost(
             )
         },
     );
-    note(errbuf, reason.clone());
     std::io::Error::new(std::io::ErrorKind::InvalidData, reason)
 }
 
@@ -436,28 +463,17 @@ mod packet_tests {
     /// `errbuf`, not only in the error.
     #[test]
     fn a_banner_where_the_framing_should_be_is_not_reported_as_a_closed_connection() {
-        let mut errbuf = Vec::new();
-        let err = super::framing_lost(
-            b"Welcome ",
-            Some("Welcome to Ubuntu 24.04".to_string()),
-            &mut errbuf,
-        );
+        let err = super::framing_lost(b"Welcome ", Some("Welcome to Ubuntu 24.04".to_string()));
 
         assert_eq!(err.kind(), std::io::ErrorKind::InvalidData);
-        assert_eq!(
-            errbuf.len(),
-            1,
-            "the reason must reach the buffer the panel reports from"
+        let reason = super::describe_failure(&err);
+        assert!(
+            reason.contains("Welcome to Ubuntu 24.04"),
+            "the reason must quote what the remote actually said: {reason:?}"
         );
         assert!(
-            errbuf[0].contains("Welcome to Ubuntu 24.04"),
-            "and it must quote what the remote actually said: {:?}",
-            errbuf[0]
-        );
-        assert!(
-            errbuf[0].contains("login banner"),
-            "and name the cause the operator can act on: {:?}",
-            errbuf[0]
+            reason.contains("login banner"),
+            "and name the cause the operator can act on: {reason:?}"
         );
     }
 
@@ -465,10 +481,35 @@ mod packet_tests {
     /// rather than leaving the panel to claim it went away.
     #[test]
     fn a_mid_stream_desync_still_clears_the_host() {
-        let mut errbuf = Vec::new();
-        super::framing_lost(&[0xff; 8], None, &mut errbuf);
-        assert_eq!(errbuf.len(), 1);
-        assert!(errbuf[0].contains("host is reachable"), "{:?}", errbuf[0]);
+        let err = super::framing_lost(&[0xff; 8], None);
+        assert!(
+            super::describe_failure(&err).contains("host is reachable"),
+            "{err}"
+        );
+    }
+
+    /// The three siblings the framing fix left behind: the two short header
+    /// reads and the payload read all return a plain I/O error, and every one of
+    /// them was silent. Fixing only the framing case would have left an I/O
+    /// error mid-stream stopping the monitor with `Connection to <host> closed`
+    /// and stopping fetch and docker with nothing at all.
+    #[test]
+    fn a_plain_io_failure_is_described_rather_than_left_bare() {
+        for kind in [
+            std::io::ErrorKind::BrokenPipe,
+            std::io::ErrorKind::ConnectionReset,
+            std::io::ErrorKind::TimedOut,
+        ] {
+            let reason = super::describe_failure(&std::io::Error::from(kind));
+            assert!(
+                reason.contains("reading from the agent failed"),
+                "{kind:?} must arrive as something an operator can read: {reason:?}"
+            );
+            assert!(
+                reason.contains("may still be reachable"),
+                "{kind:?} must not read as the host going away: {reason:?}"
+            );
+        }
     }
 
     /// Both reason paths and the stderr path share one bound. They used to be
@@ -477,9 +518,10 @@ mod packet_tests {
     #[test]
     fn every_path_into_the_buffer_respects_one_bound() {
         let mut errbuf = Vec::new();
+        let framing = super::framing_lost(&[0xff; 8], None);
         for i in 0..(super::MAX_STDERR_LINES * 2) {
             super::note(&mut errbuf, format!("stderr {i}"));
-            super::framing_lost(&[0xff; 8], None, &mut errbuf);
+            super::note(&mut errbuf, super::describe_failure(&framing));
         }
         assert_eq!(errbuf.len(), super::MAX_STDERR_LINES);
     }

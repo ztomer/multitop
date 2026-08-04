@@ -449,10 +449,9 @@ checks -- and *not* the two CI steps nobody had run:
   this sandbox cannot run the paths that need a real agent binary. **Measure
   coverage in a fresh worktree or not at all.**
 
-**Eighth pass: the composite Configuration actions, and the stream boundary the
-earlier passes only brushed. Two more (20 in total), both class H. Still
-running -- `ssh.rs`'s own framing and `upgrade_view.rs` have not been re-covered
-yet.**
+**Eighth pass: the composite Configuration actions, the stream boundary the
+earlier passes only brushed, and the reconnect loop's repair path. Four more
+(22 in total). Every one of them class H.**
 
 - *A server edit that could not be written was reported as a saved password.*
   `ApplyServerEdit` is two operations -- write the server list, then store the
@@ -489,19 +488,64 @@ yet.**
   the stderr path, `>=` on the reason path), so it held nine lines or eight
   depending on which kind of line arrived last. One `note` helper now.
 
-**The counts so far are 7, 3, 1, 2, 3, 1, 1, 2+** -- and they are not
+- *An agent that could not be replaced never said so.* A version mismatch ends
+  the session on purpose and tries to upload a new agent. Both failure paths
+  were swallowed by one `if ... .is_ok()`: `probe_remote_arch` returning `None`,
+  and `upload_agent` returning `Err` -- whose message ("No aarch64 agent was
+  built into this binary. Rebuild with ./build.sh") is written to be acted on
+  and was the message being thrown away. The panel said "replacing..." and then
+  nothing, once per backoff interval, for the rest of the session. A *local*
+  panel was worse: it has no SSH session to replace anything over, so the repair
+  sent `ssh` at `localhost:0` and discarded that failure too. `replace_agent`
+  returns a `Result` and the caller has one send, so no arm can be silent.
+- *A session this client broke on purpose was reported as the host closing it.*
+  The version-mismatch `break` fell straight into the "connection ended" line,
+  so `Connection to <host> closed` was printed between "replacing..." and
+  "agent replaced" -- the only line in that sequence that is not true, about a
+  host that was up and had just been talking.
+
+**The counts so far are 7, 3, 1, 2, 3, 1, 1, 4** -- and they are not
 converging. Every pass so far went back up the moment it opened a part of the
 loop the earlier ones had not looked at, which is the argument against reading
 a falling count as progress toward zero. What is running out is *unexamined
 surface*, not defects; the round ends when a pass covers the same ground and
 finds nothing, not when the number gets small.
 
-**What the eighth pass says about where to look.** Both findings were on a
-*seam between two subsystems* -- Configuration handing to the credential store,
-the handshake handing to the packet reader -- rather than inside either. Class H
-survives at seams because each side is locally correct: `save_servers` returned
-its error honestly and `read_handshake` classified the line correctly. What was
-lost was in the handover.
+**Checked and correct (2):** the vault message arms under epoch churn --
+`VaultUnlocked` forcing `ShowUpgradeModal` is right because `begin_vault_unlock`
+has exactly one caller, the `u` path, so there is no way to unlock the vault
+that is not already on the way to the confirmation; and `Msg::Status` is
+`gen`-guarded rather than epoch-guarded, which is sufficient because only the
+short-lived fetch and docker tasks send it and both are stamped with the panel
+generation a `replace_panels` moves.
+
+**What the eighth pass says about where to look, and it is the useful part.**
+All four findings sit on a *seam between two subsystems* -- Configuration
+handing to the credential store, the handshake handing to the packet reader,
+the reconnect loop handing to the agent uploader -- rather than inside either
+side. Class H survives at seams because each side is locally correct:
+`save_servers` returned its error honestly, `read_handshake` classified the line
+correctly, `upload_agent` composed a message written to be acted on. Every one
+of them was lost in the handover, and three of the four were lost to the same
+two Rust shapes: `if ... .is_ok()` with no else, and `while let Ok(Some(x))`,
+which are both a discarded `Err` spelled so that nothing looks discarded.
+Grepping for those two shapes is the cheapest way to find the next one.
+
+**And it found one immediately, in this pass's own fix.** Sweeping the workspace
+for `while let Ok(Some(` and `if ... .is_ok()` turned up three surviving
+siblings inside `next_packet`: the framing failure had been given a reason to
+report, and the two short header reads and the payload read had not, so a plain
+I/O error mid-stream was still silent. That is rule 6 read against this
+session -- an instance patch that leaves the class alive. The noting moved out
+of `framing_lost` and into `next_packet` itself, which now records *any* `Err`
+on one path, so the next `return Err` added below it cannot be silent.
+
+**Checked and deliberately unchanged (1):** the Secure Enclave re-bind in
+`vault::api` is silent by design and stays that way. It runs inside
+`unlock_with_password`, repairs something the user did not ask to have repaired,
+and has no UI surface to report through; if it fails the password path is
+untouched and the vault still opens, so the user is no worse off than before it
+ran. The comment above it already says so.
 
 **Checked and deliberately unchanged (1):** `SIGTSTP` is still fatal, and that
 is the right call for now. Raw mode clears `ISIG`, so Ctrl-Z never becomes a
