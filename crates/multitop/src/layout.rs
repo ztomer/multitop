@@ -119,11 +119,89 @@ pub fn share_width(
     out
 }
 
+/// The host label for a panel banner, fitted to the width it has.
+///
+/// # What gets sacrificed, in order
+///
+/// The `user@` prefix goes first. It is identical in every panel of a normal
+/// configuration, so it distinguishes nothing and is the cheapest thing to
+/// lose. Only then is the host name itself cut -- and it is cut **from the
+/// left**, because the tail is what tells `web-01` from `web-02`.
+///
+/// That direction is the whole point. The banner used to be mapped into
+/// fullwidth codepoints (U+FF01-FF5E), which doubled the cell cost and then
+/// clipped on the right: at four panels on a small terminal `ztomer@web-01`
+/// needed 26 cells in a 20-cell pane and rendered as `ｚｔｏｍｅｒ＠ｗｅ`.
+/// The digits -- the only part that differs between hosts -- were exactly what
+/// fell off, on a tool where the selected panel is the machine `u` runs
+/// `apt upgrade` against.
+///
+/// (Those codepoints are also absent from every mono terminal face in common
+/// use -- Menlo, SF Mono, `JetBrains` Mono, Berkeley Mono -- so the banner was
+/// drawn in a fallback CJK font, a different typeface and baseline from every
+/// line beneath it.)
+#[must_use]
+pub fn fit_banner(user: &str, host: &str, budget: usize) -> String {
+    if budget == 0 {
+        return String::new();
+    }
+    let named = !user.is_empty() && !user.eq_ignore_ascii_case("default");
+    if named {
+        let full = format!("{user}@{host}");
+        if full.chars().count() <= budget {
+            return full;
+        }
+    }
+    if host.chars().count() <= budget {
+        return host.to_string();
+    }
+    // Keep the end: `…b-01` says more than `web-0…`.
+    let tail: String = host
+        .chars()
+        .skip(host.chars().count() - budget.saturating_sub(1))
+        .collect();
+    format!("\u{2026}{tail}")
+}
+
 #[cfg(test)]
 mod tests {
     #![allow(clippy::unwrap_used)]
 
     use super::*;
+
+    #[test]
+    fn the_banner_keeps_the_user_when_there_is_room() {
+        assert_eq!(fit_banner("ztomer", "web-01", 40), "ztomer@web-01");
+    }
+
+    /// The prefix is identical in every panel, so it is the cheapest loss.
+    #[test]
+    fn the_user_prefix_is_dropped_before_the_host_is_cut() {
+        assert_eq!(fit_banner("ztomer", "web-01", 10), "web-01");
+    }
+
+    /// The defect this exists for: two hosts must not render identically.
+    #[test]
+    fn a_cut_host_keeps_the_end_that_distinguishes_it() {
+        let a = fit_banner("ztomer", "webserver-01", 6);
+        let b = fit_banner("ztomer", "webserver-02", 6);
+        assert_ne!(a, b, "the digits are what tell the machines apart");
+        assert!(a.ends_with("01"), "got {a}");
+        assert!(b.ends_with("02"), "got {b}");
+        assert!(a.chars().count() <= 6, "got {a}");
+    }
+
+    #[test]
+    fn a_default_user_is_not_a_name() {
+        assert_eq!(fit_banner("", "web-01", 40), "web-01");
+        assert_eq!(fit_banner("default", "web-01", 40), "web-01");
+    }
+
+    #[test]
+    fn a_budget_of_nothing_is_not_a_panic() {
+        assert_eq!(fit_banner("ztomer", "web-01", 0), "");
+        assert_eq!(fit_banner("ztomer", "web-01", 1).chars().count(), 1);
+    }
 
     /// The rule, stated as a test: nothing is ever half-drawn.
     #[test]

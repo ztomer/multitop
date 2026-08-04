@@ -98,3 +98,59 @@ fn a_connecting_host_says_connecting() {
         "an empty panel is indistinguishable from a dead app, got:\n{screen}"
     );
 }
+
+/// Two hosts must never render the same banner.
+///
+/// The banner was mapped into fullwidth codepoints, which doubled the cell cost
+/// and then clipped on the right -- so at four panels on a small terminal
+/// `ztomer@webserver-01` became `ｚｔｏｍｅｒ＠ｗｅ`, and the digits, the only
+/// part that differs, were exactly what fell off. On a tool where the selected
+/// panel is the machine `u` runs `apt upgrade` against, the label that says
+/// which machine you are about to touch is the one that must never be wrong.
+#[test]
+fn two_hosts_never_share_a_banner() {
+    let _keychain = isolate_keychain();
+    let hosts = [
+        "webserver-01",
+        "webserver-02",
+        "webserver-03",
+        "webserver-04",
+    ];
+    let app = multitop::app::App::new(
+        hosts
+            .iter()
+            .map(|h| multitop::config::Server {
+                host: (*h).to_string(),
+                port: 22,
+                user: "ztomer".to_string(),
+                upgrade_cmd: None,
+            })
+            .collect(),
+    );
+
+    for width in [40u16, 60, 80, 120] {
+        let mut term =
+            ratatui::Terminal::new(ratatui::backend::TestBackend::new(width, 16)).unwrap();
+        term.draw(|f| multitop::ui::draw(f, &app)).unwrap();
+        let buf = term.backend().buffer();
+        let cols = buf.area.width as usize;
+        let rows: Vec<String> = buf
+            .content()
+            .iter()
+            .map(ratatui::buffer::Cell::symbol)
+            .collect::<Vec<_>>()
+            .chunks(cols)
+            .map(<[&str]>::concat)
+            .collect();
+
+        // Every host's distinguishing tail must be somewhere on screen.
+        for host in hosts {
+            let tail = &host[host.len() - 2..];
+            assert!(
+                rows.iter().any(|r| r.contains(tail)),
+                "{width} cols: nothing on screen distinguishes {host}:\n{}",
+                rows.join("\n")
+            );
+        }
+    }
+}

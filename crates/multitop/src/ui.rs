@@ -587,13 +587,6 @@ pub fn draw(f: &mut Frame, app: &App) {
                 })
                 .unwrap_or_else(|| panel.server.host.clone());
 
-            let server_target = if !panel.server.user.is_empty()
-                && !panel.server.user.eq_ignore_ascii_case("default")
-            {
-                format!("{}@{}", panel.server.user, host_name)
-            } else {
-                host_name
-            };
             // Row 0 is composed here, once, from everything that belongs on it:
             // the banner, the sparklines either side of it, and the scroll
             // badge. `visible` used to write the badge here too and lose.
@@ -604,7 +597,17 @@ pub fn draw(f: &mut Frame, app: &App) {
             };
             let badge_w = badge.chars().count();
             let total_w = (inner.width as usize).saturating_sub(badge_w);
-            let disp_w = multitop_agent::fmt::fullwidth_display_width(&server_target);
+            // Plain ASCII, fitted to the room there is. This was mapped into
+            // fullwidth codepoints, which doubled the cell cost and clipped the
+            // digits -- the only part that differs between hosts -- off the
+            // right, and drew the one label that must never be wrong in a
+            // fallback CJK font.
+            let server_target = crate::layout::fit_banner(
+                &panel.server.user,
+                &host_name,
+                total_w.saturating_sub(2),
+            );
+            let disp_w = server_target.chars().count();
             let space_needed = disp_w + 2;
 
             if total_w >= space_needed {
@@ -643,10 +646,15 @@ pub fn draw(f: &mut Frame, app: &App) {
 
                 let left_rule_rem = left_rule_len.saturating_sub(mem_used_len);
                 let right_rule_rem = right_rule_len.saturating_sub(cpu_used_len);
-                let fw = multitop_agent::fmt::fullwidth(&server_target);
+                let fw = &server_target;
 
+                // A space either side of the name. `space_needed` has always
+                // budgeted two and only one was emitted, so the rule was a
+                // character longer on the left than the right -- invisible while
+                // the name was a wall of fullwidth glyphs, obvious once it is
+                // ordinary text.
                 lines[0] = format!(
-                    "{left_str}{}{}{}{}{}{} {}{}{}{}{right_str}{}",
+                    "{left_str}{}{}{} {}{}{} {}{}{}{}{right_str}{}",
                     theme.secondary(),
                     "\u{2500}".repeat(left_rule_rem),
                     theme.reset,
@@ -660,9 +668,15 @@ pub fn draw(f: &mut Frame, app: &App) {
                     badge_span(&badge),
                 );
             } else {
+                // Not `center_header`: that is the agent's own helper and maps
+                // the name into fullwidth glyphs, which is the defect this
+                // branch also had.
                 lines[0] = format!(
-                    "{}{}",
-                    multitop_agent::fmt::center_header(&server_target, total_w, theme),
+                    "{}{}{}{}{}",
+                    theme.primary(),
+                    theme.bold,
+                    server_target,
+                    theme.reset,
                     badge_span(&badge)
                 );
             }

@@ -26,6 +26,11 @@ Green tests are not a shipped feature. Each row is one sitting with the real app
 | **One prompt per upgrade** | With a vault present, press `u` twice from a fresh start and count the password prompts. Exactly one, and it must be multitop's own "Enter vault master password", not a macOS keychain dialog | no |
 | **Vault creation asks once** | Save a first password, type a master password, press Enter once and wait. One prompt, one vault, and Server Settings still on screen underneath | no |
 | **Progress output** | Run an upgrade whose command has a `\r` progress bar (`apt upgrade`); the log must gain one line per bar, not one per tick | no |
+| **A host coming up** | Start against a host that is slow to connect: the panel must say `connecting...`, not sit empty | no |
+| **Scrolling an upgrade log** | Scroll back during a long run; `[↑ -N lines]` must appear on row 0 | no |
+| **Narrow terminals** | Resize to 40 columns with four panels: every host banner must still name its own machine, and the keybar must degrade to initials rather than cutting a word | no |
+| **A second rotation** | Press `r` twice while a master-password change is running; the second must be refused, not start a second rotation | no |
+| **Saving during an upgrade** | Edit a host's password while its upgrade is running; the run must continue rather than being killed and restarted | no |
 
 The last three are the 2026-08-03 evening fixes. The upgrade-prompt row is the
 one that matters most: the diagnosis was that the *first* `u` read the OS
@@ -39,6 +44,27 @@ another pass.
 Round B of the review (see item 4). Every claim below was verified against the
 source or against a rendered frame before it was written down; persona claims
 that did not survive checking are not here.
+
+**Status, 2026-08-03 evening.** A, B, C and G are fixed and pushed, each with a
+gate or a regression test run red against the old code first. D, F and H are
+open. Fixed classes are kept here rather than deleted only until their live
+confirmation in item 1 is done -- they are described in git history, and this
+section should shrink to just the open ones once someone has watched them work.
+
+| Class | State |
+|-------|-------|
+| A. Row 0 has two owners | **fixed** -- `visible` returns the offset as a value, `draw` composes row 0 once |
+| B. Fixed-width layout with no budget | **fixed** -- `layout::fit_row` / `share_width`, applied to the keybar, the settings row and the settings hints |
+| C. The banner clips the identifying tail | **fixed** -- `layout::fit_banner`, plain ASCII, `user@` dropped first, cut from the left |
+| D. Cost paid per frame for nothing | **open** |
+| E. Names and labels | **fixed** with B and G (`[E] Settings`, the `{:<11}` pad, `Cpu/ Mem`) except the three-names question below |
+| F. Blast radius is not what the screen says | **open**, and the scope half is a decision for the owner |
+| G. Key hints naming keys that do not exist | **fixed** -- one constant, plus `tools/check_key_hints.py` in the hook and CI |
+| H. Failures reported as something else | **open** |
+
+Still unresolved inside E: the screen has three names -- README says
+*Configuration*, the panel title says *Server Settings*, and the keybar now says
+*Settings*. Pick one and use it three times.
 
 ### How disagreements are settled  (owner decree, 2026-08-03)
 
