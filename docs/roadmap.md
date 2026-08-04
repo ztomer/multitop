@@ -390,7 +390,7 @@ collapsed, or whether the collapsed view *is* the log. They are different
 products.
 ## 4. `G` — per-pane CPU / memory / network graphs
 
-Requested 2026-08-03. **Last** — start only once items 1-3 are closed.
+Requested 2026-08-03. Start only once items 1-3 are closed; item 5 follows it.
 
 A new view alongside the existing ones, bound to `G` and placed immediately to
 the right of `F` (Fetch) in the keybar, drawing CPU, memory and network history
@@ -408,6 +408,37 @@ Points to settle before writing any of it:
   footing — one renderer, built for the job, rather than a second one beside a
   drifting first.
 - `s` is free in Settings now, if the graph view wants a preference there.
+
+## 5. A filtered grid tells the agents how big its panes are
+
+Requested 2026-08-04. **After item 4** — the owner's ordering, not a dependency.
+
+Filtering already hides the panes that do not match and re-splits the grid over
+the ones that remain: `ui::draw` calls `regions(f.area(), shown.len())`, so one
+match on an eight-host grid is drawn full-screen. What has not been told is the
+*agent*, which is still rendering for a pane one quarter of that size, so the
+pane grows and its contents do not.
+
+The infrastructure is all here, and it arrived with Round C. `AgentDims` takes
+the pane count as one half of the signature it diffs, and `refresh` already
+runs on a resize and on a server-list edit. What is missing is small and named:
+
+- the count handed to `refresh` is `app.panels.len()`, and it has to be
+  `app.filtered_indices().len()` — the same count `ui::draw` lays out from, so
+  the two cannot disagree;
+- the filter has to trigger a refresh. Typing into the query changes the
+  visible count on almost every keystroke, so this wants the resize debounce
+  rather than a refresh per character, and `app.rerender_all` on the way out;
+- `filtered_indices()` can be empty while a query matches nothing. `regions`
+  returns no rects for zero panes and `agent_dims` returns its minimum, which
+  is the right floor — but the screen wants to say *why* it is empty rather
+  than showing nothing.
+
+Worth settling first: whether clearing the filter should re-render every pane
+at the restored size immediately, or let the next agent frame do it. The first
+costs a burst of work on a keystroke; the second leaves the grid showing
+stale-sized content for up to a tick.
+
 ## Deferred
 
 | Item | Why |
