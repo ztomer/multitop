@@ -361,9 +361,18 @@ pub fn spawn_upgrade(
         // Set when the remote says another run already holds the upgrade lock.
         let mut lock_held = false;
         let mut errbuf = Vec::new();
-        loop {
+        // Both streams are read to their own end, rather than stopping the
+        // moment stdout finishes. They close together when the child exits, so
+        // whichever `select!` happened to poll first decided whether the
+        // contents of the stderr pipe were read or thrown away -- and stderr is
+        // where the reason lives: apt's actual complaint, the sudo-help shapes,
+        // the held-lock sentinel. A run that failed for a nameable reason
+        // reported "exited 1" about half the time.
+        let mut stdout_open = true;
+        let mut stderr_open = true;
+        while stdout_open || stderr_open {
             tokio::select! {
-                line = stdout_lines.next_line() => {
+                line = stdout_lines.next_line(), if stdout_open => {
                     match line {
                         Ok(Some(line)) => {
                             // Scan every state this line passed through, log
@@ -389,13 +398,17 @@ pub fn spawn_upgrade(
                                 }
                             }
                         }
-                        _ => break,
+                        _ => stdout_open = false,
                     }
                 }
-                Ok(Some(line)) = stderr_lines.next_line() => {
+                line = stderr_lines.next_line(), if stderr_open => {
                     // Same rule as stdout: apt writes its progress display here
                     // too, and a hundred rewrites of one bar would evict the
                     // actual error message from the buffer below.
+                    let Ok(Some(line)) = line else {
+                        stderr_open = false;
+                        continue;
+                    };
                     let mut visible = None;
                     for state in painted_states(&line) {
                         let trimmed = state.trim();

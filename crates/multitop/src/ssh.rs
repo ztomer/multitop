@@ -99,8 +99,32 @@ pub fn parse_need_agent(line: &str) -> Option<&str> {
     line.trim().strip_prefix(NEED_AGENT).map(str::trim)
 }
 
+/// Put a child in its own process group, so it cannot reach this process's
+/// controlling terminal.
+///
+/// Every child here inherits multitop's terminal, and multitop holds that
+/// terminal in raw mode inside the alternate screen. A child that opens
+/// `/dev/tty` -- which is exactly what `ssh` does for a passphrase or an
+/// unknown host key, and `sudo` for a local password, whatever their stdin is
+/// connected to -- then writes its prompt over the frame and reads the answer
+/// out of the keystrokes the event loop is reading. Both sides get half the
+/// input and the display is wrecked.
+///
+/// In its own group the child is no longer in the foreground group, so the
+/// kernel refuses it the terminal (`SIGTTIN`/`SIGTTOU`) instead. Combined with
+/// `BatchMode=yes`, which stops `ssh` reaching for it in the first place, the
+/// failure becomes a message in the panel.
+///
+/// One helper rather than a call at each spawn site: there are four, and the
+/// next one added would be the one that forgets.
+fn detached(mut cmd: Command) -> Command {
+    #[cfg(unix)]
+    cmd.process_group(0);
+    cmd
+}
+
 fn ssh_command(server: &Server) -> Command {
-    let mut cmd = Command::new("ssh");
+    let mut cmd = detached(Command::new("ssh"));
     cmd.env("LC_ALL", "C").env("LANG", "C");
     cmd.args(SSH_OPTS);
     cmd.arg("-p").arg(server.port.to_string());
@@ -162,7 +186,7 @@ fn password_preamble() -> String {
 
 #[must_use]
 pub fn ssh_command_tty(server: &Server) -> Command {
-    let mut cmd = Command::new("ssh");
+    let mut cmd = detached(Command::new("ssh"));
     cmd.env("LC_ALL", "C").env("LANG", "C");
     for opt in SSH_OPTS {
         if *opt != "-T" {
@@ -186,7 +210,7 @@ pub fn is_local(server: &Server) -> bool {
 ///
 /// Returns an error if spawning the local process fails.
 pub fn spawn_local_agent(mode: Mode, sort: SortBy) -> io::Result<Child> {
-    let (mut cmd, extra_args) = std::env::current_exe().map_or_else(
+    let (cmd, extra_args) = std::env::current_exe().map_or_else(
         |_| (Command::new("multitop-agent"), vec![]),
         |exe| {
             let parent = exe.parent().unwrap_or_else(|| Path::new(""));
@@ -210,6 +234,7 @@ pub fn spawn_local_agent(mode: Mode, sort: SortBy) -> io::Result<Child> {
         },
     );
 
+    let mut cmd = detached(cmd);
     if !extra_args.is_empty() {
         cmd.args(extra_args);
     }
@@ -392,7 +417,7 @@ pub fn spawn_command(
                 "setopt expand_aliases 2>/dev/null; shopt -s expand_aliases 2>/dev/null; source ~/.zshrc 2>/dev/null; source ~/.zprofile 2>/dev/null; source ~/.bashrc 2>/dev/null; eval {quoted}"
             )),
         };
-        let child = Command::new(&shell)
+        let child = detached(Command::new(&shell))
             .arg("-c")
             .arg(wrapped)
             .stdin(if password.is_some() {

@@ -22,6 +22,37 @@ use ratatui::layout::Rect;
 const RESIZE_DEBOUNCE: Duration = Duration::from_millis(30);
 pub(super) const RECONNECT_BACKOFF: [u64; 4] = [2, 5, 10, 20];
 
+/// What one monitor session achieved, from the reconnect loop's point of view.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(super) enum SessionOutcome {
+    /// The connection was never established.
+    NeverConnected,
+    /// It connected, and ended without ever delivering a frame.
+    NoData,
+    /// It delivered at least one frame before ending.
+    Delivered,
+}
+
+/// How long to wait before reconnecting, and how the failure count moves.
+///
+/// The count used to be reset the moment `connect` returned -- which is before
+/// anything has been received. A host that *accepts* the connection and then
+/// fails therefore reset the backoff on every round and was retried at the
+/// shortest interval forever: a login banner where the protocol should be, or
+/// an agent whose version mismatch cannot be resolved because the upload keeps
+/// failing, meant one `ssh` process every two seconds indefinitely -- and in the
+/// second case a multi-megabyte agent upload with it.
+///
+/// Only delivered data says the connection is worth trusting again.
+pub(super) fn reconnect_wait(outcome: SessionOutcome, failures: &mut usize) -> u64 {
+    if outcome == SessionOutcome::Delivered {
+        *failures = 0;
+    }
+    let wait = RECONNECT_BACKOFF[(*failures).min(RECONNECT_BACKOFF.len() - 1)];
+    *failures = failures.saturating_add(1);
+    wait
+}
+
 use std::path::PathBuf;
 
 /// Run the multitop application.
@@ -46,23 +77,51 @@ pub async fn run(
     // restores the terminal, which matters because the release profile aborts
     // and would not run this `Drop`.
     let restore = TerminalGuard;
-    execute!(std::io::stdout(), EnableMouseCapture)?;
-    let killed = event_loop(&mut terminal, servers, config_path, initial_theme).await?;
+    // After `ratatui::init`, so ours runs first and ratatui's restore runs
+    // second -- the modes come off in the reverse of the order they went on.
+    hook_terminal_modes_into_panics();
+    enter_terminal_modes(&mut std::io::stdout())?;
+    let (dims_tx, _) = watch::channel(ui::agent_dims(terminal.size()?, servers.len()));
+    let mut events = crossterm::event::EventStream::new();
+    let outcome = event_loop(
+        &mut terminal,
+        &mut events,
+        dims_tx,
+        servers,
+        config_path,
+        initial_theme,
+    )
+    .await;
     // Restore the terminal before saying anything on stderr: writing while raw
     // mode and the alternate screen are still up renders the notice into the
     // wreck the shell is about to redraw over.
     drop(restore);
-    if !killed.is_empty() {
+    // Before the error, and unconditionally. This notice used to sit behind a
+    // `?` on the loop's result, so the one exit that kills upgrades *without
+    // the user asking* -- the terminal going away mid-frame -- was the one exit
+    // that said nothing about the transactions it had just interrupted.
+    if !outcome.killed.is_empty() {
         eprintln!(
             "multitop quit with upgrades still running on: {}",
-            killed.join(", ")
+            outcome.killed.join(", ")
         );
         eprintln!(
             "  Those SSH sessions were terminated mid-run. The remote lock file\n\
              \x20 on each host may need removing before the next upgrade can start."
         );
     }
-    Ok(())
+    outcome.error.map_or(Ok(()), Err)
+}
+
+/// Why the event loop stopped, and what it killed on the way out.
+///
+/// Not a `Result`: the killed-host list and the error are both needed by the
+/// caller, and a `Result` can only carry one of them. It carried the error.
+pub struct LoopOutcome {
+    /// Hosts whose upgrade was still running when the loop ended.
+    pub killed: Vec<String>,
+    /// The terminal failure that ended the loop, if it was not a clean quit.
+    pub error: Option<std::io::Error>,
 }
 
 /// Signals that decide whether this process may keep the terminal.
@@ -80,11 +139,32 @@ pub async fn run(
 /// `SIGCONT` repairs the aftermath of a stop this cannot prevent -- `SIGSTOP`,
 /// or anything that landed before these were installed -- by rebuilding the
 /// terminal state on resume.
+///
+/// `SIGTERM` and `SIGHUP` are here for the same reason from the other
+/// direction: at their default disposition they end the process outright, so
+/// `TerminalGuard` never runs and neither does the notice naming the upgrades
+/// that were killed. Caught, they become an ordinary quit -- the loop leaves
+/// through the path that restores the terminal and says what it interrupted.
+/// `SIGHUP` in particular arrives exactly when the terminal is going away,
+/// which is when a running `apt upgrade` most needs saying out loud.
 #[cfg(unix)]
 struct TerminalSignals {
     ttin: tokio::signal::unix::Signal,
     ttou: tokio::signal::unix::Signal,
     cont: tokio::signal::unix::Signal,
+    term: tokio::signal::unix::Signal,
+    hup: tokio::signal::unix::Signal,
+}
+
+/// What the loop should do about a signal it just caught.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum SignalAction {
+    /// Caught, therefore not fatal and not a stop. Nothing to do.
+    Ignore,
+    /// The process has just been resumed; the terminal needs rebuilding.
+    Resumed,
+    /// Someone outside asked this process to end.
+    Quit,
 }
 
 #[cfg(unix)]
@@ -100,26 +180,30 @@ impl TerminalSignals {
             ttin: signal(SignalKind::from_raw(libc::SIGTTIN))?,
             ttou: signal(SignalKind::from_raw(libc::SIGTTOU))?,
             cont: signal(SignalKind::from_raw(libc::SIGCONT))?,
+            term: signal(SignalKind::from_raw(libc::SIGTERM))?,
+            hup: signal(SignalKind::from_raw(libc::SIGHUP))?,
         })
     }
 }
 
-/// Wait for the next terminal-ownership signal. Resolves to `true` when the
-/// process has just been resumed and the terminal needs rebuilding.
+/// Wait for the next signal that bears on who owns the terminal.
 ///
-/// One future over all three, because `tokio::select!` evaluates every branch's
-/// future up front and three branches cannot each hold `&mut signals`.
+/// One future over all of them, because `tokio::select!` evaluates every
+/// branch's future up front and several branches cannot each hold
+/// `&mut signals`.
 #[cfg(unix)]
-async fn next_terminal_signal(signals: &mut Option<TerminalSignals>) -> bool {
+async fn next_terminal_signal(signals: &mut Option<TerminalSignals>) -> SignalAction {
     match signals.as_mut() {
         Some(s) => {
             tokio::select! {
                 // Caught, therefore not fatal and not a stop. Nothing to do but
                 // carry on -- the read or write that provoked it has already
                 // failed and the loop handles that.
-                _ = s.ttin.recv() => false,
-                _ = s.ttou.recv() => false,
-                _ = s.cont.recv() => true,
+                _ = s.ttin.recv() => SignalAction::Ignore,
+                _ = s.ttou.recv() => SignalAction::Ignore,
+                _ = s.cont.recv() => SignalAction::Resumed,
+                _ = s.term.recv() => SignalAction::Quit,
+                _ = s.hup.recv() => SignalAction::Quit,
             }
         }
         None => std::future::pending().await,
@@ -127,8 +211,43 @@ async fn next_terminal_signal(signals: &mut Option<TerminalSignals>) -> bool {
 }
 
 #[cfg(not(unix))]
-async fn next_terminal_signal(_signals: &mut Option<()>) -> bool {
+async fn next_terminal_signal(_signals: &mut Option<()>) -> SignalAction {
     std::future::pending().await
+}
+
+/// Every terminal mode multitop turns on beyond the two `ratatui::init` knows
+/// about, in one place.
+///
+/// There were three copies of this list -- startup, the resume path, and the
+/// guard -- and a fourth reader that had never been told: `ratatui`'s panic
+/// hook restores raw mode and the alternate screen and nothing else. Mouse
+/// reporting therefore survived every panic, and the shell that inherited the
+/// terminal printed an escape sequence each time the pointer crossed the
+/// window. Add a mode here and [`leave_terminal_modes`] must take it away
+/// again; the test below is what makes that true rather than remembered.
+fn enter_terminal_modes(w: &mut impl std::io::Write) -> std::io::Result<()> {
+    execute!(w, EnableMouseCapture)
+}
+
+/// The exact inverse of [`enter_terminal_modes`]. Never propagates: it runs on
+/// the way out, including from a panic hook, and refusing to finish the rest of
+/// the restore because one mode would not come off is the bug the guard exists
+/// to remove.
+fn leave_terminal_modes(w: &mut impl std::io::Write) {
+    let _ = execute!(w, DisableMouseCapture);
+}
+
+/// Take the modes off on a panic too.
+///
+/// The release profile aborts, so `Drop` does not run and the hook is the only
+/// cover. `ratatui::init` installs one; it restores what `ratatui` turned on,
+/// which is not what this program turned on.
+fn hook_terminal_modes_into_panics() {
+    let previous = std::panic::take_hook();
+    std::panic::set_hook(Box::new(move |info| {
+        leave_terminal_modes(&mut std::io::stdout());
+        previous(info);
+    }));
 }
 
 /// Rebuild the terminal after a resume. Anything that stopped this process left
@@ -138,7 +257,8 @@ async fn next_terminal_signal(_signals: &mut Option<()>) -> bool {
 fn reclaim_terminal() {
     use crossterm::terminal::{enable_raw_mode, EnterAlternateScreen};
     let _ = enable_raw_mode();
-    let _ = execute!(std::io::stdout(), EnterAlternateScreen, EnableMouseCapture);
+    let _ = execute!(std::io::stdout(), EnterAlternateScreen);
+    let _ = enter_terminal_modes(&mut std::io::stdout());
 }
 
 #[cfg(not(unix))]
@@ -161,10 +281,7 @@ struct TerminalGuard;
 
 impl Drop for TerminalGuard {
     fn drop(&mut self) {
-        // Ignored deliberately: if disabling mouse capture fails there is
-        // nothing useful to do about it, and it must not stop the restore that
-        // follows -- that ordering is the bug this guard exists to remove.
-        let _ = execute!(std::io::stdout(), DisableMouseCapture);
+        leave_terminal_modes(&mut std::io::stdout());
         ratatui::restore();
     }
 }
@@ -175,11 +292,24 @@ const BIOMETRIC_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(45
 
 pub struct Tasks {
     monitors: Vec<Option<JoinHandle<()>>>,
+    /// View tasks -- fetch and docker. Superseded whenever the panel switches
+    /// to something else, because what they produce is only worth having while
+    /// it is on screen.
     pub aux: Vec<Option<JoinHandle<()>>>,
-    /// Tracks whether each aux task is an upgrade task. Upgrade tasks are not
-    /// aborted when switching views, so long-running upgrades continue in the
-    /// background until they complete.
-    pub aux_is_upgrade: Vec<bool>,
+    /// Upgrade tasks, in a slot of their own.
+    ///
+    /// They used to share `aux`, with a parallel `aux_is_upgrade: Vec<bool>`
+    /// marking the ones a view switch must not abort. The flag was obeyed and
+    /// the handle was still lost: `aux[idx].replace(fetch_handle)` hands back
+    /// whatever was there, and the "do not abort an upgrade" rule dropped it on
+    /// the floor. The upgrade ran on with nothing tracking it -- `abort_all`
+    /// could no longer reach it when the user quit, so the one thing the quit
+    /// confirmation promises to stop was the one thing it could not.
+    ///
+    /// A separate slot makes that unrepresentable. Nothing has to remember not
+    /// to abort an upgrade, because a view task and an upgrade never occupy the
+    /// same place.
+    pub upgrades: Vec<Option<JoinHandle<()>>>,
 }
 
 impl Tasks {
@@ -188,7 +318,42 @@ impl Tasks {
         Self {
             monitors: (0..n).map(|_| None).collect(),
             aux: (0..n).map(|_| None).collect(),
-            aux_is_upgrade: (0..n).map(|_| false).collect(),
+            upgrades: (0..n).map(|_| None).collect(),
+        }
+    }
+
+    /// Start a view task on `idx`, superseding whatever view task was there.
+    pub fn set_aux(&mut self, idx: usize, handle: JoinHandle<()>) {
+        if let Some(old) = self.aux[idx].replace(handle) {
+            old.abort();
+        }
+    }
+
+    /// Start an upgrade on `idx`.
+    ///
+    /// Aborting whatever was in the slot is safe rather than dangerous: a
+    /// second run cannot start while the first is in flight (`upgrades_in_flight`
+    /// refuses it, and the resume path refuses it separately), so anything
+    /// still here has already finished and `abort` on a finished task does
+    /// nothing.
+    pub fn set_upgrade(&mut self, idx: usize, handle: JoinHandle<()>) {
+        if let Some(old) = self.upgrades[idx].replace(handle) {
+            old.abort();
+        }
+    }
+
+    /// Stop every upgrade this app can no longer report on.
+    ///
+    /// Called when the panel list is replaced: every generation moves, so no
+    /// message from a task started against the old list is ever accepted again.
+    /// Left running, the upgrade continues on the remote with nothing able to
+    /// show it, and is then killed without a word when the app quits.
+    pub fn abort_upgrades(&mut self) {
+        for h in self.upgrades.iter_mut().flatten() {
+            h.abort();
+        }
+        for slot in &mut self.upgrades {
+            *slot = None;
         }
     }
 
@@ -202,17 +367,18 @@ impl Tasks {
             .iter_mut()
             .skip(n)
             .chain(self.aux.iter_mut().skip(n))
+            .chain(self.upgrades.iter_mut().skip(n))
             .flatten()
         {
             h.abort();
         }
         self.monitors.truncate(n);
         self.aux.truncate(n);
-        self.aux_is_upgrade.truncate(n);
+        self.upgrades.truncate(n);
         while self.monitors.len() < n {
             self.monitors.push(None);
             self.aux.push(None);
-            self.aux_is_upgrade.push(false);
+            self.upgrades.push(None);
         }
     }
 
@@ -223,6 +389,7 @@ impl Tasks {
             .monitors
             .iter_mut()
             .chain(self.aux.iter_mut())
+            .chain(self.upgrades.iter_mut())
             .flatten()
         {
             h.abort();
@@ -237,14 +404,93 @@ impl Tasks {
 
 use multitop_agent::SortBy;
 
+/// Everything the agent render size is derived from.
+///
+/// One value rather than two, and diffed whole. The size used to be recomputed
+/// only when a `Resize` arrived, from a panel count captured before the first
+/// frame -- so editing the server list changed the grid on screen (one column
+/// becomes two at three panels) while every agent kept rendering for the old
+/// one. A per-input hook misses whichever input it was not written for, and
+/// this is the input it missed.
+#[derive(Clone, Copy, PartialEq, Eq)]
+struct DimsInputs {
+    size: (u16, u16),
+    panels: usize,
+}
+
+/// The agent render size, and the only thing allowed to publish it.
+struct AgentDims {
+    inputs: DimsInputs,
+    dims: (u16, u16),
+    tx: watch::Sender<(u16, u16)>,
+}
+
+impl AgentDims {
+    fn new(tx: watch::Sender<(u16, u16)>, size: ratatui::layout::Size, panels: usize) -> Self {
+        let inputs = DimsInputs {
+            size: (size.width, size.height),
+            panels,
+        };
+        let dims = ui::agent_dims(size, panels);
+        let _ = tx.send(dims);
+        Self { inputs, dims, tx }
+    }
+
+    const fn current(&self) -> (u16, u16) {
+        self.dims
+    }
+
+    /// Recompute from the current inputs. Returns the new size when anything
+    /// that feeds it changed, so the caller can re-render at it.
+    fn refresh(&mut self, size: ratatui::layout::Size, panels: usize) -> Option<(u16, u16)> {
+        let inputs = DimsInputs {
+            size: (size.width, size.height),
+            panels,
+        };
+        if inputs == self.inputs {
+            return None;
+        }
+        self.inputs = inputs;
+        let dims = ui::agent_dims(size, panels);
+        if dims == self.dims {
+            return None;
+        }
+        self.dims = dims;
+        let _ = self.tx.send(dims);
+        Some(dims)
+    }
+}
+
+/// The terminal event loop.
+///
+/// Generic over the backend and the event source so the whole loop can be
+/// driven from a test: every defect this file has ever shipped lived here, and
+/// until this seam existed none of them could be caught by anything but a
+/// person watching a real terminal.
 #[allow(clippy::too_many_lines)]
-async fn event_loop(
-    terminal: &mut ratatui::DefaultTerminal,
+pub async fn event_loop<B, S>(
+    terminal: &mut ratatui::Terminal<B>,
+    events: &mut S,
+    dims_tx: watch::Sender<(u16, u16)>,
     mut servers: Vec<Server>,
     config_path: PathBuf,
     initial_theme: Option<String>,
-) -> std::io::Result<Vec<String>> {
-    let n = servers.len();
+) -> LoopOutcome
+where
+    B: ratatui::backend::Backend,
+    B::Error: std::error::Error + Send + Sync + 'static,
+    S: tokio_stream::Stream<Item = std::io::Result<Event>> + Unpin,
+{
+    // First, before the config read, the state read and the vault probe: a stop
+    // that lands in that window is a stop with no handler to catch it and no
+    // `SIGCONT` handler to repair the terminal afterwards. A failure to install
+    // is not worth refusing to start over -- it only costs the terminal repair,
+    // which is exactly the state the app was in before they existed.
+    #[cfg(unix)]
+    let mut signals = TerminalSignals::install().ok();
+    #[cfg(not(unix))]
+    let mut signals: Option<()> = None;
+
     let mut app = App::new(servers.clone());
     app.config_path = Some(config_path.clone());
     // Passwords are loaded on-demand via Panel::ensure_sudo_password() when
@@ -284,13 +530,10 @@ async fn event_loop(
         }
     }
     let (tx, mut rx) = mpsc::channel::<Msg>(512);
-    let mut tasks = Tasks::new(n);
+    let mut tasks = Tasks::new(servers.len());
 
-    let mut events = crossterm::event::EventStream::new();
-
-    let mut dims = ui::agent_dims(terminal.size()?, n);
-    let (dims_tx, dims_rx) = watch::channel(dims);
-    let dims_rx = Arc::new(dims_rx);
+    let dims_rx = Arc::new(dims_tx.subscribe());
+    let mut dims = AgentDims::new(dims_tx, terminal.size().unwrap_or_default(), servers.len());
     for (i, server) in servers.iter().enumerate() {
         tasks.monitors[i] = Some(spawn_monitor(
             i,
@@ -306,18 +549,19 @@ async fn event_loop(
     let mut known_epoch = app.panels_epoch;
     let mut resize_at: Option<Instant> = None;
     let mut dirty = true;
-    // A failure to install these is not worth refusing to start over -- it only
-    // costs the terminal repair, which is exactly the state the app was in
-    // before they existed.
-    #[cfg(unix)]
-    let mut signals = TerminalSignals::install().ok();
-    #[cfg(not(unix))]
-    let mut signals: Option<()> = None;
+    // Set when the terminal itself fails. Reported after the killed-upgrade
+    // notice rather than instead of it.
+    let mut fatal: Option<std::io::Error> = None;
 
     loop {
         if dirty {
-            terminal.draw(|f| ui::draw(f, &app))?;
-            dirty = false;
+            match terminal.draw(|f| ui::draw(f, &app)) {
+                Ok(_) => dirty = false,
+                Err(e) => {
+                    fatal = Some(std::io::Error::other(e));
+                    break;
+                }
+            }
         }
 
         let resize_wait = async {
@@ -330,14 +574,30 @@ async fn event_loop(
         tokio::select! {
             biased;
 
-            resumed = next_terminal_signal(&mut signals) => {
-                if resumed {
+            action = next_terminal_signal(&mut signals) => {
+                if action == SignalAction::Quit {
+                    // Not `request_quit`: the confirmation row exists so a
+                    // *keypress* cannot kill an upgrade by accident. A signal
+                    // from outside is not a keypress, and there is nobody to
+                    // answer the question.
+                    app.quit();
+                }
+                if action == SignalAction::Resumed {
                     // Whatever stopped us abandoned raw mode and the alternate
                     // screen, and the shell has drawn over both since. Rebuild
                     // rather than redraw: a plain redraw paints the frame into
                     // whichever buffer the shell left showing.
                     reclaim_terminal();
                     let _ = terminal.clear();
+                    // A resize that landed while the process was stopped is a
+                    // resize this loop has to act on: the agents are still
+                    // rendering for the size the terminal had before the stop.
+                    if let Some(d) = dims.refresh(
+                        terminal.size().unwrap_or_default(),
+                        app.panels.len(),
+                    ) {
+                        app.rerender_all(d);
+                    }
                     dirty = true;
                 }
             }
@@ -345,7 +605,7 @@ async fn event_loop(
             maybe = events.next() => {
                 match maybe {
                     Some(Ok(Event::Key(key))) => {
-                        handle_key(key, &mut app, &servers, dims, dims_rx.clone(), &tx, &mut tasks);
+                        handle_key(key, &mut app, &servers, dims.current(), dims_rx.clone(), &tx, &mut tasks);
                         // An edit to the server list retires every task bound to
                         // the old one. Without respawning here the panels simply
                         // stopped updating: the running monitors still hold the
@@ -357,6 +617,16 @@ async fn event_loop(
                             known_epoch = app.panels_epoch;
                             servers = app.panels.iter().map(|p| p.server.clone()).collect();
                             tasks.fit_to(servers.len());
+                            // Before the respawn, not after: the panel count is
+                            // half of what the agent render size is made of, so
+                            // an edit to the list resizes every pane. The new
+                            // monitors must start already knowing that.
+                            if let Some(d) = dims.refresh(
+                                terminal.size().unwrap_or_default(),
+                                servers.len(),
+                            ) {
+                                app.rerender_all(d);
+                            }
                             restart_all_agents(&app, &servers, dims_rx.clone(), &tx, &mut tasks);
                         }
                         dirty = true;
@@ -423,23 +693,33 @@ async fn event_loop(
             }
             () = resize_wait, if resize_at.is_some() => {
                 resize_at = None;
-                let new_dims = ui::agent_dims(terminal.size()?, n);
-                if new_dims != dims {
-                    dims = new_dims;
-                    let _ = dims_tx.send(new_dims);
-                    // Re-render panels at the new size so logos and stats adapt.
-                    app.rerender_all(new_dims);
+                match terminal.size() {
+                    Ok(size) => {
+                        // Re-render panels at the new size so logos and stats adapt.
+                        if let Some(d) = dims.refresh(size, app.panels.len()) {
+                            app.rerender_all(d);
+                        }
+                        dirty = true;
+                    }
+                    Err(e) => {
+                        fatal = Some(std::io::Error::other(e));
+                        break;
+                    }
                 }
-                dirty = true;
             }
         }
 
         if app.should_quit() {
-            // Named before `abort_all` flips the STARTED flags to DONE.
-            let killed = app.running_upgrade_hosts();
-            tasks.abort_all(&mut app);
-            return Ok(killed);
+            break;
         }
+    }
+
+    // Named before `abort_all` flips the STARTED flags to DONE.
+    let killed = app.running_upgrade_hosts();
+    tasks.abort_all(&mut app);
+    LoopOutcome {
+        killed,
+        error: fatal,
     }
 }
 
@@ -811,8 +1091,12 @@ fn execute_cmds(
     tasks: &mut Tasks,
 ) {
     for cmd in cmds {
-        let (idx, handle) = match cmd {
-            Command::RunFetch { panel, gen } => (
+        // A view task supersedes the last view task; an upgrade goes in the
+        // upgrade slot and outlives every view switch. Which slot it lands in
+        // is decided here, once, rather than by a flag each caller has to keep
+        // in step.
+        match cmd {
+            Command::RunFetch { panel, gen } => tasks.set_aux(
                 panel,
                 crate::tasks::spawn_fetch(
                     panel,
@@ -823,7 +1107,7 @@ fn execute_cmds(
                     tx.clone(),
                 ),
             ),
-            Command::RunDocker { panel, gen } => (
+            Command::RunDocker { panel, gen } => tasks.set_aux(
                 panel,
                 crate::tasks::spawn_docker(
                     panel,
@@ -837,7 +1121,7 @@ fn execute_cmds(
             Command::RunUpgrade { panel, gen } => {
                 // Use the panel's stored sudo password (from keychain)
                 let password = app.panels[panel].sudo_password.clone();
-                (
+                tasks.set_upgrade(
                     panel,
                     crate::tasks::spawn_upgrade(
                         panel,
@@ -846,19 +1130,7 @@ fn execute_cmds(
                         password,
                         tx.clone(),
                     ),
-                )
-            }
-        };
-        // Supersede whatever that panel was running, except for upgrade tasks
-        // which should continue running in the background until they complete.
-        // This prevents interrupting long-running upgrades when the user switches
-        // views (e.g., pressing 's' or 'd' while an upgrade is in progress).
-        let is_upgrade = matches!(cmd, Command::RunUpgrade { .. });
-        let was_upgrade = tasks.aux_is_upgrade[idx];
-        tasks.aux_is_upgrade[idx] = is_upgrade;
-        if let Some(old) = tasks.aux[idx].replace(handle) {
-            if !was_upgrade {
-                old.abort();
+                );
             }
         }
     }
@@ -890,20 +1162,17 @@ fn restart_all_agents(
         for (i, panel) in app.panels.iter().enumerate() {
             if panel.mode == crate::app::Mode::Docker {
                 let gen = panel.gen;
-                let was_upgrade = tasks.aux_is_upgrade[i];
-                tasks.aux_is_upgrade[i] = false;
-                if let Some(old) = tasks.aux[i].replace(crate::tasks::spawn_docker(
+                tasks.set_aux(
                     i,
-                    gen,
-                    servers[i].clone(),
-                    dims,
-                    app.sort,
-                    tx.clone(),
-                )) {
-                    if !was_upgrade {
-                        old.abort();
-                    }
-                }
+                    crate::tasks::spawn_docker(
+                        i,
+                        gen,
+                        servers[i].clone(),
+                        dims,
+                        app.sort,
+                        tx.clone(),
+                    ),
+                );
             }
         }
     }
@@ -945,9 +1214,22 @@ mod terminal_signal_tests {
     /// workspace denies `unsafe_code` and raising a signal is unsafe.
     #[tokio::test]
     async fn terminal_ownership_signals_are_caught_rather_than_fatal() {
-        let mut signals = TerminalSignals::install().expect("handlers must install");
+        use super::{next_terminal_signal, SignalAction};
 
-        for (flag, stream) in [("-TTIN", 0_u8), ("-TTOU", 1), ("-CONT", 2)] {
+        let mut signals = Some(TerminalSignals::install().expect("handlers must install"));
+
+        // `SIGTERM` and `SIGHUP` are in this list for the opposite reason to
+        // the first three: at their default disposition they *end* the process,
+        // so the terminal is never restored and the notice naming the upgrades
+        // that were just killed is never printed. Reaching the assertion is the
+        // proof -- unhandled, the line above kills this test binary outright.
+        for (flag, want) in [
+            ("-TTIN", SignalAction::Ignore),
+            ("-TTOU", SignalAction::Ignore),
+            ("-CONT", SignalAction::Resumed),
+            ("-TERM", SignalAction::Quit),
+            ("-HUP", SignalAction::Quit),
+        ] {
             let sent = std::process::Command::new("kill")
                 .arg(flag)
                 .arg(std::process::id().to_string())
@@ -956,16 +1238,118 @@ mod terminal_signal_tests {
             assert!(sent.success(), "could not send {flag}");
 
             // Reaching the assertion at all is most of the point: with the
-            // default disposition the process is stopped by the line above and
-            // does not resume without an outside `fg`.
-            let waited = match stream {
-                0 => tokio::time::timeout(Duration::from_secs(5), signals.ttin.recv()).await,
-                1 => tokio::time::timeout(Duration::from_secs(5), signals.ttou.recv()).await,
-                _ => tokio::time::timeout(Duration::from_secs(5), signals.cont.recv()).await,
-            };
+            // default disposition the process is stopped or killed by the line
+            // above and does not carry on without an outside `fg`.
+            let got =
+                tokio::time::timeout(Duration::from_secs(5), next_terminal_signal(&mut signals))
+                    .await;
+            assert_eq!(
+                got.ok(),
+                Some(want),
+                "{flag} must reach the handler rather than end the process"
+            );
+        }
+    }
+}
+
+#[cfg(test)]
+mod reconnect_tests {
+    #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+
+    use super::{reconnect_wait, SessionOutcome, RECONNECT_BACKOFF};
+
+    /// A host that accepts the connection and then fails must still back off.
+    ///
+    /// The count used to be reset the moment `connect` returned, so this
+    /// sequence was `[2, 2, 2, 2, 2]`: one `ssh` process every two seconds,
+    /// forever, against a host that was never going to work. Reaching the
+    /// ceiling is the whole point of a backoff.
+    #[test]
+    fn connecting_is_not_progress() {
+        let mut failures = 0;
+        let waits: Vec<u64> = (0..5)
+            .map(|_| reconnect_wait(SessionOutcome::NoData, &mut failures))
+            .collect();
+        assert_eq!(
+            waits,
+            vec![2, 5, 10, 20, 20],
+            "a failing host must back off"
+        );
+    }
+
+    /// A connection that never opened backs off the same way -- that half
+    /// always worked, and must keep working.
+    #[test]
+    fn an_unreachable_host_backs_off() {
+        let mut failures = 0;
+        let waits: Vec<u64> = (0..5)
+            .map(|_| reconnect_wait(SessionOutcome::NeverConnected, &mut failures))
+            .collect();
+        assert_eq!(waits, vec![2, 5, 10, 20, 20]);
+    }
+
+    /// Delivered data is what proves the host is worth trusting again, so the
+    /// next drop reconnects at the shortest interval rather than the longest.
+    #[test]
+    fn a_session_that_delivered_resets_the_backoff() {
+        let mut failures = 0;
+        for _ in 0..4 {
+            reconnect_wait(SessionOutcome::NoData, &mut failures);
+        }
+        assert_eq!(
+            reconnect_wait(SessionOutcome::Delivered, &mut failures),
+            RECONNECT_BACKOFF[0],
+            "a session that worked must not be punished for the ones before it"
+        );
+    }
+}
+
+#[cfg(test)]
+mod terminal_mode_tests {
+    #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+
+    use super::{enter_terminal_modes, leave_terminal_modes};
+
+    /// Collect the private-mode numbers a writer was asked to set or reset.
+    fn modes(bytes: &[u8], set: bool) -> Vec<String> {
+        let text = String::from_utf8_lossy(bytes).into_owned();
+        let suffix = if set { 'h' } else { 'l' };
+        text.split("\u{1b}[?")
+            .skip(1)
+            .filter_map(|rest| {
+                let end = rest.find(suffix)?;
+                let number = &rest[..end];
+                // `?1000h` and `?1000l` differ only in the last byte, so the
+                // split above hands back the tail of every sequence; take only
+                // the ones whose terminator is the one being looked for.
+                if number.chars().all(|c| c.is_ascii_digit()) && !number.is_empty() {
+                    Some(number.to_string())
+                } else {
+                    None
+                }
+            })
+            .collect()
+    }
+
+    /// The class, not the instance: whatever this program turns on, it must
+    /// turn off again. A mode that only had a setter is exactly how mouse
+    /// reporting survived every panic and left the shell printing escape
+    /// sequences whenever the pointer moved.
+    #[test]
+    fn every_mode_that_is_turned_on_is_turned_off_again() {
+        let mut on = Vec::new();
+        enter_terminal_modes(&mut on).expect("writing to a Vec cannot fail");
+        let mut off = Vec::new();
+        leave_terminal_modes(&mut off);
+
+        let set = modes(&on, true);
+        let reset = modes(&off, false);
+        assert!(!set.is_empty(), "the enter path must turn something on");
+        for mode in &set {
             assert!(
-                waited.is_ok(),
-                "{flag} must reach the handler rather than stop the process"
+                reset.contains(mode),
+                "mode ?{mode} is turned on and never turned off; \
+                 set={set:?} reset={reset:?}"
             );
         }
     }

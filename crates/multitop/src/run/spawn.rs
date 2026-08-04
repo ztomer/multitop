@@ -10,7 +10,7 @@ use crate::ssh;
 use crate::ssh::Mode;
 use crate::stream;
 
-use super::RECONNECT_BACKOFF;
+use super::{reconnect_wait, SessionOutcome};
 use multitop_agent::proto::Payload;
 
 /// One status line for a panel, stamped with the generation this task was
@@ -40,9 +40,13 @@ pub fn spawn_monitor(
                 let _ = status_tx.try_send(frame(idx, epoch, text));
             };
 
-            match stream::connect(&server, Mode::Monitor, sort, notify).await {
+            let outcome = match stream::connect(&server, Mode::Monitor, sort, notify).await {
                 Ok(mut stream) => {
-                    failures = 0;
+                    // Not `failures = 0` here. Connecting is not progress: the
+                    // session has delivered nothing yet, and the failures this
+                    // backoff exists for are exactly the ones that happen after
+                    // the connection is accepted.
+                    let mut delivered = false;
                     let mut errbuf = Vec::new();
                     let mut version_checked = false;
                     let mut mismatched = false;
@@ -72,6 +76,7 @@ pub fn spawn_monitor(
                             }
                         }
                         let dims = *dims_rx.borrow();
+                        delivered = true;
                         if tx
                             .send(super::Msg::Packet {
                                 panel: idx,
@@ -115,14 +120,19 @@ pub fn spawn_monitor(
                             }
                         }
                     }
+                    if delivered {
+                        SessionOutcome::Delivered
+                    } else {
+                        SessionOutcome::NoData
+                    }
                 }
                 Err(e) => {
                     let _ = tx.send(frame(idx, epoch, error_line(e))).await;
+                    SessionOutcome::NeverConnected
                 }
-            }
+            };
 
-            let wait = RECONNECT_BACKOFF[failures.min(RECONNECT_BACKOFF.len() - 1)];
-            failures += 1;
+            let wait = reconnect_wait(outcome, &mut failures);
             sleep(Duration::from_secs(wait)).await;
         }
     })

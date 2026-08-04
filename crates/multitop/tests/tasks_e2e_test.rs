@@ -127,8 +127,7 @@ async fn test_task_cancellation_on_panel_switch() {
         &mut tasks,
     );
 
-    assert!(tasks.aux[0].is_some());
-    assert!(tasks.aux_is_upgrade[0]);
+    assert!(tasks.upgrades[0].is_some());
 
     // Start upgrade on panel 1 - should NOT cancel panel 0's task
     multitop::password_actions::apply(
@@ -144,11 +143,10 @@ async fn test_task_cancellation_on_panel_switch() {
     );
 
     // Panel 0's task should still be running
-    assert!(tasks.aux[0].is_some());
+    assert!(tasks.upgrades[0].is_some());
 
     // Panel 1 should have new task
-    assert!(tasks.aux[1].is_some());
-    assert!(tasks.aux_is_upgrade[1]);
+    assert!(tasks.upgrades[1].is_some());
 
     // Saving a password again for a host that is already mid-upgrade must
     // change nothing about the run.
@@ -179,7 +177,7 @@ async fn test_task_cancellation_on_panel_switch() {
     );
 
     assert!(
-        tasks.aux[0].is_some(),
+        tasks.upgrades[0].is_some(),
         "panel 0's running upgrade must still be there"
     );
     assert_eq!(
@@ -224,4 +222,181 @@ async fn test_concurrent_upgrade_generations_isolated() {
 
     assert!(gen1_done);
     assert!(gen2_done);
+}
+
+/// Switching views during an upgrade must not lose the upgrade's handle.
+///
+/// The two used to share one slot, with a flag saying which of them a view
+/// switch may abort. The flag was obeyed -- the upgrade kept running -- and the
+/// handle was dropped anyway, because `replace` hands back what was there and
+/// the "do not abort" branch simply let it fall. Nothing tracked the upgrade
+/// after that: `abort_all` could not reach it when the user quit, so the SSH
+/// session it owns survived the quit that promised to stop it.
+#[tokio::test]
+async fn a_view_switch_during_an_upgrade_keeps_the_upgrade_tracked() {
+    let _store_guard = enable_mock_store().await;
+    let servers = vec![test_server("127.0.0.1")];
+    let mut app = App::new(servers.clone());
+    let (tx, _rx) = mpsc::channel::<Msg>(100);
+    let mut tasks = multitop::run::Tasks::new(1);
+
+    multitop::password_actions::apply(
+        multitop::passwords::PasswordAction::Save {
+            panel: 0,
+            password: "pw".to_string(),
+            resume_upgrade: true,
+        },
+        &mut app,
+        &servers,
+        &tx,
+        &mut tasks,
+    );
+    assert!(tasks.upgrades[0].is_some(), "the upgrade must have started");
+
+    // `f` -- Fetch -- while that upgrade is running.
+    let (_dims_tx, dims_rx) = tokio::sync::watch::channel((80u16, 24u16));
+    multitop::run::handle_key(
+        crossterm::event::KeyEvent::new_with_kind(
+            crossterm::event::KeyCode::Char('f'),
+            crossterm::event::KeyModifiers::NONE,
+            crossterm::event::KeyEventKind::Press,
+        ),
+        &mut app,
+        &servers,
+        (80, 24),
+        std::sync::Arc::new(dims_rx),
+        &tx,
+        &mut tasks,
+    );
+
+    assert!(
+        tasks.aux[0].is_some(),
+        "the fetch must have started in the view slot"
+    );
+    assert!(
+        tasks.upgrades[0].is_some(),
+        "and the running upgrade must still be tracked, or nothing can stop it"
+    );
+}
+
+/// stderr is read to its own end, not to stdout's.
+///
+/// The two pipes close together when the child exits, so which of them
+/// `select!` polled first decided whether the contents of the stderr pipe were
+/// read or dropped -- and stderr is where the reason lives. Here stdout is
+/// closed first on purpose, which turns that race into a certainty: the old
+/// loop stopped at the first `Ok(None)` from stdout and never came back for
+/// what stderr had to say.
+#[tokio::test]
+async fn stderr_is_still_read_after_stdout_has_closed() {
+    let _store_guard = enable_mock_store().await;
+    let server = Server {
+        host: "localhost".to_string(),
+        port: 0,
+        user: String::new(),
+        upgrade_cmd: Some(
+            "exec 1>&-; sleep 0.2; printf 'the actual reason\\n' >&2; exit 3".to_string(),
+        ),
+    };
+    let (tx, mut rx) = mpsc::channel::<Msg>(100);
+
+    let handle = spawn_upgrade(0, 1, server, None, tx);
+    let mut saw_reason = false;
+    let mut note = None;
+    let collect = async {
+        while let Some(msg) = rx.recv().await {
+            match msg {
+                Msg::AuxLine { line, .. } => {
+                    if line.contains("the actual reason") {
+                        saw_reason = true;
+                    }
+                }
+                Msg::AuxDone { note: n, .. } => {
+                    note = n;
+                    break;
+                }
+                _ => {}
+            }
+        }
+    };
+    tokio::time::timeout(std::time::Duration::from_secs(20), collect)
+        .await
+        .expect("the upgrade task must finish");
+    handle.abort();
+
+    assert!(
+        saw_reason,
+        "the command's stderr must reach the panel; the run reported only {note:?}"
+    );
+}
+
+/// Editing the server list moves every generation, so nothing a running upgrade
+/// sends is ever accepted again. Leaving it running means the transaction
+/// carries on with nothing able to show it, and is then killed without a word
+/// when the app quits. It is stopped here instead, and said out loud.
+#[tokio::test]
+async fn a_server_edit_stops_running_upgrades_and_says_so() {
+    let _store_guard = enable_mock_store().await;
+    let dir = tempfile::tempdir().unwrap();
+    let servers = vec![test_server("127.0.0.1"), test_server("127.0.0.2")];
+    let mut app = App::new(servers.clone());
+    app.config_path = Some(dir.path().join("config.toml"));
+    multitop::passwords::open(&mut app, 0, false);
+
+    let (tx, _rx) = mpsc::channel::<Msg>(100);
+    let mut tasks = multitop::run::Tasks::new(2);
+
+    multitop::password_actions::apply(
+        multitop::passwords::PasswordAction::Save {
+            panel: 0,
+            password: "pw".to_string(),
+            resume_upgrade: true,
+        },
+        &mut app,
+        &servers,
+        &tx,
+        &mut tasks,
+    );
+    assert!(tasks.upgrades[0].is_some(), "the upgrade must have started");
+    assert_eq!(app.panels[0].upgrade_state, UpgradeState::STARTED);
+
+    // The question asked before the key that does it must name the run.
+    let armed = multitop::passwords::handle_key(&mut app, crossterm::event::KeyCode::Char('d'));
+    assert_eq!(armed, multitop::passwords::PasswordAction::None);
+    let asked = app
+        .password_manager
+        .as_ref()
+        .unwrap()
+        .notice
+        .clone()
+        .unwrap_or_default();
+    assert!(
+        asked.contains("interrupts the upgrade"),
+        "the confirmation must say what it is about to interrupt, got {asked:?}"
+    );
+
+    multitop::password_actions::apply(
+        multitop::passwords::PasswordAction::ApplyServers(vec![servers[1].clone()]),
+        &mut app,
+        &servers,
+        &tx,
+        &mut tasks,
+    );
+
+    assert!(
+        tasks.upgrades.iter().all(Option::is_none),
+        "no upgrade may still be running once nothing can report on it"
+    );
+    let told = app
+        .password_manager
+        .as_ref()
+        .unwrap()
+        .notice
+        .clone()
+        .unwrap_or_default();
+    assert!(
+        told.contains("was interrupted") && told.contains("upgrade.lock"),
+        "and the operator must be told which run stopped and what it may have \
+         left behind, got {told:?}"
+    );
 }

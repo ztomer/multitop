@@ -24,6 +24,13 @@ pub fn apply(
                 .as_deref()
                 .ok_or_else(|| "No configuration file is active.".to_string())
                 .and_then(|path| crate::config::save_servers(path, &new_servers));
+            // Read before the swap: `replace_panels` builds fresh panels, and a
+            // fresh panel does not remember that a run was under way.
+            let interrupted = if result.is_ok() {
+                app.running_upgrade_hosts()
+            } else {
+                Vec::new()
+            };
             if result.is_ok() {
                 // Rebuild the panels through `replace_panels`, which bumps every
                 // generation. Assigning `app.panels` directly left the running
@@ -31,13 +38,26 @@ pub fn apply(
                 // the task for the removed host painted whichever host had moved
                 // into its slot. It also carries credentials across the swap.
                 app.replace_panels(new_servers);
+                // Every generation just moved, so no message from a running
+                // upgrade will ever be accepted again: the run would continue on
+                // the remote with nothing able to show it, and then be killed
+                // without a word at quit. Stopping it here is the same act, done
+                // where it can be said out loud. The confirmation that got here
+                // warned first.
+                tasks.abort_upgrades();
             }
             if let Some(manager) = app.password_manager.as_mut() {
                 if !app.panels.is_empty() {
                     manager.selected = manager.selected.min(app.panels.len() - 1);
                 }
                 manager.notice = Some(match result {
-                    Ok(()) => "Server configuration saved.".to_string(),
+                    Ok(()) if interrupted.is_empty() => "Server configuration saved.".to_string(),
+                    Ok(()) => format!(
+                        "Server configuration saved. The upgrade on {} was interrupted -- \
+                         if it had started installing, remove ~/.cache/multitop/upgrade.lock \
+                         on that host before the next run.",
+                        interrupted.join(", ")
+                    ),
                     Err(error) => format!("Could not save server configuration: {error}"),
                 });
             }
@@ -286,10 +306,7 @@ pub fn apply(
                     Some(password),
                     tx.clone(),
                 );
-                tasks.aux_is_upgrade[panel] = true;
-                if let Some(old) = tasks.aux[panel].replace(handle) {
-                    old.abort();
-                }
+                tasks.set_upgrade(panel, handle);
             }
         }
     }

@@ -5,6 +5,15 @@ include!(concat!(env!("OUT_DIR"), "/agents.rs"));
 pub const NEED_AGENT: &str = "===NEEDAGENT===";
 
 pub const SSH_OPTS: &[&str] = &[
+    // Never prompt. Without this, an unknown host key or a passphrase-protected
+    // key sends `ssh` to `/dev/tty` -- which is multitop's terminal, in raw mode
+    // inside the alternate screen. The question is drawn over the frame and its
+    // answer is taken out of the keystrokes the event loop is reading, so the
+    // panel sits on "connecting..." while the display comes apart. Refused, the
+    // same situation is one legible line in the panel: `Host key verification
+    // failed`, or `Permission denied (publickey)`.
+    "-o",
+    "BatchMode=yes",
     "-o",
     "ControlMaster=auto",
     "-o",

@@ -372,7 +372,7 @@ async fn test_saving_a_password_does_not_restart_a_running_upgrade() {
         "no new generation -- a running upgrade must not be superseded"
     );
     assert!(
-        tasks.aux[0].is_none(),
+        tasks.upgrades[0].is_none(),
         "and no replacement task may be spawned over it"
     );
     assert_eq!(
@@ -413,5 +413,8 @@ async fn test_saving_a_password_resumes_a_finished_upgrade() {
         multitop::panel::UpgradeState::STARTED,
         "a run that already finished must resume with the new password"
     );
-    assert!(tasks.aux[0].is_some(), "and a task must be spawned for it");
+    assert!(
+        tasks.upgrades[0].is_some(),
+        "and a task must be spawned for it"
+    );
 }

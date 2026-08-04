@@ -363,10 +363,27 @@ fn row_key(app: &mut App, key: KeyCode) -> PasswordAction {
                 .panels
                 .get(manager.selected)
                 .map_or_else(String::new, |p| p.server.host.clone());
-            manager.pending_delete = Some(manager.selected);
-            manager.notice = Some(format!(
-                "Remove {host} from the configuration? [y] confirm  [Esc] cancel"
-            ));
+            let selected = manager.selected;
+            // Applying the edit stops every run in flight -- the generations all
+            // move, so nothing could report on them afterwards anyway. That is
+            // an interrupted package transaction, and the operator is told
+            // before the key that does it, not after. Asked through the same
+            // method the quit path names its hosts with, so the two answers
+            // cannot drift apart.
+            let running = app.running_upgrade_hosts();
+            let notice = if running.is_empty() {
+                format!("Remove {host} from the configuration? [y] confirm  [Esc] cancel")
+            } else {
+                format!(
+                    "Remove {host}? This interrupts the upgrade running on {}. \
+                     [y] confirm  [Esc] cancel",
+                    running.join(", ")
+                )
+            };
+            if let Some(manager) = app.password_manager.as_mut() {
+                manager.pending_delete = Some(selected);
+                manager.notice = Some(notice);
+            }
         }
         KeyCode::Char('d' | 'D') => {
             manager.notice = Some("Cannot remove the last remaining server.".to_string());
