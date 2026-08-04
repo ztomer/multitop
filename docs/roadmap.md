@@ -43,7 +43,7 @@ server" is not, however it is drawn.
 | Vault + credential path | 7 rounds (1, 2, 3, 4, 4b, 5, 6), all 2026-08-01 | **On a finding.** Round 6 found that a release binary could silently use the mock keystore, and the review stopped there. The next day `29bdbb3` -- rotating the master password could destroy the vault -- turned up during feature work. The subsystem was still producing defects when review stopped looking. |
 | Agent parsing / protocol | 6 fuzz targets, 114M iterations, 0 crashes; plus targeted hardening (bogus chunk size, >64 KiB payload desync, null `ifa_addr`) | Mechanized, still running when asked. The only area no user-reported defect has come from. |
 | Configuration panel | Keystroke-through-render e2e plus a bounded sweep of every key sequence | Not a review round; a harness that closes one class. |
-| Terminal / process lifecycle | Round C, 2026-08-04, three passes so far, with `tests/event_loop_e2e.rs` built for it | **On findings, three times.** 7, then 3, then 1. Each pass believed itself finished. The trend is the right shape and the round is still not dry; a fourth pass is owed. |
+| Terminal / process lifecycle | Round C, 2026-08-04, four passes so far, with `tests/event_loop_e2e.rs` built for it | **On findings, four times.** 7, 3, 1, 2. Each pass believed itself finished; the fourth went back *up* because it opened a part of the loop the first three had not looked at. A falling count is not progress toward zero. A fifth pass is owed. |
 | SSH + upgrade transport | Covered by Round C where the lifecycle reaches it -- child process groups, the two output streams, the session handshake, the packet-decode boundary | Partial. `read_handshake` and `interpret_packet` now have seams and tests; the bootstrap retry was read and found correct; the rest of the framing has not been reviewed. |
 
 Every round that ran found something. That is evidence the rounds were
@@ -104,7 +104,7 @@ keep is what closed the last four: e2e tests that drive real `KeyEvent`s through
 asserting on the final state. The final state can look correct while three
 vaults' worth of work happened.
 
-The streak stops at eight. Round C's eleven findings were all found by review,
+The streak stops at eight. Round C's thirteen findings were all found by review,
 before anyone hit them -- and the reason is the same rule read the other way:
 the round's first act was to build the seam the loop had never had. The area
 with the worst detection record was the area with no harness at all. Where the
@@ -342,7 +342,38 @@ unreachable; and a panic inside a spawned task, which would restore the
 terminal under a still-running app, cannot do that in the shipping profile
 because `panic = "abort"` ends the process instead.
 
-**A fourth pass is owed before this area can be called clean.**
+**Fourth pass: how the loop decides which pane a click or a key means. Two
+more (13 in total), both the same class.**
+
+The class is the one the first pass named and did not finish: **two places
+deriving the layout from different counts.** The first pass caught it between
+the grid and the agents; it is also between the grid and every way of pointing
+at a pane.
+
+- *A click was hit-tested against a grid that was not on screen.* `ui::draw`
+  splits by `filtered_indices().len()`; the hit test split by `panels.len()`
+  and then answered with an index into the *unfiltered* list. With `/db`
+  showing one pane, clicking it selected some other host, and scrolling
+  scrolled that host instead. It also answered "panel 0" for a click that
+  matched no pane at all, so clicking the keybar -- the one row that invites
+  clicking -- moved the selection.
+- *The number keys counted entries in the config, not panes on screen.* Same
+  shape: `2` under a filter selected a host that was not drawn, and every view
+  key after it acted on that host invisibly. Out of range now does nothing,
+  which is the answer a click on no pane gets: the two ways of choosing a pane
+  agree.
+
+**Checked and correct (2):** `f`, `d` and the Upgrade view still switch *every*
+panel's mode rather than only the visible ones, and that is right -- the view
+is global, the destructive *run* is what class F scoped to the filter, and a
+per-pane view mode would leave a mixed grid the moment the filter cleared. The
+"no host matches" screen's `N configured` really does mean the configured
+count, not the visible one.
+
+**A fifth pass is owed. The counts so far are 7, 3, 1, 2** -- the fourth pass
+went back up because it opened a part of the loop the first three had not
+looked at, which is the argument against reading a falling count as progress
+toward zero.
 
 **Checked and deliberately unchanged (1):** `SIGTSTP` is still fatal, and that
 is the right call for now. Raw mode clears `ISIG`, so Ctrl-Z never becomes a

@@ -651,8 +651,17 @@ where
                                 let term_size = terminal.size().unwrap_or_default();
                                 let term_area =
                                     Rect::new(0, 0, term_size.width, term_size.height);
-                                let target_panel =
-                                    panel_at_pos(mouse.column, mouse.row, term_area, app.panels.len());
+                                // The same list `ui::draw` lays the grid out
+                                // from, so the rectangles being tested are the
+                                // ones on screen.
+                                let Some(target_panel) = panel_at_pos(
+                                    mouse.column,
+                                    mouse.row,
+                                    term_area,
+                                    &app.filtered_indices(),
+                                ) else {
+                                    continue;
+                                };
                                 match mouse.kind {
                                     MouseEventKind::Down(
                                         crossterm::event::MouseButton::Left,
@@ -730,17 +739,28 @@ where
     }
 }
 
-fn panel_at_pos(x: u16, y: u16, total_area: Rect, panel_count: usize) -> usize {
-    if panel_count == 0 {
-        return 0;
+/// Which panel a click landed on, or `None` if it landed on no panel at all.
+///
+/// `shown` is the list `ui::draw` laid the grid out from, and both the split
+/// and the answer have to come from it. Splitting by `panels.len()` while the
+/// screen was split by the filtered count meant that with a filter applied the
+/// rectangles being tested against were not the ones on screen, and the index
+/// they produced was an index into the unfiltered list: a click selected some
+/// other host, and a scroll scrolled it.
+///
+/// `None` rather than a fallback of zero. A click on the keybar, or on the gap
+/// under an odd last row, matches no pane -- and answering "panel 0" to that
+/// moved the selection to the first host whenever the user clicked the keys
+/// row, which is the row that invites clicking.
+fn panel_at_pos(x: u16, y: u16, total_area: Rect, shown: &[usize]) -> Option<usize> {
+    if shown.is_empty() {
+        return None;
     }
-    let (areas, _) = crate::ui::regions(total_area, panel_count);
-    for (i, a) in areas.iter().enumerate() {
-        if x >= a.x && x < a.x + a.width && y >= a.y && y < a.y + a.height {
-            return i;
-        }
-    }
-    0
+    let (areas, _) = crate::ui::regions(total_area, shown.len());
+    areas
+        .iter()
+        .position(|a| x >= a.x && x < a.x + a.width && y >= a.y && y < a.y + a.height)
+        .and_then(|slot| shown.get(slot).copied())
 }
 
 /// Dispatch one key press.
@@ -975,9 +995,18 @@ pub fn handle_key(
             crate::passwords::open(app, app.selected_panel, false);
             return;
         }
+        // The number keys count panes on screen, not entries in the config.
+        //
+        // They used to index the unfiltered list and clamp to its end, so with
+        // `/db` showing one pane, `2` selected a host that was not on screen
+        // and every view key after it acted on that host instead. Out of range
+        // now does nothing, which is the same answer a click on no pane gets:
+        // the two ways of choosing a pane agree.
         KeyCode::Char(c @ '1'..='9') => {
-            let idx = ((c as usize) - ('1' as usize)).min(app.panels.len().saturating_sub(1));
-            app.selected_panel = idx;
+            let slot = (c as usize) - ('1' as usize);
+            if let Some(&panel) = app.filtered_indices().get(slot) {
+                app.selected_panel = panel;
+            }
             return;
         }
         KeyCode::Char('c' | 'C') => {
@@ -1256,6 +1285,77 @@ mod terminal_signal_tests {
                 "{flag} must reach the handler rather than end the process"
             );
         }
+    }
+}
+
+#[cfg(test)]
+mod mouse_tests {
+    #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+
+    use super::panel_at_pos;
+    use ratatui::layout::Rect;
+
+    const SCREEN: Rect = Rect {
+        x: 0,
+        y: 0,
+        width: 80,
+        height: 24,
+    };
+
+    /// With nothing filtered out, a click lands on the pane under it.
+    #[test]
+    fn a_click_selects_the_pane_it_is_over() {
+        let shown = [0, 1, 2, 3];
+        assert_eq!(panel_at_pos(5, 2, SCREEN, &shown), Some(0));
+        assert_eq!(panel_at_pos(75, 2, SCREEN, &shown), Some(1));
+        assert_eq!(panel_at_pos(5, 20, SCREEN, &shown), Some(2));
+        assert_eq!(panel_at_pos(75, 20, SCREEN, &shown), Some(3));
+    }
+
+    /// The regression. A filter showing one host draws that host full-screen,
+    /// and a click on it must select *that* host.
+    ///
+    /// The hit test used to split the screen by the total panel count while the
+    /// screen was split by the filtered count, and then answer with an index
+    /// into the unfiltered list. Clicking the only pane on screen selected a
+    /// host that was not on screen, and scrolling scrolled it.
+    #[test]
+    fn a_click_under_a_filter_selects_the_host_that_is_drawn() {
+        let shown = [3];
+        for (x, y) in [(5, 2), (75, 2), (5, 20), (75, 20)] {
+            assert_eq!(
+                panel_at_pos(x, y, SCREEN, &shown),
+                Some(3),
+                "the whole body belongs to the one visible host at ({x}, {y})"
+            );
+        }
+    }
+
+    /// A click that lands on no pane must not move the selection. It used to
+    /// answer "panel 0" -- so clicking the keybar, the one row that invites
+    /// clicking, jumped the selection to the first host.
+    #[test]
+    fn a_click_on_no_pane_selects_nothing() {
+        let shown = [0, 1, 2, 3];
+        assert_eq!(
+            panel_at_pos(10, SCREEN.height - 1, SCREEN, &shown),
+            None,
+            "the keybar row is not a pane"
+        );
+        assert_eq!(
+            panel_at_pos(10, 2, SCREEN, &[]),
+            None,
+            "a filter that matches nothing has no pane to click"
+        );
+    }
+
+    /// An odd panel count leaves the bottom-right corner empty, and that gap is
+    /// not a pane either.
+    #[test]
+    fn the_gap_beside_an_odd_last_row_is_not_a_pane() {
+        let shown = [0, 1, 2];
+        assert_eq!(panel_at_pos(5, 20, SCREEN, &shown), Some(2));
+        assert_eq!(panel_at_pos(75, 20, SCREEN, &shown), None);
     }
 }
 

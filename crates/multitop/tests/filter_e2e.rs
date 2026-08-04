@@ -328,3 +328,54 @@ async fn the_keybar_advertises_the_key() {
         h.screen()
     );
 }
+
+/// The number keys count panes on screen, not entries in the config.
+///
+/// They used to index the unfiltered list and clamp to its end. With `/db`
+/// showing one pane, `2` selected a host that was not on screen -- and every
+/// view key after it acted on that host, invisibly. The panes and the keys that
+/// name them have to be counting the same things.
+#[test]
+fn number_keys_select_visible_panes_only() {
+    let _keychain = isolate_keychain();
+    let mut h = Harness::new();
+
+    // web-01, db-01, web-02, cache-01 -> "web" leaves panes 1 and 2 on screen,
+    // which are indices 0 and 2 in the configured list.
+    h.press(KeyCode::Char('/'));
+    h.type_str("web");
+    h.press(KeyCode::Enter);
+    assert_eq!(
+        h.app.filtered_indices(),
+        vec![0, 2],
+        "the filter must leave exactly the two web hosts"
+    );
+
+    h.press(KeyCode::Char('2'));
+    assert_eq!(
+        h.app.selected_panel, 2,
+        "the second pane on screen is web-02, whatever its index in the config"
+    );
+    assert_eq!(
+        h.app.panels[h.app.selected_panel].server.host, "web-02",
+        "and the selection must name the host the user counted to"
+    );
+
+    h.press(KeyCode::Char('3'));
+    assert_eq!(
+        h.app.selected_panel, 2,
+        "there is no third pane on screen, so nothing may move -- the same \
+         answer a click on no pane gets"
+    );
+}
+
+/// Without a filter the number keys behave exactly as before.
+#[test]
+fn number_keys_still_select_by_position_when_nothing_is_filtered() {
+    let _keychain = isolate_keychain();
+    let mut h = Harness::new();
+
+    h.press(KeyCode::Char('3'));
+    assert_eq!(h.app.selected_panel, 2);
+    assert_eq!(h.app.panels[h.app.selected_panel].server.host, "web-02");
+}
