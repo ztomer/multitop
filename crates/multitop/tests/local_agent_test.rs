@@ -1,3 +1,16 @@
+//! The local-agent path, which does **not** use `ssh` at all.
+//!
+//! `spawn_local_agent` execs the agent binary directly; that is the whole
+//! distinction. These tests were `#[ignore]`d as "requires ssh binary in
+//! PATH" -- and `ssh` is present on every machine that has ever run them, so
+//! the stated precondition was satisfied while the tests still failed. What
+//! they actually need is a built `multitop-agent` the test binary can reach.
+//!
+//! That is the same mistake the seventh review pass fixed in `stream.rs`,
+//! where a local panel's missing agent binary was reported as "ssh command
+//! not found" -- surviving here, in the metadata of the tests that exercise
+//! that very path.
+
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 use multitop::ssh::{spawn_local_agent, Mode};
 use multitop_agent::proto::{decode_packet, Payload};
@@ -6,9 +19,11 @@ use tokio::io::AsyncReadExt;
 use tokio::io::BufReader;
 
 #[tokio::test]
-#[ignore = "requires ssh binary in PATH"]
+#[ignore = "requires a built multitop-agent beside the test binary; run \
+           ./build.sh first, then --ignored"]
 async fn local_agent_streams_binary_packets() {
-    let mut child = spawn_local_agent(Mode::Monitor, SortBy::Cpu).expect("spawn local agent");
+    let mut child = spawn_local_agent(Mode::Monitor, SortBy::Cpu)
+        .expect("spawn the local agent -- NotFound here means multitop-agent is not built");
     let stdout = child.stdout.take().expect("stdout piped");
     let mut reader = BufReader::new(stdout);
 
@@ -40,7 +55,8 @@ async fn local_agent_streams_binary_packets() {
 }
 
 #[tokio::test]
-#[ignore = "requires ssh binary in PATH"]
+#[ignore = "requires a built multitop-agent beside the test binary; run \
+           ./build.sh first, then --ignored"]
 async fn connect_local_server_succeeds_and_streams_snapshots() {
     use multitop::config::Server;
     use multitop::stream::{connect, next_packet};
@@ -54,7 +70,7 @@ async fn connect_local_server_succeeds_and_streams_snapshots() {
 
     let mut stream = connect(&server, Mode::Monitor, SortBy::Cpu, |_| {})
         .await
-        .expect("connect to local server");
+        .expect("connect to the local server -- NotFound here means multitop-agent is not built");
 
     let mut errbuf = Vec::new();
     let payload = next_packet(&mut stream, &mut errbuf)
