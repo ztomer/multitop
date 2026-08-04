@@ -263,9 +263,9 @@ async fn test_upgrade_state_machine_roundtrip() {
 
     // Verify state was persisted (AuxDone updates state.toml with last_update, clears upgrade_started_at)
     let state = multitop::state::load_state(&config_path);
-    assert_eq!(state.last_update, app.last_update);
+    assert_eq!(state.state.last_update, app.last_update);
     assert_eq!(
-        state.upgrade_started_at, None,
+        state.state.upgrade_started_at, None,
         "upgrade_started_at cleared after successful completion"
     );
     assert!(app.panels[0]
@@ -526,8 +526,8 @@ async fn test_upgrade_state_persists_across_app_restart() {
 
     // Verify state file written
     let state = multitop::state::load_state(&config_path);
-    assert_eq!(state.last_update, app.last_update);
-    assert!(state.last_update.is_some());
+    assert_eq!(state.state.last_update, app.last_update);
+    assert!(state.state.last_update.is_some());
 
     // Simulate App restart with same config
     let mut app2 = App::new(vec![local_server("ls -l")]);
@@ -535,7 +535,7 @@ async fn test_upgrade_state_persists_across_app_restart() {
 
     let loaded = multitop::state::load_state(&config_path);
     assert_eq!(
-        loaded.last_update, app.last_update,
+        loaded.state.last_update, app.last_update,
         "last_update should persist across restart"
     );
 }
@@ -773,7 +773,7 @@ fn test_ui_upgrade_modal_confirmation_flow() {
 
     // Verify state.toml written
     let state = multitop::state::load_state(&config_path);
-    assert_eq!(state.upgrade_started_at, app.upgrade_started_at);
+    assert_eq!(state.state.upgrade_started_at, app.upgrade_started_at);
 }
 
 /// Test 17: Switching panes during upgrade preserves task

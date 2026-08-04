@@ -84,7 +84,7 @@ fn test_upgrade_modal_workflow_and_state_saving() {
 
     // Verify state.toml persisted
     let state = state::load_state(&config_path);
-    assert_eq!(state.last_update, app.last_update);
+    assert_eq!(state.state.last_update, app.last_update);
 
     let _ = std::fs::remove_dir_all(&temp_dir);
 }
@@ -105,7 +105,7 @@ fn test_state_persistence_roundtrip() {
     state::save_state(&config_path, &initial).expect("save state");
     let loaded = state::load_state(&config_path);
 
-    assert_eq!(loaded, initial);
+    assert_eq!(loaded.state, initial);
 
     let _ = std::fs::remove_dir_all(&temp_dir);
 }

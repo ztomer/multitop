@@ -530,10 +530,18 @@ where
             );
         }
     }
-    let state = crate::state::load_state(&config_path);
-    app.last_update = state.last_update;
-    app.host_updates = state.hosts;
-    app.upgrade_started_at = state.upgrade_started_at;
+    let loaded = crate::state::load_state(&config_path);
+    app.last_update = loaded.state.last_update;
+    app.host_updates = loaded.state.hosts;
+    app.upgrade_started_at = loaded.state.upgrade_started_at;
+    // A state file that could not be read is not a first run, and saying
+    // nothing made the two identical on screen while the next write destroyed
+    // the evidence.
+    if let Some(notice) = loaded.notice {
+        for p in &mut app.panels {
+            p.note(notice.clone());
+        }
+    }
     // Initialize vault if vault.bin exists
     app.vault = crate::vault::create_vault(&config_path).map(std::sync::Arc::new);
     if let Some(ref tname) = initial_theme {

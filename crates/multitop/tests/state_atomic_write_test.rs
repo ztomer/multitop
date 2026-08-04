@@ -63,7 +63,7 @@ fn a_leftover_temp_file_does_not_block_saving() {
     std::fs::write(&stale, b"garbage from a killed run").unwrap();
 
     save_state(&cfg, &populated()).expect("a stale scratch file must not stop a save");
-    assert_eq!(load_state(&cfg).last_update, Some(1_722_000_600));
+    assert_eq!(load_state(&cfg).state.last_update, Some(1_722_000_600));
 
     let _ = std::fs::remove_dir_all(cfg.parent().unwrap());
 }
@@ -79,9 +79,13 @@ fn a_second_save_replaces_the_first_without_an_empty_window() {
     save_state(&cfg, &next).unwrap();
 
     let loaded = load_state(&cfg);
-    assert_eq!(loaded.last_update, Some(1_722_999_999));
-    assert_eq!(loaded.upgrade_started_at, None);
-    assert_eq!(loaded.hosts.len(), 1, "host records must survive a rewrite");
+    assert_eq!(loaded.state.last_update, Some(1_722_999_999));
+    assert_eq!(loaded.state.upgrade_started_at, None);
+    assert_eq!(
+        loaded.state.hosts.len(),
+        1,
+        "host records must survive a rewrite"
+    );
 
     let _ = std::fs::remove_dir_all(cfg.parent().unwrap());
 }
@@ -119,7 +123,7 @@ fn each_save_publishes_a_new_file_rather_than_truncating_in_place() {
         "the state file was rewritten in place, so a reader can observe it empty \
          between the truncate and the fill"
     );
-    assert_eq!(load_state(&cfg).last_update, Some(1_722_999_999));
+    assert_eq!(load_state(&cfg).state.last_update, Some(1_722_999_999));
 
     let _ = std::fs::remove_dir_all(cfg.parent().unwrap());
 }

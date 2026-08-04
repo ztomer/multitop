@@ -43,7 +43,7 @@ server" is not, however it is drawn.
 | Vault + credential path | 7 rounds (1, 2, 3, 4, 4b, 5, 6), all 2026-08-01 | **On a finding.** Round 6 found that a release binary could silently use the mock keystore, and the review stopped there. The next day `29bdbb3` -- rotating the master password could destroy the vault -- turned up during feature work. The subsystem was still producing defects when review stopped looking. |
 | Agent parsing / protocol | 6 fuzz targets, 114M iterations, 0 crashes; plus targeted hardening (bogus chunk size, >64 KiB payload desync, null `ifa_addr`) | Mechanized, still running when asked. The only area no user-reported defect has come from. |
 | Configuration panel | Keystroke-through-render e2e plus a bounded sweep of every key sequence | Not a review round; a harness that closes one class. |
-| Terminal / process lifecycle | Round C, 2026-08-04, nine passes so far, with `tests/event_loop_e2e.rs` built for it | **On findings, nine times.** 7, 3, 1, 2, 3, 1, 1, 4, 1. What is running out is unexamined surface, not defects. Two classes account for most of them: *one quantity derived in two places by different rules*, and class H, *a failure reported as something else* -- the eighth pass was class H four times out of four. A tenth pass is owed. |
+| Terminal / process lifecycle | Round C, 2026-08-04, ten passes so far, with `tests/event_loop_e2e.rs` built for it | **On findings, ten times.** 7, 3, 1, 2, 3, 1, 1, 4, 1, 2. What is running out is unexamined surface, not defects. Two classes account for most of them: *one quantity derived in two places by different rules*, and class H, *a failure reported as something else* -- the eighth pass was class H four times out of four. An eleventh pass is owed. |
 | SSH + upgrade transport | Covered by Round C where the lifecycle reaches it -- child process groups, the two output streams, the session handshake, the packet-decode boundary, and (eighth pass) every `Err` path out of `next_packet` plus the agent-replacement repair | Partial. `read_handshake`, `interpret_packet`, `framing_lost` and `describe_failure` have seams and tests; the bootstrap retry was read and found correct; the lock wrappers and `upload_agent`'s own framing have not been reviewed. |
 
 Every round that ran found something. That is evidence the rounds were
@@ -104,7 +104,7 @@ keep is what closed the last four: e2e tests that drive real `KeyEvent`s through
 asserting on the final state. The final state can look correct while three
 vaults' worth of work happened.
 
-The streak stops at eight. Round C's twenty-three findings were all found by review,
+The streak stops at eight. Round C's twenty-five findings were all found by review,
 before anyone hit them -- and the reason is the same rule read the other way:
 the round's first act was to build the seam the loop had never had. The area
 with the worst detection record was the area with no harness at all. Where the
@@ -504,7 +504,7 @@ earlier passes only brushed, and the reconnect loop's repair path. Four more
   "agent replaced" -- the only line in that sequence that is not true, about a
   host that was up and had just been talking.
 
-**The counts so far are 7, 3, 1, 2, 3, 1, 1, 4, 1** -- and they are not
+**The counts so far are 7, 3, 1, 2, 3, 1, 1, 4, 1, 2** -- and they are not
 converging. Every pass so far went back up the moment it opened a part of the
 loop the earlier ones had not looked at, which is the argument against reading
 a falling count as progress toward zero. What is running out is *unexamined
@@ -564,6 +564,42 @@ on one path, so the next `return Err` added below it cannot be silent.
 `get`, `last` and `slice` are all safe at length zero (`get` short-circuits
 before the modulo, and `slice` clamps `start` before subtracting), so the floor
 is about what the pane can show, not about a panic.
+
+#### Tenth pass -- persistence, from the loop's side. Two more (25 in total)
+
+Both on the same seam, and the shape is now familiar enough to name in advance:
+**the writer was careful and the reader was not.**
+
+- *A run started by "save the password and resume" never recorded that it
+  started.* There are two ways to begin an upgrade and they disagreed. The
+  confirmation modal writes each host's `started_at` with no `finished_at`,
+  which is exactly how an interrupted run is detected next time. The resume
+  path set only the *global* `upgrade_started_at` and hand-rolled its own
+  `AppState` write, cloning `host_updates` through unchanged -- so a resumed run
+  cut short by a crash or a power loss left that host's record showing whatever
+  was there before it: a previous success, reported afterwards as `Ok`, or
+  nothing at all, reported as "never upgraded". The one record the feature is
+  built on was the one record that path did not write. `App::mark_upgrades_started`
+  is the single place now, and the duplicated `AppState` construction went with
+  it -- the round's *other* class, one quantity assembled in two places by
+  different rules, for the fourth time.
+- *A corrupt `state.toml` read as a first run, and was then overwritten.*
+  `load_state` returned `AppState::default()` for any parse failure, which is
+  the same value a fresh install produces -- so the two were indistinguishable
+  on screen, and the next `persist_state` wrote a new file straight over the old
+  one. The history was not merely ignored, it was destroyed. `write_atomic`
+  exists precisely so an interrupted write cannot lose `upgrade_started_at`;
+  the loader threw it away anyway. It is moved to `state.toml.unreadable` now,
+  out of the way of the next write, and said out loud. A read failure that is
+  not `NotFound` -- a permission change, an I/O error -- was the same lie and
+  gets the same treatment; a genuinely missing file stays silent, because a
+  notice on every fresh install trains the user to ignore the line that matters.
+
+**Checked and correct (2):** `HostUpdate::duration_secs` guards `f >= s`, so a
+clock that went backwards yields `None` rather than underflowing; and
+`insert_opt_u64`'s `expect("u64 fits in i64")` is genuinely unreachable --
+every value that reaches it is either a `SystemTime` epoch second or a value
+that already came back through `u64::try_from(i64)`.
 
 **Checked and deliberately unchanged (1):** the Secure Enclave re-bind in
 `vault::api` is silent by design and stays that way. It runs inside

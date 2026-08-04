@@ -543,3 +543,85 @@ fn a_server_edit_that_interrupts_an_upgrade_still_says_so_after_saving_the_passw
         "without losing what the password half had to say; it said: {notice:?}"
     );
 }
+
+/// A run started by "save the password and resume" must record that it started.
+///
+/// The confirmation modal wrote each host's `started_at`; this path set only
+/// the global `upgrade_started_at` and hand-rolled its own state write, cloning
+/// the per-host records unchanged. So a resumed run cut short by a crash or a
+/// power loss left that host's record showing whatever was there before it --
+/// a previous success, reported afterwards as `Ok`, or nothing at all,
+/// reported as "never upgraded". The one record interrupted-run detection is
+/// built on was the one record this path did not write.
+#[tokio::test]
+async fn a_resumed_upgrade_records_that_it_started() {
+    let _store_guard = setup_mock_store_async().await;
+    let server = test_server("host1");
+    let mut app = App::new(vec![server.clone()]);
+    app.panels[0].mode = Mode::Upgrade;
+
+    let tmp_path = std::env::temp_dir().join(format!(
+        "multitop_test_cfg_resume_{}.toml",
+        std::process::id()
+    ));
+    let _ = std::fs::remove_file(&tmp_path);
+    app.config_path = Some(tmp_path.clone());
+
+    // A previous run that succeeded. If the new run is not recorded, this is
+    // what the panel goes on saying while an upgrade is actually under way.
+    let key = password_store::account(&server);
+    app.host_updates.insert(
+        key.clone(),
+        multitop::state::HostUpdate {
+            started_at: Some(1),
+            finished_at: Some(2),
+            success: true,
+        },
+    );
+
+    let (tx, _rx) = tokio::sync::mpsc::channel::<Msg>(10);
+    let mut tasks = multitop::run::Tasks::new(1);
+
+    multitop::password_actions::apply(
+        PasswordAction::Save {
+            panel: 0,
+            password: "mypassword".to_string(),
+            resume_upgrade: true,
+        },
+        &mut app,
+        std::slice::from_ref(&server),
+        &tx,
+        &mut tasks,
+    );
+
+    let record = app.host_updates.get(&key).copied().unwrap_or_default();
+    assert!(
+        record.started_at.is_some(),
+        "the resumed run must leave a started_at behind"
+    );
+    assert_eq!(
+        record.finished_at, None,
+        "and no finish time, which is what makes an interruption detectable"
+    );
+    assert_eq!(
+        record.outcome(),
+        multitop::state::Outcome::Interrupted,
+        "a run that started and has not reported back is interrupted, \
+         not the previous run's success"
+    );
+
+    // And it reached the disk, not just memory: a crash reads the file.
+    let loaded = multitop::state::load_state(&tmp_path);
+    assert_eq!(
+        loaded
+            .state
+            .hosts
+            .get(&key)
+            .map(multitop::state::HostUpdate::outcome),
+        Some(multitop::state::Outcome::Interrupted),
+        "persisted, or a power loss has nothing to find"
+    );
+
+    let _ = std::fs::remove_file(&tmp_path);
+    let _ = std::fs::remove_file(multitop::state::state_file_path(&tmp_path));
+}

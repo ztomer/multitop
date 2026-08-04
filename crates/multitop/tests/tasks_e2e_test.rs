@@ -100,7 +100,7 @@ async fn test_spawn_upgrade_saves_state_file() {
 
     // State file should be saved with upgrade_started_at
     let state_obj = state::load_state(&tmp_path);
-    assert!(state_obj.upgrade_started_at.is_some());
+    assert!(state_obj.state.upgrade_started_at.is_some());
 
     let _ = std::fs::remove_file(tmp_path);
 }

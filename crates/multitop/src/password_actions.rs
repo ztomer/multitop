@@ -332,20 +332,13 @@ pub fn apply(
                 app.panels[panel].mode = crate::app::Mode::Upgrade;
                 app.panels[panel].upgrade_state = crate::panel::UpgradeState::STARTED;
                 app.panels[panel].upgrade_gen = gen;
-                app.upgrade_started_at = Some(
-                    std::time::SystemTime::now()
-                        .duration_since(std::time::UNIX_EPOCH)
-                        .unwrap_or_default()
-                        .as_secs(),
-                );
-                if let Some(ref path) = app.config_path {
-                    let state = crate::state::AppState {
-                        last_update: app.last_update,
-                        upgrade_started_at: app.upgrade_started_at,
-                        hosts: app.host_updates.clone(),
-                    };
-                    let _ = crate::state::save_state(path, &state);
-                }
+                // The same bookkeeping the confirmation modal does, through the
+                // same method. This used to set only the global
+                // `upgrade_started_at` and hand-roll the state write, so the
+                // host's own `started_at` was never written and a resumed run
+                // cut short was reported afterwards as the *previous* run's
+                // outcome -- a success, or "never upgraded".
+                app.mark_upgrades_started(&[panel]);
                 // Into the ring, not `view`: this panel is in Upgrade mode and
                 // the Upgrade pane is composed from the ring, so a line put in
                 // `view` here would be one nothing draws.

@@ -885,6 +885,48 @@ impl App {
             .as_secs()
     }
 
+    /// Record that an upgrade has just started on each of `panels`, and persist
+    /// it. Hosts with no `upgrade_cmd` are skipped: nothing runs on them.
+    ///
+    /// One place, because there are two ways to start a run and they disagreed.
+    /// The confirmation modal wrote each host's `started_at`; the "save the
+    /// password and resume" path set only the *global* `upgrade_started_at` and
+    /// hand-rolled its own `AppState` write, cloning `host_updates` unchanged.
+    /// So a resumed run cut short by a crash or a power loss left that host's
+    /// record showing whatever was there before it -- a previous success,
+    /// reported afterwards as `Ok`, or nothing at all, reported as
+    /// "never upgraded". The one record interrupted-run detection is built on
+    /// was the one record that path did not write.
+    ///
+    /// The duplicated `AppState` construction is gone with it: this round has
+    /// found the same shape four times now, one quantity assembled in two
+    /// places by different rules.
+    pub fn mark_upgrades_started(&mut self, panels: &[usize]) {
+        let now = Self::now_secs();
+        self.upgrade_started_at = Some(now);
+        // No finish time, deliberately. This is what is left on disk if the app
+        // dies mid-upgrade, and it is exactly how an interrupted run is
+        // detected next time.
+        for &i in panels {
+            let Some(p) = self.panels.get(i) else {
+                continue;
+            };
+            if p.server.upgrade_cmd.is_none() {
+                continue;
+            }
+            let key = crate::password_store::account(&p.server);
+            self.host_updates.insert(
+                key,
+                crate::state::HostUpdate {
+                    started_at: Some(now),
+                    finished_at: None,
+                    success: false,
+                },
+            );
+        }
+        self.persist_state();
+    }
+
     /// Write the whole runtime state, including per-host records, to disk.
     fn persist_state(&self) {
         if let Some(ref path) = self.config_path {
@@ -924,25 +966,8 @@ impl App {
     pub fn confirm_upgrade(&mut self) -> Vec<Command> {
         self.mode = AppMode::Running;
         if self.upgrade_runnable() {
-            let now = Self::now_secs();
-            self.upgrade_started_at = Some(now);
-            // Mark each runnable host as started with no finish time. If the
-            // app dies mid-upgrade this is what is left on disk, and it is
-            // exactly how an interrupted run is detected next time.
-            for i in self.filtered_indices() {
-                if self.panels[i].server.upgrade_cmd.is_some() {
-                    let key = crate::password_store::account(&self.panels[i].server);
-                    self.host_updates.insert(
-                        key,
-                        crate::state::HostUpdate {
-                            started_at: Some(now),
-                            finished_at: None,
-                            success: false,
-                        },
-                    );
-                }
-            }
-            self.persist_state();
+            let shown = self.filtered_indices();
+            self.mark_upgrades_started(&shown);
         }
         self.run_upgrade()
     }

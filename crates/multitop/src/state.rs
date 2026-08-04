@@ -67,14 +67,72 @@ fn get_opt_u64(val: &toml::Value, key: &str) -> Option<u64> {
         .and_then(|n| u64::try_from(n).ok())
 }
 
+/// The state that was loaded, and anything the user has to be told about it.
+///
+/// A bare `AppState` could not distinguish "there is no history yet" from
+/// "the history could not be read", and those are opposite facts. See
+/// [`load_state`].
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct StateLoad {
+    pub state: AppState,
+    /// Set when the file existed and could not be used. `None` on a clean load
+    /// and on a first run.
+    pub notice: Option<String>,
+}
+
+/// Read `state.toml`, and say so when it could not be read.
+///
+/// Returning `AppState::default()` for a corrupt or unreadable file made it
+/// indistinguishable from a first run -- and the *next* `persist_state` then
+/// wrote a fresh file straight over it, so the history was not merely ignored,
+/// it was destroyed. [`write_atomic`] exists precisely so an interrupted write
+/// cannot lose `upgrade_started_at`; the loader threw it away anyway on any
+/// parse error. The writer was careful and the reader was not, which is where
+/// this whole round keeps finding things.
+///
+/// An unreadable file is now moved aside rather than overwritten, so the next
+/// write cannot destroy it and a human can still look at it.
 #[must_use]
-pub fn load_state(config_path: &Path) -> AppState {
+pub fn load_state(config_path: &Path) -> StateLoad {
     let path = state_file_path(config_path);
-    let Ok(text) = std::fs::read_to_string(&path) else {
-        return AppState::default();
+    let text = match std::fs::read_to_string(&path) {
+        Ok(text) => text,
+        // No file is the ordinary first run, and says nothing. Any other read
+        // failure -- a permission change, an I/O error -- is not "no history
+        // ever", and was reported as exactly that.
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return StateLoad::default(),
+        Err(e) => {
+            return StateLoad {
+                state: AppState::default(),
+                notice: Some(format!(
+                    "{} could not be read ({e}); upgrade history is unavailable this session.",
+                    path.display()
+                )),
+            }
+        }
     };
-    let Ok(val) = toml::from_str::<toml::Value>(&text) else {
-        return AppState::default();
+    let val = match toml::from_str::<toml::Value>(&text) {
+        Ok(val) => val,
+        Err(e) => {
+            let kept = path.with_extension("toml.unreadable");
+            let moved = std::fs::rename(&path, &kept).is_ok();
+            return StateLoad {
+                state: AppState::default(),
+                notice: Some(if moved {
+                    format!(
+                        "{} could not be parsed ({e}); it has been kept as {} and a fresh one started.",
+                        path.display(),
+                        kept.display()
+                    )
+                } else {
+                    format!(
+                        "{} could not be parsed ({e}) and could not be moved aside; \
+                         upgrade history is unavailable and will be overwritten.",
+                        path.display()
+                    )
+                }),
+            };
+        }
     };
     let last_update = get_opt_u64(&val, "last_update");
     let upgrade_started_at = get_opt_u64(&val, "upgrade_started_at");
@@ -103,10 +161,13 @@ pub fn load_state(config_path: &Path) -> AppState {
         }
     }
 
-    AppState {
-        last_update,
-        upgrade_started_at,
-        hosts,
+    StateLoad {
+        state: AppState {
+            last_update,
+            upgrade_started_at,
+            hosts,
+        },
+        notice: None,
     }
 }
 
@@ -210,7 +271,8 @@ mod tests {
         save_state(&config_path, &state).unwrap();
         let loaded = load_state(&config_path);
 
-        assert_eq!(loaded, state);
+        assert_eq!(loaded.state, state);
+        assert_eq!(loaded.notice, None, "a clean load says nothing");
 
         let _ = std::fs::remove_dir_all(&temp_dir);
     }
@@ -248,11 +310,15 @@ mod tests {
         save_state(&config_path, &state).unwrap();
         let loaded = load_state(&config_path);
 
-        assert_eq!(loaded, state);
-        assert_eq!(loaded.hosts["admin@web-01:22"].outcome(), Outcome::Ok);
-        assert_eq!(loaded.hosts["admin@web-01:22"].duration_secs(), Some(72));
+        assert_eq!(loaded.state, state);
+        assert_eq!(loaded.notice, None, "a clean load says nothing");
+        assert_eq!(loaded.state.hosts["admin@web-01:22"].outcome(), Outcome::Ok);
         assert_eq!(
-            loaded.hosts["admin@db-02:22"].outcome(),
+            loaded.state.hosts["admin@web-01:22"].duration_secs(),
+            Some(72)
+        );
+        assert_eq!(
+            loaded.state.hosts["admin@db-02:22"].outcome(),
             Outcome::Interrupted
         );
 
@@ -272,9 +338,9 @@ mod tests {
         .unwrap();
 
         let loaded = load_state(&config_path);
-        assert_eq!(loaded.last_update, Some(1_722_000_000));
-        assert_eq!(loaded.upgrade_started_at, Some(1_723_000_000));
-        assert!(loaded.hosts.is_empty());
+        assert_eq!(loaded.state.last_update, Some(1_722_000_000));
+        assert_eq!(loaded.state.upgrade_started_at, Some(1_723_000_000));
+        assert!(loaded.state.hosts.is_empty());
 
         let _ = std::fs::remove_dir_all(&temp_dir);
     }
@@ -326,8 +392,82 @@ mod tests {
         save_state(&config_path, &state).unwrap();
         let loaded = load_state(&config_path);
 
-        assert_eq!(loaded, state);
+        assert_eq!(loaded.state, state);
+        assert_eq!(loaded.notice, None, "a clean load says nothing");
 
         let _ = std::fs::remove_dir_all(&temp_dir);
+    }
+}
+
+#[cfg(test)]
+mod unreadable_state_tests {
+    #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+
+    use super::{load_state, state_file_path, AppState};
+
+    fn scratch(name: &str) -> std::path::PathBuf {
+        let dir =
+            std::env::temp_dir().join(format!("multitop_state_{name}_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        dir.join("config.toml")
+    }
+
+    /// A corrupt state file must not read as a first run.
+    ///
+    /// It did, and that was worse than ignoring it: the next `persist_state`
+    /// wrote a fresh file straight over it, so the history was destroyed rather
+    /// than merely unread. `write_atomic` exists so an interrupted write cannot
+    /// lose `upgrade_started_at`; the loader threw it away anyway.
+    #[test]
+    fn a_corrupt_state_file_is_kept_rather_than_overwritten() {
+        let cfg = scratch("corrupt");
+        let path = state_file_path(&cfg);
+        std::fs::write(&path, "this is not = = toml [[[").unwrap();
+
+        let loaded = load_state(&cfg);
+
+        assert_eq!(
+            loaded.state,
+            AppState::default(),
+            "nothing usable can be recovered from it"
+        );
+        let notice = loaded
+            .notice
+            .expect("a file that could not be parsed is not silence");
+        assert!(
+            notice.contains("could not be parsed"),
+            "the notice must say what happened: {notice}"
+        );
+
+        let kept = path.with_extension("toml.unreadable");
+        assert!(
+            kept.exists(),
+            "the unreadable file must be moved aside, or the next write destroys it"
+        );
+        assert!(
+            !path.exists(),
+            "and out of the way of that write: {}",
+            path.display()
+        );
+        assert_eq!(
+            std::fs::read_to_string(&kept).unwrap(),
+            "this is not = = toml [[[",
+            "kept verbatim, so a human can still look at it"
+        );
+
+        let _ = std::fs::remove_dir_all(cfg.parent().unwrap());
+    }
+
+    /// A first run is the one case that legitimately has no state, and it must
+    /// stay silent -- a notice on every fresh install would train the user to
+    /// ignore the line that matters.
+    #[test]
+    fn a_missing_state_file_says_nothing() {
+        let cfg = scratch("missing");
+        let loaded = load_state(&cfg);
+        assert_eq!(loaded.state, AppState::default());
+        assert_eq!(loaded.notice, None);
+        let _ = std::fs::remove_dir_all(cfg.parent().unwrap());
     }
 }
