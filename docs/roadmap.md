@@ -43,8 +43,8 @@ server" is not, however it is drawn.
 | Vault + credential path | 7 rounds (1, 2, 3, 4, 4b, 5, 6), all 2026-08-01 | **On a finding.** Round 6 found that a release binary could silently use the mock keystore, and the review stopped there. The next day `29bdbb3` -- rotating the master password could destroy the vault -- turned up during feature work. The subsystem was still producing defects when review stopped looking. |
 | Agent parsing / protocol | 6 fuzz targets, 114M iterations, 0 crashes; plus targeted hardening (bogus chunk size, >64 KiB payload desync, null `ifa_addr`) | Mechanized, still running when asked. The only area no user-reported defect has come from. |
 | Configuration panel | Keystroke-through-render e2e plus a bounded sweep of every key sequence | Not a review round; a harness that closes one class. |
-| Terminal / process lifecycle | Round C, 2026-08-04, twelve passes so far, with `tests/event_loop_e2e.rs` built for it | **On findings, twelve times.** 7, 3, 1, 2, 3, 1, 1, 4, 1, 2, 3, 2. What is running out is unexamined surface, not defects. Two classes account for most of them: *one quantity derived in two places by different rules*, and class H, *a failure reported as something else* -- the eighth pass was class H four times out of four. A thirteenth pass is owed. |
-| SSH + upgrade transport | Covered by Round C where the lifecycle reaches it -- child process groups, the two output streams, the session handshake, the packet-decode boundary, and (eighth pass) every `Err` path out of `next_packet` plus the agent-replacement repair | Partial. `read_handshake`, `interpret_packet`, `framing_lost` and `describe_failure` have seams and tests; the bootstrap retry was read and found correct; the lock wrappers were read in the twelfth pass; `upload_agent`'s own framing has not been reviewed. |
+| Terminal / process lifecycle | Round C, 2026-08-04, thirteen passes so far, with `tests/event_loop_e2e.rs` built for it | **On findings, thirteen times.** 7, 3, 1, 2, 3, 1, 1, 4, 1, 2, 3, 2, 2. What is running out is unexamined surface, not defects. Two classes account for most of them: *one quantity derived in two places by different rules*, and class H, *a failure reported as something else* -- the eighth pass was class H four times out of four. A fourteenth pass is owed. |
+| SSH + upgrade transport | Covered by Round C where the lifecycle reaches it -- child process groups, the two output streams, the session handshake, the packet-decode boundary, and (eighth pass) every `Err` path out of `next_packet` plus the agent-replacement repair | Partial. `read_handshake`, `interpret_packet`, `framing_lost` and `describe_failure` have seams and tests; the bootstrap retry was read and found correct; the lock wrappers were read in the twelfth pass and `upload_agent`'s framing in the thirteenth. What remains unreviewed is the bootstrap script's own quoting and the `-tt` pty path. |
 
 Every round that ran found something. That is evidence the rounds were
 productive *and* evidence they stopped too early.
@@ -104,7 +104,7 @@ keep is what closed the last four: e2e tests that drive real `KeyEvent`s through
 asserting on the final state. The final state can look correct while three
 vaults' worth of work happened.
 
-The streak stops at eight. Round C's twenty-nine findings were all found by review,
+The streak stops at eight. Round C's thirty-one findings were all found by review,
 before anyone hit them -- and the reason is the same rule read the other way:
 the round's first act was to build the seam the loop had never had. The area
 with the worst detection record was the area with no harness at all. Where the
@@ -504,7 +504,7 @@ earlier passes only brushed, and the reconnect loop's repair path. Four more
   "agent replaced" -- the only line in that sequence that is not true, about a
   host that was up and had just been talking.
 
-**The counts so far are 7, 3, 1, 2, 3, 1, 1, 4, 1, 2, 3, 2** -- and they are not
+**The counts so far are 7, 3, 1, 2, 3, 1, 1, 4, 1, 2, 3, 2, 2** -- and they are not
 converging. Every pass so far went back up the moment it opened a part of the
 loop the earlier ones had not looked at, which is the argument against reading
 a falling count as progress toward zero. What is running out is *unexamined
@@ -667,6 +667,40 @@ named nowhere. The rule only bites on destructive confirmations, so it is
 enforced by a test per confirmation instead: each renders its own row, asserts
 what it offers, and then asserts that the keys it does not offer do nothing.
 The quit row already had one; the other two have one now.
+
+#### Thirteenth pass -- `upload_agent`'s framing, and `config_ui`. Two more (31 in total)
+
+Both in the one place the round had left untouched, and the second is the
+worst-consequence finding of the whole round.
+
+- *A refused upload was reported as `Broken pipe`.* The agent is several
+  megabytes. If the remote had already given up -- `mkdir` refused on a
+  read-only home, no space in `~/.cache`, a quota -- `write_all(...)?` returned
+  the local pipe error and never reached `wait_with_output`, so the child's
+  stderr, where the actual reason is, was discarded. The operator was told
+  "upload: Broken pipe" about a disk that was full. Same class as the eighth
+  pass's stderr finding in `spawn_upgrade`: stderr is where the reason lives and
+  the pipe closing is the *symptom* of it. The write failure is remembered
+  rather than returned, the child is reaped either way, and `upload_failure`
+  decides -- the remote's complaint wins whenever it made one.
+- ***A truncated agent could be installed, and the install reported as a
+  success.*** `cat` cannot tell a finished stream from an interrupted one: both
+  end in EOF. A connection that dropped partway through left `cat` succeeding on
+  a short file, then `chmod`, then `mv`, and the whole command **exiting 0 with
+  a truncated binary in place as the agent**. The local side said the install
+  worked; the next connection failed to exec it, and the panel blamed the
+  architecture or the bootstrap for a file this program had put there itself.
+  The remote cannot detect this on its own -- the expected length is the one
+  thing only the local side knows -- so it is passed in and checked before the
+  `mv`, the staging file is removed rather than left to accumulate, and the
+  command exits non-zero. Pinned by a test that runs the real script under `sh`
+  against a short stream and asserts the agent did **not** land.
+
+**Checked and correct (1):** `config_ui`'s notice rendering. The delete
+confirmation's `[y] confirm  [Esc] cancel` reaches the screen -- the notice is
+placed above the hints and in the height budget before them, and wrapped rather
+than clipped, both from earlier fixes. `[D] Delete` in the hint row promises
+more than `d` does (it asks first), which is the safe direction and left alone.
 
 **Checked and deliberately unchanged (1):** the remote upgrade lock's `ts` stamp
 is written just after the directory rather than with it, so a crash in that

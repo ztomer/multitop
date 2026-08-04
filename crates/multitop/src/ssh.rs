@@ -61,13 +61,33 @@ pub fn bootstrap_script(mode: Mode, display_ip: &str, sort: SortBy) -> String {
 ///
 /// `token` makes the staging name unique so two panels bootstrapping the same
 /// host cannot have one `mv` the file another is still writing.
+///
+/// # Why the size is checked before the `mv`
+///
+/// `cat` cannot tell a finished stream from an interrupted one -- both end in
+/// EOF. So a connection that dropped partway through a multi-megabyte upload
+/// left `cat` succeeding on a short file, `chmod` succeeding, `mv` succeeding,
+/// and the whole command **exiting 0 with a truncated binary installed as the
+/// agent**. The local side reported a successful install; the next connection
+/// then failed to exec it, and the panel blamed the architecture or the
+/// bootstrap for a file this program had put there itself.
+///
+/// `expected` is the length of the bytes about to be written, which is the one
+/// thing the remote cannot work out for itself. A short file now fails the
+/// check, the staging file is removed rather than left to accumulate, and the
+/// command exits non-zero so the failure is reported instead of installed.
 #[must_use]
-pub fn upload_command(hash: &str, token: &str) -> String {
+pub fn upload_command(hash: &str, token: &str, expected: usize) -> String {
     let dir = "~/.cache/multitop";
     let final_path = format!("{dir}/agent-{hash}");
     let staging = format!("{final_path}.{token}");
+    // `tr -d` because `wc -c` pads its output with leading blanks on some
+    // systems, and `[ "  123" = "123" ]` is false.
     format!(
-        "mkdir -p {dir} && cat > {staging} && chmod 755 {staging} && mv -f {staging} {final_path}"
+        "mkdir -p {dir} && cat > {staging} \
+         && [ \"$(wc -c < {staging} | tr -d '[:space:]')\" = \"{expected}\" ] \
+         && chmod 755 {staging} && mv -f {staging} {final_path} \
+         || {{ rm -f {staging}; echo \"agent upload was incomplete\" >&2; exit 1; }}"
     )
 }
 
@@ -494,7 +514,7 @@ pub async fn upload_agent(server: &Server, arch: Arch, token: &str) -> Result<()
     };
 
     let mut child = ssh_command(server)
-        .arg(upload_command(arch.hash(), token))
+        .arg(upload_command(arch.hash(), token, bytes.len()))
         .stdin(Stdio::piped())
         .stdout(Stdio::null())
         .stderr(Stdio::piped())
@@ -502,19 +522,35 @@ pub async fn upload_agent(server: &Server, arch: Arch, token: &str) -> Result<()
         .spawn()
         .map_err(|e| format!("ssh: {e}"))?;
 
-    if let Some(mut stdin) = child.stdin.take() {
-        stdin
+    // A write failure is *not* returned here, and that is the whole point.
+    //
+    // The agent is several megabytes. If the remote side of the pipe has
+    // already given up -- `mkdir` refused on a read-only home, no space left in
+    // `~/.cache`, a quota -- the write fails with `Broken pipe`, and returning
+    // that discards the child's stderr, which is where the actual reason is.
+    // The operator was told "upload: Broken pipe" about a disk that was full.
+    //
+    // Same class as the eighth pass's stderr finding in `spawn_upgrade`: stderr
+    // is where the reason lives, and the pipe closing is the *symptom* of it.
+    // So the failure is remembered and the child is reaped either way; the
+    // reason below wins whenever there is one.
+    let wrote: Result<(), String> = match child.stdin.take() {
+        Some(mut stdin) => stdin
             .write_all(bytes)
             .await
-            .map_err(|e| format!("upload: {e}"))?;
-        stdin.shutdown().await.map_err(|e| format!("upload: {e}"))?;
-    }
+            .and(stdin.shutdown().await)
+            .map_err(|e| format!("upload: {e}")),
+        None => Ok(()),
+    };
 
     let out = child
         .wait_with_output()
         .await
         .map_err(|e| format!("upload: {e}"))?;
     if out.status.success() {
+        // A clean exit after a failed write is not a success: the remote
+        // command may have ended before it had the whole binary.
+        wrote?;
         // Clean up stale agent binaries left from previous builds.
         // We don't care if this fails — it's best-effort cleanup.
         let _ = ssh_command(server)
@@ -526,11 +562,30 @@ pub async fn upload_agent(server: &Server, arch: Arch, token: &str) -> Result<()
         return Ok(());
     }
     let stderr = String::from_utf8_lossy(&out.stderr);
-    let detail = stderr.lines().next_back().unwrap_or("unknown error");
-    Err(format!(
-        "Could not install agent on {}: {detail}",
-        server.host
+    Err(upload_failure(
+        &server.host,
+        &stderr,
+        wrote.as_ref().err().map(String::as_str),
     ))
+}
+
+/// Which explanation the operator gets when an upload fails.
+///
+/// The remote's own complaint wins whenever it made one. `Broken pipe` on this
+/// side is what a remote refusal *looks like* locally -- the child had already
+/// exited -- so reporting it in place of "No space left on device" names the
+/// symptom and hides the cause. It stands in only when the remote said nothing
+/// at all, where it is the only thing there is to say.
+///
+/// Separated from [`upload_agent`] because reaching that path needs a host that
+/// refuses a multi-megabyte write partway through.
+fn upload_failure(host: &str, stderr: &str, wrote: Option<&str>) -> String {
+    let detail = stderr
+        .lines()
+        .map(str::trim)
+        .rfind(|line| !line.is_empty())
+        .unwrap_or_else(|| wrote.unwrap_or("unknown error"));
+    format!("Could not install agent on {host}: {detail}")
 }
 
 /// True when at least one architecture was compiled in.
@@ -628,5 +683,128 @@ mod sudo_preamble_tests {
             !p.contains("echo '") && !p.contains("--password"),
             "argv is world-readable through /proc on Linux: {p}"
         );
+    }
+}
+
+#[cfg(test)]
+mod upload_failure_tests {
+    #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+
+    use super::upload_failure;
+
+    /// The remote's complaint wins over the local symptom.
+    ///
+    /// A refused write closes the pipe, so this side sees `Broken pipe` while
+    /// the remote is saying "No space left on device". Returning the local
+    /// error -- which is what `write_all(...)?` did -- named the symptom and
+    /// threw away the cause, on the one screen the operator has to work from.
+    /// Same class as the eighth pass's stderr finding in `spawn_upgrade`.
+    #[test]
+    fn the_remote_reason_beats_the_local_broken_pipe() {
+        let msg = upload_failure(
+            "web-01",
+            "cat: write error: No space left on device\n",
+            Some("upload: Broken pipe (os error 32)"),
+        );
+        assert!(
+            msg.contains("No space left on device"),
+            "the cause must survive: {msg}"
+        );
+        assert!(
+            !msg.contains("Broken pipe"),
+            "and the symptom must not stand in for it: {msg}"
+        );
+        assert!(msg.contains("web-01"), "the host is named: {msg}");
+    }
+
+    /// When the remote said nothing, the local error is the only thing there is
+    /// to say -- and saying nothing at all is the defect this whole round keeps
+    /// finding.
+    #[test]
+    fn a_silent_remote_leaves_the_local_error_standing() {
+        let msg = upload_failure("db-02", "   \n\n", Some("upload: Broken pipe"));
+        assert!(msg.contains("Broken pipe"), "{msg}");
+    }
+
+    /// Neither side said anything: still a sentence, never an empty one.
+    #[test]
+    fn a_failure_with_no_detail_at_all_still_names_the_host() {
+        let msg = upload_failure("cache-03", "", None);
+        assert!(msg.contains("cache-03"), "{msg}");
+        assert!(msg.contains("unknown error"), "{msg}");
+    }
+}
+
+#[cfg(test)]
+mod upload_command_tests {
+    #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+
+    use super::upload_command;
+    use std::io::Write as _;
+
+    /// Run the real upload script under `sh` against a scratch HOME, feeding it
+    /// `payload` on stdin, and report (exit ok, whether the agent landed).
+    fn run(payload: &[u8], expected: usize, home: &std::path::Path) -> (bool, bool) {
+        let script = upload_command("deadbeef", "tok", expected).replace("~/", "$HOME/");
+        let mut child = std::process::Command::new("sh")
+            .arg("-c")
+            .arg(&script)
+            .env("HOME", home)
+            .stdin(std::process::Stdio::piped())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .spawn()
+            .unwrap();
+        child.stdin.take().unwrap().write_all(payload).unwrap();
+        let ok = child.wait().unwrap().success();
+        let landed = home.join(".cache/multitop/agent-deadbeef").exists();
+        (ok, landed)
+    }
+
+    fn scratch(name: &str) -> std::path::PathBuf {
+        let dir =
+            std::env::temp_dir().join(format!("multitop_upload_{name}_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    /// A complete upload installs the agent.
+    #[test]
+    fn a_complete_upload_lands() {
+        let home = scratch("complete");
+        let payload = b"ELF-ish agent bytes";
+        let (ok, landed) = run(payload, payload.len(), &home);
+        assert!(ok, "a complete upload must succeed");
+        assert!(landed, "and the agent must be in place");
+        let _ = std::fs::remove_dir_all(&home);
+    }
+
+    /// The regression, and it is the serious half.
+    ///
+    /// `cat` cannot tell a finished stream from an interrupted one -- both end
+    /// in EOF -- so a connection that dropped partway through left `cat`,
+    /// `chmod` and `mv` all succeeding and the whole command **exiting 0 with a
+    /// truncated binary installed as the agent**. The local side reported a
+    /// successful install; the next connection then failed to exec it, and the
+    /// panel blamed the architecture or the bootstrap for a file this program
+    /// had put there itself.
+    #[test]
+    fn a_truncated_upload_is_refused_rather_than_installed() {
+        let home = scratch("truncated");
+        // The stream stopped early: fewer bytes arrive than were promised.
+        let (ok, landed) = run(b"ELF-ish", 19, &home);
+        assert!(!ok, "a short upload must not report success");
+        assert!(
+            !landed,
+            "and above all must not be installed as the agent -- \
+             the next connection would exec it"
+        );
+        let staging = home.join(".cache/multitop/agent-deadbeef.tok");
+        assert!(
+            !staging.exists(),
+            "the staging file must be cleaned up, not left to accumulate"
+        );
+        let _ = std::fs::remove_dir_all(&home);
     }
 }
