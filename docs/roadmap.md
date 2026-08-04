@@ -449,12 +449,59 @@ checks -- and *not* the two CI steps nobody had run:
   this sandbox cannot run the paths that need a real agent binary. **Measure
   coverage in a fresh worktree or not at all.**
 
-**An eighth pass is owed. The counts so far are 7, 3, 1, 2, 3, 1, 1** -- and they are not
+**Eighth pass: the composite Configuration actions, and the stream boundary the
+earlier passes only brushed. Two more (20 in total), both class H. Still
+running -- `ssh.rs`'s own framing and `upgrade_view.rs` have not been re-covered
+yet.**
+
+- *A server edit that could not be written was reported as a saved password.*
+  `ApplyServerEdit` is two operations -- write the server list, then store the
+  password typed in the same editor -- and both report through the panel's one
+  `notice` line. The second assigned it unconditionally, so when `save_servers`
+  failed, "Could not save server configuration: ..." was replaced by "Password
+  saved securely in system credential store." before anything drew it. The edit
+  was discarded and the screen said success. The same overwrite erased, on the
+  path that *succeeds*, the warning naming an upgrade the edit had just
+  interrupted and the lock file it may have left -- the one thing this panel is
+  required to say out loud. `ImportSshHosts` was the second live instance:
+  "Imported 3 hosts" was printed whether or not the file was written.
+  Fixed at the class: `write_servers` is the one place that decides whether a
+  list write landed and returns the answer, so a follow-up cannot run over a
+  failure; and a composite action's second half is joined to the first rather
+  than assigned over it.
+- *A remote that printed a banner instead of running the agent was reported as
+  a closed connection -- or as nothing at all.* `read_handshake` reads the
+  offending line to classify it and then **dropped it**, which made its own
+  doc comment ("left to the packet reader to fail on, so the text lands in the
+  panel") false: the reader failed on the next eight bytes with `invalid magic
+  header`, and all three readers of the stream pattern-match
+  `while let Ok(Some(payload))`, so the `Err` ended their loop and was dropped
+  on the floor. The monitor then said `Connection to <host> closed` about a host
+  that was up and talking; fetch and docker said nothing whatsoever. A shell
+  profile that prints on a non-interactive session is the ordinary way in.
+  The text is carried now, and the reason goes into `errbuf` -- the same bounded
+  buffer the stderr lines use, which all three callers already drain -- so it
+  arrives by the path that exists rather than by a fourth one each caller has to
+  remember. Class H, fifth sibling.
+
+  Folded into the same fix, because it is the round's *other* class one line
+  away: that buffer's bound was written twice with two different rules (`>` on
+  the stderr path, `>=` on the reason path), so it held nine lines or eight
+  depending on which kind of line arrived last. One `note` helper now.
+
+**The counts so far are 7, 3, 1, 2, 3, 1, 1, 2+** -- and they are not
 converging. Every pass so far went back up the moment it opened a part of the
 loop the earlier ones had not looked at, which is the argument against reading
 a falling count as progress toward zero. What is running out is *unexamined
 surface*, not defects; the round ends when a pass covers the same ground and
 finds nothing, not when the number gets small.
+
+**What the eighth pass says about where to look.** Both findings were on a
+*seam between two subsystems* -- Configuration handing to the credential store,
+the handshake handing to the packet reader -- rather than inside either. Class H
+survives at seams because each side is locally correct: `save_servers` returned
+its error honestly and `read_handshake` classified the line correctly. What was
+lost was in the handover.
 
 **Checked and deliberately unchanged (1):** `SIGTSTP` is still fatal, and that
 is the right call for now. Raw mode clears `ISIG`, so Ctrl-Z never becomes a

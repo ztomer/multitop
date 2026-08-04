@@ -8,6 +8,92 @@ use crate::config::Server;
 use crate::passwords::PasswordAction;
 use crate::run::Tasks;
 
+/// Write the server list, rebuild the panels from it, and retire what the
+/// rebuild orphaned. The one place that decides whether a server-list edit
+/// landed.
+///
+/// Every caller that follows a list write with more work -- storing the
+/// password typed in the same editor, saying how many hosts an import added --
+/// has to know whether the write succeeded, because they all report through the
+/// single `notice` line and a success sentence written after a failure erases
+/// it. Returning the answer is what stops that being remembered.
+///
+/// `Ok` carries the hosts whose upgrade the rebuild interrupted.
+fn write_servers(
+    app: &mut App,
+    new_servers: Vec<Server>,
+    tasks: &mut Tasks,
+) -> Result<Vec<String>, String> {
+    let path = app
+        .config_path
+        .clone()
+        .ok_or_else(|| "No configuration file is active.".to_string())?;
+    crate::config::save_servers(&path, &new_servers)?;
+    // Read before the swap: `replace_panels` builds fresh panels, and a fresh
+    // panel does not remember that a run was under way.
+    let interrupted = app.running_upgrade_hosts();
+    // Rebuild through `replace_panels`, which bumps every generation. Assigning
+    // `app.panels` directly left the running monitor tasks matching their old
+    // indices, so after a deletion the task for the removed host painted
+    // whichever host had moved into its slot. It also carries credentials
+    // across the swap.
+    app.replace_panels(new_servers);
+    // Every generation just moved, so no message from a running upgrade will
+    // ever be accepted again: the run would continue on the remote with nothing
+    // able to show it, and then be killed without a word at quit. Stopping it
+    // here is the same act, done where it can be said out loud. The
+    // confirmation that got here warned first.
+    tasks.abort_upgrades();
+    Ok(interrupted)
+}
+
+/// Say what [`write_servers`] did, and keep the selection on a row that exists.
+fn report_server_write(app: &mut App, result: &Result<Vec<String>, String>) {
+    if let Some(manager) = app.password_manager.as_mut() {
+        if !app.panels.is_empty() {
+            manager.selected = manager.selected.min(app.panels.len() - 1);
+        }
+        manager.notice = Some(match result {
+            Ok(interrupted) if interrupted.is_empty() => "Server configuration saved.".to_string(),
+            Ok(interrupted) => format!(
+                "Server configuration saved. The upgrade on {} was interrupted -- \
+                 if it had started installing, remove ~/.cache/multitop/upgrade.lock \
+                 on that host before the next run.",
+                interrupted.join(", ")
+            ),
+            Err(error) => format!("Could not save server configuration: {error}"),
+        });
+    }
+}
+
+/// What the panel is currently saying, if anything.
+fn current_notice(app: &App) -> Option<String> {
+    app.password_manager
+        .as_ref()
+        .and_then(|manager| manager.notice.clone())
+}
+
+/// Put `before` back in front of whatever the notice now says.
+///
+/// One action with two things to report has one line to report them on, and
+/// assigning `notice` in the second half silently erased the first. That is how
+/// a config write that failed was reported as a saved password, and how a
+/// warning naming an upgrade the edit had just interrupted -- the one thing
+/// this panel must say out loud -- disappeared before anything drew it.
+///
+/// Composite actions capture the first half with [`current_notice`], let the
+/// second half report however it likes, and call this. Nothing has to remember
+/// which half writes last.
+fn prepend_notice(app: &mut App, before: Option<String>) {
+    let Some(before) = before else { return };
+    if let Some(manager) = app.password_manager.as_mut() {
+        manager.notice = Some(match manager.notice.take() {
+            Some(after) if after != before => format!("{before} {after}"),
+            _ => before,
+        });
+    }
+}
+
 #[allow(clippy::too_many_lines)]
 pub fn apply(
     action: PasswordAction,
@@ -19,61 +105,26 @@ pub fn apply(
     match action {
         PasswordAction::None => {}
         PasswordAction::ApplyServers(new_servers) => {
-            let result = app
-                .config_path
-                .as_deref()
-                .ok_or_else(|| "No configuration file is active.".to_string())
-                .and_then(|path| crate::config::save_servers(path, &new_servers));
-            // Read before the swap: `replace_panels` builds fresh panels, and a
-            // fresh panel does not remember that a run was under way.
-            let interrupted = if result.is_ok() {
-                app.running_upgrade_hosts()
-            } else {
-                Vec::new()
-            };
-            if result.is_ok() {
-                // Rebuild the panels through `replace_panels`, which bumps every
-                // generation. Assigning `app.panels` directly left the running
-                // monitor tasks matching their old indices, so after a deletion
-                // the task for the removed host painted whichever host had moved
-                // into its slot. It also carries credentials across the swap.
-                app.replace_panels(new_servers);
-                // Every generation just moved, so no message from a running
-                // upgrade will ever be accepted again: the run would continue on
-                // the remote with nothing able to show it, and then be killed
-                // without a word at quit. Stopping it here is the same act, done
-                // where it can be said out loud. The confirmation that got here
-                // warned first.
-                tasks.abort_upgrades();
-            }
-            if let Some(manager) = app.password_manager.as_mut() {
-                if !app.panels.is_empty() {
-                    manager.selected = manager.selected.min(app.panels.len() - 1);
-                }
-                manager.notice = Some(match result {
-                    Ok(()) if interrupted.is_empty() => "Server configuration saved.".to_string(),
-                    Ok(()) => format!(
-                        "Server configuration saved. The upgrade on {} was interrupted -- \
-                         if it had started installing, remove ~/.cache/multitop/upgrade.lock \
-                         on that host before the next run.",
-                        interrupted.join(", ")
-                    ),
-                    Err(error) => format!("Could not save server configuration: {error}"),
-                });
-            }
+            let result = write_servers(app, new_servers, tasks);
+            report_server_write(app, &result);
         }
         PasswordAction::ApplyServerEdit {
             servers: new_servers,
             target_idx,
             password,
         } => {
-            apply(
-                PasswordAction::ApplyServers(new_servers),
-                app,
-                servers,
-                tx,
-                tasks,
-            );
+            let result = write_servers(app, new_servers, tasks);
+            report_server_write(app, &result);
+            // A write that failed left the panels describing the row the editor
+            // no longer shows, so the password typed in that editor belongs to
+            // no host here -- storing it would put it under the identity the
+            // user was editing *away* from. Stop, and leave the failure on
+            // screen: the follow-up's notice used to replace it, so a config
+            // write that never happened was reported as a saved password.
+            if result.is_err() {
+                return;
+            }
+            let reported = current_notice(app);
             if target_idx < app.panels.len() {
                 // `None` means the field was emptied on purpose: take the
                 // stored password back rather than keeping one the editor no
@@ -87,6 +138,7 @@ pub fn apply(
                         }
                     });
                 apply(follow_up, app, servers, tx, tasks);
+                prepend_notice(app, reported);
             }
         }
         PasswordAction::Delete { panel } => {
@@ -184,21 +236,26 @@ pub fn apply(
                     }
                 }
                 Some((merged, added)) => {
-                    // Delegated rather than reimplemented: ApplyServers writes
-                    // config.toml, rebuilds the panels through `replace_panels`
-                    // so stale tasks are retired, and carries credentials across.
-                    apply(
-                        PasswordAction::ApplyServers(merged),
-                        app,
-                        servers,
-                        tx,
-                        tasks,
-                    );
-                    if let Some(manager) = app.password_manager.as_mut() {
-                        let plural = if added == 1 { "host" } else { "hosts" };
-                        manager.notice = Some(format!(
-                            "Imported {added} {plural} from ~/.ssh/config; existing entries were left alone."
-                        ));
+                    // Delegated rather than reimplemented: `write_servers`
+                    // writes config.toml, rebuilds the panels through
+                    // `replace_panels` so stale tasks are retired, and carries
+                    // credentials across.
+                    let result = write_servers(app, merged, tasks);
+                    report_server_write(app, &result);
+                    // Only on success, and in front of what the write said
+                    // rather than over it. "Imported 3 hosts" used to be
+                    // printed whether or not the file was written, and it also
+                    // erased the warning naming an upgrade the import had just
+                    // interrupted.
+                    if result.is_ok() {
+                        let reported = current_notice(app);
+                        if let Some(manager) = app.password_manager.as_mut() {
+                            let plural = if added == 1 { "host" } else { "hosts" };
+                            manager.notice = Some(format!(
+                                "Imported {added} {plural} from ~/.ssh/config; existing entries were left alone."
+                            ));
+                        }
+                        prepend_notice(app, reported);
                     }
                 }
                 None => {

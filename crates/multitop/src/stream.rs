@@ -17,6 +17,14 @@ pub struct PacketStream {
     pub stdout: BufReader<ChildStdout>,
     pub stderr: Lines<BufReader<ChildStderr>>,
     pub pending_header: Option<[u8; 4]>,
+    /// What came out of stdout before the framing did, when it was not framing.
+    ///
+    /// A login banner, a shell profile that prints on a non-interactive
+    /// session, an error from the remote's rc files. [`read_handshake`] reads
+    /// that line to find out what it is; kept here, it is available to say what
+    /// went wrong when the packet reader then fails on it. Dropped, the panel
+    /// could only report a connection that was never closed.
+    pub preamble: Option<String>,
 }
 
 /// What the first bytes of a session turned out to be.
@@ -27,8 +35,13 @@ pub enum Handshake {
     /// The remote has no usable agent for the architecture it named.
     NeedAgent(String),
     /// Something else came out first -- a banner, an error. Left to the packet
-    /// reader to fail on, so the text lands in the panel.
-    Text,
+    /// reader to fail on, and it carries the text so that failure can name it.
+    ///
+    /// The text used to be dropped here, which made the promise above false:
+    /// the reader failed on the *next* eight bytes with `invalid magic header`,
+    /// every caller turned that into `Connection to <host> closed`, and the one
+    /// line that said what was actually wrong had already been thrown away.
+    Text(String),
     /// Nothing came out at all.
     Closed,
 }
@@ -62,9 +75,10 @@ where
     let mut rest = String::new();
     let _ = stdout.read_line(&mut rest).await;
     line.push_str(&rest);
-    ssh::parse_need_agent(&line).map_or(Handshake::Text, |arch| {
-        Handshake::NeedAgent(arch.to_string())
-    })
+    ssh::parse_need_agent(&line).map_or_else(
+        || Handshake::Text(line.trim_end().to_string()),
+        |arch| Handshake::NeedAgent(arch.to_string()),
+    )
 }
 
 /// Say which program could not be started.
@@ -136,14 +150,16 @@ pub async fn connect(
                     stdout,
                     stderr,
                     pending_header: Some(*multitop_agent::proto::MAGIC),
+                    preamble: None,
                 })
             }
-            Handshake::Text => {
+            Handshake::Text(line) => {
                 return Ok(PacketStream {
                     child,
                     stdout,
                     stderr,
                     pending_header: None,
+                    preamble: Some(line),
                 })
             }
             Handshake::NeedAgent(arch) => arch,
@@ -203,10 +219,7 @@ pub async fn next_packet(
                 }
                 Ok(Some(line)) = stream.stderr.next_line() => {
                     if !line.trim().is_empty() {
-                        errbuf.push(line);
-                        if errbuf.len() > MAX_STDERR_LINES {
-                            errbuf.remove(0);
-                        }
+                        note(errbuf, line);
                     }
                 }
             }
@@ -214,10 +227,7 @@ pub async fn next_packet(
     }
 
     if &header[..4] != proto::MAGIC {
-        return Err(std::io::Error::new(
-            std::io::ErrorKind::InvalidData,
-            "invalid magic header",
-        ));
+        return Err(framing_lost(&header, stream.preamble.take(), errbuf));
     }
     let len = u16::from_le_bytes([header[6], header[7]]) as usize;
     let mut payload_bytes = vec![0u8; len];
@@ -228,6 +238,59 @@ pub async fn next_packet(
     full_packet.extend_from_slice(&payload_bytes);
 
     Ok(interpret_packet(&full_packet, header[5], len, errbuf))
+}
+
+/// Add a reason to the bounded buffer the panel reports from.
+///
+/// One bound, in one place. It was written twice with two different rules --
+/// `> MAX_STDERR_LINES` on the stderr path and `>= MAX_STDERR_LINES` on the
+/// reason path -- so the buffer held nine lines or eight depending on which
+/// kind of line arrived last. The same shape as this round's stale panel count,
+/// its hit test and its scroll clamp: one quantity, two places, two rules.
+fn note(errbuf: &mut Vec<String>, reason: String) {
+    if errbuf.len() >= MAX_STDERR_LINES {
+        errbuf.remove(0);
+    }
+    errbuf.push(reason);
+}
+
+/// Say why a packet header was not the agent's framing, and leave the reason
+/// where the panel will find it.
+///
+/// The error itself is not enough, and that is the defect this closes. All
+/// three readers of this stream pattern-match `while let Ok(Some(payload))`,
+/// so an `Err` ends the loop and is dropped on the floor: the monitor then
+/// reported `Connection to <host> closed` about a host that was up and
+/// talking, and the fetch and docker panels reported nothing whatsoever. The
+/// reason goes into `errbuf` -- the same bounded buffer the stderr lines use,
+/// which every one of those three already drains -- so it reaches the panel by
+/// the path that exists rather than by a fourth one each caller must remember.
+///
+/// Class H, and the fifth sibling of it this round: a failure reported as
+/// something else.
+fn framing_lost(
+    header: &[u8],
+    preamble: Option<String>,
+    errbuf: &mut Vec<String>,
+) -> std::io::Error {
+    let reason = preamble.map_or_else(
+        || {
+            format!(
+                "the agent's framing was lost mid-stream (expected a packet header, got {:?}) \
+                 -- the host is reachable; the session is being restarted",
+                String::from_utf8_lossy(header)
+            )
+        },
+        |text| {
+            format!(
+                "the remote sent text where the agent's framing should be, so the agent never \
+                 started -- a login banner or a shell profile that prints on a non-interactive \
+                 session will do this. It said: {text}"
+            )
+        },
+    );
+    note(errbuf, reason.clone());
+    std::io::Error::new(std::io::ErrorKind::InvalidData, reason)
 }
 
 /// Turn a framed packet into a payload, or record why it could not be read.
@@ -252,14 +315,13 @@ fn interpret_packet(
         // look at the network. The framing stayed aligned -- `len` bytes were
         // read either way -- so the session still ends here on purpose, to make
         // the reconnect re-run the version check that should have caught it.
-        let reason = format!(
-            "agent sent a packet this build cannot read (mode {mode}, {len} bytes) \
-             -- the host is reachable; the agent is a different version"
+        note(
+            errbuf,
+            format!(
+                "agent sent a packet this build cannot read (mode {mode}, {len} bytes) \
+                 -- the host is reachable; the agent is a different version"
+            ),
         );
-        if errbuf.len() >= MAX_STDERR_LINES {
-            errbuf.remove(0);
-        }
-        errbuf.push(reason);
     }
     decoded
 }
@@ -363,6 +425,65 @@ mod packet_tests {
         assert_eq!(errbuf.len(), super::MAX_STDERR_LINES);
     }
 
+    /// A remote that printed a banner instead of running the agent must be
+    /// reported as exactly that.
+    ///
+    /// The three readers of this stream all pattern-match
+    /// `while let Ok(Some(payload))`, so the `Err` this returns ends their loop
+    /// and is dropped. What they report is built from `errbuf`: the monitor
+    /// takes its last line and otherwise says `Connection to <host> closed`,
+    /// and fetch and docker say only what is in it. So the reason has to be in
+    /// `errbuf`, not only in the error.
+    #[test]
+    fn a_banner_where_the_framing_should_be_is_not_reported_as_a_closed_connection() {
+        let mut errbuf = Vec::new();
+        let err = super::framing_lost(
+            b"Welcome ",
+            Some("Welcome to Ubuntu 24.04".to_string()),
+            &mut errbuf,
+        );
+
+        assert_eq!(err.kind(), std::io::ErrorKind::InvalidData);
+        assert_eq!(
+            errbuf.len(),
+            1,
+            "the reason must reach the buffer the panel reports from"
+        );
+        assert!(
+            errbuf[0].contains("Welcome to Ubuntu 24.04"),
+            "and it must quote what the remote actually said: {:?}",
+            errbuf[0]
+        );
+        assert!(
+            errbuf[0].contains("login banner"),
+            "and name the cause the operator can act on: {:?}",
+            errbuf[0]
+        );
+    }
+
+    /// A desync with no banner behind it still says the host is reachable,
+    /// rather than leaving the panel to claim it went away.
+    #[test]
+    fn a_mid_stream_desync_still_clears_the_host() {
+        let mut errbuf = Vec::new();
+        super::framing_lost(&[0xff; 8], None, &mut errbuf);
+        assert_eq!(errbuf.len(), 1);
+        assert!(errbuf[0].contains("host is reachable"), "{:?}", errbuf[0]);
+    }
+
+    /// Both reason paths and the stderr path share one bound. They used to be
+    /// written twice with two different rules -- `>` and `>=` -- so the buffer
+    /// held nine lines or eight depending on which kind of line arrived last.
+    #[test]
+    fn every_path_into_the_buffer_respects_one_bound() {
+        let mut errbuf = Vec::new();
+        for i in 0..(super::MAX_STDERR_LINES * 2) {
+            super::note(&mut errbuf, format!("stderr {i}"));
+            super::framing_lost(&[0xff; 8], None, &mut errbuf);
+        }
+        assert_eq!(errbuf.len(), super::MAX_STDERR_LINES);
+    }
+
     /// A packet that decodes is handed back untouched, with nothing added to
     /// the buffer that reports failures.
     #[test]
@@ -441,10 +562,18 @@ mod handshake_tests {
         );
     }
 
+    /// A banner is left for the packet reader to fail on -- and it must be
+    /// carried, not dropped. Dropped, the reader fails on the *next* eight
+    /// bytes with `invalid magic header` and the panel can only say the
+    /// connection closed, about a host that is up and printing a banner.
     #[tokio::test]
-    async fn a_banner_is_left_for_the_packet_reader_to_fail_on() {
+    async fn a_banner_is_carried_so_the_failure_can_name_it() {
         let mut reader = dribbled(b"Welcome to Ubuntu 24.04\n");
-        assert_eq!(read_handshake(&mut reader).await, Handshake::Text);
+        assert_eq!(
+            read_handshake(&mut reader).await,
+            Handshake::Text("Welcome to Ubuntu 24.04".to_string()),
+            "the text that made this not-framed has to survive the handshake"
+        );
     }
 
     /// Fewer than four bytes and then nothing is a closed connection, not a
