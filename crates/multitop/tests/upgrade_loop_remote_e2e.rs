@@ -92,7 +92,10 @@ async fn test_remote_upgrade_basic_command() {
 
     let handle = spawn_upgrade(0, 1, server, None, tx);
     let msgs = collect_until_done(rx).await;
-    let _ = handle.await;
+    // Not `let _ =`: a panic inside the spawned task arrives here as a join
+    // error, and swallowing it leaves the test to fail later for some other
+    // reason -- or to pass. The task is the thing under test.
+    handle.await.expect("the spawned task must not panic");
 
     // AuxBegin with correct panel/gen
     let begin = msgs.iter().find(|m| {
@@ -150,7 +153,10 @@ async fn test_remote_upgrade_with_sudo_password() {
 
     let handle = spawn_upgrade(0, 1, server, Some("test-sudo-pass".to_string()), tx);
     let msgs = collect_until_done(rx).await;
-    let _ = handle.await;
+    // Not `let _ =`: a panic inside the spawned task arrives here as a join
+    // error, and swallowing it leaves the test to fail later for some other
+    // reason -- or to pass. The task is the thing under test.
+    handle.await.expect("the spawned task must not panic");
 
     // Should complete (with or without sudo, depending on host config)
     let has_done = msgs.iter().any(|m| matches!(m, Msg::AuxDone { .. }));
@@ -178,7 +184,10 @@ async fn test_remote_upgrade_failure_exit_code() {
 
     let handle = spawn_upgrade(0, 1, server, None, tx);
     let msgs = collect_until_done(rx).await;
-    let _ = handle.await;
+    // Not `let _ =`: a panic inside the spawned task arrives here as a join
+    // error, and swallowing it leaves the test to fail later for some other
+    // reason -- or to pass. The task is the thing under test.
+    handle.await.expect("the spawned task must not panic");
 
     let done = msgs.iter().find(|m| {
         matches!(
@@ -218,7 +227,10 @@ async fn test_remote_upgrade_empty_command() {
 
     let handle = spawn_upgrade(0, 1, server, None, tx);
     let msgs = collect_until_done(rx).await;
-    let _ = handle.await;
+    // Not `let _ =`: a panic inside the spawned task arrives here as a join
+    // error, and swallowing it leaves the test to fail later for some other
+    // reason -- or to pass. The task is the thing under test.
+    handle.await.expect("the spawned task must not panic");
 
     let begin = msgs.iter().find(|m| matches!(m, Msg::AuxBegin { .. }));
     let done = msgs
@@ -316,7 +328,10 @@ async fn test_remote_upgrade_connection_failure() {
     let (tx, rx) = mpsc::channel::<Msg>(100);
     let handle = spawn_upgrade(0, 1, server, None, tx);
     let msgs = collect_until_done(rx).await;
-    let _ = handle.await;
+    // Not `let _ =`: a panic inside the spawned task arrives here as a join
+    // error, and swallowing it leaves the test to fail later for some other
+    // reason -- or to pass. The task is the thing under test.
+    handle.await.expect("the spawned task must not panic");
 
     // Should get either AuxDone (with error) or Status message
     let has_terminal = msgs
@@ -338,7 +353,10 @@ async fn test_remote_upgrade_multiline_output_ordering() {
 
     let handle = spawn_upgrade(0, 1, server, None, tx);
     let msgs = collect_until_done(rx).await;
-    let _ = handle.await;
+    // Not `let _ =`: a panic inside the spawned task arrives here as a join
+    // error, and swallowing it leaves the test to fail later for some other
+    // reason -- or to pass. The task is the thing under test.
+    handle.await.expect("the spawned task must not panic");
 
     let lines: Vec<String> = msgs
         .iter()
@@ -376,7 +394,10 @@ async fn test_remote_upgrade_stderr_captured() {
 
     let handle = spawn_upgrade(0, 1, server, None, tx);
     let msgs = collect_until_done(rx).await;
-    let _ = handle.await;
+    // Not `let _ =`: a panic inside the spawned task arrives here as a join
+    // error, and swallowing it leaves the test to fail later for some other
+    // reason -- or to pass. The task is the thing under test.
+    handle.await.expect("the spawned task must not panic");
 
     let lines: Vec<String> = msgs
         .iter()
@@ -405,7 +426,10 @@ async fn test_remote_upgrade_large_output() {
 
     let handle = spawn_upgrade(0, 1, server, None, tx);
     let msgs = collect_until_done(rx).await;
-    let _ = handle.await;
+    // Not `let _ =`: a panic inside the spawned task arrives here as a join
+    // error, and swallowing it leaves the test to fail later for some other
+    // reason -- or to pass. The task is the thing under test.
+    handle.await.expect("the spawned task must not panic");
 
     let lines: Vec<String> = msgs
         .iter()

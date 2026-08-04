@@ -44,7 +44,10 @@ async fn test_spawn_upgrade_generation_tracking() {
         other => panic!("Expected AuxBegin with gen=42, got {other:?}"),
     }
 
-    let _ = handle.await;
+    // Not `let _ =`: a panic inside the spawned task arrives here as a join
+    // error, and swallowing it leaves the test to fail later for some other
+    // reason -- or to pass. The task is the thing under test.
+    handle.await.expect("the spawned task must not panic");
 }
 
 #[tokio::test]

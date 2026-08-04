@@ -471,11 +471,23 @@ async fn test_vault_biometric_task_emits_fallback_on_unavailable() {
             }
         }
     });
-    let _ = handle.await;
+    // Not `let _ =`. A panic inside the task is delivered here as a join error,
+    // and swallowing it left the *only* symptom being the timeout below
+    // elapsing ten seconds later and reporting "task must emit a message" --
+    // which is true, and says nothing about why. Class H, in the harness: a
+    // failure reported as something else, with the cause discarded one line
+    // above the report.
+    handle
+        .await
+        .expect("the biometric task must not panic -- its panic is the finding");
 
+    // The task has already finished, so the message is queued and this returns
+    // at once. The bound is only so a task that somehow sent nothing fails the
+    // test instead of hanging it; if it ever *does* elapse, the reason is the
+    // task, and the line above is what will say so.
     let msg = tokio::time::timeout(std::time::Duration::from_secs(10), rx.recv())
         .await
-        .expect("task must emit a message")
+        .expect("the finished task must have left a message behind")
         .expect("channel must not close");
 
     // Apply the task's outcome to the app.

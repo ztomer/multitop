@@ -126,7 +126,10 @@ async fn test_upgrade_single_server_streams_exact_output() {
 
     let mut collector = MsgCollector::new(rx);
     let done = collector.wait_for_done().await.expect("Expected AuxDone");
-    let _ = handle.await;
+    // Not `let _ =`: a panic inside the spawned task arrives here as a join
+    // error, and swallowing it leaves the test to fail later for some other
+    // reason -- or to pass. The task is the thing under test.
+    handle.await.expect("the spawned task must not panic");
 
     match done {
         Msg::AuxDone {
@@ -200,7 +203,10 @@ async fn test_upgrade_failure_reports_nonzero_exit() {
 
     let mut collector = MsgCollector::new(rx);
     let done = collector.wait_for_done().await.expect("Expected AuxDone");
-    let _ = handle.await;
+    // Not `let _ =`: a panic inside the spawned task arrives here as a join
+    // error, and swallowing it leaves the test to fail later for some other
+    // reason -- or to pass. The task is the thing under test.
+    handle.await.expect("the spawned task must not panic");
 
     match done {
         Msg::AuxDone {
@@ -284,7 +290,10 @@ async fn test_upgrade_empty_output_handled() {
 
     let mut collector = MsgCollector::new(rx);
     let done = collector.wait_for_done().await.expect("Expected AuxDone");
-    let _ = handle.await;
+    // Not `let _ =`: a panic inside the spawned task arrives here as a join
+    // error, and swallowing it leaves the test to fail later for some other
+    // reason -- or to pass. The task is the thing under test.
+    handle.await.expect("the spawned task must not panic");
 
     match done {
         Msg::AuxDone {
@@ -307,7 +316,10 @@ async fn test_upgrade_carriage_return_cleaned() {
 
     let mut collector = MsgCollector::new(rx);
     let msgs = collector.collect_all().await;
-    let _ = handle.await;
+    // Not `let _ =`: a panic inside the spawned task arrives here as a join
+    // error, and swallowing it leaves the test to fail later for some other
+    // reason -- or to pass. The task is the thing under test.
+    handle.await.expect("the spawned task must not panic");
 
     let progress_lines: Vec<String> = msgs
         .iter()
@@ -403,7 +415,10 @@ async fn test_upgrade_vault_password_preloaded() {
 
     let mut collector = MsgCollector::new(rx);
     let done = collector.wait_for_done().await.expect("Expected AuxDone");
-    let _ = handle.await;
+    // Not `let _ =`: a panic inside the spawned task arrives here as a join
+    // error, and swallowing it leaves the test to fail later for some other
+    // reason -- or to pass. The task is the thing under test.
+    handle.await.expect("the spawned task must not panic");
 
     match done {
         Msg::AuxDone { success: true, .. } => {}

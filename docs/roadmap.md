@@ -43,7 +43,7 @@ server" is not, however it is drawn.
 | Vault + credential path | 7 rounds (1, 2, 3, 4, 4b, 5, 6), all 2026-08-01 | **On a finding.** Round 6 found that a release binary could silently use the mock keystore, and the review stopped there. The next day `29bdbb3` -- rotating the master password could destroy the vault -- turned up during feature work. The subsystem was still producing defects when review stopped looking. |
 | Agent parsing / protocol | 6 fuzz targets, 114M iterations, 0 crashes; plus targeted hardening (bogus chunk size, >64 KiB payload desync, null `ifa_addr`) | Mechanized, still running when asked. The only area no user-reported defect has come from. |
 | Configuration panel | Keystroke-through-render e2e plus a bounded sweep of every key sequence | Not a review round; a harness that closes one class. |
-| Terminal / process lifecycle | Round C, 2026-08-04, sixteen passes so far, with `tests/event_loop_e2e.rs` built for it | **On findings, sixteen times.** 7, 3, 1, 2, 3, 1, 1, 4, 1, 2, 3, 2, 2, 2, 1, 1. What is running out is unexamined surface, not defects. Two classes account for most of them: *one quantity derived in two places by different rules*, and class H, *a failure reported as something else* -- the eighth pass was class H four times out of four. A seventeenth pass is owed. The fifteenth and sixteenth both re-covered this session's own work and both found something there, so the round has still never terminated correctly. The seventeenth starts with the unreproduced suite failure the sixteenth recorded. |
+| Terminal / process lifecycle | Round C, 2026-08-04, seventeen passes so far, with `tests/event_loop_e2e.rs` built for it | **On findings, seventeen times.** 7, 3, 1, 2, 3, 1, 1, 4, 1, 2, 3, 2, 2, 2, 1, 1, 1. What is running out is unexamined surface, not defects. Two classes account for most of them: *one quantity derived in two places by different rules*, and class H, *a failure reported as something else* -- the eighth pass was class H four times out of four. An eighteenth pass is owed. Three consecutive passes re-covered this session's own work and all three found something -- the seventeenth in the test harness itself. |
 | SSH + upgrade transport | Covered by Round C where the lifecycle reaches it -- child process groups, the two output streams, the session handshake, the packet-decode boundary, and (eighth pass) every `Err` path out of `next_packet` plus the agent-replacement repair | Partial. `read_handshake`, `interpret_packet`, `framing_lost` and `describe_failure` have seams and tests; the bootstrap retry was read and found correct; the lock wrappers were read in the twelfth pass and `upload_agent`'s framing in the thirteenth. The bootstrap quoting and the `-tt` pty path were read in the fourteenth. No named part of the transport is unreviewed now. |
 
 Every round that ran found something. That is evidence the rounds were
@@ -104,7 +104,7 @@ keep is what closed the last four: e2e tests that drive real `KeyEvent`s through
 asserting on the final state. The final state can look correct while three
 vaults' worth of work happened.
 
-The streak stops at eight. Round C's thirty-five findings were all found by review,
+The streak stops at eight. Round C's thirty-six findings were all found by review,
 before anyone hit them -- and the reason is the same rule read the other way:
 the round's first act was to build the seam the loop had never had. The area
 with the worst detection record was the area with no harness at all. Where the
@@ -504,7 +504,7 @@ earlier passes only brushed, and the reconnect loop's repair path. Four more
   "agent replaced" -- the only line in that sequence that is not true, about a
   host that was up and had just been talking.
 
-**The counts so far are 7, 3, 1, 2, 3, 1, 1, 4, 1, 2, 3, 2, 2, 2, 1, 1** -- and they are not
+**The counts so far are 7, 3, 1, 2, 3, 1, 1, 4, 1, 2, 3, 2, 2, 2, 1, 1, 1** -- and they are not
 converging. Every pass so far went back up the moment it opened a part of the
 loop the earlier ones had not looked at, which is the argument against reading
 a falling count as progress toward zero. What is running out is *unexamined
@@ -780,6 +780,36 @@ run the panel on the work you are pleased with.
   through `show_frame`, and `monitor-with-notice` renders one at all four sizes.
   Confirmed by reading the frame rather than the assertion -- the notice appears
   in both panes at 80x24.
+
+#### Seventeenth pass -- the unreproduced failure the sixteenth wrote down. One more (36 in total)
+
+Started by identifying the binary: `vault_upgrade_e2e` is the only one with
+fifteen tests. Six isolated runs of it and four full workspace runs were all
+green, so reproduction was abandoned in favour of reading it -- and the reading
+found something better than the flake.
+
+- *The e2e harness swallowed task panics and reported them as something else.*
+  Fourteen sites across four files did `let _ = handle.await;` on a
+  production spawn awaited to completion. A panic inside `spawn_upgrade` --
+  which has `expect("stdout piped")` in it -- arrives there as a join error, and
+  `let _ =` discards it. In `vault_upgrade_e2e` the *only* remaining symptom
+  was the `timeout(10s, rx.recv())` two lines below elapsing and reporting
+  "task must emit a message": true, ten seconds late, and silent about why.
+  That is class H inside the instrument, and it is a complete explanation for a
+  failure that appears once under load and says nothing useful.
+
+  Proven by injecting a `panic!` at the top of `spawn_upgrade`: with the fix the
+  test fails at the join with "the spawned task must not panic"; without it, the
+  panic never reaches the test at all.
+
+  Whether it is *the* failure the sixteenth pass saw is not established, and is
+  not claimed. What is established is that if it happens again, the suite will
+  now say what happened.
+
+**Also found, not a defect (1):** `upgrade_view_live_e2e`'s four tests are all
+`#[ignore]`d, so the twelfth pass's edits to them -- swapping the unnamed `y`
+confirm for the named `u` -- compile here but have never run. They are in the
+`--ignored` set the seventh pass established this sandbox cannot execute.
 
 **Not diagnosed, and recorded rather than forgotten (1).** One workspace run
 during this pass reported `14 passed; 1 failed` in a fifteen-test binary -- one
