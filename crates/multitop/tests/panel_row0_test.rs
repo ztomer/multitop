@@ -53,7 +53,7 @@ fn the_scroll_badge_survives_into_the_rendered_frame() {
     app.panels[0].scroll_offset = 40;
 
     let mut term = ratatui::Terminal::new(ratatui::backend::TestBackend::new(80, 24)).unwrap();
-    term.draw(|f| multitop::ui::draw(f, &app)).unwrap();
+    term.draw(|f| multitop::ui::draw(f, &mut app)).unwrap();
     let screen: String = term
         .backend()
         .buffer()
@@ -77,14 +77,14 @@ fn the_scroll_badge_survives_into_the_rendered_frame() {
 #[test]
 fn a_connecting_host_says_connecting() {
     let _keychain = isolate_keychain();
-    let app = multitop::app::App::new(vec![multitop::config::Server {
+    let mut app = multitop::app::App::new(vec![multitop::config::Server {
         host: "web-01".to_string(),
         port: 22,
         user: "admin".to_string(),
         upgrade_cmd: None,
     }]);
     let mut term = ratatui::Terminal::new(ratatui::backend::TestBackend::new(80, 24)).unwrap();
-    term.draw(|f| multitop::ui::draw(f, &app)).unwrap();
+    term.draw(|f| multitop::ui::draw(f, &mut app)).unwrap();
     let screen: String = term
         .backend()
         .buffer()
@@ -116,7 +116,7 @@ fn two_hosts_never_share_a_banner() {
         "webserver-03",
         "webserver-04",
     ];
-    let app = multitop::app::App::new(
+    let mut app = multitop::app::App::new(
         hosts
             .iter()
             .map(|h| multitop::config::Server {
@@ -131,7 +131,7 @@ fn two_hosts_never_share_a_banner() {
     for width in [40u16, 60, 80, 120] {
         let mut term =
             ratatui::Terminal::new(ratatui::backend::TestBackend::new(width, 16)).unwrap();
-        term.draw(|f| multitop::ui::draw(f, &app)).unwrap();
+        term.draw(|f| multitop::ui::draw(f, &mut app)).unwrap();
         let buf = term.backend().buffer();
         let cols = buf.area.width as usize;
         let rows: Vec<String> = buf

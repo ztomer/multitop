@@ -794,7 +794,16 @@ fn draw_modals(f: &mut Frame, app: &App) {
 }
 
 #[allow(clippy::too_many_lines)]
-pub fn draw(f: &mut Frame, app: &App) {
+/// Draw one frame.
+///
+/// Takes `&mut App` for one reason: the scroll offset is bounded here and
+/// nowhere else. `App::scroll_up` cannot know a pane's height, so its own
+/// clamp was `pane_len - 1` -- looser than the real limit by the height of the
+/// pane. Scrolling to the top left the stored offset far past anything the
+/// view could use, and the next dozen presses in the other direction moved
+/// nothing: a key that reads as dead. The effective offset computed for the
+/// frame is written back, so what is stored is always what is shown.
+pub fn draw(f: &mut Frame, app: &mut App) {
     if app.password_manager.is_some() {
         crate::config_ui::draw(f, app);
         draw_modals(f, app);
@@ -819,6 +828,8 @@ pub fn draw(f: &mut Frame, app: &App) {
         theme.ratatui_keybar_bg.2,
     );
 
+    // Collected rather than written in the loop, which holds `app` immutably.
+    let mut effective_offsets: Vec<(usize, usize)> = Vec::with_capacity(shown.len());
     for (&idx, area) in shown.iter().zip(&panel_areas) {
         let panel = &app.panels[idx];
         let inner = Rect {
@@ -837,6 +848,7 @@ pub fn draw(f: &mut Frame, app: &App) {
             inner.width as usize,
             panel.scroll_offset,
         );
+        effective_offsets.push((idx, badge_offset));
         if !lines.is_empty() {
             let host_name = panel
                 .last_monitor
@@ -916,6 +928,15 @@ pub fn draw(f: &mut Frame, app: &App) {
             }
         }
         f.render_widget(Paragraph::new(ansi::to_text(&lines)), inner);
+    }
+    // What is stored becomes what was shown. Without this the offset kept
+    // whatever `App::scroll_up` allowed, which is the pane's height further
+    // back than the view can go, and every press in the other direction was
+    // spent walking back through that gap with nothing moving on screen.
+    for (idx, offset) in effective_offsets {
+        if let Some(p) = app.panels.get_mut(idx) {
+            p.scroll_offset = offset;
+        }
     }
     let active_mode = app
         .panels

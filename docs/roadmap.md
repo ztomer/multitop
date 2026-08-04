@@ -43,7 +43,7 @@ server" is not, however it is drawn.
 | Vault + credential path | 7 rounds (1, 2, 3, 4, 4b, 5, 6), all 2026-08-01 | **On a finding.** Round 6 found that a release binary could silently use the mock keystore, and the review stopped there. The next day `29bdbb3` -- rotating the master password could destroy the vault -- turned up during feature work. The subsystem was still producing defects when review stopped looking. |
 | Agent parsing / protocol | 6 fuzz targets, 114M iterations, 0 crashes; plus targeted hardening (bogus chunk size, >64 KiB payload desync, null `ifa_addr`) | Mechanized, still running when asked. The only area no user-reported defect has come from. |
 | Configuration panel | Keystroke-through-render e2e plus a bounded sweep of every key sequence | Not a review round; a harness that closes one class. |
-| Terminal / process lifecycle | Round C, 2026-08-04, five passes so far, with `tests/event_loop_e2e.rs` built for it | **On findings, five times.** 7, 3, 1, 2, 3. Each pass believed itself finished, and each went back up the moment it opened surface the earlier ones had not. What is running out is unexamined surface, not defects. A sixth pass is owed. |
+| Terminal / process lifecycle | Round C, 2026-08-04, six passes so far, with `tests/event_loop_e2e.rs` built for it | **On findings, six times.** 7, 3, 1, 2, 3, 1. What is running out is unexamined surface, not defects, and one class -- *one quantity bounded or derived in two places by different rules* -- accounts for three of them. A seventh pass is owed. |
 | SSH + upgrade transport | Covered by Round C where the lifecycle reaches it -- child process groups, the two output streams, the session handshake, the packet-decode boundary | Partial. `read_handshake` and `interpret_packet` now have seams and tests; the bootstrap retry was read and found correct; the rest of the framing has not been reviewed. |
 
 Every round that ran found something. That is evidence the rounds were
@@ -104,7 +104,7 @@ keep is what closed the last four: e2e tests that drive real `KeyEvent`s through
 asserting on the final state. The final state can look correct while three
 vaults' worth of work happened.
 
-The streak stops at eight. Round C's sixteen findings were all found by review,
+The streak stops at eight. Round C's seventeen findings were all found by review,
 before anyone hit them -- and the reason is the same rule read the other way:
 the round's first act was to build the seam the loop had never had. The area
 with the worst detection record was the area with no harness at all. Where the
@@ -395,7 +395,31 @@ key and mouse paths feed. Three more (16 in total).**
 The last two are the fourth pass's class again, one level down: a key acting on
 a different set than the keys beside it.
 
-**A sixth pass is owed. The counts so far are 7, 3, 1, 2, 3** -- and they are not
+**Sixth pass: the remaining `Msg` arms and the pane windowing. One more (17 in
+total), and it is the round's class for the third time.**
+
+- *The scroll offset was bounded in two places by different rules.*
+  `App::scroll_up` clamps to `pane_len - 1` because it cannot know a pane's
+  height; the view can only go back `pane_len - height`. So the stored offset
+  could sit a whole pane-height past anything the view could use, and the next
+  dozen presses the other way moved nothing on screen -- a key that reads as
+  dead, which is the same complaint the rule about swallowed clicks exists for.
+  The fifth pass's `Home` fix made it worse by driving the offset straight to
+  the looser bound.
+
+  Fixed where the bound is actually known: `ui::draw` takes `&mut App` and
+  writes the offset it used back, so what is stored is always what was shown.
+  One clamp, in the one place with the height. **This is the same class as the
+  first pass's stale panel count and the fourth pass's hit test** -- one
+  quantity, two places, two rules -- for the third time in one round, which is
+  the argument for treating it as the round's finding rather than three.
+
+**Checked and correct (3):** `AuxLine`, `AuxBegin` and `AuxDone` are all
+guarded, and their `upgrade_gen` path cannot collide with a rebuilt panel --
+fresh panels carry `upgrade_gen: 0` and a state that is not `STARTED`, and the
+generations only move upward.
+
+**A seventh pass is owed. The counts so far are 7, 3, 1, 2, 3, 1** -- and they are not
 converging. Every pass so far went back up the moment it opened a part of the
 loop the earlier ones had not looked at, which is the argument against reading
 a falling count as progress toward zero. What is running out is *unexamined

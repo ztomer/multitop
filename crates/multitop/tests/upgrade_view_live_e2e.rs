@@ -162,10 +162,10 @@ impl Live {
     }
 
     /// What the user would actually see, after layout and truncation.
-    fn rendered(&self) -> String {
+    fn rendered(&mut self) -> String {
         let backend = TestBackend::new(100, 30);
         let mut term = Terminal::new(backend).unwrap();
-        term.draw(|f| multitop::ui::draw(f, &self.app)).unwrap();
+        term.draw(|f| multitop::ui::draw(f, &mut self.app)).unwrap();
         let buf = term.backend().buffer().clone();
         (0..buf.area.height)
             .map(|y| {

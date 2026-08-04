@@ -166,7 +166,7 @@ impl Harness {
     /// Render the frame this state produces. The assertion is that it returns.
     fn draw(&mut self) {
         self.terminal
-            .draw(|f| multitop::ui::draw(f, &self.app))
+            .draw(|f| multitop::ui::draw(f, &mut self.app))
             .unwrap();
     }
 

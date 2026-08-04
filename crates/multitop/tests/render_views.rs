@@ -391,11 +391,11 @@ fn every_screen_renders_at_every_size() {
         let dir = root.join(format!("{cols}x{rows}"));
         std::fs::create_dir_all(&dir).unwrap();
         for screen in SCREENS {
-            let app = (screen.build)((cols, rows));
+            let mut app = (screen.build)((cols, rows));
             let mut term = Terminal::new(TestBackend::new(cols, rows)).unwrap();
             // The assertion is that this returns. A widget given a `Rect`
             // outside the frame panics inside ratatui rather than clipping.
-            term.draw(|f| multitop::ui::draw(f, &app))
+            term.draw(|f| multitop::ui::draw(f, &mut app))
                 .unwrap_or_else(|e| panic!("{} at {cols}x{rows}: {e}", screen.name));
             std::fs::write(dir.join(format!("{}.txt", screen.name)), frame(&term)).unwrap();
         }

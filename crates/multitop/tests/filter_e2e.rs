@@ -130,7 +130,7 @@ impl Harness {
         // glyph itself covers both columns.
         self.terminal.clear().unwrap();
         self.terminal
-            .draw(|f| multitop::ui::draw(f, &self.app))
+            .draw(|f| multitop::ui::draw(f, &mut self.app))
             .unwrap();
     }
 
@@ -380,23 +380,27 @@ fn number_keys_still_select_by_position_when_nothing_is_filtered() {
     assert_eq!(h.app.panels[h.app.selected_panel].server.host, "web-02");
 }
 
-/// `Home` goes to the oldest line the pane holds, and `End` comes back -- both
-/// on the pane the user is looking at, and only that pane.
+/// `Home` goes as far back as the pane can show, `End` comes back, and every
+/// press in between moves the view by exactly one line.
 ///
-/// `Home` used to subtract one from the offset, which is a scroll of one line
-/// towards the *newest*: the key advertised as "top" moved the other way. `End`
-/// used to reset every pane in the grid, so returning one pane to the bottom
-/// silently threw away where the user had scrolled all the others to.
+/// Three defects meet here. `Home` used to subtract one from the offset, and
+/// the offset counts lines scrolled *back* -- so the key advertised as "top"
+/// moved one line towards the newest. `End` used to reset every pane in the
+/// grid, so returning one pane to the bottom threw away where the user had
+/// scrolled all the others to. And the offset was bounded in two places by
+/// different rules: `App::scroll_up` clamps to `pane_len - 1` because it cannot
+/// know a pane's height, while the view can only go back `pane_len - height` --
+/// so an offset could sit a whole pane-height past anything the view could use,
+/// and the next dozen presses the other way moved nothing at all.
 #[test]
 fn home_and_end_move_the_selected_pane_to_its_ends() {
     let _keychain = isolate_keychain();
     let mut h = Harness::new();
 
-    // Give two panes something long enough to scroll through.
+    // Give the panes something long enough to scroll through.
     for panel in &mut h.app.panels {
         panel.view = (0..40).map(|n| format!("line {n}")).collect();
     }
-    let deep = h.app.panels[0].view.len() - 1;
 
     // Scroll pane 1 back, and leave it there as the control.
     h.press(KeyCode::Char('2'));
@@ -406,9 +410,27 @@ fn home_and_end_move_the_selected_pane_to_its_ends() {
 
     h.press(KeyCode::Char('1'));
     h.press(KeyCode::Home);
-    assert_eq!(
-        h.app.panels[0].scroll_offset, deep,
+    let top = h.app.panels[0].scroll_offset;
+    assert!(
+        top > 0,
         "Home is the oldest line the pane holds, not one line towards the newest"
+    );
+    let at_top = h.screen();
+
+    // The press after Home has to move the view. It used to be spent walking
+    // back through the gap between the two clamps, with nothing on screen
+    // changing, for as many presses as the pane is tall.
+    h.press(KeyCode::Down);
+    assert_eq!(
+        h.app.panels[0].scroll_offset,
+        top - 1,
+        "one press moves one line"
+    );
+    assert_ne!(
+        h.screen(),
+        at_top,
+        "and it must move the view: an offset stored beyond what the view can \
+         use makes the key read as dead"
     );
 
     h.press(KeyCode::End);

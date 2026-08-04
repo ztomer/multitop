@@ -104,7 +104,7 @@ fn main() {
         for _ in 0..tui_iters {
             terminal
                 .draw(|f| {
-                    ui::draw(f, &app);
+                    ui::draw(f, &mut app);
                 })
                 .unwrap();
         }

@@ -555,7 +555,7 @@ where
 
     loop {
         if dirty {
-            match terminal.draw(|f| ui::draw(f, &app)) {
+            match terminal.draw(|f| ui::draw(f, &mut app)) {
                 Ok(_) => dirty = false,
                 Err(e) => {
                     fatal = Some(std::io::Error::other(e));

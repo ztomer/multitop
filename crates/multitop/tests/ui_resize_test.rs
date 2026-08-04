@@ -87,21 +87,21 @@ fn ui_renders_without_panic_across_resizes() {
     let mut terminal = Terminal::new(backend).unwrap();
 
     // Initial render at 80x24
-    terminal.draw(|f| draw(f, &app)).unwrap();
+    terminal.draw(|f| draw(f, &mut app)).unwrap();
     let buffer1 = terminal.backend().buffer().clone();
     assert_eq!(buffer1.area.width, 80);
     assert_eq!(buffer1.area.height, 24);
 
     // Resize to 140x50 (large wide terminal)
     terminal.backend_mut().resize(140, 50);
-    terminal.draw(|f| draw(f, &app)).unwrap();
+    terminal.draw(|f| draw(f, &mut app)).unwrap();
     let buffer2 = terminal.backend().buffer().clone();
     assert_eq!(buffer2.area.width, 140);
     assert_eq!(buffer2.area.height, 50);
 
     // Resize to 45x12 (compact small terminal)
     terminal.backend_mut().resize(45, 12);
-    terminal.draw(|f| draw(f, &app)).unwrap();
+    terminal.draw(|f| draw(f, &mut app)).unwrap();
     let buffer3 = terminal.backend().buffer().clone();
     assert_eq!(buffer3.area.width, 45);
     assert_eq!(buffer3.area.height, 12);
