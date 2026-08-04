@@ -252,6 +252,7 @@ async fn event_loop(
     // OS keychain access dialogs on every app launch.
     if let Ok(cfg) = crate::config::load(&config_path) {
         app.upgrade_history_lines = cfg.upgrade_history_lines;
+        app.banner_style = cfg.banner_style;
         // The ring was created at the default capacity; the config's value is
         // what the streaming log must honour.
         for p in &mut app.panels {

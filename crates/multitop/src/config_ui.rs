@@ -30,6 +30,37 @@ fn clip(text: &str, width: usize) -> String {
     format!("{kept}\u{2026}")
 }
 
+/// Break prose onto lines no wider than `width`, at spaces.
+///
+/// A word longer than the whole width is emitted on its own line and left to
+/// clip -- there is nowhere else for it to go, and it is a case that does not
+/// arise from any notice this screen writes.
+fn wrap_words(text: &str, width: usize) -> Vec<String> {
+    if width == 0 {
+        return Vec::new();
+    }
+    let mut out: Vec<String> = Vec::new();
+    let mut line = String::new();
+    for word in text.split_whitespace() {
+        let extra = if line.is_empty() {
+            word.chars().count()
+        } else {
+            word.chars().count() + 1
+        };
+        if !line.is_empty() && line.chars().count() + extra > width {
+            out.push(std::mem::take(&mut line));
+        }
+        if !line.is_empty() {
+            line.push(' ');
+        }
+        line.push_str(word);
+    }
+    if !line.is_empty() {
+        out.push(line);
+    }
+    out
+}
+
 #[allow(
     clippy::missing_panics_doc,
     clippy::too_many_lines,
@@ -109,6 +140,7 @@ pub fn draw(f: &mut Frame, app: &App) {
     );
     let (host_w, user_w, cmd_w) = (cells[0], cells[1], cells[2]);
 
+    let mut hints: Vec<Line> = Vec::new();
     let mut lines = vec![Line::from(Span::styled(
         format!(
             "  {:<host_w$} {:<user_w$} {:<PORT_W$} {:<cmd_w$} {}",
@@ -209,6 +241,44 @@ pub fn draw(f: &mut Frame, app: &App) {
             Style::default().fg(Color::DarkGray),
         )));
     } else {
+        // Appearance, ABOVE the hints. It is content -- a setting and its
+        // current value -- and the hints are signage about content. Below them
+        // it was the first thing to fall off the bottom of a 40x12 panel, so
+        // the screen showed `[B] Banner style` and not the row `B` changes:
+        // the same "a label is whole or it is absent" rule, met on the vertical
+        // axis, where a block with no budget pushes out the thing it describes.
+        lines.push(Line::from(Span::styled(
+            "Appearance",
+            Style::default().fg(accent),
+        )));
+        let style = app.banner_style;
+        let state = format!("[{}]", style.label());
+        // The caveat is the app admitting what it cannot check: no TUI can see
+        // the terminal's font. It is also the only sheddable part of the row --
+        // whole or absent, never half a sentence.
+        let caveat = "wide needs a font with fullwidth Latin glyphs";
+        let widths = [8, state.chars().count(), caveat.chars().count()];
+        let keep = crate::layout::fit_row(&widths, 2, inner, &[2]);
+        let mut spans = vec![
+            Span::raw("  Banner  "),
+            Span::styled(
+                state,
+                Style::default().fg(if style == crate::layout::BannerStyle::Wide {
+                    Color::Green
+                } else {
+                    Color::DarkGray
+                }),
+            ),
+        ];
+        if keep.contains(&2) {
+            spans.push(Span::styled(
+                format!("  {caveat}"),
+                Style::default().fg(Color::DarkGray),
+            ));
+        }
+        lines.push(Line::from(spans));
+        lines.push(Line::from(""));
+
         // Wrapped by whole hints, never sliced.
         //
         // This was two hand-split lines sized for a wide terminal. At 40 columns
@@ -221,8 +291,10 @@ pub fn draw(f: &mut Frame, app: &App) {
         // a user cannot guess, so it must never be the one that falls off the
         // end. The rest they will find by pressing things.
         //
-        // Wrapping rather than shedding, because this panel has vertical room to
-        // spare -- there is no reason to lose a hint when a second line is free.
+        // Wrapped horizontally, shed vertically: these go into their own vector
+        // so the caller can take only the rows that fit. They wrap onto as many
+        // lines as the width needs, and a 12-row panel does not have as many
+        // lines as an 80-column terminal needs.
         let mut row: Vec<&str> = Vec::new();
         let mut used = 0usize;
         for hint in [
@@ -232,11 +304,12 @@ pub fn draw(f: &mut Frame, app: &App) {
             "[D] Delete",
             "[I] Import ~/.ssh/config",
             "[R] Change vault master password",
+            "[B] Banner style",
         ] {
             let w = hint.chars().count();
             let extra = if row.is_empty() { w } else { w + 2 };
             if !row.is_empty() && used + extra > inner {
-                lines.push(Line::from(Span::styled(
+                hints.push(Line::from(Span::styled(
                     row.join("  "),
                     Style::default().fg(Color::DarkGray),
                 )));
@@ -247,18 +320,50 @@ pub fn draw(f: &mut Frame, app: &App) {
             row.push(hint);
         }
         if !row.is_empty() {
-            lines.push(Line::from(Span::styled(
+            hints.push(Line::from(Span::styled(
                 row.join("  "),
                 Style::default().fg(Color::DarkGray),
             )));
         }
     }
+    // The notice goes ABOVE the hints, and before them in the height budget.
+    // It is the app answering something the user just did -- "Banner: Wide",
+    // "Could not save server configuration" -- and it used to be appended last,
+    // so on a 12-row panel it was pushed off the bottom by four lines of
+    // permanent signage. A result the user cannot see is a result they did not
+    // get.
     if let Some(notice) = &manager.notice {
         lines.push(Line::from(""));
-        lines.push(Line::from(Span::styled(
-            notice.clone(),
-            Style::default().fg(Color::Yellow),
-        )));
+        // Wrapped, not clipped. A notice is prose, so unlike a row of labels it
+        // has nothing to shed -- and `Paragraph` cut it at the pane edge, which
+        // took `[y] confirm  [Esc] cancel` off the end of the *delete*
+        // confirmation at 40 columns. A destructive prompt amputating its own
+        // cancel instruction is the defect the keybar confirm row exists to
+        // remove; it was still here, one screen over.
+        //
+        // The whole `Paragraph` cannot simply be given `.wrap()`: the rows above
+        // are a table, and wrapping them would break the columns away from the
+        // header they line up with.
+        for line in wrap_words(notice, inner) {
+            lines.push(Line::from(Span::styled(
+                line,
+                Style::default().fg(Color::Yellow),
+            )));
+        }
+    }
+    // Whole hint rows, as many as there is height for. `Paragraph` would simply
+    // stop drawing at the bottom edge, which looks identical to a hint that was
+    // never there -- but decides *which* by accident of order rather than by
+    // priority. `[Esc/Q] Return` is first in the list, so it is the last thing
+    // to go.
+    let rows_left = f
+        .area()
+        .height
+        .saturating_sub(2)
+        .saturating_sub(u16::try_from(lines.len()).unwrap_or(u16::MAX));
+    if rows_left > 0 {
+        lines.push(Line::from(""));
+        lines.extend(hints.into_iter().take(usize::from(rows_left) - 1));
     }
     let block = Block::default()
         .title(" Settings ")

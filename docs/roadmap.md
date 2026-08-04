@@ -29,6 +29,7 @@ Green tests are not a shipped feature. Each row is one sitting with the real app
 | **A host coming up** | Start against a host that is slow to connect: the panel must say `connecting...`, not sit empty | no |
 | **Scrolling an upgrade log** | Scroll back during a long run; `[↑ -N lines]` must appear on row 0 | no |
 | **Narrow terminals** | Resize to 40 columns with four panels: every host banner must still name its own machine, and the keybar must degrade to initials rather than cutting a word | no |
+| **The wide banner** | `B` in Settings, on a terminal whose font has fullwidth Latin glyphs and on one that does not. On the first the banner must be legible and still name each machine at 40 columns; on the second it will be a CJK fallback face, which is what the caveat in the row warns about and what the user is choosing | no |
 | **A second rotation** | Press `r` twice while a master-password change is running; the second must be refused, not start a second rotation | no |
 | **Saving during an upgrade** | Edit a host's password while its upgrade is running; the run must continue rather than being killed and restarted | no |
 
@@ -649,65 +650,6 @@ Points to settle before writing any of it:
   `sparkline.rs`. `G` starts from nothing, which is the right footing — one
   renderer, built for the job, rather than a second one beside a drifting first.
 - `s` is free in Settings now, if the graph view wants a preference there.
-
-## 10. Delete sparklines; bring back the double-width banner, behind Appearance
-
-Owner's call, 2026-08-04. Three pieces, and the second one reopens a decision
-this project made the day before, deliberately.
-
-**a. Remove sparklines completely. — done, 2026-08-04.** `sparkline.rs`, the
-three `App` history vectors, the banner row's `M:`/`C:` bars, the
-`show_sparklines` config key and `config::save_show_sparklines`, the Settings
-row, the `[S]` hint and the `s` binding, and every test that pinned them. A
-retired config key must not break a file that still carries it, which is now its
-own regression test. Baseline entry `sparkline.rs:render_bar` is gone (item 5:
-nine entries, now eight).
-
-**b. Restore the double-width banner when the font can draw it.** Class C
-removed `fmt::fullwidth` from the banner path for two reasons; this brings it
-back for the users the first reason does not apply to, and only for them.
-
-**c. Put it under an Appearance section in Settings.** The Settings screen has no
-sections today — it is one list of hosts plus a few loose toggles. Appearance is
-the first one, and the double-width banner is its first row. Sparklines would
-have been its second; they are being deleted instead.
-
-**The tension, stated plainly, because it is the whole difficulty.** Class C did
-not remove the fullwidth banner only because it was ugly. It removed it because:
-
-1. U+FF01–FF5E are absent from Menlo, SF Mono, JetBrains Mono and Berkeley Mono,
-   so the banner fell back to a CJK face — a different typeface, weight and
-   baseline from every line beneath it. This is the half the option fixes: a user
-   whose font *does* have the glyphs opts in.
-2. It doubles the cell cost, so `ztomer@web-01` needed 26 cells in a 20-cell pane
-   and clipped to `ｚｔｏｍｅｒ＠ｗｅ` — **the digits are what fell off**, and the
-   digits are what tell `web-01` from `web-02` on a tool where the selected panel
-   is the machine `u` runs `apt upgrade` against.
-
-Reason 2 is not a font problem and the option does not fix it. So the fullwidth
-path must go through `layout::fit_banner` exactly like the ASCII path does —
-budget in cells, `user@` dropped first, cut from the **left** — with the width
-function counting each fullwidth char as two. Turning the option on must never
-be able to produce two panels that name themselves identically. That is a
-regression test, not a comment.
-
-**And "if the system has a supporting font" cannot be detected.** A TUI is
-handed a byte stream; it does not know the terminal's font and there is no
-escape sequence that asks. Nothing here can probe it. Three ways to honour the
-intent, in preference order:
-
-- **A user setting with an honest name** — `banner_style = "wide"`, defaulting to
-  `"plain"`, described as "requires a font with fullwidth Latin glyphs". The user
-  knows their font; the app does not. This is the only one that is not a guess.
-- **Cursor-position probe.** Print one fullwidth char to a scratch position, ask
-  the terminal where the cursor is with `ESC[6n`, and see whether it advanced by
-  two cells. That measures the *terminal's* width table, which is what decides
-  layout — it does **not** tell you whether the glyph renders in the current
-  font or comes from a CJK fallback. It answers a different question than the
-  one asked, and answering it wrongly is what reason 1 was.
-- **Never auto-detect.** Ship the setting, default it off.
-
-Recommend the first, with the third as the discipline: no auto-detection.
 
 ## Deferred
 

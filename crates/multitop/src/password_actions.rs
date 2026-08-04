@@ -112,6 +112,18 @@ pub fn apply(
                 let _ = tx2.blocking_send(msg);
             });
         }
+        PasswordAction::CycleBannerStyle => {
+            let style = app.cycle_banner_style();
+            if let Some(path) = &app.config_path {
+                crate::config::save_banner_style(path, style);
+            }
+            if let Some(manager) = app.password_manager.as_mut() {
+                manager.notice = Some(format!(
+                    "Banner: {}. Wide needs a font with fullwidth Latin glyphs.",
+                    style.label()
+                ));
+            }
+        }
         PasswordAction::ImportSshHosts => {
             let existing: Vec<Server> = app.panels.iter().map(|p| p.server.clone()).collect();
             let outcome = crate::config::ssh_config_path()

@@ -615,3 +615,93 @@ async fn the_settings_panel_keeps_state_and_the_exit_at_every_width() {
         }
     }
 }
+
+/// The Appearance section is content; the hints are signage about content.
+///
+/// It was added below the hint block, and on a 12-row panel the four wrapped
+/// hint lines pushed it off the bottom -- so the screen showed `[B] Banner
+/// style` and not the row `B` changes. That is the width rule met on the
+/// vertical axis: a block with no budget crowding out the thing it describes.
+#[tokio::test]
+async fn appearance_survives_a_panel_too_short_for_its_own_hints() {
+    let _guard = setup().await;
+    let mut h = Harness::new(&["web-01", "db-02"]);
+    h.press(KeyCode::Char('e'));
+    h.terminal = Terminal::new(TestBackend::new(40, 12)).unwrap();
+    h.draw();
+
+    let screen = h.screen();
+    assert!(
+        screen.contains("Appearance"),
+        "the section must survive a short panel:\n{screen}"
+    );
+    assert!(
+        screen.contains("Banner"),
+        "and so must the row it heads:\n{screen}"
+    );
+    assert!(
+        screen.contains("[Esc/Q] Return"),
+        "the way out is never what gets shed:\n{screen}"
+    );
+}
+
+/// A notice is the app answering something the user just did. Appended after
+/// the permanent signage, it was the first thing off the bottom of a short
+/// panel -- a result the user cannot see is a result they did not get.
+#[tokio::test]
+async fn a_notice_outranks_the_hints_for_the_space_there_is() {
+    let _guard = setup().await;
+    let mut h = Harness::new(&["web-01", "db-02"]);
+    h.press(KeyCode::Char('e'));
+    h.press(KeyCode::Char('b'));
+    h.terminal = Terminal::new(TestBackend::new(40, 12)).unwrap();
+    h.draw();
+
+    let screen = h.screen();
+    assert!(
+        screen.contains("Banner: Wide"),
+        "the answer to the press must be on screen:\n{screen}"
+    );
+}
+
+/// `b` cycles the banner style, and the row says which one is in force.
+#[tokio::test]
+async fn b_cycles_the_banner_style_and_the_row_reports_it() {
+    let _guard = setup().await;
+    let mut h = Harness::new(&["web-01"]);
+    h.press(KeyCode::Char('e'));
+    h.draw();
+    assert!(h.screen().contains("[Plain]"), "{}", h.screen());
+
+    h.press(KeyCode::Char('b'));
+    h.draw();
+    assert!(h.screen().contains("[Wide]"), "{}", h.screen());
+    assert_eq!(h.app.banner_style, multitop::layout::BannerStyle::Wide);
+
+    h.press(KeyCode::Char('b'));
+    h.draw();
+    assert!(h.screen().contains("[Plain]"), "{}", h.screen());
+}
+
+/// A destructive prompt must not lose its own cancel instruction. The keybar
+/// confirm row was rebuilt for exactly this and the Settings notice still did
+/// it: at 40 columns `Paragraph` cut `[y] confirm  [Esc] cancel` off the end.
+#[tokio::test]
+async fn a_delete_confirmation_keeps_its_cancel_instruction_when_narrow() {
+    let _guard = setup().await;
+    let mut h = Harness::new(&["web-01", "db-02"]);
+    h.press(KeyCode::Char('e'));
+    h.press(KeyCode::Char('d'));
+    h.terminal = Terminal::new(TestBackend::new(40, 12)).unwrap();
+    h.draw();
+
+    let screen = h.screen();
+    assert!(
+        screen.contains("[Esc] cancel"),
+        "a destructive prompt keeps its way out at every width:\n{screen}"
+    );
+    assert!(
+        screen.contains("[y] confirm"),
+        "and the key that confirms it:\n{screen}"
+    );
+}

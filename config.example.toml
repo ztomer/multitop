@@ -9,6 +9,13 @@ host = "192.168.0.33"
 port = 22
 user = ""
 # upgrade_cmd = "sudo apt update && sudo apt upgrade -y"
+
+# How the panel banner draws the host name. "wide" uses fullwidth Latin glyphs
+# (U+FF01-FF5E), which Menlo, SF Mono, JetBrains Mono and Berkeley Mono do not
+# have -- with one of those your terminal falls back to a CJK face and the
+# banner is drawn in a different typeface from everything under it. multitop
+# cannot see your font, so this is your call. Toggle with B in Settings.
+# banner_style = "plain"
 # The command runs as the SSH `user`, not as root, so prefix any privileged
 # step with `sudo` -- apt and dpkg will refuse to run as a normal user.
 

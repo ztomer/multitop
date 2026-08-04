@@ -862,12 +862,17 @@ pub fn draw(f: &mut Frame, app: &App) {
             // digits -- the only part that differs between hosts -- off the
             // right, and drew the one label that must never be wrong in a
             // fallback CJK font.
-            let server_target = crate::layout::fit_banner(
+            // The fitter reports the cells it drew. Measuring the returned
+            // string here would be a second width calculation beside the one
+            // that produced it, and the two disagree by a factor of two the
+            // moment the style changes -- which is how the rule either side of
+            // the name ends up computed against a width the name does not have.
+            let (server_target, disp_w) = crate::layout::fit_banner_styled(
                 &panel.server.user,
                 &host_name,
                 total_w.saturating_sub(2),
+                app.banner_style,
             );
-            let disp_w = server_target.chars().count();
             let space_needed = disp_w + 2;
 
             if total_w >= space_needed {

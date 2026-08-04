@@ -77,6 +77,9 @@ pub struct App {
     pub config_path: Option<std::path::PathBuf>,
     pub filter_query: String,
     pub upgrade_history_lines: usize,
+    /// How the panel banner draws the host name. A user preference under
+    /// Appearance, never a detection: nothing here can see the terminal's font.
+    pub banner_style: crate::layout::BannerStyle,
     pub password_manager: Option<crate::passwords::PasswordManager>,
     pub last_update: Option<u64>,
     pub upgrade_started_at: Option<u64>,
@@ -143,6 +146,7 @@ impl App {
             config_path: None,
             filter_query: String::new(),
             upgrade_history_lines: crate::config::DEFAULT_UPGRADE_HISTORY_LINES,
+            banner_style: crate::layout::BannerStyle::default(),
             password_manager: None,
             last_update: None,
             upgrade_started_at: None,
@@ -941,6 +945,12 @@ impl App {
             self.persist_state();
         }
         self.run_upgrade()
+    }
+
+    /// Move to the next banner style and report the one now in force.
+    pub const fn cycle_banner_style(&mut self) -> crate::layout::BannerStyle {
+        self.banner_style = self.banner_style.next();
+        self.banner_style
     }
 
     pub const fn quit(&mut self) {

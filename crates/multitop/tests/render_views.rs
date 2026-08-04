@@ -180,6 +180,20 @@ const SCREENS: &[Screen] = &[
     Screen { name: "stats-1-host", build: |t| base(1, t) },
     Screen { name: "stats-2-hosts", build: |t| base(2, t) },
     Screen { name: "stats-4-hosts", build: |t| base(4, t) },
+    // The Appearance opt-in, rendered. The banner is twice as wide per glyph
+    // here, so this is where a centring bug would show as a rule that is longer
+    // on one side than the other -- or as a banner that overruns its pane.
+    Screen { name: "stats-wide-banner", build: |t| {
+        let mut app = base(4, t);
+        app.banner_style = multitop::layout::BannerStyle::Wide;
+        app
+    }},
+    Screen { name: "settings-appearance", build: |_t| {
+        let mut app = App::new(hosts(2));
+        app.banner_style = multitop::layout::BannerStyle::Wide;
+        multitop::passwords::open(&mut app, 0, false);
+        app
+    }},
     Screen { name: "stats-connecting", build: |_t| {
         let mut app = App::new(hosts(2));
         app.panels[1].view = vec!["connecting...".to_string()];

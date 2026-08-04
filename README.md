@@ -141,6 +141,7 @@ the password status of each.
 | **D** | Delete a server (asks first) |
 | **I** | Add hosts from `~/.ssh/config` that are not configured yet |
 | **R** | Change the vault master password |
+| **B** | Banner style — plain, or wide glyphs if your font has them |
 | **ESC** / **Q** | Return |
 
 **Every server has its own sudo password**, typed in that server's row. There is

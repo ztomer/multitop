@@ -124,6 +124,7 @@ pub struct Config {
     pub servers: Vec<Server>,
     pub theme: Option<String>,
     pub upgrade_history_lines: usize,
+    pub banner_style: crate::layout::BannerStyle,
     /// Plaintext `sudo_password` values found in the config file, paired with
     /// the server they belong to.
     ///
@@ -236,10 +237,18 @@ pub fn parse(text: &str) -> Result<Config, ConfigError> {
         .and_then(|v| usize::try_from(v).ok())
         .unwrap_or(DEFAULT_UPGRADE_HISTORY_LINES);
 
+    let banner_style = value
+        .get("banner_style")
+        .and_then(toml::Value::as_str)
+        .map_or_else(crate::layout::BannerStyle::default, |s| {
+            crate::layout::BannerStyle::parse(s)
+        });
+
     Ok(Config {
         servers: out,
         theme,
         upgrade_history_lines,
+        banner_style,
         plaintext_passwords: plaintext,
     })
 }
@@ -289,6 +298,23 @@ pub fn save_theme(path: &Path, theme_name: &str) {
         return;
     };
     let _ = std::fs::write(path, new_content);
+}
+
+/// Save the banner style back to the TOML configuration file.
+///
+/// Edited in place rather than re-serialised. Round-tripping through
+/// `toml::Table` rebuilds the file from its values, so every comment and blank
+/// line the user wrote disappears -- and this runs on a keystroke, which means
+/// one press of a display toggle was enough to strip a hand-written config.
+pub fn save_banner_style(path: &Path, style: crate::layout::BannerStyle) {
+    let Ok(content) = std::fs::read_to_string(path) else {
+        return;
+    };
+    let Ok(mut doc) = content.parse::<toml_edit::DocumentMut>() else {
+        return;
+    };
+    doc["banner_style"] = toml_edit::value(style.as_str());
+    let _ = std::fs::write(path, doc.to_string());
 }
 
 /// Replace the server list while preserving other top-level configuration.

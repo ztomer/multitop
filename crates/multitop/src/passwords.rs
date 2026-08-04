@@ -141,6 +141,8 @@ pub enum PasswordAction {
     Delete {
         panel: usize,
     },
+    /// Switch the panel banner between plain and wide glyphs.
+    CycleBannerStyle,
     /// Add hosts from `~/.ssh/config` that are not configured yet.
     ImportSshHosts,
     /// Replace the vault master password. Both are plain `String` because they
@@ -371,6 +373,7 @@ fn row_key(app: &mut App, key: KeyCode) -> PasswordAction {
         }
         // Import from ~/.ssh/config. Additive only: see `config::merge_ssh_hosts`
         // for why nothing already configured is touched.
+        KeyCode::Char('b' | 'B') => return PasswordAction::CycleBannerStyle,
         KeyCode::Char('i' | 'I') => return PasswordAction::ImportSshHosts,
         // Change the vault master password. Offered only when a vault exists,
         // and only when one is not already being changed.
