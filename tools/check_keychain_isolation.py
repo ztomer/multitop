@@ -73,6 +73,40 @@ TEST_FN = re.compile(
 
 TEST_DIRS = ["crates/multitop/tests", "crates/vault/tests", "crates/agent/tests"]
 
+# Unit tests live in `src/` too, and they were not covered.
+#
+# multitop's own unit tests are safe by construction -- `mock_enabled_from`
+# takes `cfg!(test)`, which is true for anything compiled into the lib's test
+# binary. The vault's keychain use is NOT: `lockout.rs` and `rollback.rs` gate
+# on a `use_keychain`/`use_os_keychain` flag carried in `VaultConfig`, so a
+# vault unit test that builds a config with the flag on reaches the real OS
+# keychain and the suite stops on a dialog nobody is there to dismiss.
+#
+# So the src sweep is scoped to the crate whose gate is a runtime flag rather
+# than a compile-time one. Scoping it to where the hazard actually is keeps the
+# check from crying wolf, which is how gates get switched off.
+SRC_DIRS = ["crates/vault/src"]
+
+# What reaches the vault's keychain, directly or by building a config that
+# permits it. `Vault::new` is included for the same reason `App::new` is above:
+# the keychain use is several calls down, and text matching cannot follow a
+# call graph.
+REACHES_VAULT_KEYCHAIN = re.compile(
+    r"Vault::new\("
+    r"|LockoutState::"
+    r"|RollbackAnchor"
+    r"|load_or_default\("
+)
+
+# What proves a vault test cannot reach it: the flag is off.
+VAULT_DIVERTS = re.compile(
+    r"use_os_keychain:\s*false"
+    r"|use_keychain:\s*false"
+    r"|fast_vault_config"
+    r"|isolated"
+    r"|without_keychain"
+)
+
 
 def test_bodies(text: str):
     """Yield (name, body) for every test fn, body ending at the next line-start brace."""
@@ -84,38 +118,49 @@ def test_bodies(text: str):
         yield m.group("name"), text[start:end]
 
 
-def diverting_helpers(text: str) -> set[str]:
+def diverting_helpers(text: str, diverts=DIVERTS) -> set[str]:
     """Names of functions in this file whose own body diverts the store."""
     names = set()
     for m in ANY_FN.finditer(text):
         start = m.end()
         end = text.find("\n}\n", start)
         body = text[start: end if end != -1 else len(text)]
-        if DIVERTS.search(body):
+        if diverts.search(body):
             names.add(m.group("name"))
     return names
+
+
+def sweep(root: Path, directory: str, reaches, diverts) -> list[tuple[Path, str]]:
+    """Every test in `directory` that reaches the store without diverting it."""
+    found = []
+    base = root / directory
+    if not base.is_dir():
+        return found
+    for path in sorted(base.rglob("*.rs")):
+        text = path.read_text(encoding="utf-8", errors="replace")
+        if not reaches.search(text):
+            continue
+        helpers = diverting_helpers(text, diverts)
+        calls_helper = re.compile(
+            r"\b(?:" + "|".join(re.escape(h) for h in helpers) + r")\s*\("
+        ) if helpers else None
+        for name, body in test_bodies(text):
+            if diverts.search(body):
+                continue
+            if calls_helper and calls_helper.search(body):
+                continue
+            found.append((path.relative_to(root), name))
+    return found
 
 
 def offenders(root: Path) -> list[tuple[Path, str]]:
     found = []
     for directory in TEST_DIRS:
-        base = root / directory
-        if not base.is_dir():
-            continue
-        for path in sorted(base.rglob("*.rs")):
-            text = path.read_text(encoding="utf-8", errors="replace")
-            if not REACHES_STORE.search(text):
-                continue
-            helpers = diverting_helpers(text)
-            calls_helper = re.compile(
-                r"\b(?:" + "|".join(re.escape(h) for h in helpers) + r")\s*\("
-            ) if helpers else None
-            for name, body in test_bodies(text):
-                if DIVERTS.search(body):
-                    continue
-                if calls_helper and calls_helper.search(body):
-                    continue
-                found.append((path.relative_to(root), name))
+        found += sweep(root, directory, REACHES_STORE, DIVERTS)
+    # The src sweep closes the hole this check shipped with: it scanned
+    # `crates/*/tests` only, so every unit test inside `src/` was unchecked.
+    for directory in SRC_DIRS:
+        found += sweep(root, directory, REACHES_VAULT_KEYCHAIN, VAULT_DIVERTS)
     return found
 
 
@@ -155,8 +200,29 @@ def self_test() -> int:
             "    let a = App::new(vec![]);\n}\n"
         )
 
+        # The src sweep, which this check shipped without: a unit test inside
+        # `crates/vault/src` that builds a vault with the keychain flag left on
+        # reaches the real OS keychain, and nothing was looking there.
+        v = root / "crates/vault/src"
+        v.mkdir(parents=True)
+        (v / "api.rs").write_text(
+            "#[cfg(test)]\nmod tests {\n"
+            "fn fast_vault_config(p: PathBuf) -> VaultConfig {\n"
+            "    VaultConfig { use_os_keychain: false }\n}\n"
+            "#[test]\nfn diverted() {\n"
+            "    let v = Vault::new(fast_vault_config(p));\n}\n"
+            "#[test]\nfn reaches_the_real_keychain() {\n"
+            "    let v = Vault::new(VaultConfig { use_os_keychain: true });\n}\n"
+            "}\n"
+        )
+
         got = {(p.name, n) for p, n in offenders(root)}
-        want = {("leaky.rs", "c"), ("indirect.rs", "dd"), ("partial.rs", "forgot")}
+        want = {
+            ("leaky.rs", "c"),
+            ("indirect.rs", "dd"),
+            ("partial.rs", "forgot"),
+            ("api.rs", "reaches_the_real_keychain"),
+        }
         if got != want:
             print(f"self-test FAILED:\n  expected {sorted(want)}\n  got      {sorted(got)}")
             return 1

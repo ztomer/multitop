@@ -395,6 +395,31 @@ correctly.
 Every round that ran found something. That is evidence the rounds were
 productive *and* evidence they stopped too early.
 
+### The keychain probe, and what it is for  (2026-08-04)
+
+The one procedure that answers "can the suite raise a credential dialog"
+without waiting for it to happen to someone. Replace every real-keychain call
+with a `panic!` and run the workspace:
+
+- `keyring::Entry::new(...)` in `crates/vault/src/lockout.rs` (2 sites) and
+  `crates/vault/src/rollback.rs` (2 sites)
+- `password_store::entry()` in `crates/multitop/src/password_store.rs`
+
+Last run 2026-08-04: **zero hits**, 47 test binaries green. The figure recorded
+here before was nine, from before multitop's vault construction started
+following the mock flag through `vault::config_for`.
+
+This is a procedure rather than a gate because it needs a recompile. What *is*
+a gate is `tools/check_keychain_isolation.py`, and its blind spot -- it scanned
+`crates/*/tests` only, so unit tests inside `src/` were never checked -- is
+closed: it now also sweeps `crates/vault/src`, which is where the hazard is
+(the vault gates its keychain use on a runtime `use_os_keychain` flag, not on
+`cfg(test)`, so a unit test can reach the real store; multitop's own unit tests
+cannot, because its mock keys off `cfg!(test)`). The self-test grew a case that
+fails without the src sweep.
+
+Re-run the probe after any change to how the vault decides to use the keychain.
+
 ### Where it has never been
 
 | Area | Files | What that has already cost |
@@ -565,28 +590,7 @@ a *duplicate* of its logic is what production calls, the tests guard the dead
 copy, and the live copy drifts unwatched. `rollback::parse_stored_counter` and
 `LockoutState::on_failure` were both exactly that.
 
-## 5. Finish keychain isolation for tests
-
-`tools/check_keychain_isolation.py` is a gate in the hook and in CI, and it
-reports clean. It is not yet the whole story:
-
-- The check is per test body and resolves helpers one level deep. It scans
-  `crates/*/tests` only, so **unit tests inside `src/` are not covered** --
-  and the vault's keychain use (`lockout.rs`, `rollback.rs`) is gated on a
-  `use_keychain` flag rather than on `cfg(test)`, so a unit test can reach the
-  real keychain.
-- A probe that makes every real-keychain call panic reported **9 hits** across
-  the workspace after the `tests/` directories were cleaned. Those hits have not
-  been attributed yet. Reproduce with: replace each `keyring::Entry::new(...)` in
-  `crates/vault/src/{lockout,rollback}.rs` and the non-mock branches of
-  `crates/multitop/src/password_store.rs` with a `panic!`, then run the workspace
-  suite and read the failing test names. Re-run the probe first — one source of
-  hits was multitop's own vault construction, which now follows the mock flag
-  through `vault::config_for`, so the count may already be lower.
-
-Until that reaches zero, running the suite can still raise a keychain dialog.
-
-## 6. The other half of in-place progress output
+## 5. The other half of in-place progress output
 
 Reported 2026-08-03: "when updating a line in place (e.g. docker update
 percentages) it adds all the update screen instead."
@@ -615,15 +619,15 @@ every frame (scrollback of what really happened) while only the live view is
 collapsed, or whether the collapsed view *is* the log. They are different
 products.
 
-## 7. Rotate the sudo password used during live verification
+## 6. Rotate the sudo password used during live verification
 
 The sudo password for the three test hosts was pasted into a Claude Code session
 transcript on 2026-08-02 in order to verify the stdin handshake. It is therefore
 on disk in `~/.claude/projects/`. Change it on all three machines.
 
-## 8. `G` — per-pane CPU / memory / network graphs
+## 7. `G` — per-pane CPU / memory / network graphs
 
-Requested 2026-08-03. **Last** — start only once items 1-7 are closed.
+Requested 2026-08-03. **Last** — start only once items 1-6 are closed.
 
 A new view alongside the existing ones, bound to `G` and placed immediately to
 the right of `F` (Fetch) in the keybar, drawing CPU, memory and network history
