@@ -130,7 +130,10 @@ fn with_stats(app: &mut App, term: (u16, u16)) {
             pal,
         );
         p.last_frame = Some(lines.clone());
-        p.view = lines;
+        // Through the same method the app uses, so a pane's notices are drawn
+        // here exactly as they are in the product. Assigning `view` directly is
+        // how this file would go back to showing a frame the app never draws.
+        p.show_frame(lines);
     }
 }
 
@@ -208,6 +211,29 @@ const SCREENS: &[Screen] = &[
     Screen { name: "filtering-no-matches", build: |t| {
         let mut app = base(4, t);
         app.filter_query = "nothing-matches-this".to_string();
+        app
+    }},
+    // A pane carrying a startup notice, at every size.
+    //
+    // Nothing rendered this before. The notices are written during startup --
+    // the plaintext-password migration, a clamped `upgrade_history_lines`, an
+    // unreadable `state.toml` -- and every one of them used to be erased by the
+    // first agent frame, about a second later, because they were pushed into
+    // `view`, which the frame rebuilds. A screen that draws one is how that
+    // stays fixed.
+    Screen { name: "monitor-with-notice", build: |t| {
+        let mut app = base(2, t);
+        for p in &mut app.panels {
+            p.note(
+                "config: upgrade_history_lines = 0 would leave the Upgrade pane \
+                 with nothing to show; using 50 instead."
+                    .to_string(),
+            );
+        }
+        // The frame that used to wipe it.
+        for p in &mut app.panels {
+            p.show_last_frame();
+        }
         app
     }},
     Screen { name: "upgrade-ready", build: |t| {

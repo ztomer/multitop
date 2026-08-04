@@ -680,3 +680,67 @@ fn the_failed_state_write_notice_survives_confirm_upgrade() {
          the ring holds: {ring:?}"
     );
 }
+
+/// A notice must survive the next agent frame.
+///
+/// `Panel::note`'s own doc says it exists so a message is never "built, stored,
+/// and never drawn" -- and in every non-Upgrade mode it wrote into `view`,
+/// which is *derived state*: `show_last_frame` and the Monitor packet arm both
+/// rebuild `view` from `last_frame`. The first frame arrives about a second
+/// after startup, which is exactly when every startup notice is written: the
+/// plaintext-password migration, the clamped `upgrade_history_lines`, an
+/// unreadable `state.toml`. All of them appeared for one second and were gone.
+#[test]
+fn a_notice_survives_the_next_frame() {
+    let _keychain = isolate_keychain();
+    let mut a = app(1);
+    a.panels[0].note("moved 2 plaintext passwords out of config.toml".to_string());
+    assert!(
+        text(&a.panels[0]).contains("plaintext passwords"),
+        "it must show immediately"
+    );
+
+    // The first monitor frame lands.
+    a.apply(Msg::Frame {
+        panel: 0,
+        epoch: 0,
+        lines: vec!["cpu 4%".into(), "mem 1.2G".into()],
+    });
+
+    let shown = text(&a.panels[0]);
+    assert!(
+        shown.contains("cpu 4%"),
+        "the frame must still be drawn: {shown}"
+    );
+    assert!(
+        shown.contains("plaintext passwords"),
+        "and the notice must still be there -- a message the next frame erases \
+         is a message nobody reads: {shown}"
+    );
+}
+
+/// The same, through a rendered packet rather than a status frame: both paths
+/// rebuild `view`, and a notice that survives one and not the other is the
+/// two-places-one-quantity shape this round keeps finding.
+#[test]
+fn a_notice_survives_a_rendered_monitor_packet() {
+    let _keychain = isolate_keychain();
+    let mut a = app(1);
+    a.panels[0].note("upgrade_history_lines = 0 would leave nothing to show".to_string());
+
+    a.apply(Msg::Packet {
+        panel: 0,
+        gen: a.panels[0].gen,
+        epoch: 0,
+        payload: multitop_agent::proto::Payload::Monitor(
+            multitop_agent::render::Snapshot::default(),
+        ),
+        dims: (80, 24),
+    });
+
+    assert!(
+        text(&a.panels[0]).contains("would leave nothing to show"),
+        "the pane says: {}",
+        text(&a.panels[0])
+    );
+}

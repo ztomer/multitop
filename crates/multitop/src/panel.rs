@@ -175,7 +175,27 @@ pub struct Panel {
     /// status block is the whole point and used to scroll away the moment
     /// output started arriving.
     pub pinned_lines: usize,
+    /// Things the app has told the user, kept out of `view` so a frame cannot
+    /// destroy them.
+    ///
+    /// `view` is *derived state*: [`Panel::show_frame`] rebuilds it from an
+    /// agent frame on every packet. A notice pushed straight into `view` was
+    /// therefore erased by the next frame -- about a second after startup,
+    /// which is exactly when every startup notice is written: the
+    /// plaintext-password migration, a clamped `upgrade_history_lines`, an
+    /// unreadable `state.toml`, a failed state write. Each appeared for one
+    /// second and was gone.
+    ///
+    /// That is the failure [`Panel::note`]'s own doc comment exists to prevent
+    /// -- "a message built, stored, and never drawn" -- reached by the other
+    /// door: not written to the wrong buffer, written to one that is rebuilt.
+    pub notes: Vec<String>,
 }
+
+/// How many notices a pane carries. They are all things the user has to act on,
+/// so they stick; the bound is only so a repeated one (a state write failing
+/// once per upgrade) cannot crowd out the pane it is drawn in.
+const MAX_NOTES: usize = 4;
 
 impl Panel {
     #[must_use]
@@ -202,6 +222,7 @@ impl Panel {
                 format!("{}connecting...{}", pal.muted(), pal.reset),
             ],
             scroll_offset: 0,
+            notes: Vec::new(),
             sudo_password: None,
             password_saved: false,
             external_password: false,
@@ -219,10 +240,34 @@ impl Panel {
     /// something goes through here so the choice is made in one place.
     pub fn note(&mut self, line: String) {
         if self.mode == Mode::Upgrade {
+            // The ring is the durable log, not derived state, so a notice put
+            // here survives on its own.
             self.last_upgrade.push(line);
-        } else {
-            self.view.push(line);
+            return;
         }
+        // Repeats say nothing new and would push the pane's own content off.
+        if self.notes.last() == Some(&line) {
+            return;
+        }
+        if self.notes.len() >= MAX_NOTES {
+            self.notes.remove(0);
+        }
+        self.notes.push(line.clone());
+        // And on screen now, rather than waiting for the next frame.
+        self.view.push(line);
+    }
+
+    /// Show a rendered frame, keeping the notices under it.
+    ///
+    /// The one place that replaces `view` with a frame. It was three -- the
+    /// Monitor, Docker and Fetch arms of `Msg::Packet` -- plus
+    /// [`Panel::show_last_frame`], each assigning `view` directly, so a notice
+    /// re-appended in one of them would have been dropped by the other three.
+    /// One quantity, four places: the shape this round has found more than any
+    /// other.
+    pub fn show_frame(&mut self, lines: Vec<String>) {
+        self.view = lines;
+        self.view.extend(self.notes.iter().cloned());
     }
 
     pub fn ensure_sudo_password(&mut self) -> Option<String> {
@@ -244,7 +289,7 @@ impl Panel {
 
     pub fn show_last_frame(&mut self) {
         let pal = &multitop_agent::color::ANSI;
-        self.view = self.last_frame.as_ref().map_or_else(
+        let lines = self.last_frame.as_ref().map_or_else(
             || {
                 // Row 0 is the banner's; see `Panel::new`. An agent frame
                 // already carries its own line 0 for the banner to replace,
@@ -257,6 +302,7 @@ impl Panel {
             },
             std::clone::Clone::clone,
         );
+        self.show_frame(lines);
     }
 }
 

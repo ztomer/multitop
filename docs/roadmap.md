@@ -43,7 +43,7 @@ server" is not, however it is drawn.
 | Vault + credential path | 7 rounds (1, 2, 3, 4, 4b, 5, 6), all 2026-08-01 | **On a finding.** Round 6 found that a release binary could silently use the mock keystore, and the review stopped there. The next day `29bdbb3` -- rotating the master password could destroy the vault -- turned up during feature work. The subsystem was still producing defects when review stopped looking. |
 | Agent parsing / protocol | 6 fuzz targets, 114M iterations, 0 crashes; plus targeted hardening (bogus chunk size, >64 KiB payload desync, null `ifa_addr`) | Mechanized, still running when asked. The only area no user-reported defect has come from. |
 | Configuration panel | Keystroke-through-render e2e plus a bounded sweep of every key sequence | Not a review round; a harness that closes one class. |
-| Terminal / process lifecycle | Round C, 2026-08-04, fifteen passes so far, with `tests/event_loop_e2e.rs` built for it | **On findings, fifteen times.** 7, 3, 1, 2, 3, 1, 1, 4, 1, 2, 3, 2, 2, 2, 1. What is running out is unexamined surface, not defects. Two classes account for most of them: *one quantity derived in two places by different rules*, and class H, *a failure reported as something else* -- the eighth pass was class H four times out of four. A sixteenth pass is owed. The fifteenth re-covered this session's own work and found one there, so the round has still never terminated correctly. |
+| Terminal / process lifecycle | Round C, 2026-08-04, sixteen passes so far, with `tests/event_loop_e2e.rs` built for it | **On findings, sixteen times.** 7, 3, 1, 2, 3, 1, 1, 4, 1, 2, 3, 2, 2, 2, 1, 1. What is running out is unexamined surface, not defects. Two classes account for most of them: *one quantity derived in two places by different rules*, and class H, *a failure reported as something else* -- the eighth pass was class H four times out of four. A seventeenth pass is owed. The fifteenth and sixteenth both re-covered this session's own work and both found something there, so the round has still never terminated correctly. The seventeenth starts with the unreproduced suite failure the sixteenth recorded. |
 | SSH + upgrade transport | Covered by Round C where the lifecycle reaches it -- child process groups, the two output streams, the session handshake, the packet-decode boundary, and (eighth pass) every `Err` path out of `next_packet` plus the agent-replacement repair | Partial. `read_handshake`, `interpret_packet`, `framing_lost` and `describe_failure` have seams and tests; the bootstrap retry was read and found correct; the lock wrappers were read in the twelfth pass and `upload_agent`'s framing in the thirteenth. The bootstrap quoting and the `-tt` pty path were read in the fourteenth. No named part of the transport is unreviewed now. |
 
 Every round that ran found something. That is evidence the rounds were
@@ -104,7 +104,7 @@ keep is what closed the last four: e2e tests that drive real `KeyEvent`s through
 asserting on the final state. The final state can look correct while three
 vaults' worth of work happened.
 
-The streak stops at eight. Round C's thirty-four findings were all found by review,
+The streak stops at eight. Round C's thirty-five findings were all found by review,
 before anyone hit them -- and the reason is the same rule read the other way:
 the round's first act was to build the seam the loop had never had. The area
 with the worst detection record was the area with no harness at all. Where the
@@ -504,7 +504,7 @@ earlier passes only brushed, and the reconnect loop's repair path. Four more
   "agent replaced" -- the only line in that sequence that is not true, about a
   host that was up and had just been talking.
 
-**The counts so far are 7, 3, 1, 2, 3, 1, 1, 4, 1, 2, 3, 2, 2, 2, 1** -- and they are not
+**The counts so far are 7, 3, 1, 2, 3, 1, 1, 4, 1, 2, 3, 2, 2, 2, 1, 1** -- and they are not
 converging. Every pass so far went back up the moment it opened a part of the
 loop the earlier ones had not looked at, which is the argument against reading
 a falling count as progress toward zero. What is running out is *unexamined
@@ -754,6 +754,40 @@ run the panel on the work you are pleased with.
   the same lesson as the eleventh pass's `HostUpdate::default()` running host,
   one week of code later and by the same hand.
 
+#### Sixteenth pass -- the same diffs, read again. One more (35 in total)
+
+- *Every notice the app writes was erased by the next agent frame.*
+  `Panel::note`'s own doc comment says it exists so a message is never "built,
+  stored, and never drawn". In every non-Upgrade mode it wrote into `view` --
+  and `view` is **derived state**: `show_last_frame` and all three arms of
+  `Msg::Packet` rebuild it from the frame. The first frame arrives about a
+  second after startup, which is exactly when every startup notice is written:
+  the plaintext-password migration (which predates this session), a clamped
+  `upgrade_history_lines`, an unreadable `state.toml`, a failed state write.
+  Each appeared for one second and was gone. The doc comment's own failure,
+  reached by the other door -- not written to the wrong buffer, written to one
+  that is rebuilt.
+
+  Notices live in `Panel::notes` now, outside derived state, and `show_frame` is
+  the single place that replaces `view` with a frame. It was four places, each
+  assigning `view` directly, so re-appending in one would have been dropped by
+  the other three -- one quantity, four places, which is the shape this round
+  has found more often than any other.
+
+- **The harness was drawing a frame the app does not draw, again.**
+  `render_views.rs` assigned `p.view` directly in `with_stats`, and no screen
+  had ever rendered a pane carrying a notice. Both closed: `with_stats` goes
+  through `show_frame`, and `monitor-with-notice` renders one at all four sizes.
+  Confirmed by reading the frame rather than the assertion -- the notice appears
+  in both panes at 80x24.
+
+**Not diagnosed, and recorded rather than forgotten (1).** One workspace run
+during this pass reported `14 passed; 1 failed` in a fifteen-test binary -- one
+of the timing-sensitive tokio e2e ones. It did not reproduce in four subsequent
+full runs and the failing test's name was not captured. Nothing was concluded
+from that: it is written down here because a suite that fails once has either a
+flaky test or a real race, and both are worth the next pass's attention.
+
 **Verified rather than remembered (1).** The fourteenth pass's `-tt` finding
 rests on a claim about pty semantics that was asserted from memory. Probed on
 this machine: a child whose stdout and stderr are both a pty slave produces one
@@ -773,10 +807,9 @@ and a chain of timestamped copies is more machinery than the case earns. And
 global condition, and bounded: once per upgrade completion, against a ring whose
 floor is now fifty lines.
 
-**A sixteenth pass is owed.** The fifteenth found something, so it is not the
-one the bar describes -- and what it found was in the fifteenth's own subject
-matter, which is the argument for the sixteenth being a re-read of the *same*
-diffs rather than new ground.
+**The sixteenth did exactly that and found another**, in a notice path that
+predates this session. Two consecutive passes over the same diffs, two
+findings: re-reading is not exhausted by one attempt.
 
 **Checked and correct (2):** `sh_quote` is correct POSIX single-quoting, and the
 double layer in `spawn_command` (`sh_quote`, then `'\''`-escaping the result for

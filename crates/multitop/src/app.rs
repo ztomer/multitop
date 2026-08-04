@@ -1102,7 +1102,7 @@ impl App {
                             crate::render_payload::render_payload(&payload, dims, sort, pal);
                         p.last_frame = Some(lines.clone());
                         if p.mode == Mode::Monitor {
-                            p.view = lines;
+                            p.show_frame(lines);
                         }
                         true
                     }
@@ -1112,7 +1112,7 @@ impl App {
                         if shown {
                             let lines =
                                 crate::render_payload::render_payload(&payload, dims, sort, pal);
-                            p.view = lines;
+                            p.show_frame(lines);
                         }
                         shown
                     }
@@ -1126,7 +1126,7 @@ impl App {
                                 dims.1 as usize,
                                 pal,
                             );
-                            p.view = lines;
+                            p.show_frame(lines);
                         }
                         shown
                     }
