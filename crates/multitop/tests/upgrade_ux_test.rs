@@ -318,7 +318,7 @@ async fn confirming_after_two_presses_starts_the_upgrade() {
     let mut h = Harness::new(vec![server("web-01", Some("apt upgrade"))]);
     h.press('u');
     h.press('u');
-    h.press('y');
+    h.press('u');
 
     assert!(!h.app.show_upgrade_modal(), "modal closes on confirm");
     assert!(
@@ -352,7 +352,7 @@ async fn presses_are_ignored_while_an_upgrade_is_running() {
     let mut h = Harness::new(vec![server("web-01", Some("apt upgrade"))]);
     h.press('u');
     h.press('u');
-    h.press('y');
+    h.press('u');
     assert!(h.app.upgrades_in_flight());
 
     h.press('u');
@@ -594,7 +594,7 @@ fn upgrade_gen(h: &Harness, panel: usize) -> u64 {
 fn start_upgrade(h: &mut Harness) {
     h.press('u');
     h.press('u');
-    h.press('y');
+    h.press('u');
     assert!(h.app.upgrades_in_flight(), "precondition: upgrade started");
 }
 
@@ -1069,4 +1069,53 @@ async fn the_quit_confirmation_ignores_keys_it_does_not_name() {
 
     h.press('q');
     assert!(h.app.should_quit(), "the key the row names does confirm");
+}
+
+/// The upgrade confirmation runs `apt upgrade` on every visible host. Like the
+/// quit confirmation above, it must act on the keys it names and nothing else.
+///
+/// It named `[U] go  [Esc] cancel` and also confirmed on `y`, `Y` and `Enter` --
+/// three keys that start package transactions on production machines without
+/// appearing anywhere on the screen that asked. `Enter` is the worst of them,
+/// for the same reason the quit row dropped it: it is what an operator hits to
+/// dismiss a row they have not read.
+///
+/// Extra *cancel* keys are deliberately not part of this rule. A stray key that
+/// cancels can only ever be the safe answer.
+#[tokio::test]
+async fn the_upgrade_confirmation_ignores_keys_it_does_not_name() {
+    let _k = isolate_keychain_async().await;
+    let mut h = Harness::new(vec![server("web-01", Some("apt upgrade"))]);
+    h.press('u');
+    h.press('u');
+    assert!(h.app.show_upgrade_modal(), "the question is up");
+
+    let row = keybar_text(&h.app, 100);
+    assert!(row.contains("[U] go"), "row: {row:?}");
+    assert!(row.contains("[Esc] cancel"), "row: {row:?}");
+    assert!(
+        !row.contains("[y]") && !row.contains("[Enter]"),
+        "the row offers neither: {row:?}"
+    );
+
+    h.press_key(KeyCode::Enter);
+    assert!(
+        !h.app.upgrades_in_flight(),
+        "Enter must not start an upgrade it was never offered for"
+    );
+    h.press('y');
+    assert!(
+        !h.app.upgrades_in_flight(),
+        "nor y, which the row does not name"
+    );
+    assert!(
+        h.app.show_upgrade_modal(),
+        "and the question is still standing"
+    );
+
+    h.press('u');
+    assert!(
+        h.app.upgrades_in_flight(),
+        "the key the row names does confirm"
+    );
 }

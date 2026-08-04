@@ -294,9 +294,20 @@ pub async fn spawn_agent(server: &Server, mode: Mode, sort: SortBy) -> io::Resul
 /// Wraps a shell command with an atomic remote lock using `mkdir`.
 ///
 /// Only one concurrent upgrade can hold the lock across all clients/sessions
-/// connected to the same server. Stale locks older than 6 hours are
-/// automatically broken so a server crash / power loss doesn't permanently
-/// block future upgrades.
+/// connected to the same server. A lock whose `ts` stamp is older than 6 hours
+/// is broken automatically, so a server crash or power loss during a run does
+/// not block future upgrades.
+///
+/// **The stamp is written just after the directory, not with it,** and the
+/// automatic break needs it: a crash in that window leaves a directory with no
+/// `ts`, which no later run can time and therefore none will break. That lock
+/// is held until someone removes it by hand. The window is a few instructions
+/// wide and the panel's held-lock message already names the exact path to
+/// remove, which is why this is documented rather than closed -- the
+/// alternatives are a `find -mmin` fallback, which puts a GNU-ism in a script
+/// that otherwise runs on any POSIX `sh`, or breaking an unstamped lock on
+/// sight, which would let a second client stamp over a run that had just
+/// acquired it. Do not describe the six-hour break as covering every crash.
 ///
 /// The `LOCK_OK` flag ensures the inner command only runs if the lock was
 /// actually acquired — a race between stale-lock removal and re-acquisition

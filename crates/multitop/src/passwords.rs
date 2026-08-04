@@ -194,7 +194,22 @@ fn answer_pending_delete(app: &mut App, key: KeyCode) -> PasswordAction {
     let Some(idx) = manager.pending_delete.take() else {
         return PasswordAction::None;
     };
-    let confirmed = matches!(key, KeyCode::Char('y' | 'Y') | KeyCode::Enter);
+    // Only the key the question names. `Enter` used to confirm as well, and it
+    // is exactly the wrong key to accept here for two reasons.
+    //
+    // It is not offered: the prompt reads `[y] confirm  [Esc] cancel`, so a
+    // confirmation on `Enter` is a key that acts without being advertised.
+    //
+    // And it is *this panel's own key for opening a row to edit it*. `d` then
+    // `Enter` -- press `d` to see what the question says, then the key you use
+    // to work on a row -- removed the host and, through `write_servers`,
+    // aborted any upgrade running on it: a `dpkg` transaction interrupted on a
+    // real machine by two keystrokes that never meant to.
+    //
+    // The quit confirmation dropped `Enter` for the same reason earlier in this
+    // round -- "`Enter` is what an operator hits to dismiss something they have
+    // not read" -- and this is that instance's surviving sibling.
+    let confirmed = matches!(key, KeyCode::Char('y' | 'Y'));
     if !confirmed || idx >= app.panels.len() {
         if let Some(m) = app.password_manager.as_mut() {
             m.notice = Some("Removal cancelled.".to_string());
@@ -673,6 +688,48 @@ mod tests {
         assert_eq!(remaining.len(), 1);
         assert_eq!(remaining[0].host, "host2");
         assert_eq!(app.password_manager.as_ref().unwrap().pending_delete, None);
+    }
+
+    /// A destructive confirmation may only act on the key it names.
+    ///
+    /// The question reads `[y] confirm  [Esc] cancel`, and `Enter` confirmed
+    /// too. `Enter` is *this panel's key for opening a row to edit it*, so
+    /// `d` then `Enter` -- press `d` to read the question, then reach for the
+    /// key you use to work on a row -- removed the host and, through
+    /// `write_servers`, aborted any upgrade running on it. A `dpkg` transaction
+    /// interrupted on a real machine by two keystrokes that never meant to.
+    ///
+    /// The quit confirmation dropped `Enter` for exactly this reason earlier in
+    /// the same round; this was that fix's surviving sibling.
+    #[test]
+    fn enter_does_not_confirm_a_removal_it_was_never_offered_for() {
+        let mut app = App::new(vec![test_server("host1"), test_server("host2")]);
+        crate::passwords::open(&mut app, 0, false);
+        crate::passwords::handle_key(&mut app, KeyCode::Char('d'));
+
+        let question = app
+            .password_manager
+            .as_ref()
+            .unwrap()
+            .notice
+            .clone()
+            .unwrap_or_default();
+        assert!(
+            !question.contains("Enter"),
+            "the question does not offer Enter: {question}"
+        );
+
+        let action = crate::passwords::handle_key(&mut app, KeyCode::Enter);
+        assert_eq!(
+            action,
+            PasswordAction::None,
+            "a key the question never named must not remove a host"
+        );
+        assert_eq!(
+            app.panels.len(),
+            2,
+            "and nothing may be taken out of the list"
+        );
     }
 
     #[test]

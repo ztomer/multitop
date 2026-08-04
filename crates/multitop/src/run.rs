@@ -829,7 +829,17 @@ pub fn handle_key(
 
     if app.show_upgrade_modal() {
         match key.code {
-            KeyCode::Char('u' | 'U' | 'y' | 'Y') | KeyCode::Enter => {
+            // Only the key the row names. It reads `[U] go  [Esc] cancel`, and
+            // `y`, `Y` and `Enter` confirmed as well -- three keys that start
+            // `apt upgrade` on every visible host without appearing anywhere on
+            // the screen that asked. `Enter` is the worst of them: it is what an
+            // operator hits to dismiss a row they have not read, which is the
+            // reason the quit confirmation dropped it, and the reason the server
+            // removal dropped it in this same pass.
+            //
+            // Extra *cancel* keys below are not the same thing and stay: a stray
+            // key that cancels can only ever be the safe answer.
+            KeyCode::Char('u' | 'U') => {
                 let cmds = app.confirm_upgrade();
                 execute_cmds(cmds, app, servers, dims, tx, tasks);
             }

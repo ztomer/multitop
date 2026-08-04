@@ -43,8 +43,8 @@ server" is not, however it is drawn.
 | Vault + credential path | 7 rounds (1, 2, 3, 4, 4b, 5, 6), all 2026-08-01 | **On a finding.** Round 6 found that a release binary could silently use the mock keystore, and the review stopped there. The next day `29bdbb3` -- rotating the master password could destroy the vault -- turned up during feature work. The subsystem was still producing defects when review stopped looking. |
 | Agent parsing / protocol | 6 fuzz targets, 114M iterations, 0 crashes; plus targeted hardening (bogus chunk size, >64 KiB payload desync, null `ifa_addr`) | Mechanized, still running when asked. The only area no user-reported defect has come from. |
 | Configuration panel | Keystroke-through-render e2e plus a bounded sweep of every key sequence | Not a review round; a harness that closes one class. |
-| Terminal / process lifecycle | Round C, 2026-08-04, eleven passes so far, with `tests/event_loop_e2e.rs` built for it | **On findings, eleven times.** 7, 3, 1, 2, 3, 1, 1, 4, 1, 2, 3. What is running out is unexamined surface, not defects. Two classes account for most of them: *one quantity derived in two places by different rules*, and class H, *a failure reported as something else* -- the eighth pass was class H four times out of four. A twelfth pass is owed. |
-| SSH + upgrade transport | Covered by Round C where the lifecycle reaches it -- child process groups, the two output streams, the session handshake, the packet-decode boundary, and (eighth pass) every `Err` path out of `next_packet` plus the agent-replacement repair | Partial. `read_handshake`, `interpret_packet`, `framing_lost` and `describe_failure` have seams and tests; the bootstrap retry was read and found correct; the lock wrappers and `upload_agent`'s own framing have not been reviewed. |
+| Terminal / process lifecycle | Round C, 2026-08-04, twelve passes so far, with `tests/event_loop_e2e.rs` built for it | **On findings, twelve times.** 7, 3, 1, 2, 3, 1, 1, 4, 1, 2, 3, 2. What is running out is unexamined surface, not defects. Two classes account for most of them: *one quantity derived in two places by different rules*, and class H, *a failure reported as something else* -- the eighth pass was class H four times out of four. A thirteenth pass is owed. |
+| SSH + upgrade transport | Covered by Round C where the lifecycle reaches it -- child process groups, the two output streams, the session handshake, the packet-decode boundary, and (eighth pass) every `Err` path out of `next_packet` plus the agent-replacement repair | Partial. `read_handshake`, `interpret_packet`, `framing_lost` and `describe_failure` have seams and tests; the bootstrap retry was read and found correct; the lock wrappers were read in the twelfth pass; `upload_agent`'s own framing has not been reviewed. |
 
 Every round that ran found something. That is evidence the rounds were
 productive *and* evidence they stopped too early.
@@ -104,7 +104,7 @@ keep is what closed the last four: e2e tests that drive real `KeyEvent`s through
 asserting on the final state. The final state can look correct while three
 vaults' worth of work happened.
 
-The streak stops at eight. Round C's twenty-seven findings were all found by review,
+The streak stops at eight. Round C's twenty-nine findings were all found by review,
 before anyone hit them -- and the reason is the same rule read the other way:
 the round's first act was to build the seam the loop had never had. The area
 with the worst detection record was the area with no harness at all. Where the
@@ -504,7 +504,7 @@ earlier passes only brushed, and the reconnect loop's repair path. Four more
   "agent replaced" -- the only line in that sequence that is not true, about a
   host that was up and had just been talking.
 
-**The counts so far are 7, 3, 1, 2, 3, 1, 1, 4, 1, 2, 3** -- and they are not
+**The counts so far are 7, 3, 1, 2, 3, 1, 1, 4, 1, 2, 3, 2** -- and they are not
 converging. Every pass so far went back up the moment it opened a part of the
 loop the earlier ones had not looked at, which is the argument against reading
 a falling count as progress toward zero. What is running out is *unexamined
@@ -636,6 +636,47 @@ Both on the same seam, and the shape is now familiar enough to name in advance:
   completely as a torn one. A read-only or full disk cost the user their upgrade
   history with nothing on screen to say so: the same shape as the corrupt-file
   case the loader had one pass earlier, on the other side of the same seam.
+
+#### Twelfth pass -- the Configuration keys, and every destructive confirmation. Two more (29 in total)
+
+One class, two live instances, and the fix for it was already in this round.
+
+The rule was written during Round A's follow-up work: **a destructive
+confirmation acts on the keys it names and nothing else**, because "`Enter` is
+what an operator hits to dismiss something they have not read". It was applied
+to the quit row. Neither of the other two confirmations got it.
+
+- *The server-removal question accepted `Enter`, which it does not offer.* The
+  prompt reads `Remove <host>? ... [y] confirm  [Esc] cancel`. `Enter` confirmed
+  as well -- and `Enter` is **this panel's own key for opening a row to edit
+  it**. So `d` then `Enter` (press `d` to read the question, then reach for the
+  key you use to work on a row) removed the host and, through `write_servers`,
+  aborted any upgrade running on it: a `dpkg` transaction interrupted on a real
+  machine by two keystrokes that never meant to.
+- *The upgrade confirmation accepted `y`, `Y` and `Enter`, and names none of
+  them.* The row reads `[U] go  [Esc] cancel`. Three unnamed keys that start
+  `apt upgrade` on every visible host. Extra *cancel* keys stay, deliberately --
+  a stray key that cancels can only ever be the safe answer.
+
+**What the gate could not see, and it is the useful part.**
+`tools/check_key_hints.py` enforces *named -> bound*: a key a string tells the
+operator to press must be a live match arm. Both of these are the converse --
+*bound but not named* -- and the gate is blind to it by construction. It cannot
+simply be inverted, because legitimate aliases (`j`/`k`, `q`/`Q`) are bound and
+named nowhere. The rule only bites on destructive confirmations, so it is
+enforced by a test per confirmation instead: each renders its own row, asserts
+what it offers, and then asserts that the keys it does not offer do nothing.
+The quit row already had one; the other two have one now.
+
+**Checked and deliberately unchanged (1):** the remote upgrade lock's `ts` stamp
+is written just after the directory rather than with it, so a crash in that
+window leaves a lock no later run can time and therefore none will break. The
+window is a few instructions wide, the panel's held-lock message already names
+the exact path to remove, and both alternatives are worse -- a `find -mmin`
+fallback puts a GNU-ism in a script that otherwise runs on any POSIX `sh`, and
+breaking an unstamped lock on sight lets a second client stamp over a run that
+has just acquired it. The doc comment claimed the six-hour break covered every
+crash; that claim is corrected rather than the script.
 
 **Checked and correct (2):** `HostUpdate::duration_secs` guards `f >= s`, so a
 clock that went backwards yields `None` rather than underflowing; and

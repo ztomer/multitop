@@ -212,7 +212,7 @@ async fn live_run_keeps_its_status_block_and_collects_output() {
     h.press('u');
     assert_eq!(h.app.panels[0].mode, Mode::Upgrade);
     h.press('u');
-    h.press('y');
+    h.press('u');
     assert!(h.app.upgrades_in_flight(), "the run must actually start");
 
     assert!(
@@ -257,7 +257,7 @@ async fn switching_views_during_a_live_run_loses_nothing() {
 
     h.press('u');
     h.press('u');
-    h.press('y');
+    h.press('u');
     assert!(h.app.upgrades_in_flight());
 
     // Let some output land while we are watching.
@@ -312,7 +312,7 @@ async fn a_failing_command_on_a_reachable_host_is_reported_honestly() {
 
     h.press('u');
     h.press('u');
-    h.press('y');
+    h.press('u');
     assert!(
         h.pump_until_done(Duration::from_secs(60)).await,
         "a failing command must still reach a terminal state"
@@ -358,7 +358,7 @@ async fn an_unreachable_host_reaches_a_terminal_state() {
 
     h.press('u');
     h.press('u');
-    h.press('y');
+    h.press('u');
 
     assert!(
         h.pump_until_done(Duration::from_secs(90)).await,
