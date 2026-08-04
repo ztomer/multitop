@@ -1,5 +1,6 @@
 //! Rendering for the full-screen configuration panel.
 
+use crate::layout::wrap_words;
 use ratatui::style::{Color, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Paragraph};
@@ -28,37 +29,6 @@ fn clip(text: &str, width: usize) -> String {
     }
     let kept: String = text.chars().take(width.saturating_sub(1)).collect();
     format!("{kept}\u{2026}")
-}
-
-/// Break prose onto lines no wider than `width`, at spaces.
-///
-/// A word longer than the whole width is emitted on its own line and left to
-/// clip -- there is nowhere else for it to go, and it is a case that does not
-/// arise from any notice this screen writes.
-fn wrap_words(text: &str, width: usize) -> Vec<String> {
-    if width == 0 {
-        return Vec::new();
-    }
-    let mut out: Vec<String> = Vec::new();
-    let mut line = String::new();
-    for word in text.split_whitespace() {
-        let extra = if line.is_empty() {
-            word.chars().count()
-        } else {
-            word.chars().count() + 1
-        };
-        if !line.is_empty() && line.chars().count() + extra > width {
-            out.push(std::mem::take(&mut line));
-        }
-        if !line.is_empty() {
-            line.push(' ');
-        }
-        line.push_str(word);
-    }
-    if !line.is_empty() {
-        out.push(line);
-    }
-    out
 }
 
 #[allow(

@@ -43,7 +43,7 @@ server" is not, however it is drawn.
 | Vault + credential path | 7 rounds (1, 2, 3, 4, 4b, 5, 6), all 2026-08-01 | **On a finding.** Round 6 found that a release binary could silently use the mock keystore, and the review stopped there. The next day `29bdbb3` -- rotating the master password could destroy the vault -- turned up during feature work. The subsystem was still producing defects when review stopped looking. |
 | Agent parsing / protocol | 6 fuzz targets, 114M iterations, 0 crashes; plus targeted hardening (bogus chunk size, >64 KiB payload desync, null `ifa_addr`) | Mechanized, still running when asked. The only area no user-reported defect has come from. |
 | Configuration panel | Keystroke-through-render e2e plus a bounded sweep of every key sequence | Not a review round; a harness that closes one class. |
-| Terminal / process lifecycle | Round C, 2026-08-04, twenty-one passes so far, with `tests/event_loop_e2e.rs` built for it | **On findings, twenty times out of twenty-one.** 7, 3, 1, 2, 3, 1, 1, 4, 1, 2, 3, 2, 2, 2, 1, 1, 1, 2, 2, 2, 0. The first zero is the twenty-first, and it covered two files rather than an area -- a partial pass coming back empty is not the bar. What is running out is unexamined surface, not defects. Two classes account for most of them: *one quantity derived in two places by different rules*, and class H, *a failure reported as something else* -- the eighth pass was class H four times out of four. A twenty-second pass is owed, over `ui.rs`'s draw path and `layout.rs` -- the rest of the rendering area the twenty-first left unopened. |
+| Terminal / process lifecycle | Round C, 2026-08-04, twenty-two passes so far, with `tests/event_loop_e2e.rs` built for it | **On findings, twenty-one times out of twenty-two.** 7, 3, 1, 2, 3, 1, 1, 4, 1, 2, 3, 2, 2, 2, 1, 1, 1, 2, 2, 2, 0, 1. The one zero is the twenty-first, and the twenty-second -- finishing the area the twenty-first left half-open -- found something immediately. A partial pass coming back empty is not the bar, and this is the evidence. What is running out is unexamined surface, not defects. Two classes account for most of them: *one quantity derived in two places by different rules*, and class H, *a failure reported as something else* -- the eighth pass was class H four times out of four. A twenty-third pass is owed. `ui::draw` itself -- the modal composition, `draw_no_matches`, the keybar assembly -- was read only where the notice path led; the rendering area has been opened, not finished. |
 | SSH + upgrade transport | Covered by Round C where the lifecycle reaches it -- child process groups, the two output streams, the session handshake, the packet-decode boundary, and (eighth pass) every `Err` path out of `next_packet` plus the agent-replacement repair | Partial. `read_handshake`, `interpret_packet`, `framing_lost` and `describe_failure` have seams and tests; the bootstrap retry was read and found correct; the lock wrappers were read in the twelfth pass and `upload_agent`'s framing in the thirteenth. The bootstrap quoting and the `-tt` pty path were read in the fourteenth. No named part of the transport is unreviewed now. |
 
 Every round that ran found something. That is evidence the rounds were
@@ -115,7 +115,7 @@ keep is what closed the last four: e2e tests that drive real `KeyEvent`s through
 asserting on the final state. The final state can look correct while three
 vaults' worth of work happened.
 
-The streak stops at eight. Round C's forty-two findings were all found by review,
+The streak stops at eight. Round C's forty-three findings were all found by review,
 before anyone hit them -- and the reason is the same rule read the other way:
 the round's first act was to build the seam the loop had never had. The area
 with the worst detection record was the area with no harness at all. Where the
@@ -520,7 +520,7 @@ earlier passes only brushed, and the reconnect loop's repair path. Four more
   "agent replaced" -- the only line in that sequence that is not true, about a
   host that was up and had just been talking.
 
-**The counts so far are 7, 3, 1, 2, 3, 1, 1, 4, 1, 2, 3, 2, 2, 2, 1, 1, 1, 2, 2, 2, 0** -- and they are not
+**The counts so far are 7, 3, 1, 2, 3, 1, 1, 4, 1, 2, 3, 2, 2, 2, 1, 1, 1, 2, 2, 2, 0, 1** -- and they are not
 converging. Every pass so far went back up the moment it opened a part of the
 loop the earlier ones had not looked at, which is the argument against reading
 a falling count as progress toward zero. What is running out is *unexamined
@@ -796,6 +796,52 @@ run the panel on the work you are pleased with.
   through `show_frame`, and `monitor-with-notice` renders one at all four sizes.
   Confirmed by reading the frame rather than the assertion -- the notice appears
   in both panes at 80x24.
+
+#### Twenty-second pass -- `ui.rs`'s draw path and `layout.rs`. One more (43 in total)
+
+- *Every notice this session added was hard-truncated mid-word.* Found by
+  rendering the smallest pane and reading it, not by any assertion. At 40x12 --
+  a four-panel grid, which is the ordinary case -- the sixteenth pass's own
+  notice reached the operator as:
+
+  ```text
+  config: upgrade_history_lines = 0 woul
+  ```
+
+  **The rule was already written down, twice.** `upgrade_view::next_action`
+  keeps its sentences "under ~40 visible columns ... `ui::visible`
+  hard-truncates rather than wrapping, so a longer sentence loses exactly the
+  part that tells the user what to do". `config_ui` learned the same thing when
+  a delete confirmation lost its own `[Esc] cancel` at 40 columns, and grew
+  `wrap_words` for it. The panel notices got neither: four of them, added in
+  passes 9, 10, 11 and 16, every one a long sentence whose ending is the
+  actionable half.
+
+  Fixed by moving the notices out of `view` altogether. They live in
+  `Panel::notes` and are appended by `ui::pane_lines` -- "the single entry point
+  to what is in that pane", and the only place that knows the pane's width and
+  can therefore wrap them. `wrap_words` moved to `layout` as the shared rule.
+  That is also a better answer to the sixteenth pass's finding than the
+  sixteenth pass's: `view` goes back to being purely derived state, so there is
+  nothing for a frame to erase and no re-append for a fourth writer to forget.
+
+  Five tests were reading `panel.view` for a notice. They read `ui::pane_lines`
+  now, which `pane_lines`' own doc comment already told them to do: *"a test
+  reading `panel.view` directly is reading a buffer the Upgrade pane does not
+  draw."*
+
+**Checked and correct (3):** `fit_row` shrugs off out-of-range shed indices
+(`kept.get_mut`) and returns everything when nothing fits, as documented;
+`share_width`'s surplus loop cannot spin, because a hungry cell always takes at
+least one column from a finite pool; and `pane_window`'s pinning arithmetic is
+saturating throughout, with `height = 1` correctly yielding no pinned row rather
+than an empty pane.
+
+**Noted, not reachable (1):** `share_width` indexes `flex_want[i]` over
+`flex_min.len()`, so a caller passing a shorter `flex_want` panics. Its one
+production caller passes matching literals. Left alone rather than guarded,
+because a `debug_assert` that only fires in tests is not protection and a
+silent `.get()` would hide the caller's mistake.
 
 #### Twenty-first pass -- `refit.rs` and `ansi.rs`. **Nothing found (42 in total)**
 

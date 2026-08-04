@@ -325,9 +325,12 @@ async fn the_rotation_outcome_survives_the_panel_being_closed() {
     });
 
     assert!(
-        app.panels[0].view.iter().any(|l| l.contains("changed")),
+        multitop::ui::pane_lines(&app, 0, 20, 60, 0)
+            .0
+            .iter()
+            .any(|l| l.contains("changed")),
         "the outcome must reach the panels, got {:?}",
-        app.panels[0].view
+        multitop::ui::pane_lines(&app, 0, 20, 60, 0).0
     );
 
     let _ = std::fs::remove_dir_all(dir);

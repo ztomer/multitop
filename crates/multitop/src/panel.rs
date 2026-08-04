@@ -252,22 +252,20 @@ impl Panel {
         if self.notes.len() >= MAX_NOTES {
             self.notes.remove(0);
         }
-        self.notes.push(line.clone());
-        // And on screen now, rather than waiting for the next frame.
-        self.view.push(line);
+        self.notes.push(line);
     }
 
-    /// Show a rendered frame, keeping the notices under it.
+    /// Show a rendered frame.
     ///
-    /// The one place that replaces `view` with a frame. It was three -- the
-    /// Monitor, Docker and Fetch arms of `Msg::Packet` -- plus
-    /// [`Panel::show_last_frame`], each assigning `view` directly, so a notice
-    /// re-appended in one of them would have been dropped by the other three.
-    /// One quantity, four places: the shape this round has found more than any
-    /// other.
+    /// The one place that replaces `view` with a frame -- it was four, and a
+    /// notice re-appended in one of them would have been dropped by the other
+    /// three. Notices are no longer appended here at all: they live in
+    /// [`Panel::notes`] and are added by `ui::pane_lines`, which is the only
+    /// place that knows the pane's width and can therefore wrap them. Appended
+    /// here they were hard-truncated by the pane, which loses the end of a
+    /// sentence -- and the end of a notice is the part that says what to do.
     pub fn show_frame(&mut self, lines: Vec<String>) {
         self.view = lines;
-        self.view.extend(self.notes.iter().cloned());
     }
 
     pub fn ensure_sudo_password(&mut self) -> Option<String> {
@@ -375,10 +373,13 @@ mod ring_tests {
         assert_eq!(ring.len(), 3, "the new cap is in force");
     }
 
-    /// A notice must land in the pane the panel is actually showing. Written to
-    /// `view` while the Upgrade pane renders from the ring, it is a message
-    /// built, stored and never drawn -- the same failure as the banner
-    /// overwriting row 0.
+    /// A notice must land in the buffer the pane it is showing actually draws.
+    ///
+    /// In the Upgrade view that is the ring; in every other view it is `notes`,
+    /// which `ui::pane_lines` appends *wrapped to the pane's width*. It used to
+    /// go into `view` -- which the next agent frame rebuilds, and which the pane
+    /// hard-truncates, so the notice was erased a second later and clipped
+    /// mid-word before then.
     #[test]
     fn a_notice_lands_in_the_pane_the_panel_is_showing() {
         let mut p = Panel::new(Server {
@@ -388,7 +389,14 @@ mod ring_tests {
             upgrade_cmd: None,
         });
         p.note("while monitoring".to_string());
-        assert!(p.view.iter().any(|l| l == "while monitoring"));
+        assert!(
+            p.notes.iter().any(|l| l == "while monitoring"),
+            "a Monitor-mode notice belongs in `notes`, which survives the next frame"
+        );
+        assert!(
+            !p.view.iter().any(|l| l == "while monitoring"),
+            "and not in `view`, which the next frame rebuilds"
+        );
 
         p.mode = Mode::Upgrade;
         p.note("while upgrading".to_string());

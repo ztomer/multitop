@@ -622,8 +622,10 @@ fn a_state_write_that_failed_is_reported() {
 
     app.mark_upgrades_started(&[0]);
 
-    let said = app.panels[0]
-        .view
+    // Through `pane_lines`, which is what the pane draws: a notice lives in
+    // `notes` and is wrapped in at render time, not stored in `view`.
+    let said = multitop::ui::pane_lines(&app, 0, 20, 60, 0)
+        .0
         .iter()
         .any(|l| l.contains("could not save upgrade state"));
 
@@ -632,7 +634,7 @@ fn a_state_write_that_failed_is_reported() {
     assert!(
         said,
         "a failed state write must reach the panel; the pane said: {:?}",
-        app.panels[0].view
+        multitop::ui::pane_lines(&app, 0, 20, 60, 0).0
     );
 }
 
@@ -695,8 +697,9 @@ fn a_notice_survives_the_next_frame() {
     let _keychain = isolate_keychain();
     let mut a = app(1);
     a.panels[0].note("moved 2 plaintext passwords out of config.toml".to_string());
+    let pane = |a: &App| multitop::ui::pane_lines(a, 0, 20, 60, 0).0.join("\n");
     assert!(
-        text(&a.panels[0]).contains("plaintext passwords"),
+        pane(&a).contains("plaintext passwords"),
         "it must show immediately"
     );
 
@@ -707,7 +710,7 @@ fn a_notice_survives_the_next_frame() {
         lines: vec!["cpu 4%".into(), "mem 1.2G".into()],
     });
 
-    let shown = text(&a.panels[0]);
+    let shown = pane(&a);
     assert!(
         shown.contains("cpu 4%"),
         "the frame must still be drawn: {shown}"
@@ -738,9 +741,9 @@ fn a_notice_survives_a_rendered_monitor_packet() {
         dims: (80, 24),
     });
 
+    let shown = multitop::ui::pane_lines(&a, 0, 20, 60, 0).0.join("\n");
     assert!(
-        text(&a.panels[0]).contains("would leave nothing to show"),
-        "the pane says: {}",
-        text(&a.panels[0])
+        shown.contains("would leave nothing to show"),
+        "the pane says: {shown}"
     );
 }

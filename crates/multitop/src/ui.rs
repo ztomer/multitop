@@ -230,9 +230,29 @@ pub fn pane_lines(
     if p.mode == crate::app::Mode::Upgrade {
         let (header, _) = app.upgrade_pane_header(panel);
         visible_upgrade(&header, &p.last_upgrade, height, target_cols, scroll_offset)
-    } else {
+    } else if p.notes.is_empty() {
         visible(
             &p.view,
+            height,
+            p.pinned_lines.max(1),
+            target_cols,
+            scroll_offset,
+        )
+    } else {
+        // Wrapped here because here is the only place that knows the pane's
+        // width. A pane hard-truncates, so a notice appended to `view` lost its
+        // own ending -- at 40 columns, four panels wide, "config:
+        // upgrade_history_lines = 0 would leave the Upgrade pane with nothing to
+        // show; using 50 instead." reached the operator as "...= 0 woul".
+        //
+        // The clone is paid only when a notice exists, which is rare and never
+        // on the streaming path.
+        let mut body = p.view.clone();
+        for note in &p.notes {
+            body.extend(crate::layout::wrap_words(note, target_cols));
+        }
+        visible(
+            &body,
             height,
             p.pinned_lines.max(1),
             target_cols,

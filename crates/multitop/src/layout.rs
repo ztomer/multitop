@@ -269,6 +269,41 @@ pub fn fit_banner(user: &str, host: &str, budget: usize) -> String {
     format!("\u{2026}{tail}")
 }
 
+/// Break prose onto lines no wider than `width`.
+///
+/// Panes hard-truncate rather than wrap -- `upgrade_view::next_action` keeps its
+/// sentences "under ~40 visible columns" for exactly that reason, and
+/// `config_ui` learned it when a delete confirmation lost its own
+/// `[Esc] cancel` at 40 columns. A notice is prose: it has nothing to shed, so
+/// it wraps or it loses the end, and the end of a notice is the part that says
+/// what to do.
+#[must_use]
+pub fn wrap_words(text: &str, width: usize) -> Vec<String> {
+    if width == 0 {
+        return Vec::new();
+    }
+    let mut out: Vec<String> = Vec::new();
+    let mut line = String::new();
+    for word in text.split_whitespace() {
+        let extra = if line.is_empty() {
+            word.chars().count()
+        } else {
+            word.chars().count() + 1
+        };
+        if !line.is_empty() && line.chars().count() + extra > width {
+            out.push(std::mem::take(&mut line));
+        }
+        if !line.is_empty() {
+            line.push(' ');
+        }
+        line.push_str(word);
+    }
+    if !line.is_empty() {
+        out.push(line);
+    }
+    out
+}
+
 #[cfg(test)]
 mod tests {
     #![allow(clippy::unwrap_used)]
