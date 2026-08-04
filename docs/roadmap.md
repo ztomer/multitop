@@ -4,86 +4,13 @@ The one forward-looking backlog. Shipped work is not listed here — it is in gi
 history and in the test suite. When an item here is finished, delete it rather
 than ticking it off.
 
-## 1. Live confirmation of everything that is green but unseen
+## 1. The adversarial review is not finished
 
-The whole "never run against a real terminal, a real vault, or a real host" list,
-in one place. It used to be three sections describing three batches of work; the
-batches are shipped and only the confirmation is outstanding, and it is the same
-kind of work every time.
+Recorded because "are we done?" deserves an answer that is not a feeling.
 
-Green tests are not a shipped feature. Each row is one sitting with the real app.
-
-| Path | How to exercise it | Ever done? |
-|------|--------------------|-----------|
-| Per-host sudo passwords | Give each Ubuntu host its own password with `Enter`, run an upgrade, check it completes | no |
-| Refused password vs failing command | Set one host's password deliberately wrong; the panel must say the password was refused, not that the command failed | remote side only, against 192.168.0.33 |
-| Master-password rotation | `R`, rotate, quit, restart; the stored sudo passwords must decrypt with the new master password and not the old one | no |
-| SSH import | `I` against a real `~/.ssh/config`; nothing already configured may lose its `upgrade_cmd` | no |
-| Server-list editing | Add and remove a server while running; panels respawn, stats land on the right host, no panel keeps a dead host's data | no |
-| Sudo handshake over stdin | A real upgrade on a host that needs sudo; the password must reach `sudo -S` and never appear in `ps` | yes, three hosts |
-| `SIGTTIN` no longer stops the app | `kill -TTIN` the running app from another terminal; it must keep drawing rather than stopping and abandoning the terminal | no |
-| Sudo handshake deadlock | A remote that stays silent must report a bounded wait, not surface as an unreachable host | no |
-| **One prompt per upgrade** | With a vault present, press `u` twice from a fresh start and count the password prompts. Exactly one, and it must be multitop's own "Enter vault master password", not a macOS keychain dialog | no |
-| **Vault creation asks once** | Save a first password, type a master password, press Enter once and wait. One prompt, one vault, and Server Settings still on screen underneath | no |
-| **Progress output** | Run an upgrade whose command has a `\r` progress bar (`apt upgrade`); the log must gain one line per bar, not one per tick | no |
-| **A host coming up** | Start against a host that is slow to connect: the panel must say `connecting...`, not sit empty | no |
-| **Scrolling an upgrade log** | Scroll back during a long run; `[↑ -N lines]` must appear on row 0 | no |
-| **Narrow terminals** | Resize to 40 columns with four panels: every host banner must still name its own machine, and the keybar must degrade to initials rather than cutting a word | no |
-| **The wide banner** | `B` in Settings, on a terminal whose font has fullwidth Latin glyphs and on one that does not. On the first the banner must be legible and still name each machine at 40 columns; on the second it will be a CJK fallback face, which is what the caveat in the row warns about and what the user is choosing | no |
-| **A deleted password stays deleted** | With a vault present, save a host's password, then empty the field. Quit, restart, unlock, press `u`: the pane must say the password is missing. It used to come back -- the delete skipped the vault, and the vault is what is read first | no |
-| **Quitting during an upgrade** | Press Esc while a real `apt upgrade` is running. The keybar must ask, naming the hosts; Esc again must stand down and the run continue; `q` must quit and print to stderr, after the terminal is restored, which hosts were killed and that the remote lock may need removing | no |
-| **A held remote lock** | Start an upgrade, kill multitop mid-run, start another upgrade on the same host. The panel must say another run holds the lock and name the file to remove -- not "command exited 1" | no |
-| **The filter scopes the run** | `/db` Enter, then `u` `u`. The confirm row's count must be the filtered count, and only the hosts on screen may be touched | no |
-| **A second rotation** | Press `r` twice while a master-password change is running; the second must be refused, not start a second rotation | no |
-| **Saving during an upgrade** | Edit a host's password while its upgrade is running; the run must continue rather than being killed and restarted | no |
-
-The bold rows are the 2026-08-03 and 2026-08-04 fixes. The upgrade-prompt row is the
-one that matters most: the diagnosis was that the *first* `u` read the OS
-credential store to report on credentials, and on macOS that is a system dialog
-raised before the vault is ever unlocked. If a second prompt still appears, and
-it is multitop's own, the diagnosis was wrong and the state machine needs
-another pass.
-
-## 2. What the UX panel found, by class
-
-Round B of the review (see item 3). Every claim below was verified against the
-source or against a rendered frame before it was written down; persona claims
-that did not survive checking are not here.
-
-**Status, 2026-08-04.** All eight classes are fixed, each with a gate or a
-regression test run red against the old code before it was believed. Nothing in
-this section is open.
-
-The classes are kept here rather than deleted **only** until their live
-confirmation in item 1 is done -- they are described in git history, and this
-whole section should be deleted once someone has watched them work against a
-real terminal and a real host. Fixed is not shipped.
-
-Worth recording, because it is the argument for reviewing the review: the
-2026-08-04 pass over the D/F/H work found that the fix for class A had been
-reintroduced in a new shape. Five sites wrote user-facing notices into
-`panel.view` while the Upgrade pane draws from the `last_upgrade` ring, so those
-messages were built, stored, and never shown -- the same defect as the banner
-overwriting row 0, one refactor later. `Panel::note` makes the choice once. A
-class is not closed by fixing its instances; it is closed when the shape cannot
-be written again.
-
-| Class | State |
-|-------|-------|
-| A. Row 0 has two owners | **fixed** -- `visible` returns the offset as a value, `draw` composes row 0 once |
-| B. Fixed-width layout with no budget | **fixed** -- `layout::fit_row` / `share_width`, applied to the keybar, the settings row and the settings hints |
-| C. The banner clips the identifying tail | **fixed** -- `layout::fit_banner`, plain ASCII, `user@` dropped first, cut from the left |
-| D. Cost paid per frame for nothing | **fixed** -- `push_capped` amortises the trim (drain only past `cap + 512`), mouse handling gated to the three actionable kinds, `apply` returns whether anything visible changed and the loop does `dirty |= apply(msg)` |
-| E. Names and labels | **fixed** -- `[E] Settings`, the `{:<11}` pad, `Cpu/ Mem`, and one name (**Settings**) for the screen |
-| F. Blast radius is not what the screen says | **fixed** -- the filter scopes the run (owner's call, see below), and Esc/q/Ctrl-C confirm before killing a live upgrade, naming the hosts |
-| G. Key hints naming keys that do not exist | **fixed** -- one constant, plus `tools/check_key_hints.py` in the hook and CI |
-| H. Failures reported as something else | **fixed** -- `LOCK_HELD_SENTINEL`/`LOCK_HELD_CODE` matched ahead of the generic arm and naming the lock file; `sudo` in the example; `is_sudo_help` learns the root-permission shapes |
-
-**Settled (owner, 2026-08-04): the filter scopes the run.** The class F
-either/or is resolved the safe way: `run_upgrade`, `upgrade_runnable`,
-`upgrade_skip_hosts` and the confirmation all iterate `filtered_indices()`, so
-what is on screen is exactly what `u` upgrades. The "all servers" modal count
-now counts the filtered scope.
+**The bar: a full review round that produces no new findings.** No round has
+ever met it. Not "we stopped early" -- the review has never once terminated
+correctly.
 
 ### How disagreements are settled  (owner decree, 2026-08-03)
 
@@ -109,289 +36,6 @@ A question does not become a UI question by being visible. "Is this word
 truncated" is UI. "Does this key kill a package transaction on a production
 server" is not, however it is drawn.
 
-**Resolved by the decree, immediately:** the keybar. Rams wants the theme badge
-*deleted* outright to buy back columns; Kare wants all three badges kept and
-**shed whole, in priority order** (Sort, then Theme, then Settings) as the width
-runs out, with initials below ~44 columns. That is a UI question and Kare has
-it: shed in order, never delete a badge that is affordable at the width in
-front of you, and never slice one. Rams' `{:<11}` complaint survives untouched
--- both of them raised it, so it is not a tension at all.
-
-**Settled by the third expert:** the confirmation modal. Rams and Hashimoto
-disagreed, it went to Kare, and she ruled. See "The confirmation, as ruled"
-below -- it is a decision, not an open question, and it needs nothing from the
-owner.
-
-The safety half turned out not to exist. It was recorded here as "whether a tool
-that runs `apt upgrade` on production may drop its confirmation step at all",
-and that was a misreading of Rams: he proposed *moving* the confirmation to the
-keybar row, never removing the gate. Both experts wanted a confirmation
-throughout; they disagreed only about its form, which is entirely Kare's. The
-splitting rule was right and simply had nothing to split here.
-
-Grouped by **class**, not by persona, because the value of the round was that
-four independent bars kept landing on the same few root causes. Fixing per
-finding would fix each symptom once and leave the cause alive -- which is
-exactly what happened earlier the same day, recorded under class B.
-
-### A. Row 0 has two owners  (high)
-
-`ui::visible` composes the scroll badge into `lines[0]` (`ui.rs:137`);
-`ui::draw` then overwrites `lines[0]` with the host banner unconditionally,
-every frame (`ui.rs:536`). Two pieces of code believe they own that row and the
-later one silently wins. Two symptoms, found independently from opposite ends:
-
-- **A one-line body is eaten.** `Panel::new` sets `view: ["connecting..."]`, so
-  a host coming up renders an **empty box** -- indistinguishable from a hung SSH
-  session or a dead app. `grep -rl connect target/views` matches none of the 88
-  rendered frames.
-- **The scroll badge can never appear.** `[↑ -N lines]` is built and destroyed
-  on the same frame, so the scroll-position indicator has never once been on
-  screen.
-
-The test that should have caught the badge (`upgrade_ux_test.rs:634`) calls
-`visible()` with `target_cols = 0`, which skips the whole badge path. It passes
-against code that renders nothing.
-
-**Fix (structural, not two patches):** make the ownership unrepresentable.
-`visible()` returns body rows plus the `badge_offset` as a value; `draw`
-composes row 0 exactly once, from banner + badge together. Then pin
-it with a test that renders through `ui::draw` into a `TestBackend` and asserts
-the badge is in the buffer.
-
-### B. Fixed-width layout with no budget  (high)
-
-Every one of these is the same defect: content laid out to a constant, a
-terminal narrower than the constant, and `Paragraph` clipping mid-word.
-
-| Where | At 80 columns | At 40 |
-|-------|---------------|-------|
-| Keybar (`ui.rs:324`) | `[Sort: Cpu/Mem]` -- the only place the sort order is stated -- falls off; `[Theme: Kare` cut mid-word | dies at `Upgrad` |
-| Settings row (`config_ui.rs:85`, 75 fixed columns) | Password column reads `✓ S` / `· U`; header reads `Pas` | column gone entirely |
-| Modal copy (`modals.rs:114`, no `.wrap()`) | fits | `Press U or Enter to confirm, Esc t` -- a destructive dialog amputating its own cancel instruction |
-| Settings hint row (`config_ui.rs:144`) | fits | orphaned `[`, and `[Esc/Q] Return` is shed -- the only exit signage on a screen that covers the keybar |
-
-**This class was already open and got fixed at the instance level.** Earlier the
-same day the settings row's *command* column was given a `clip` helper, which
-cured the misalignment and left the row 75 fixed columns wide -- so the
-credential state still falls off. Rule 6, unlearned, by the person who wrote
-rule 6 into this file.
-
-**Fix:** one width-budget helper shared by all four. Fixed cells (marker, state,
-port) never give; flexible cells (host, user, command) share the remainder; a
-chunk is emitted whole or dropped whole, never sliced. Shed in a declared
-priority order, and put the thing the user cannot guess -- the way *out* --
-first, so it is never what gets dropped.
-
-Kare's rule, binding: **a label is whole or it is absent; there is no third
-state.**
-
-**Build this helper first.** Her ruling on the confirmation (below) *deletes*
-the modal-clipping row of the table above rather than fixing it -- a single
-keybar row cannot clip if it is assembled from whole chunks -- and the same
-mechanism serves the keybar badges and the settings hint row. Three defects and
-one new feature, one helper. Anything built before it will be rebuilt by it.
-
-### C. The banner is not in the family, and it clips the identifying tail  (high)
-
-`fmt::fullwidth` maps the host name into U+FF01-FF5E for the panel banner
-(`ui.rs:524`). Two problems, the second serious:
-
-- Those codepoints are absent from Menlo, SF Mono, JetBrains Mono and Berkeley
-  Mono, so the banner falls back to a CJK face: a different typeface, weight and
-  baseline from every line beneath it.
-- It doubles the cell cost, so `ztomer@web-01` needs 26 cells in a 20-cell pane
-  and clips to `ｚｔｏｍｅｒ＠ｗｅ`. **The digits are what fall off** -- `web-01`
-  and `web-02` render identically at four panels on a small terminal, on a tool
-  where the selected panel is the machine `u` runs `apt upgrade` against.
-
-**Fix:** plain ASCII in the accent colour, bold -- already the only bold accent
-line in the pane. When it still will not fit, drop the `user@` prefix first (it
-is identical in every panel, so it carries no information), then ellipsize from
-the **left**, `…b-01`, so the distinguishing end survives.
-
-### D. Cost paid per frame for nothing  (med)
-
-- `app.rs:1056` and `:1066`: `last_upgrade.drain(..len - cap)` with
-  `cap = 5000`, twice per line, on the event-loop thread. Once the buffer fills,
-  every further line memmoves ~5000 `String` headers. `apt upgrade` on a
-  neglected box emits tens of thousands of lines, and this is the app's headline
-  feature. Fix: `VecDeque` + `pop_front`, or amortize (drain only at
-  `cap + 512`), and stop the `line.clone()`.
-- `run.rs:347`: a `TIOCGWINSZ` syscall plus two `Layout::split` allocations on
-  every mouse event -- including motion, which crossterm's `EnableMouseCapture`
-  requests with `?1003h` (any-event tracking) -- then discarded by `_ => {}` for
-  all but three event kinds. Fix: compute inside the three arms that use it, and
-  track terminal size from the `Resize` event instead of asking the kernel.
-- `run.rs:384`: `dirty = true` after every message. A `Monitor` packet for a
-  panel showing Docker changes nothing visible and still forces a full redraw of
-  every panel. Fix: `apply` returns whether anything visible changed;
-  `dirty |= app.apply(msg)`.
-
-### E. Names and labels  (med)
-
-- **Three names for one screen:** README says *Configuration* (`README.md:63`),
-  the keybar badge says *SEttings*, the panel title says *Server Settings*
-  (`config_ui.rs:182`). The third is wrong on its own terms -- that screen holds
-  the vault master password and display settings, neither of which is a
-  server. Pick **Settings** and use it three times.
-- `[SEttings]` highlights the **second** letter (`ui.rs:219`) while every other
-  key in the bar highlights the first. A mnemonic that has to be explained is
-  not one. Print `[E] Settings`.
-- `format!("{:<11}", theme.name)` (`ui.rs:216`) pads a four-letter word with
-  seven dead columns, at exactly the width where the bar overflows.
-- `"/ "` renders the sort badge as `Cpu/ Mem` (`ui.rs:236`).
-- **The app tells the user to do by hand what the app does.** Both
-  `upgrade_view.rs:163` and `modals.rs:85` say to set `upgrade_cmd` in
-  `config.toml`, while the settings row editor has that field and writes it back
-  to that file. Replace with the in-app path.
-
-### F. The blast radius is not what the screen says it is  (high)
-
-The operator bar found the two worst defects of the round, and neither is
-cosmetic.
-
-- **The filter narrows the screen but not the run.** `ui::draw` honours
-  `filtered_indices()` (`ui.rs:435`); `run_upgrade` iterates
-  `0..self.panels.len()` (`app.rs:794`). `filtered_indices` has exactly two
-  callers -- the renderer and the selection clamp -- and the upgrade path is not
-  one of them. So `/db` Enter `u` `u` Enter runs `apt upgrade` on **every host in
-  config.toml** while one host is on screen, and the output and failures of the
-  hidden ones never render, because the grid is still filtered when they come
-  back. The modal's "all servers" is technically true and practically a trap:
-  the filter's whole purpose is that "all servers" is now a set the operator
-  cannot see. **Decide which it is** -- scope the run to the filter, or state in
-  the modal, in words, that the filter does not scope it. Silently disagreeing
-  with the screen is the one option not available.
-- **Esc quits, kills a live `apt upgrade`, and asks nothing.**
-  `upgrade_view.rs:151` prints "→ running -- do not quit" and nothing enforces
-  it: `run.rs:619` calls `app.quit()` unconditionally, `abort_all` drops every
-  handle, children are `kill_on_drop`, and dpkg dies mid-transaction on a
-  production box. Deleting one *row* in Settings takes two keys; killing a
-  package transaction on N production servers takes one, and it is the key an
-  operator presses to back out of a screen. **Fix:** when `upgrades_in_flight()`,
-  Esc/q/Ctrl-C confirms first, naming the hosts; and on quit, print to stderr
-  after terminal restore which hosts were killed and that the remote lock may
-  need removing.
-
-### G. Three help lines name two keys that do not exist  (med)
-
-`upgrade_view.rs:236` says `will prompt · p to save`. `tasks.rs:462` says
-`Set a password for this host with o in Settings`. `password_actions.rs:324`
-says `set those again with p`. Neither `p` nor `o` is bound anywhere:
-`grep -rn "Char('p'\|Char('o'" crates/multitop/src` returns nothing. The key is
-`e` -- which `tasks.rs:427` gets right, so the codebase names three different
-keys for one action and two of them do nothing. This is the worst shape a doc
-lie can take: it appears at the exact moment the operator is stuck and needs the
-instruction to work first time.
-
-**Fix:** one constant for the settings key and its human label, referenced by
-all four sites, plus a test that scans user-facing strings for key references
-and asserts each is a live arm of `run::handle_key`. Structural, not
-disciplinary -- this is the third naming defect in the same file set.
-
-### H. Two failures that are reported as something else  (med)
-
-The project already fixed this class once, for a refused sudo password (exit 111
-plus a marker line, so it is no longer indistinguishable from a failing
-command). Two siblings were never given the same treatment:
-
-- **A held remote lock reads as a failing command.**
-  `ssh.rs:287` ends `echo "Upgrade already in progress"; exit 1`, which lands in
-  the generic arm, so the panel says `⚠ upgrade command exited 1 -- host
-  reachable, command failed`. It did not fail; it never ran. A lock left by a
-  killed run is broken only after six hours, so for six hours every attempt
-  sends the operator to debug an apt command that is fine. Fix: a
-  `LOCK_HELD_CODE` and sentinel matched ahead of the generic arm, naming the
-  lock file to remove.
-- **The shipped example cannot work for the user it is written for.**
-  `config.example.toml` offers `upgrade_cmd = "apt update && apt upgrade -y"`
-  next to `user = ""`. Uncommented by a normal login, apt exits 100 with "are
-  you root?" -- the per-host sudo machinery does not save it, because the
-  preamble runs `sudo -v` and then the command runs *without* sudo. `is_sudo_help`
-  does not fire either, because apt's message contains no "sudo". Meanwhile
-  every rendered frame shows `sudo apt update && sudo apt upgrade -y`: the
-  product's own screenshots disagree with the file it ships. Fix: put `sudo` in
-  the example and say the command runs as the SSH user; teach `is_sudo_help` the
-  root-permission shapes.
-
-### The confirmation, as ruled  (Kare, third expert, 2026-08-03)
-
-**Rams takes the placement, Hashimoto takes the content, neither gets what he
-asked for.** Binding.
-
-**1. A keybar row, not a box.** The frames decided it: at 40x12 the box is 38
-cells wide and clips its own cancel line to `Esc t`, while at the same size the
-filter prompt renders every word whole. One of those two patterns survives the
-smallest size in the product and it is not the box. A box that has to be taught
-to wrap, to compute its own height, and to shed lines in priority order is a box
-being rebuilt into a row the hard way.
-
-And the covering is real: at 40x12 the box sits on top of db-02. You do not
-print a summary over the thing it summarises.
-
-**2. Hashimoto's hidden set gets SHOWN, not listed.** He was right that "all
-servers" conceals a set the operator cannot see, and wrong about the remedy: a
-list of eight hostnames typeset over the eight panes that already name those
-hostnames is the same information twice, once badly. The Upgrade view *is* the
-enumeration. So -- **arming the confirmation clears the visual filter for its
-duration.** The grid springs from one pane to eight and the operator sees the
-six he was about to touch blind, in full detail, in the layout he already knows.
-Disclosure by uncovering rather than by overprinting.
-
-**3. The row, matching the filter prompt's grammar exactly** -- state left, keys
-right, two spaces between:
-
-```
-Upgrade 8 hosts · 2 skipped  [U] go  [Esc] cancel      (>= 56 cols)
-Upgrade 8 hosts  [U] go  [Esc] cancel                  (40 cols, 37 used)
-```
-
-Shed order, whole chunks only: `· 2 skipped` goes first, because the ⚠ is
-already in those panes. `[Esc] cancel` goes last and in practice never -- it is
-the only thing on the line the operator cannot guess, since he pressed `U` to
-get here.
-
-**The count is the alarm.** If the grid was showing one host and the row says 8,
-that discrepancy is louder than any sentence that would fit in the remaining
-cells.
-
-**Build-order consequence, and it is the good kind.** This ruling *deletes* the
-modal-clipping finding rather than fixing it -- a single row cannot clip if it
-is built from chunks emitted whole or not at all. That is the same mechanism the
-keybar badges and the settings hint row need. Three defects, one small helper,
-one rule: **a label is whole or it is absent.** Build the helper first and the
-confirmation row falls out of it for free.
-
-### Still open, and not a UI question
-
-Kare's ruling settles *disclosure* -- the operator sees every host he is about
-to touch. It does not settle **scope**: `run_upgrade` still iterates every panel
-while `ui::draw` honours the filter (class F). Un-filtering at the confirmation
-makes the disagreement visible instead of silent, which is the minimum bar, but
-"a filter narrows the screen and not the run" remains a semantics decision. The
-alternative -- scoping the run to `filtered_indices()` so `/db` then `u` upgrades
-db-02 alone -- is defensible and is the owner's call, not a reviewer's.
-
-**What each argued, for the record.** Rams: the modal says *less* than the view
-it covers -- "all servers" instead of naming them, one aggregate `Last update`
-instead of the per-host truth, a skipped list duplicating the ⚠ already in the
-panes, and in the rendered frame it obliterates db-02; delete
-`draw_upgrade_modal` and put the confirm in the keybar row, where the filter
-prompt already proves the pattern (`run.rs:691`, `ui.rs:191`). Hashimoto: keep
-the box and make it enumerate, because "all servers" is the phrase that hides a
-filtered-away set (class F) -- and separately the box drops its own "Esc to
-cancel" line whenever a skipped host and an interrupted previous run co-occur,
-which are both ordinary states.
-
-## 3. The adversarial review is not finished
-
-Recorded because "are we done?" deserves an answer that is not a feeling.
-
-**The bar: a full review round that produces no new findings.** No round has
-ever met it. Not "we stopped early" -- the review has never once terminated
-correctly.
-
 ### Where it has been
 
 | Area | Coverage | How it ended |
@@ -399,6 +43,8 @@ correctly.
 | Vault + credential path | 7 rounds (1, 2, 3, 4, 4b, 5, 6), all 2026-08-01 | **On a finding.** Round 6 found that a release binary could silently use the mock keystore, and the review stopped there. The next day `29bdbb3` -- rotating the master password could destroy the vault -- turned up during feature work. The subsystem was still producing defects when review stopped looking. |
 | Agent parsing / protocol | 6 fuzz targets, 114M iterations, 0 crashes; plus targeted hardening (bogus chunk size, >64 KiB payload desync, null `ifa_addr`) | Mechanized, still running when asked. The only area no user-reported defect has come from. |
 | Configuration panel | Keystroke-through-render e2e plus a bounded sweep of every key sequence | Not a review round; a harness that closes one class. |
+| Terminal / process lifecycle | Round C, 2026-08-04, two passes so far, with `tests/event_loop_e2e.rs` built for it | **On findings, twice.** Seven on the first pass, three more on the second -- so the first pass was thorough, believed itself finished, and was wrong. A third pass is owed. |
+| SSH + upgrade transport | Covered by Round C where the lifecycle reaches it -- child process groups, the two output streams, the session handshake | Partial. `stream::read_handshake` now has a seam and tests; `next_packet`'s framing and the bootstrap retry do not. |
 
 Every round that ran found something. That is evidence the rounds were
 productive *and* evidence they stopped too early.
@@ -432,8 +78,6 @@ Re-run the probe after any change to how the vault decides to use the keychain.
 
 | Area | Files | What that has already cost |
 |------|-------|----------------------------|
-| Terminal / process lifecycle | `run.rs` event loop, signal handling, child process groups | `SIGTTIN` stopped the app and abandoned the terminal -- found by the user |
-| SSH + upgrade transport | `ssh.rs`, `tasks.rs` | The sudo handshake deadlock, and a refused password reported as a failing command -- both found by the user |
 | Rendering | `ui.rs`, `refit.rs`, `ansi.rs` beyond the Configuration panel | A footer clipped at 80 and 96 columns, and a modal clipping its own footer -- found by rendering a frame and looking at it, not by any test |
 | Persistence | `config.rs`, `state.rs` | Non-atomic state writes, and config comments destroyed on every write -- both found ad hoc |
 
@@ -459,6 +103,12 @@ keep is what closed the last four: e2e tests that drive real `KeyEvent`s through
 `run::handle_key` and **count what the presses actually started**, rather than
 asserting on the final state. The final state can look correct while three
 vaults' worth of work happened.
+
+The streak stops at eight. Round C's ten findings were all found by review,
+before anyone hit them -- and the reason is the same rule read the other way:
+the round's first act was to build the seam the loop had never had. The area
+with the worst detection record was the area with no harness at all. Where the
+next round has no harness, build it first.
 
 ### The review log
 
@@ -531,7 +181,8 @@ frame was drawn for a pane bigger than it gets and the tops were silently cut. A
 harness that misrepresents the product is worse than none.
 
 **Found:** 22 findings, all verified against source or a rendered frame before
-being written down. They are item 2, grouped by class rather than by persona.
+being written down. They were recorded by class rather than by persona; all eight classes are
+fixed and the detail is in git history (2026-08-03, 2026-08-04).
 
 **The result worth keeping:** four independent bars kept landing on the same few
 root causes.
@@ -555,27 +206,139 @@ columns survived the `clip` fix applied hours earlier -- instance cured, class
 alive, by the author of the rule against exactly that -- and `render_views.rs`
 was itself wrong on its first run.
 
-### The next round: terminal and process lifecycle
+#### Round C -- terminal and process lifecycle, 2026-08-04
 
-Round A is done (above). The next area is the one with the worst record among
-those never reviewed: `run.rs`'s event loop, signal handling, and the child
-process groups behind every SSH session.
+**Scope:** `run.rs`'s event loop, signal handling, terminal restoration on
+every exit path, and the child processes behind every SSH session
+(`ssh.rs`, `tasks.rs`). The four questions the round was set are answered
+below, findings and negative results together.
 
-What it should ask:
+**What made it possible, and it is the finding behind the findings:** the loop
+had no seam. It took the real terminal and read the real stdin, so nothing in
+it could be exercised by anything but a person watching a terminal -- which is
+why every defect it ever shipped was found by the user. `event_loop` is now
+generic over the backend and over the event stream, and the agent render size
+is published through a channel the caller owns, so a test can drive scripted
+key and resize events against a `TestBackend` and read what the agents were
+told. `tests/event_loop_e2e.rs` is that harness. Six of the seven findings
+below are pinned by tests that were run red against the old code first.
 
-- Suspend and resume (`SIGTSTP` arriving before the handlers are installed,
-  `SIGCONT` racing a redraw), and what a `SIGWINCH` during either does.
-- Whether any child can outlive the app. Every child is `kill_on_drop`, but a
-  task that is never dropped -- one leaked by a `replace` that does not abort --
-  keeps its SSH session alive against a host that is no longer shown.
-- The quit path: `abort_all` marks `STARTED` panels `DONE`, but an upgrade
-  killed mid-transaction leaves the *remote* lock file behind, and nothing tells
-  the user that happened.
-- Terminal restoration on every exit: panic (the release profile aborts, so
-  `Drop` does not run -- `ratatui::init`'s hook is the only cover), `SIGHUP`,
-  and the terminal going away mid-frame.
+**Found (7):**
 
-## 4. Clear the test-only baseline
+- *The agent render size was derived from a panel count captured before the
+  first frame.* Editing the server list changes the grid -- three panels are two
+  columns, two are one -- so it changes the size every pane gets, and every
+  agent kept rendering for the old one. Worse, the next resize recomputed from
+  the same stale count and put the wrong value back, so resizing the window
+  made the display worse. Class: **a value re-derived from a snapshot of one of
+  its inputs**. Fixed by diffing the whole signature (`DimsInputs { size,
+  panels }`) in one place, so there is no per-input hook left to miss an input.
+- *`SIGTERM` and `SIGHUP` were fatal.* At their default disposition the process
+  ends without running `TerminalGuard`, leaving raw mode and the alternate
+  screen up, and without printing which upgrades it had just killed. `SIGHUP`
+  arrives exactly when the terminal is going away, which is when a `dpkg`
+  transaction most needs saying out loud. Both are now caught and become an
+  ordinary quit.
+- *Mouse reporting survived every panic.* The release profile aborts, so `Drop`
+  does not run and `ratatui`'s panic hook is the only cover -- and it restores
+  raw mode and the alternate screen, which is not what this program turned on.
+  The shell that inherited the terminal then printed an escape sequence every
+  time the pointer crossed the window. Class: **the same list of terminal modes
+  written in four places, one of which was a library that had never been told**.
+  Fixed with one enter/leave pair, our own panic hook, and a test that asserts
+  every mode turned on is turned off again -- it catches five modes, not the one.
+- *Children were in multitop's process group, holding its controlling
+  terminal.* `ssh` opens `/dev/tty` on its own account for an unknown host key
+  or a passphrase, whatever its stdin is connected to; so does a local `sudo`.
+  In the foreground group that succeeds: the question is drawn over the frame
+  and its answer is taken out of the keystrokes the event loop is reading, so
+  the panel sits on `connecting...` while the display comes apart. Every child
+  now gets its own process group, and `BatchMode=yes` stops `ssh` reaching for
+  the terminal at all -- the same situation is now one legible line in the panel.
+- *A view switch during an upgrade dropped the upgrade's handle.* The two
+  shared one slot with a flag marking which a switch may not abort. The flag was
+  obeyed and the handle was lost anyway, because `replace` hands back what was
+  there and the "do not abort" branch let it fall. Nothing tracked the upgrade
+  after that, so `abort_all` could not reach it on quit: the one thing the quit
+  confirmation promises to stop was the one thing it could not. Upgrades now
+  have their own slot, which makes the mistake unrepresentable.
+- *A terminal that failed mid-frame skipped the killed-upgrade notice.* It sat
+  behind a `?` on the loop's result, so the one exit that kills upgrades
+  *without the user asking* was the one exit that said nothing about it. The
+  loop now returns a `LoopOutcome` carrying both.
+- *stderr was read only until stdout closed.* The two pipes close together when
+  the child exits, so whichever branch `select!` polled first decided whether
+  the contents of the stderr pipe were read or thrown away -- and stderr is where
+  the reason lives: apt's actual complaint, the sudo-help shapes, the held-lock
+  sentinel. A run that failed for a nameable reason reported "exited 1" about
+  half the time. This is a surviving sibling of class H.
+
+**Checked and already correct (3):** `SIGTTIN`/`SIGTTOU`/`SIGCONT` handling and
+the terminal rebuild on resume (a resize that lands while stopped is now acted
+on, which it was not); message-epoch guarding after a server edit -- an upgrade
+task that outlives the swap has an older `gen` than any new panel, so it cannot
+paint one machine's output under another's name; `Tasks::fit_to` aborting the
+monitors and tasks of servers that were removed.
+
+**Second pass over the same area, same day. Not dry -- three more (10 in
+total).** Which is the whole argument for the bar: the first pass was thorough,
+believed itself finished, and was wrong.
+
+- *Editing the server list left running upgrades alive with nothing able to
+  report on them.* `replace_panels` moves every generation, so no message from
+  a task started against the old list is ever accepted again. The run carried on
+  against the remote, invisible -- and was then killed without a word when the
+  app quit. Now the run is stopped where the edit happens, the notice names the
+  host and the lock file it may have left, and the removal confirmation warns
+  *before* the key that does it, which is the standing rule for anything that
+  interrupts a package transaction.
+- *The reconnect backoff reset on connect rather than on progress.* Connecting
+  is not progress: a host that accepts the connection and then fails -- a login
+  banner where the protocol should be, an agent version mismatch whose upload
+  keeps failing -- reset the count every round and was retried at the shortest
+  interval forever. One `ssh` process every two seconds, indefinitely, and in
+  the mismatch case a multi-megabyte upload with it. The failing sequence was
+  `[2, 2, 2, 2, 2]` where it should be `[2, 5, 10, 20, 20]`.
+- *The session handshake read four bytes with `read`, not `read_exact`.* A pipe
+  may hand back fewer bytes than asked for; a magic header split across two
+  reads was then compared against a buffer holding one or two, the agent's own
+  framing was mistaken for a text banner, the rest of the line was consumed
+  looking for a newline, and every packet after it read from the wrong offset.
+  The panel said `invalid magic header` and reconnected, against a host that
+  was working. Found while reviewing the lifecycle, but it belongs to the
+  transport -- so that area is now partially reviewed rather than untouched.
+  `stream::read_handshake` is split out so a reader that dribbles one byte at a
+  time can be pointed at it, which is the only way to see this on purpose.
+
+**A third pass is owed before this area can be called clean.**
+
+**Checked and deliberately unchanged (1):** `SIGTSTP` is still fatal, and that
+is the right call for now. Raw mode clears `ISIG`, so Ctrl-Z never becomes a
+signal -- it arrives as an unbound key. Only an external `kill -TSTP` can stop
+the app, and `SIGCONT` already repairs the terminal on resume. Catching it
+properly means restoring the terminal and then re-raising with the default
+disposition, which needs `raise` -- unsafe, denied workspace-wide -- or a
+spawned `kill`, whose restore-then-stop sequence has a race of its own. The
+trade is not worth it while the only route in is a deliberate signal from
+another terminal.
+
+### The next round: rendering, and the persistence path
+
+Round C is done (above). Two areas remain that no round has ever touched:
+
+- **Rendering beyond the Configuration panel** -- `ui.rs`, `refit.rs`,
+  `ansi.rs`. `render_views.rs` covers screens at four sizes and is a gate, but
+  it has never been used as the instrument of a review round. What it should
+  ask: what a zero-width or one-column pane does; what an unterminated escape
+  sequence spanning a refit boundary does; whether any pane can be given a
+  negative or wrapping arithmetic result at extreme sizes.
+- **Persistence** -- `config.rs`, `state.rs`. Both defects found here so far
+  (non-atomic writes, comments destroyed on every write) were found ad hoc. What
+  it should ask: what a partially written or corrupt state file does on load;
+  what two multitops sharing one config do; whether any write path can lose a
+  key the user set by hand.
+
+## 2. Clear the test-only baseline
 
 `tools/test_only_baseline.txt` lists functions exercised by tests and by no
 production path. The gate (`tools/check_test_only_code.py`) stops new ones
@@ -597,8 +360,7 @@ The reason this is worth the effort is not the dead function itself: it is that
 a *duplicate* of its logic is what production calls, the tests guard the dead
 copy, and the live copy drifts unwatched. `rollback::parse_stored_counter` and
 `LockoutState::on_failure` were both exactly that.
-
-## 5. The other half of in-place progress output
+## 3. The other half of in-place progress output
 
 Reported 2026-08-03: "when updating a line in place (e.g. docker update
 percentages) it adds all the update screen instead."
@@ -626,16 +388,9 @@ Worth deciding before starting: whether the durable `last_upgrade` log keeps
 every frame (scrollback of what really happened) while only the live view is
 collapsed, or whether the collapsed view *is* the log. They are different
 products.
+## 4. `G` — per-pane CPU / memory / network graphs
 
-## 6. Rotate the sudo password used during live verification
-
-The sudo password for the three test hosts was pasted into a Claude Code session
-transcript on 2026-08-02 in order to verify the stdin handshake. It is therefore
-on disk in `~/.claude/projects/`. Change it on all three machines.
-
-## 7. `G` — per-pane CPU / memory / network graphs
-
-Requested 2026-08-03. **Last** — start only once items 1-6 are closed.
+Requested 2026-08-03. **Last** — start only once items 1-3 are closed.
 
 A new view alongside the existing ones, bound to `G` and placed immediately to
 the right of `F` (Fetch) in the keybar, drawing CPU, memory and network history
@@ -653,7 +408,6 @@ Points to settle before writing any of it:
   footing — one renderer, built for the job, rather than a second one beside a
   drifting first.
 - `s` is free in Settings now, if the graph view wants a preference there.
-
 ## Deferred
 
 | Item | Why |
