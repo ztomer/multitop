@@ -222,9 +222,26 @@ const SCREENS: &[Screen] = &[
         app.enter_upgrade_view();
         app
     }},
+    // Driven through `confirm_upgrade`, the real production entry, rather than
+    // by setting `upgrade_state` by hand.
+    //
+    // Hand-setting the flag left `host_updates` empty, so `host_update` returned
+    // a default and this frame rendered "Last run  never" for a host that was
+    // running -- a combination the app cannot actually produce. Production
+    // writes `started_at: Some(now)` with no `finished_at` the moment a run
+    // begins, which is *the same shape as an interrupted run*, and the header
+    // read that shape as a verdict. Both this harness and the unit test beside
+    // it modelled the same impossible state, which is how the header came to
+    // say "Status running" and "Last run just now - interrupted" in
+    // consecutive lines for ten passes without anyone seeing it.
+    //
+    // A harness that misrepresents the product is worse than none -- the same
+    // lesson this file learned on its first run, when it fed the agent the
+    // terminal size instead of the per-panel size.
     Screen { name: "upgrade-running", build: |t| {
         let mut app = base(2, t);
         app.enter_upgrade_view();
+        let _ = app.confirm_upgrade();
         for p in &mut app.panels {
             p.upgrade_state = UpgradeState::STARTED;
             p.last_upgrade = vec![

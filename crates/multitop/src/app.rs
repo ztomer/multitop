@@ -928,14 +928,31 @@ impl App {
     }
 
     /// Write the whole runtime state, including per-host records, to disk.
-    fn persist_state(&self) {
-        if let Some(ref path) = self.config_path {
-            let state = crate::state::AppState {
-                last_update: self.last_update,
-                upgrade_started_at: self.upgrade_started_at,
-                hosts: self.host_updates.clone(),
-            };
-            let _ = crate::state::save_state(path, &state);
+    ///
+    /// A failure is said out loud rather than dropped. `save_state` goes to
+    /// some trouble to be atomic precisely because `upgrade_started_at` and the
+    /// per-host `started_at` are what make an interrupted run detectable
+    /// afterwards -- and a write that never happened defeats that just as
+    /// completely as a torn one. Discarding the error meant a read-only or full
+    /// disk cost the user their upgrade history with nothing on screen to say
+    /// so, which is the same shape as the corrupt-file case the loader had.
+    fn persist_state(&mut self) {
+        let Some(path) = self.config_path.clone() else {
+            return;
+        };
+        let state = crate::state::AppState {
+            last_update: self.last_update,
+            upgrade_started_at: self.upgrade_started_at,
+            hosts: self.host_updates.clone(),
+        };
+        if let Err(e) = crate::state::save_state(&path, &state) {
+            let note = format!(
+                "could not save upgrade state ({e}) -- an interrupted run will not be \
+                 detectable after a restart."
+            );
+            for p in &mut self.panels {
+                p.note(note.clone());
+            }
         }
     }
 

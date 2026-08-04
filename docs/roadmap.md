@@ -43,7 +43,7 @@ server" is not, however it is drawn.
 | Vault + credential path | 7 rounds (1, 2, 3, 4, 4b, 5, 6), all 2026-08-01 | **On a finding.** Round 6 found that a release binary could silently use the mock keystore, and the review stopped there. The next day `29bdbb3` -- rotating the master password could destroy the vault -- turned up during feature work. The subsystem was still producing defects when review stopped looking. |
 | Agent parsing / protocol | 6 fuzz targets, 114M iterations, 0 crashes; plus targeted hardening (bogus chunk size, >64 KiB payload desync, null `ifa_addr`) | Mechanized, still running when asked. The only area no user-reported defect has come from. |
 | Configuration panel | Keystroke-through-render e2e plus a bounded sweep of every key sequence | Not a review round; a harness that closes one class. |
-| Terminal / process lifecycle | Round C, 2026-08-04, ten passes so far, with `tests/event_loop_e2e.rs` built for it | **On findings, ten times.** 7, 3, 1, 2, 3, 1, 1, 4, 1, 2. What is running out is unexamined surface, not defects. Two classes account for most of them: *one quantity derived in two places by different rules*, and class H, *a failure reported as something else* -- the eighth pass was class H four times out of four. An eleventh pass is owed. |
+| Terminal / process lifecycle | Round C, 2026-08-04, eleven passes so far, with `tests/event_loop_e2e.rs` built for it | **On findings, eleven times.** 7, 3, 1, 2, 3, 1, 1, 4, 1, 2, 3. What is running out is unexamined surface, not defects. Two classes account for most of them: *one quantity derived in two places by different rules*, and class H, *a failure reported as something else* -- the eighth pass was class H four times out of four. A twelfth pass is owed. |
 | SSH + upgrade transport | Covered by Round C where the lifecycle reaches it -- child process groups, the two output streams, the session handshake, the packet-decode boundary, and (eighth pass) every `Err` path out of `next_packet` plus the agent-replacement repair | Partial. `read_handshake`, `interpret_packet`, `framing_lost` and `describe_failure` have seams and tests; the bootstrap retry was read and found correct; the lock wrappers and `upload_agent`'s own framing have not been reviewed. |
 
 Every round that ran found something. That is evidence the rounds were
@@ -104,7 +104,7 @@ keep is what closed the last four: e2e tests that drive real `KeyEvent`s through
 asserting on the final state. The final state can look correct while three
 vaults' worth of work happened.
 
-The streak stops at eight. Round C's twenty-five findings were all found by review,
+The streak stops at eight. Round C's twenty-seven findings were all found by review,
 before anyone hit them -- and the reason is the same rule read the other way:
 the round's first act was to build the seam the loop had never had. The area
 with the worst detection record was the area with no harness at all. Where the
@@ -504,7 +504,7 @@ earlier passes only brushed, and the reconnect loop's repair path. Four more
   "agent replaced" -- the only line in that sequence that is not true, about a
   host that was up and had just been talking.
 
-**The counts so far are 7, 3, 1, 2, 3, 1, 1, 4, 1, 2** -- and they are not
+**The counts so far are 7, 3, 1, 2, 3, 1, 1, 4, 1, 2, 3** -- and they are not
 converging. Every pass so far went back up the moment it opened a part of the
 loop the earlier ones had not looked at, which is the argument against reading
 a falling count as progress toward zero. What is running out is *unexamined
@@ -594,6 +594,48 @@ Both on the same seam, and the shape is now familiar enough to name in advance:
   not `NotFound` -- a permission change, an I/O error -- was the same lie and
   gets the same treatment; a genuinely missing file stays silent, because a
   notice on every fresh install trains the user to ignore the line that matters.
+
+#### Eleventh pass -- the Upgrade header, and the harness that was hiding it. Two more (27 in total)
+
+- *A run in flight was reported as an interrupted one, in the line under the one
+  saying it was running.* **A run in flight has exactly the shape of an
+  interrupted run** -- `started_at` set, `finished_at` absent -- because that is
+  the shape written when it starts, deliberately, so a crash leaves it behind.
+  `badge`, `badge_color` and `next_action` each checked `running` before
+  consulting the record. `last_run_text` did not. So during a genuine upgrade
+  the header read:
+
+  ```text
+  Status    running
+  Last run  just now - interrupted
+            -> running - do not quit
+  ```
+
+  Three lines, two of them true. "interrupted" is the word that sends an
+  operator to go and check a host that is perfectly fine. Fixed by folding the
+  two views of one fact into `Status::state()`, so the record cannot be read
+  without first learning whether it describes the present -- a fifth consumer
+  cannot repeat this.
+
+- *And the reason it survived ten passes is that **both** instruments modelled a
+  state the app cannot produce.* The unit test for a running host used
+  `HostUpdate::default()` -- no `started_at` -- and `render_views.rs`'s
+  `upgrade-running` screen set `upgrade_state` by hand and left `host_updates`
+  empty, so the rendered frame said "Last run never" for a host that was
+  running. The harness built specifically to catch visual defects was showing a
+  frame the product never draws. It is driven through `confirm_upgrade` now, the
+  real entry, and the frame at 80x24 reads `Last run  just now - in progress`.
+  Same lesson this file learned on its own first run, when it fed the agent the
+  terminal size instead of the per-panel size: **a harness that misrepresents
+  the product is worse than none.**
+
+- *`persist_state` discarded its own failure.* Found by the harness fix, which
+  made the render path write state for the first time. `save_state` goes to some
+  trouble to be atomic precisely because these records are what make an
+  interrupted run detectable -- and a write that never happened defeats that as
+  completely as a torn one. A read-only or full disk cost the user their upgrade
+  history with nothing on screen to say so: the same shape as the corrupt-file
+  case the loader had one pass earlier, on the other side of the same seam.
 
 **Checked and correct (2):** `HostUpdate::duration_secs` guards `f >= s`, so a
 clock that went backwards yields `None` rather than underflowing; and

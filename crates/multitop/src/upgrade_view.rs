@@ -74,19 +74,58 @@ pub fn fmt_ago(then: u64, now: u64) -> String {
     }
 }
 
+/// What the header is describing, once `running` and the record are read
+/// together.
+///
+/// They are two views of one fact and they could contradict. **A run in flight
+/// has exactly the shape of an interrupted one** -- started, never finished --
+/// because that is the shape written when it starts, deliberately, so that a
+/// crash leaves it behind. `badge`, `badge_color` and `next_action` each
+/// checked `running` before consulting the record; `last_run_text` did not. So
+/// while an upgrade was genuinely running, the header said
+///
+/// ```text
+/// Status    running
+/// Last run  just now - interrupted
+///           -> running - do not quit
+/// ```
+///
+/// in consecutive lines, about the same run -- and "interrupted" is the word
+/// that sends an operator to go and check a host that is perfectly fine.
+///
+/// Asking here is now the only way to find out, so a fifth consumer cannot
+/// read the record without first learning whether it describes the present.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum HostState {
+    /// A run is in flight right now; the record describes *it*, not a last run.
+    Running,
+    /// No `upgrade_cmd`, so nothing can run here.
+    NotConfigured,
+    /// Nothing in flight: how the last run ended.
+    Last(Outcome),
+}
+
+impl Status<'_> {
+    const fn state(&self) -> HostState {
+        if self.running {
+            HostState::Running
+        } else if self.server.upgrade_cmd.is_none() {
+            HostState::NotConfigured
+        } else {
+            HostState::Last(self.record.outcome())
+        }
+    }
+}
+
 /// The one-word state badge shown next to the host name.
 #[must_use]
 pub const fn badge(status: &Status) -> &'static str {
-    if status.running {
-        return "running";
-    }
-    if status.server.upgrade_cmd.is_none() {
-        return "not configured";
-    }
-    match status.record.outcome() {
-        Outcome::Interrupted => "interrupted",
-        Outcome::Failed => "last run failed",
-        Outcome::Never | Outcome::Ok => "ready",
+    match status.state() {
+        HostState::Running => "running",
+        HostState::NotConfigured => "not configured",
+        HostState::Last(Outcome::Interrupted) => "interrupted",
+        HostState::Last(Outcome::Failed) => "last run failed",
+        HostState::Last(Outcome::Never | Outcome::Ok) => "ready",
     }
 }
 
@@ -97,20 +136,35 @@ fn label(pal: &Palette, text: &str) -> String {
 /// Colour for the state badge: green when it is safe to go, amber when the
 /// user should look before pressing again.
 fn badge_color(status: &Status, pal: &Palette) -> &'static str {
-    if status.running {
-        return pal.meter_mid();
-    }
-    if status.server.upgrade_cmd.is_none() {
-        return pal.muted();
-    }
-    match status.record.outcome() {
-        Outcome::Failed | Outcome::Interrupted => pal.meter_high(),
-        Outcome::Never | Outcome::Ok => pal.meter_low(),
+    match status.state() {
+        HostState::Running => pal.meter_mid(),
+        HostState::NotConfigured => pal.muted(),
+        HostState::Last(Outcome::Failed | Outcome::Interrupted) => pal.meter_high(),
+        HostState::Last(Outcome::Never | Outcome::Ok) => pal.meter_low(),
     }
 }
 
 /// The "Last run" value: when it happened, how it ended, and how long it took.
 fn last_run_text(status: &Status, pal: &Palette, now: u64) -> String {
+    match status.state() {
+        // The record is this run, so say how long it has been going rather than
+        // reading its shape as a verdict on a run that has not ended.
+        HostState::Running => {
+            let when = status
+                .record
+                .started_at
+                .map_or_else(|| "just now".to_string(), |t| fmt_ago(t, now));
+            format!("{when} \u{b7} {}in progress{}", pal.meter_mid(), pal.reset)
+        }
+        // Nothing in flight, so the record describes a run that is over --
+        // whether or not the host is still configured to start another.
+        HostState::NotConfigured | HostState::Last(_) => finished_run_text(status, pal, now),
+    }
+}
+
+/// The "Last run" value for a run that has ended. Only reachable once
+/// [`Status::state`] has established that nothing is in flight.
+fn finished_run_text(status: &Status, pal: &Palette, now: u64) -> String {
     match status.record.outcome() {
         Outcome::Never => format!("{}never{}", pal.muted(), pal.reset),
         Outcome::Interrupted => {
@@ -145,14 +199,15 @@ fn last_run_text(status: &Status, pal: &Palette, now: u64) -> String {
 /// columns wide, and `ui::visible` hard-truncates rather than wrapping, so a
 /// longer sentence loses exactly the part that tells the user what to do.
 fn next_action(status: &Status, pal: &Palette) -> Vec<String> {
-    if status.running {
+    let state = status.state();
+    if state == HostState::Running {
         return vec![format!(
             "{}\u{2192} running \u{2014} do not quit{}",
             pal.meter_mid(),
             pal.reset
         )];
     }
-    if status.server.upgrade_cmd.is_none() {
+    if state == HostState::NotConfigured {
         return vec![
             format!(
                 "{}\u{26a0} no upgrade_cmd \u{2014} host is skipped{}",
@@ -167,7 +222,7 @@ fn next_action(status: &Status, pal: &Palette) -> Vec<String> {
         ];
     }
     let mut out = Vec::new();
-    if status.record.outcome() == Outcome::Interrupted {
+    if state == HostState::Last(Outcome::Interrupted) {
         out.push(format!(
             "{}\u{26a0} last run never finished \u{2014} check host{}",
             pal.meter_high(),
@@ -412,6 +467,71 @@ mod tests {
         assert!(text.contains("running"), "{text}");
         assert!(text.contains("do not quit"), "{text}");
         assert!(!text.contains("u to run"), "{text}");
+    }
+
+    /// The record a *genuinely* running host has, which is not the one the test
+    /// above uses.
+    ///
+    /// `HostUpdate::default()` has no `started_at`, and the app never produces
+    /// that for a running host: it writes `started_at: Some(now)` with no
+    /// `finished_at` at the moment the run begins, deliberately, so that a
+    /// crash leaves an interrupted record behind. A run in flight therefore has
+    /// *exactly the shape of an interrupted one*, and the header read that
+    /// shape as a verdict -- printing "Status running" and
+    /// "Last run just now - interrupted" in consecutive lines, about the same
+    /// run. "interrupted" is the word that sends an operator to check a host
+    /// that is perfectly fine.
+    ///
+    /// The old test modelled a state the app cannot reach, which is why seven
+    /// passes went by without seeing this.
+    #[test]
+    fn a_run_in_flight_is_not_reported_as_an_interrupted_one() {
+        let s = server(Some("apt upgrade"));
+        let text = render(&Status {
+            server: &s,
+            // What `App::mark_upgrades_started` actually writes.
+            record: HostUpdate {
+                started_at: Some(NOW - 120),
+                finished_at: None,
+                success: false,
+            },
+            credential: Credential::Stored,
+            running: true,
+        });
+
+        assert!(
+            !text.contains("interrupted"),
+            "a run that is still going has not been interrupted: {text}"
+        );
+        assert!(
+            text.contains("in progress"),
+            "and the last-run line must say what is actually true: {text}"
+        );
+        assert!(
+            text.contains("2 min ago"),
+            "including how long it has been going, which is the useful part: {text}"
+        );
+        assert!(text.contains("do not quit"), "{text}");
+    }
+
+    /// The other side of it: once the run is over, an interrupted record must
+    /// still be reported as interrupted. The fix must not swallow the warning
+    /// it was protecting.
+    #[test]
+    fn a_run_that_really_was_interrupted_still_says_so() {
+        let s = server(Some("apt upgrade"));
+        let text = render(&Status {
+            server: &s,
+            record: HostUpdate {
+                started_at: Some(NOW - 120),
+                finished_at: None,
+                success: false,
+            },
+            credential: Credential::Stored,
+            running: false,
+        });
+        assert!(text.contains("interrupted"), "{text}");
+        assert!(text.contains("last run never finished"), "{text}");
     }
 
     #[test]

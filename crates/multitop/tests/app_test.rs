@@ -592,3 +592,46 @@ fn rebuilt_panels_keep_the_configured_upgrade_history() {
         );
     }
 }
+
+/// A state write that failed must be said out loud.
+///
+/// `save_state` goes to some trouble to be atomic precisely because
+/// `upgrade_started_at` and each host's `started_at` are what make an
+/// interrupted run detectable afterwards. A write that never happened defeats
+/// that just as completely as a torn one -- and the error was discarded, so a
+/// read-only or full disk cost the user their upgrade history with nothing on
+/// screen to say so.
+#[test]
+fn a_state_write_that_failed_is_reported() {
+    let _keychain = isolate_keychain();
+    let mut app = App::new(vec![Server {
+        host: "host1".to_string(),
+        port: 22,
+        user: "admin".to_string(),
+        upgrade_cmd: Some("apt upgrade".to_string()),
+    }]);
+
+    // A config path whose parent is a regular file: `save_state` cannot create
+    // its temporary there. The shape of a read-only config directory, without
+    // needing one.
+    let blocker =
+        std::env::temp_dir().join(format!("multitop_state_blocker_{}", std::process::id()));
+    let _ = std::fs::remove_file(&blocker);
+    std::fs::write(&blocker, b"not a directory").unwrap();
+    app.config_path = Some(blocker.join("config.toml"));
+
+    app.mark_upgrades_started(&[0]);
+
+    let said = app.panels[0]
+        .view
+        .iter()
+        .any(|l| l.contains("could not save upgrade state"));
+
+    let _ = std::fs::remove_file(&blocker);
+
+    assert!(
+        said,
+        "a failed state write must reach the panel; the pane said: {:?}",
+        app.panels[0].view
+    );
+}
