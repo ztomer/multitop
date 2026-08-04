@@ -582,3 +582,58 @@ async fn entering_the_upgrade_view_still_reads_the_credential_store_without_a_va
         .join("\n")
         .contains("password stored"));
 }
+
+/// Deleting a password must delete it from **both** stores.
+///
+/// A credential lives in the OS credential store and in the vault. `Save`
+/// wrote to both; `Delete` wrote to the credential store only -- and the vault
+/// is the one that is read *first*, so emptying a host's password field removed
+/// the keychain entry, left the vault entry standing, reported "this host now
+/// has none", and the password came straight back on the next load. The one
+/// asymmetric operation over a two-store credential was the whole defect.
+#[tokio::test]
+async fn deleting_a_password_removes_it_from_the_vault_too() {
+    let _keychain = isolate_keychain_async().await;
+    let (mut app, _temp_dir) = app_with_vault(test_servers(), "test-master", HashMap::new()).await;
+    let key = password_store::account(&app.panels[0].server);
+
+    // Saved the way the app saves it: both stores.
+    password_store::save(&app.panels[0].server, "the-secret").unwrap();
+    app.vault_unlocked_mut()
+        .unwrap()
+        .set_password(key.clone(), &SecretString::from("the-secret".to_string()))
+        .unwrap();
+    app.panels[0].sudo_password = Some("the-secret".to_string());
+    app.panels[0].password_saved = true;
+
+    let (tx, _rx) = mpsc::channel::<multitop::app::Msg>(16);
+    let mut tasks = multitop::run::Tasks::new(app.panels.len());
+    let servers: Vec<Server> = app.panels.iter().map(|p| p.server.clone()).collect();
+    multitop::password_actions::apply(
+        multitop::passwords::PasswordAction::Delete { panel: 0 },
+        &mut app,
+        &servers,
+        &tx,
+        &mut tasks,
+    );
+
+    assert_eq!(
+        password_store::load(&app.panels[0].server),
+        Ok(None),
+        "the credential store entry must be gone"
+    );
+    assert!(
+        app.vault_unlocked_mut()
+            .unwrap()
+            .get_password(&key)
+            .is_none(),
+        "and so must the vault's, or the password comes back on the next load"
+    );
+
+    // The proof that matters: the app must not be able to find it again.
+    app.enter_upgrade_view();
+    assert_eq!(
+        app.panels[0].sudo_password, None,
+        "a deleted password must not return from the store that was skipped"
+    );
+}

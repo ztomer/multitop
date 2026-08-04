@@ -42,7 +42,7 @@ another pass.
 
 ## 2. What the UX panel found, by class
 
-Round B of the review (see item 4). Every claim below was verified against the
+Round B of the review (see item 3). Every claim below was verified against the
 source or against a rendered frame before it was written down; persona claims
 that did not survive checking are not here.
 
@@ -376,15 +376,7 @@ filtered-away set (class F) -- and separately the box drops its own "Esc to
 cancel" line whenever a skipped host and an interrupted previous run co-occur,
 which are both ordinary states.
 
-## 3. Decide the fate of two unused vault API functions
-
-`UnlockedVault::remove_password` and `Vault::get_unlocked` are implemented and
-tested with no production callers. `remove_password` would be per-host removal
-*from the vault*, which is distinct from the credential-store deletion that an
-emptied password field already performs — if that distinction is not wanted,
-delete it. Both are listed in `tools/test_only_baseline.txt`.
-
-## 4. The adversarial review is not finished
+## 3. The adversarial review is not finished
 
 Recorded because "are we done?" deserves an answer that is not a feeling.
 
@@ -550,19 +542,17 @@ What it should ask:
   `Drop` does not run -- `ratatui::init`'s hook is the only cover), `SIGHUP`,
   and the terminal going away mid-frame.
 
-## 5. Clear the test-only baseline
+## 4. Clear the test-only baseline
 
 `tools/test_only_baseline.txt` lists functions exercised by tests and by no
 production path. The gate (`tools/check_test_only_code.py`) stops new ones
 appearing; the existing list has to be worked down by hand, and the file can only
 shrink — a stale entry fails the gate too.
 
-Eight entries remain:
+Six entries remain:
 
 | Entry | Shape |
 |-------|-------|
-| `crates/vault/src/api.rs:remove_password` | Item 3 above |
-| `crates/vault/src/api.rs:get_unlocked` | Item 3 above |
 | `crates/vault/src/crypto.rs:from_config` | Reached only when `argon2_params` is `Some`, which now happens only under the test-mock flag (`vault::config_for`) |
 | `crates/agent/src/render.rs:frame_height` | Accessor |
 | `crates/multitop/src/app.rs:had_upgrade` | Accessor |
@@ -575,7 +565,7 @@ a *duplicate* of its logic is what production calls, the tests guard the dead
 copy, and the live copy drifts unwatched. `rollback::parse_stored_counter` and
 `LockoutState::on_failure` were both exactly that.
 
-## 6. Finish keychain isolation for tests
+## 5. Finish keychain isolation for tests
 
 `tools/check_keychain_isolation.py` is a gate in the hook and in CI, and it
 reports clean. It is not yet the whole story:
@@ -596,7 +586,7 @@ reports clean. It is not yet the whole story:
 
 Until that reaches zero, running the suite can still raise a keychain dialog.
 
-## 7. The other half of in-place progress output
+## 6. The other half of in-place progress output
 
 Reported 2026-08-03: "when updating a line in place (e.g. docker update
 percentages) it adds all the update screen instead."
@@ -625,15 +615,15 @@ every frame (scrollback of what really happened) while only the live view is
 collapsed, or whether the collapsed view *is* the log. They are different
 products.
 
-## 8. Rotate the sudo password used during live verification
+## 7. Rotate the sudo password used during live verification
 
 The sudo password for the three test hosts was pasted into a Claude Code session
 transcript on 2026-08-02 in order to verify the stdin handshake. It is therefore
 on disk in `~/.claude/projects/`. Change it on all three machines.
 
-## 9. `G` — per-pane CPU / memory / network graphs
+## 8. `G` — per-pane CPU / memory / network graphs
 
-Requested 2026-08-03. **Last** — start only once items 1-8 are closed.
+Requested 2026-08-03. **Last** — start only once items 1-7 are closed.
 
 A new view alongside the existing ones, bound to `G` and placed immediately to
 the right of `F` (Fetch) in the keybar, drawing CPU, memory and network history

@@ -7,9 +7,7 @@ use crate::secure_enclave;
 use crate::{VaultConfig, VaultContents, VaultError};
 use secrecy::SecretString;
 use std::path::PathBuf;
-use std::sync::Arc;
 use std::sync::Mutex as StdMutex;
-use tokio::sync::Mutex;
 use zeroize::Zeroize;
 
 /// Result of vault unlock
@@ -137,7 +135,6 @@ impl UnlockedVault {
 /// Vault manager
 pub struct Vault {
     config: VaultConfig,
-    unlocked: Arc<Mutex<Option<UnlockedVault>>>,
     lockout: StdMutex<LockoutState>,
     /// Serialises the one-time load of `lockout`, so that a second caller
     /// blocks until the first has finished reading rather than racing past a
@@ -216,7 +213,6 @@ impl Vault {
         let use_keychain = config.use_os_keychain;
         Self {
             config,
-            unlocked: Arc::new(Mutex::new(None)),
             // Carries the policy from the start, so it is never briefly wrong.
             lockout: StdMutex::new(LockoutState::new(use_keychain)),
             lockout_init: StdMutex::new(()),
@@ -682,30 +678,6 @@ impl Vault {
         })
     }
 
-    /// Get cached unlocked vault or unlock
-    ///
-    /// # Errors
-    /// Returns `VaultError` if biometric unlock fails and password fallback fails.
-    pub async fn get_unlocked(&self) -> Result<UnlockedVault, VaultError> {
-        let mut unlocked = self.unlocked.lock().await;
-        if let Some(vault) = unlocked.take() {
-            return Ok(vault);
-        }
-        drop(unlocked);
-
-        // Biometric only; there is no password fallback in the library.
-        let (vault, _) = self.unlock_biometric().await?;
-        Ok(vault)
-    }
-
-    /// Lock the vault (clear memory)
-    pub async fn lock(&self) {
-        let mut unlocked = self.unlocked.lock().await;
-        if let Some(vault) = unlocked.take() {
-            vault.lock();
-        }
-    }
-
     /// Add a biometric wrapper to existing vault (re-bind)
     ///
     /// # Errors
@@ -1056,32 +1028,32 @@ mod tests {
         assert!(matches!(result, Err(VaultError::BiometricFailed)));
     }
 
-    #[tokio::test]
-    async fn test_vault_get_unlocked() {
+    /// `Vault` must not grow a second home for an unlocked vault.
+    ///
+    /// It had one: an `Option<UnlockedVault>` cache that nothing ever wrote to.
+    /// `get_unlocked` therefore always missed and always did a fresh biometric
+    /// unlock despite its name, and `Vault::lock` -- documented as "clear
+    /// memory" -- took from a field that was permanently `None`, so it was a
+    /// no-op that read as a security control. Its test asserted nothing and
+    /// passed; `get_unlocked`'s asserted the miss.
+    ///
+    /// The unlocked vault belongs to the caller (multitop holds it in
+    /// `VaultState::Unlocked`). Two owners of one key, with independent
+    /// lifetimes, is the state this asserts cannot come back.
+    #[test]
+    fn the_vault_holds_no_second_copy_of_an_unlocked_one() {
         let dir = TempDir::new().unwrap();
         let path = dir.path().join("test_vault.bin");
-        let config = fast_vault_config(path.clone());
-        let vault = Vault::new(config);
-
-        vault.initialize("password").await.unwrap();
-
-        // get_unlocked will try biometric, then fall back to password prompt
-        // Since we can't mock stdin, this will fail
-        let result = vault.get_unlocked().await;
-        assert!(result.is_err());
-    }
-
-    #[tokio::test]
-    async fn test_vault_lock() {
-        let dir = TempDir::new().unwrap();
-        let path = dir.path().join("test_vault.bin");
-        let config = fast_vault_config(path.clone());
-        let vault = Vault::new(config);
-
-        vault.initialize("password").await.unwrap();
-
-        // Lock should work even when nothing is unlocked
-        vault.lock().await;
+        let vault = Vault::new(fast_vault_config(path));
+        // Every field, spelled out: a cache added here would have to be added
+        // to this list too, which is the point at which someone asks why.
+        let Vault {
+            config: _,
+            lockout: _,
+            lockout_init: _,
+            lockout_loaded: _,
+            clock: _,
+        } = vault;
     }
 
     #[tokio::test]

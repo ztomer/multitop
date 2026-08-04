@@ -70,13 +70,35 @@ pub fn apply(
             }
         }
         PasswordAction::Delete { panel } => {
+            // A password lives in TWO stores, and `Save` writes to both. This
+            // wrote to one.
+            //
+            // The vault is the one that is read *first*: `load_known_passwords`
+            // takes the vault's copy and only falls back to the credential
+            // store when there is no vault at all. So emptying a host's
+            // password field removed the keychain entry, left the vault entry
+            // standing, said "this host now has none" -- and the password came
+            // straight back on the next unlock. The one asymmetric operation
+            // over a two-store credential is the whole defect.
+            let key = crate::password_store::account(&app.panels[panel].server);
             let result = crate::password_store::delete(&app.panels[panel].server);
+            let vault_error = app
+                .vault_unlocked_mut()
+                .and_then(|unlocked| unlocked.remove_password(&key).err());
             app.panels[panel].sudo_password = None;
             app.panels[panel].password_saved = false;
+            app.panels[panel].external_password = false;
             if let Some(manager) = app.password_manager.as_mut() {
-                manager.notice = Some(match result {
-                    Ok(()) => "Saved password removed; this host now has none.".to_string(),
-                    Err(error) => format!("Could not remove saved password: {error}"),
+                manager.notice = Some(match (&result, &vault_error) {
+                    (Ok(()), None) => "Saved password removed; this host now has none.".to_string(),
+                    // Named separately, because a password still in the vault is
+                    // a password that will come back, and the user has to know
+                    // that rather than believe it is gone.
+                    (Ok(()), Some(e)) => format!(
+                        "Removed from the credential store, but NOT from the vault: {e}. \
+                         It will be used again until the vault entry is removed."
+                    ),
+                    (Err(error), _) => format!("Could not remove saved password: {error}"),
                 });
             }
         }

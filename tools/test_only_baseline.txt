@@ -19,7 +19,5 @@ crates/agent/src/render.rs:frame_height
 crates/multitop/src/app.rs:had_upgrade
 crates/multitop/src/app.rs:vault_unlocked
 crates/multitop/src/panel.rs:set_sudo_password
-crates/vault/src/api.rs:get_unlocked
-crates/vault/src/api.rs:remove_password
 crates/vault/src/crypto.rs:from_config
 crates/vault/src/lockout.rs:uses_keychain
