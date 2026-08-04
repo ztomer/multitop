@@ -67,6 +67,28 @@ where
     })
 }
 
+/// Say which program could not be started.
+///
+/// A local panel does not run `ssh` at all -- it spawns the agent binary
+/// directly -- so mapping every `NotFound` to "ssh command not found" told the
+/// user to go looking for an `ssh` that was installed and working the whole
+/// time. The two spawn paths fail for different reasons and have different
+/// fixes; the message has to name the one that happened.
+fn spawn_failure(server: &Server, e: &std::io::Error) -> String {
+    if e.kind() == std::io::ErrorKind::NotFound {
+        return if ssh::is_local(server) {
+            "the multitop-agent binary was not found next to multitop or on PATH".to_string()
+        } else {
+            "ssh command not found".to_string()
+        };
+    }
+    if ssh::is_local(server) {
+        format!("could not start multitop-agent: {e}")
+    } else {
+        format!("ssh: {e}")
+    }
+}
+
 /// Connect to a remote server over SSH and bootstrap the agent if needed.
 ///
 /// # Errors
@@ -83,10 +105,7 @@ pub async fn connect(
     for attempt in 0..2 {
         let mut child = ssh::spawn_agent(server, mode, sort)
             .await
-            .map_err(|e| match e.kind() {
-                std::io::ErrorKind::NotFound => "ssh command not found".to_string(),
-                _ => format!("ssh: {e}"),
-            })?;
+            .map_err(|e| spawn_failure(server, &e))?;
 
         let Some(stdout) = child.stdout.take() else {
             return Err("failed to capture stdout".to_string());
@@ -243,6 +262,58 @@ fn interpret_packet(
         errbuf.push(reason);
     }
     decoded
+}
+
+#[cfg(test)]
+mod spawn_failure_tests {
+    #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+
+    use super::spawn_failure;
+    use crate::config::Server;
+
+    fn server(host: &str, port: u16) -> Server {
+        Server {
+            host: host.to_string(),
+            port,
+            user: "admin".to_string(),
+            upgrade_cmd: None,
+        }
+    }
+
+    /// A local panel never runs `ssh`. Blaming `ssh` for a missing agent binary
+    /// sends the user to check an `ssh` that is installed and working.
+    #[test]
+    fn a_local_panel_blames_the_agent_binary_not_ssh() {
+        let missing = std::io::Error::from(std::io::ErrorKind::NotFound);
+        let msg = spawn_failure(&server("localhost", 0), &missing);
+        assert!(
+            msg.contains("multitop-agent"),
+            "the message must name what was actually missing: {msg}"
+        );
+        assert!(
+            !msg.contains("ssh"),
+            "and must not send the user after ssh: {msg}"
+        );
+    }
+
+    /// A remote panel does run `ssh`, so that one keeps its message.
+    #[test]
+    fn a_remote_panel_still_blames_ssh() {
+        let missing = std::io::Error::from(std::io::ErrorKind::NotFound);
+        let msg = spawn_failure(&server("db-02", 22), &missing);
+        assert!(msg.contains("ssh"), "{msg}");
+    }
+
+    /// Failures that are not "missing program" keep their detail, and still
+    /// name the right program.
+    #[test]
+    fn other_failures_keep_their_detail() {
+        let denied = std::io::Error::from(std::io::ErrorKind::PermissionDenied);
+        let local = spawn_failure(&server("localhost", 0), &denied);
+        assert!(local.contains("multitop-agent"), "{local}");
+        let remote = spawn_failure(&server("db-02", 22), &denied);
+        assert!(remote.starts_with("ssh:"), "{remote}");
+    }
 }
 
 #[cfg(test)]
