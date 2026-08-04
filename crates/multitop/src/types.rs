@@ -14,6 +14,18 @@ pub enum Msg {
     Packet {
         panel: usize,
         gen: u64,
+        /// The panel list this packet was produced for.
+        ///
+        /// `gen` alone cannot guard the monitor stream: those tasks are
+        /// long-lived and stamp every packet `gen: 0`, so once a server edit
+        /// moves every generation off zero, a `gen` check would reject live
+        /// stats forever -- which is why the arm that handles them checked
+        /// nothing at all, and one machine's statistics could be painted under
+        /// another machine's name after a deletion. That is the exact defect
+        /// `replace_panels` bumps the epoch to prevent, reachable through the
+        /// one arm that never consulted it. Carrying the epoch is what lets
+        /// every arm be guarded by something.
+        epoch: u64,
         payload: multitop_agent::proto::Payload,
         dims: (u16, u16),
     },

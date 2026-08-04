@@ -68,6 +68,7 @@ async fn deliver_sudo_password(
 pub fn spawn_fetch(
     idx: usize,
     gen: u64,
+    epoch: u64,
     server: Server,
     dims: (u16, u16),
     sort: SortBy,
@@ -104,6 +105,7 @@ pub fn spawn_fetch(
                 .send(Msg::Packet {
                     panel: idx,
                     gen,
+                    epoch,
                     payload,
                     dims,
                 })
@@ -130,6 +132,7 @@ pub fn spawn_fetch(
 pub fn spawn_docker(
     idx: usize,
     gen: u64,
+    epoch: u64,
     server: Server,
     dims: (u16, u16),
     sort: SortBy,
@@ -173,6 +176,7 @@ pub fn spawn_docker(
                 .send(Msg::Packet {
                     panel: idx,
                     gen,
+                    epoch,
                     payload,
                     dims,
                 })

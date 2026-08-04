@@ -81,6 +81,7 @@ pub fn spawn_monitor(
                             .send(super::Msg::Packet {
                                 panel: idx,
                                 gen: 0,
+                                epoch,
                                 payload,
                                 dims,
                             })

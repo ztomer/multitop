@@ -1054,7 +1054,7 @@ pub fn handle_key(
             return;
         }
         KeyCode::End => {
-            app.reset_scroll();
+            app.scroll_to_bottom();
             return;
         }
         _ => {}
@@ -1137,6 +1137,7 @@ fn execute_cmds(
                 crate::tasks::spawn_fetch(
                     panel,
                     gen,
+                    app.panels_epoch,
                     servers[panel].clone(),
                     dims,
                     app.sort,
@@ -1148,6 +1149,7 @@ fn execute_cmds(
                 crate::tasks::spawn_docker(
                     panel,
                     gen,
+                    app.panels_epoch,
                     servers[panel].clone(),
                     dims,
                     app.sort,
@@ -1203,6 +1205,7 @@ fn restart_all_agents(
                     crate::tasks::spawn_docker(
                         i,
                         gen,
+                        app.panels_epoch,
                         servers[i].clone(),
                         dims,
                         app.sort,

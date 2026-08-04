@@ -379,3 +379,42 @@ fn number_keys_still_select_by_position_when_nothing_is_filtered() {
     assert_eq!(h.app.selected_panel, 2);
     assert_eq!(h.app.panels[h.app.selected_panel].server.host, "web-02");
 }
+
+/// `Home` goes to the oldest line the pane holds, and `End` comes back -- both
+/// on the pane the user is looking at, and only that pane.
+///
+/// `Home` used to subtract one from the offset, which is a scroll of one line
+/// towards the *newest*: the key advertised as "top" moved the other way. `End`
+/// used to reset every pane in the grid, so returning one pane to the bottom
+/// silently threw away where the user had scrolled all the others to.
+#[test]
+fn home_and_end_move_the_selected_pane_to_its_ends() {
+    let _keychain = isolate_keychain();
+    let mut h = Harness::new();
+
+    // Give two panes something long enough to scroll through.
+    for panel in &mut h.app.panels {
+        panel.view = (0..40).map(|n| format!("line {n}")).collect();
+    }
+    let deep = h.app.panels[0].view.len() - 1;
+
+    // Scroll pane 1 back, and leave it there as the control.
+    h.press(KeyCode::Char('2'));
+    h.press(KeyCode::Up);
+    h.press(KeyCode::Up);
+    assert_eq!(h.app.panels[1].scroll_offset, 2);
+
+    h.press(KeyCode::Char('1'));
+    h.press(KeyCode::Home);
+    assert_eq!(
+        h.app.panels[0].scroll_offset, deep,
+        "Home is the oldest line the pane holds, not one line towards the newest"
+    );
+
+    h.press(KeyCode::End);
+    assert_eq!(h.app.panels[0].scroll_offset, 0, "End is the newest line");
+    assert_eq!(
+        h.app.panels[1].scroll_offset, 2,
+        "and it must leave every other pane where the user put it"
+    );
+}

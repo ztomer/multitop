@@ -1023,9 +1023,17 @@ impl App {
             Msg::Packet {
                 panel,
                 gen,
+                epoch,
                 payload,
                 dims,
             } => {
+                // Checked once, for every payload, before anything is written.
+                // The `Monitor` arm below used to be reachable with no guard at
+                // all, so a packet from a task bound to the previous panel list
+                // painted whichever host had moved into its slot.
+                if epoch != self.panels_epoch {
+                    return false;
+                }
                 let pal = self.current_theme();
                 let sort = self.sort;
                 let accepts = self.accepts(panel, gen);
@@ -1344,13 +1352,35 @@ impl App {
         }
     }
 
+    /// `Home`: the oldest line the pane holds.
+    ///
+    /// `scroll_offset` counts lines scrolled *back*, so the top is the largest
+    /// offset the pane allows -- the same bound `scroll_up` clamps to. This
+    /// used to be `saturating_sub(1)`, which is a scroll of one line towards
+    /// the newest: the key advertised as "top" moved one line in the opposite
+    /// direction.
     pub fn scroll_to_top(&mut self) {
         if self.selected_panel < self.panels.len() {
-            let p = &mut self.panels[self.selected_panel];
-            p.scroll_offset = p.scroll_offset.saturating_sub(1);
+            let max_scroll = self.pane_len(self.selected_panel).saturating_sub(1);
+            self.panels[self.selected_panel].scroll_offset = max_scroll;
         }
     }
 
+    /// `End`: back to the newest line of the pane the user is looking at.
+    ///
+    /// Only that pane. `End` used to call [`Self::reset_scroll`], which is the
+    /// whole-grid reset a view switch wants -- so scrolling one pane back and
+    /// pressing `End` also threw away where the user had scrolled every other
+    /// pane to. Its siblings `Home`, the arrows and `PageUp`/`PageDown` all act
+    /// on the selected pane alone.
+    pub fn scroll_to_bottom(&mut self) {
+        if let Some(p) = self.panels.get_mut(self.selected_panel) {
+            p.scroll_offset = 0;
+        }
+    }
+
+    /// Every pane back to its newest line, for a view switch: the content is
+    /// about to be replaced, so an offset into the old content means nothing.
     pub fn reset_scroll(&mut self) {
         for panel in &mut self.panels {
             panel.scroll_offset = 0;

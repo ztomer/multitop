@@ -127,6 +127,7 @@ fn test_header_formatting() {
     app.apply(Msg::Packet {
         panel: 0,
         gen: 0,
+        epoch: app.panels_epoch,
         payload: multitop_agent::proto::Payload::Monitor(snap),
         dims: (80, 24),
     });
@@ -148,4 +149,61 @@ fn test_username_consistency_across_panes() {
 
     assert_eq!(server_with_user.target(), "alice@db-host");
     assert_eq!(server_no_user.target(), "bare-host");
+}
+
+/// A monitor packet from the previous panel list must not paint the panel that
+/// moved into its slot.
+///
+/// This is the defect `replace_panels` bumps the epoch to prevent, and its own
+/// doc comment says so: "after a deletion the task for the removed host paints
+/// the panel that moved into its slot -- one machine's statistics under another
+/// machine's name." The guard was there and the arm that carries the statistics
+/// never consulted it. Monitor tasks are long-lived and stamp every packet
+/// `gen: 0`, so a `gen` check would have rejected live stats forever once an
+/// edit moved the generations off zero -- which is why that arm checked
+/// nothing. The packet carries the epoch now, and every arm is guarded by it.
+#[test]
+fn a_packet_from_the_old_panel_list_cannot_paint_the_new_one() {
+    let _keychain = isolate_keychain();
+    let a = Server {
+        host: "alpha".to_string(),
+        port: 22,
+        user: "admin".to_string(),
+        upgrade_cmd: None,
+    };
+    let b = Server {
+        host: "beta".to_string(),
+        ..a.clone()
+    };
+    let mut app = App::new(vec![a, b.clone()]);
+    let stale_epoch = app.panels_epoch;
+
+    // The user removes alpha; beta moves into slot 0.
+    app.replace_panels(vec![b]);
+    assert_eq!(app.panels[0].server.host, "beta");
+
+    // A packet that alpha's monitor task had already put on the wire, naming
+    // slot 0 and stamped with the panel list it was started for.
+    let snap = multitop_agent::render::Snapshot {
+        host: "alpha".to_string(),
+        cpu_pct: 99.0,
+        ..Default::default()
+    };
+    let changed = app.apply(Msg::Packet {
+        panel: 0,
+        gen: 0,
+        epoch: stale_epoch,
+        payload: multitop_agent::proto::Payload::Monitor(snap),
+        dims: (80, 24),
+    });
+
+    assert!(
+        !changed,
+        "a packet for a retired panel list changes nothing"
+    );
+    assert!(
+        app.panels[0].last_monitor.is_none(),
+        "and must not be stored: beta's pane would then be showing alpha's \
+         statistics under beta's name"
+    );
 }
