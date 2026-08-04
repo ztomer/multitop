@@ -848,8 +848,8 @@ pub fn draw(f: &mut Frame, app: &App) {
                 .unwrap_or_else(|| panel.server.host.clone());
 
             // Row 0 is composed here, once, from everything that belongs on it:
-            // the banner, the sparklines either side of it, and the scroll
-            // badge. `visible` used to write the badge here too and lose.
+            // the banner and the scroll badge. `visible` used to write the badge
+            // here too and lose.
             let badge = if badge_offset > 0 {
                 format!(" [\u{2191} -{badge_offset} lines] ")
             } else {
@@ -875,37 +875,6 @@ pub fn draw(f: &mut Frame, app: &App) {
                 let left_rule_len = rem / 2;
                 let right_rule_len = rem - left_rule_len;
 
-                let mem_bar = app
-                    .sparklines_mem
-                    .get(idx)
-                    .map(|s| s.render_bar_limited(left_rule_len.saturating_sub(2)))
-                    .unwrap_or_default();
-                let cpu_bar = app
-                    .sparklines_cpu
-                    .get(idx)
-                    .map(|s| s.render_bar_limited(right_rule_len.saturating_sub(2)))
-                    .unwrap_or_default();
-
-                let (left_str, mem_used_len) =
-                    if app.show_sparklines() && !mem_bar.is_empty() && left_rule_len >= 3 {
-                        let text = format!("M:{mem_bar}");
-                        let len = text.chars().count();
-                        (format!("\x1b[36;1m{text}\x1b[0m"), len)
-                    } else {
-                        (String::new(), 0)
-                    };
-
-                let (right_str, cpu_used_len) =
-                    if app.show_sparklines() && !cpu_bar.is_empty() && right_rule_len >= 3 {
-                        let text = format!("C:{cpu_bar}");
-                        let len = text.chars().count();
-                        (format!("\x1b[33;1m{text}\x1b[0m"), len)
-                    } else {
-                        (String::new(), 0)
-                    };
-
-                let left_rule_rem = left_rule_len.saturating_sub(mem_used_len);
-                let right_rule_rem = right_rule_len.saturating_sub(cpu_used_len);
                 let fw = &server_target;
 
                 // A space either side of the name. `space_needed` has always
@@ -914,16 +883,16 @@ pub fn draw(f: &mut Frame, app: &App) {
                 // the name was a wall of fullwidth glyphs, obvious once it is
                 // ordinary text.
                 lines[0] = format!(
-                    "{left_str}{}{}{} {}{}{} {}{}{}{}{right_str}{}",
+                    "{}{}{} {}{}{}{} {}{}{}{}",
                     theme.secondary(),
-                    "\u{2500}".repeat(left_rule_rem),
+                    "\u{2500}".repeat(left_rule_len),
                     theme.reset,
                     theme.primary(),
                     theme.bold,
                     fw,
                     theme.reset,
                     theme.secondary(),
-                    "\u{2500}".repeat(right_rule_rem),
+                    "\u{2500}".repeat(right_rule_len),
                     theme.reset,
                     badge_span(&badge),
                 );

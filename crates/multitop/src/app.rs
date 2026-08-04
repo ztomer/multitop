@@ -19,11 +19,10 @@ pub use multitop_agent::SortBy;
 
 /// High-level application mode.
 ///
-/// Only genuinely mutually exclusive UI states belong here. Sparkline
-/// visibility is a persisted user preference and quitting is a terminal flag —
-/// both are orthogonal to what the UI is currently showing, so they live in
-/// their own fields. Folding them in made opening a modal silently discard the
-/// user's sparkline setting.
+/// Only genuinely mutually exclusive UI states belong here. Quitting is a
+/// terminal flag, orthogonal to what the UI is currently showing, so it lives
+/// in its own field. Folding that kind of thing in here made opening a modal
+/// silently discard an unrelated user setting.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum AppMode {
     #[default]
@@ -77,9 +76,6 @@ pub struct App {
     pub theme_idx: usize,
     pub config_path: Option<std::path::PathBuf>,
     pub filter_query: String,
-    pub sparklines: Vec<crate::sparkline::SparklineHistory>,
-    pub sparklines_mem: Vec<crate::sparkline::SparklineHistory>,
-    pub sparklines_cpu: Vec<crate::sparkline::SparklineHistory>,
     pub upgrade_history_lines: usize,
     pub password_manager: Option<crate::passwords::PasswordManager>,
     pub last_update: Option<u64>,
@@ -99,8 +95,6 @@ pub struct App {
     /// each panel's Upgrade view so the user can see what a host did last time
     /// before deciding to run it again.
     pub host_updates: std::collections::BTreeMap<String, crate::state::HostUpdate>,
-    /// Persisted user preference, independent of `mode`.
-    pub show_sparklines: bool,
     /// Terminal flag, independent of `mode`.
     pub should_quit: bool,
     /// A quit is armed but not confirmed: upgrades are in flight, and the first
@@ -140,7 +134,6 @@ fn push_capped(log: &mut Vec<String>, line: String, cap: usize) {
 
 impl App {
     pub fn new(servers: Vec<Server>) -> Self {
-        let count = servers.len();
         Self {
             panels: servers.into_iter().map(Panel::new).collect(),
             selected_panel: 0,
@@ -149,15 +142,6 @@ impl App {
             theme_idx: 0,
             config_path: None,
             filter_query: String::new(),
-            sparklines: (0..count)
-                .map(|_| crate::sparkline::SparklineHistory::new(30))
-                .collect(),
-            sparklines_mem: (0..count)
-                .map(|_| crate::sparkline::SparklineHistory::new(30))
-                .collect(),
-            sparklines_cpu: (0..count)
-                .map(|_| crate::sparkline::SparklineHistory::new(30))
-                .collect(),
             upgrade_history_lines: crate::config::DEFAULT_UPGRADE_HISTORY_LINES,
             password_manager: None,
             last_update: None,
@@ -167,7 +151,6 @@ impl App {
             vault_password_input: String::new(),
             vault_epoch: 0,
             host_updates: std::collections::BTreeMap::new(),
-            show_sparklines: false,
             should_quit: false,
             quit_armed: false,
             panels_epoch: 0,
@@ -223,15 +206,6 @@ impl App {
         let count = panels.len();
         self.panels = panels;
         self.selected_panel = self.selected_panel.min(count.saturating_sub(1));
-        self.sparklines = (0..count)
-            .map(|_| crate::sparkline::SparklineHistory::new(30))
-            .collect();
-        self.sparklines_mem = (0..count)
-            .map(|_| crate::sparkline::SparklineHistory::new(30))
-            .collect();
-        self.sparklines_cpu = (0..count)
-            .map(|_| crate::sparkline::SparklineHistory::new(30))
-            .collect();
     }
 
     #[must_use]
@@ -276,17 +250,6 @@ impl App {
             return self.vault.clone().map(|v| (v, epoch));
         }
         None
-    }
-
-    /// Check if sparklines should be shown.
-    #[must_use]
-    pub const fn show_sparklines(&self) -> bool {
-        self.show_sparklines
-    }
-
-    /// Toggle sparklines visibility.
-    pub const fn toggle_sparklines(&mut self) {
-        self.show_sparklines = !self.show_sparklines;
     }
 
     /// Check if upgrade modal should be shown.
@@ -1061,20 +1024,11 @@ impl App {
                 };
 
                 match &payload {
-                    // The banner host name and the sparkline bars are drawn on
-                    // every panel whatever view it is in, so a Monitor packet
-                    // always changes what is on screen.
-                    multitop_agent::proto::Payload::Monitor(snap) => {
+                    // The banner host name is drawn on every panel whatever
+                    // view it is in, so a Monitor packet always changes what is
+                    // on screen.
+                    multitop_agent::proto::Payload::Monitor(_) => {
                         p.last_monitor = Some(payload.clone());
-                        if panel < self.sparklines_cpu.len() {
-                            self.sparklines_cpu[panel].push(snap.cpu_pct as f32);
-                            let mem_pct = if snap.mem.total > 0 {
-                                (snap.mem.used as f32 / snap.mem.total as f32) * 100.0
-                            } else {
-                                0.0
-                            };
-                            self.sparklines_mem[panel].push(mem_pct);
-                        }
                         let lines =
                             crate::render_payload::render_payload(&payload, dims, sort, pal);
                         p.last_frame = Some(lines.clone());

@@ -141,7 +141,6 @@ pub enum PasswordAction {
     Delete {
         panel: usize,
     },
-    ToggleSparklines,
     /// Add hosts from `~/.ssh/config` that are not configured yet.
     ImportSshHosts,
     /// Replace the vault master password. Both are plain `String` because they
@@ -370,7 +369,6 @@ fn row_key(app: &mut App, key: KeyCode) -> PasswordAction {
         KeyCode::Char('d' | 'D') => {
             manager.notice = Some("Cannot remove the last remaining server.".to_string());
         }
-        KeyCode::Char('s' | 'S') => return PasswordAction::ToggleSparklines,
         // Import from ~/.ssh/config. Additive only: see `config::merge_ssh_hosts`
         // for why nothing already configured is touched.
         KeyCode::Char('i' | 'I') => return PasswordAction::ImportSshHosts,
@@ -594,15 +592,16 @@ mod tests {
         assert!(app.password_manager.as_ref().unwrap().draft.is_none());
     }
 
-    /// `s` toggles sparklines. It used to set a shared sudo password, which is
-    /// a thing that no longer exists.
+    /// `s` is unbound in Settings. It toggled sparklines, and sparklines are
+    /// gone -- a key that silently does nothing is worse than one that is free,
+    /// because the next feature to want `s` has to discover it is available.
     #[test]
-    fn s_toggles_sparklines() {
+    fn s_is_not_bound_to_anything() {
         let mut app = App::new(vec![test_server("host1")]);
         crate::passwords::open(&mut app, 0, false);
 
         let action = crate::passwords::handle_key(&mut app, KeyCode::Char('s'));
-        assert_eq!(action, PasswordAction::ToggleSparklines);
+        assert_eq!(action, PasswordAction::None);
     }
 
     /// `d` removes the server, and is the only meaning `d` has now. It used to

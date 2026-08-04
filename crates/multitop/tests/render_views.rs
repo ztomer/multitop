@@ -364,6 +364,13 @@ fn every_screen_renders_at_every_size() {
     // the fallback fired and the frames landed in `crates/multitop/target`,
     // where nobody would look for them.
     let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../target/views");
+    // Cleared, not merely overwritten. A screen that is deleted from `SCREENS`
+    // used to leave its last frame lying in `target/views` forever, so the
+    // directory a reviewer reads as "what the product looks like" kept showing
+    // screens the product no longer has -- `upgrade-confirm-modal.txt` outlived
+    // the modal by a whole review round. A harness that misrepresents the
+    // product is worse than none, which this harness has already been told once.
+    let _ = std::fs::remove_dir_all(&root);
     std::fs::create_dir_all(&root).unwrap();
 
     for &(cols, rows) in SIZES {

@@ -257,9 +257,6 @@ async fn event_loop(
         for p in &mut app.panels {
             p.last_upgrade.set_cap(cfg.upgrade_history_lines);
         }
-        if cfg.show_sparklines {
-            app.toggle_sparklines();
-        }
         // A sudo password in config.toml is plaintext on disk and was never
         // even read. Move any we find into the OS credential store and delete
         // them from the file, once, so the unsupported mechanism cannot linger.

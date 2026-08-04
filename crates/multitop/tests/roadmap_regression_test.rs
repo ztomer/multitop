@@ -4,7 +4,6 @@
 //! 1. Upgrade Modal Workflow & key shortcuts (`u` -> modal -> `u` / confirm -> upgrade).
 //! 2. Runtime State Persistence (`state.toml` creation, saving, loading).
 //! 3. Single Sign-On (SSO) Master Password lifecycle & automatic fallback.
-//! 4. Sparkline history updates for Memory (`M:`) and CPU (`C:`) in panel header.
 //! 5. Consistent `user@host` display across panel titles.
 
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
@@ -112,7 +111,7 @@ fn test_state_persistence_roundtrip() {
 }
 
 #[test]
-fn test_sparklines_and_header_formatting() {
+fn test_header_formatting() {
     let _keychain = isolate_keychain();
     let server = test_server("deployer", "prod-node-1");
     let mut app = App::new(vec![server]);
@@ -131,9 +130,6 @@ fn test_sparklines_and_header_formatting() {
         payload: multitop_agent::proto::Payload::Monitor(snap),
         dims: (80, 24),
     });
-
-    assert!(!app.sparklines_cpu[0].render_bar().is_empty());
-    assert!(!app.sparklines_mem[0].render_bar().is_empty());
 
     // Verify panel server target includes user@host
     assert_eq!(app.panels[0].server.target(), "deployer@prod-node-1");

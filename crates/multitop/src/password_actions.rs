@@ -154,17 +154,6 @@ pub fn apply(
                 }
             }
         }
-        PasswordAction::ToggleSparklines => {
-            let show = !app.show_sparklines();
-            app.toggle_sparklines();
-            if let Some(path) = &app.config_path {
-                crate::config::save_show_sparklines(path, show);
-            }
-            if let Some(manager) = app.password_manager.as_mut() {
-                let status = if show { "Enabled" } else { "Disabled" };
-                manager.notice = Some(format!("Sparklines (Experimental): {status}"));
-            }
-        }
         PasswordAction::Save {
             panel,
             password,

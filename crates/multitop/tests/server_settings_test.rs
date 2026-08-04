@@ -261,30 +261,6 @@ fn test_delete_password_removes_from_keychain() {
 }
 
 #[test]
-fn test_toggle_sparklines_persists_config() {
-    let _store_guard = setup_mock_store();
-    let mut app = App::new(vec![test_server("host1")]);
-    let tmp_path =
-        std::env::temp_dir().join(format!("multitop_test_cfg_{}.toml", std::process::id()));
-    app.config_path = Some(tmp_path.clone());
-
-    let (tx, _rx) = tokio::sync::mpsc::channel::<Msg>(10);
-    let mut tasks = multitop::run::Tasks::new(1);
-
-    multitop::password_actions::apply(
-        PasswordAction::ToggleSparklines,
-        &mut app,
-        &[test_server("host1")],
-        &tx,
-        &mut tasks,
-    );
-
-    assert!(app.show_sparklines());
-
-    let _ = std::fs::remove_file(tmp_path);
-}
-
-#[test]
 fn test_save_resume_upgrade_false() {
     let _store_guard = setup_mock_store();
     let mut app = App::new(vec![test_server("host1")]);

@@ -41,7 +41,6 @@ upgrade_cmd = "yum update"
 
     let config = load(&config_path).unwrap();
     assert_eq!(config.theme, Some("kare".to_string()));
-    assert!(config.show_sparklines);
     assert_eq!(config.upgrade_history_lines, 1000);
     assert_eq!(config.servers.len(), 2);
     assert_eq!(config.servers[0].host, "server1");
@@ -95,47 +94,6 @@ fn test_config_save_servers_roundtrip() {
     assert_eq!(config.servers[0].upgrade_cmd, Some("cmd1".to_string()));
     assert_eq!(config.servers[1].host, "host2");
     assert_eq!(config.servers[1].upgrade_cmd, None);
-}
-
-#[test]
-fn test_config_save_theme_show_sparklines() {
-    let tmp = TempDir::new().unwrap();
-    let config_path = tmp.path().join("config.toml");
-
-    // First save servers to create the file
-    let servers = vec![test_server("host1", "user1", 22, None)];
-    save_servers(&config_path, &servers).unwrap();
-
-    // Now read, modify, and save full config
-    let mut config = load(&config_path).unwrap();
-    config.theme = Some("dracula".to_string());
-    config.show_sparklines = true;
-
-    // Save full config by writing TOML
-    let toml = format!(
-        "theme = \"{}\"\nshow_sparklines = {}\nupgrade_history_lines = 5000\n\n{}",
-        config.theme.as_ref().unwrap(),
-        config.show_sparklines,
-        config
-            .servers
-            .iter()
-            .map(|s| format!(
-                "[[servers]]\nhost = \"{}\"\nport = {}\nuser = \"{}\"{}",
-                s.host,
-                s.port,
-                s.user,
-                s.upgrade_cmd
-                    .as_ref()
-                    .map_or(String::new(), |c| format!("\nupgrade_cmd = \"{c}\""))
-            ))
-            .collect::<Vec<_>>()
-            .join("\n\n")
-    );
-    fs::write(&config_path, toml).unwrap();
-
-    let reloaded = load(&config_path).unwrap();
-    assert_eq!(reloaded.theme, Some("dracula".to_string()));
-    assert!(reloaded.show_sparklines);
 }
 
 #[test]
@@ -320,8 +278,34 @@ upgrade_cmd = "sudo apt upgrade"
 "#;
     let config = multitop::config::parse(toml).unwrap();
     assert_eq!(config.theme, Some("kare".to_string()));
-    assert!(!config.show_sparklines);
     assert_eq!(config.upgrade_history_lines, 5000);
     assert_eq!(config.servers.len(), 1);
     assert_eq!(config.servers[0].host, "test");
+}
+
+/// A config file written by an older version still loads.
+///
+/// `show_sparklines` was a real key until sparklines were deleted. Every user
+/// who ever toggled it has it written into their `config.toml`, and the parser
+/// must ignore it rather than refuse the file -- a removed feature that takes
+/// the user's whole configuration with it is a worse defect than the feature
+/// was. The same holds for any key a future version retires.
+#[test]
+fn a_retired_config_key_does_not_break_the_file_that_still_has_it() {
+    let toml = r#"
+theme = "kare"
+show_sparklines = true
+some_key_no_version_ever_had = 42
+upgrade_history_lines = 1234
+
+[[servers]]
+host = "web-01"
+port = 22
+user = "admin"
+upgrade_cmd = "sudo apt upgrade"
+"#;
+    let config = multitop::config::parse(toml).expect("a retired key must not fail the parse");
+    assert_eq!(config.theme, Some("kare".to_string()));
+    assert_eq!(config.upgrade_history_lines, 1234);
+    assert_eq!(config.servers.len(), 1);
 }

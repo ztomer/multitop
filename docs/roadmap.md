@@ -19,7 +19,7 @@ Green tests are not a shipped feature. Each row is one sitting with the real app
 | Refused password vs failing command | Set one host's password deliberately wrong; the panel must say the password was refused, not that the command failed | remote side only, against 192.168.0.33 |
 | Master-password rotation | `R`, rotate, quit, restart; the stored sudo passwords must decrypt with the new master password and not the old one | no |
 | SSH import | `I` against a real `~/.ssh/config`; nothing already configured may lose its `upgrade_cmd` | no |
-| Server-list editing | Add and remove a server while running; panels respawn, stats land on the right host, no panel keeps a dead host's sparkline | no |
+| Server-list editing | Add and remove a server while running; panels respawn, stats land on the right host, no panel keeps a dead host's data | no |
 | Sudo handshake over stdin | A real upgrade on a host that needs sudo; the password must reach `sudo -S` and never appear in `ps` | yes, three hosts |
 | `SIGTTIN` no longer stops the app | `kill -TTIN` the running app from another terminal; it must keep drawing rather than stopping and abandoning the terminal | no |
 | Sudo handshake deadlock | A remote that stays silent must report a bounded wait, not surface as an unreachable host | no |
@@ -146,7 +146,7 @@ against code that renders nothing.
 
 **Fix (structural, not two patches):** make the ownership unrepresentable.
 `visible()` returns body rows plus the `badge_offset` as a value; `draw`
-composes row 0 exactly once, from banner + sparklines + badge together. Then pin
+composes row 0 exactly once, from banner + badge together. Then pin
 it with a test that renders through `ui::draw` into a `TestBackend` and asserts
 the badge is in the buffer.
 
@@ -224,7 +224,7 @@ the **left**, `…b-01`, so the distinguishing end survives.
 - **Three names for one screen:** README says *Configuration* (`README.md:63`),
   the keybar badge says *SEttings*, the panel title says *Server Settings*
   (`config_ui.rs:182`). The third is wrong on its own terms -- that screen holds
-  the vault master password and a sparklines toggle, neither of which is a
+  the vault master password and display settings, neither of which is a
   server. Pick **Settings** and use it three times.
 - `[SEttings]` highlights the **second** letter (`ui.rs:219`) while every other
   key in the bar highlights the first. A mnemonic that has to be explained is
@@ -556,7 +556,7 @@ production path. The gate (`tools/check_test_only_code.py`) stops new ones
 appearing; the existing list has to be worked down by hand, and the file can only
 shrink — a stale entry fails the gate too.
 
-Nine entries remain:
+Eight entries remain:
 
 | Entry | Shape |
 |-------|-------|
@@ -567,7 +567,6 @@ Nine entries remain:
 | `crates/multitop/src/app.rs:had_upgrade` | Accessor |
 | `crates/multitop/src/app.rs:vault_unlocked` | Accessor |
 | `crates/multitop/src/panel.rs:set_sudo_password` | Accessor |
-| `crates/multitop/src/sparkline.rs:render_bar` | Delegating wrapper |
 | `crates/vault/src/lockout.rs:uses_keychain` | Accessor |
 
 The reason this is worth the effort is not the dead function itself: it is that
@@ -638,8 +637,7 @@ Requested 2026-08-03. **Last** — start only once items 1-8 are closed.
 A new view alongside the existing ones, bound to `G` and placed immediately to
 the right of `F` (Fetch) in the keybar, drawing CPU, memory and network history
 as graphs inside each pane. Use btop's graph glyphs — the braille-style
-sub-cell blocks that give several vertical steps per character row — rather
-than the single-row bar the sparkline uses today.
+sub-cell blocks that give several vertical steps per character row.
 
 Points to settle before writing any of it:
 
@@ -647,28 +645,23 @@ Points to settle before writing any of it:
   whether the ring buffer lives in the agent (more data over the wire, survives
   a view switch) or in `Panel` (cheap, but empty for the first N seconds after
   a panel is rebuilt by `replace_panels`).
-- `crates/multitop/src/sparkline.rs` already holds per-panel history and a
-  renderer. Extend it rather than starting a second one — a parallel renderer
-  is how the six drifted previews happened elsewhere.
-- Sparklines are still behind the `S` toggle in Settings and marked
-  experimental. Item 10 deletes them outright, so `G` replaces the toggle
-  rather than sitting beside it — settle item 10 first.
+- There is no per-panel history renderer any more: item 10(a) deleted
+  `sparkline.rs`. `G` starts from nothing, which is the right footing — one
+  renderer, built for the job, rather than a second one beside a drifting first.
+- `s` is free in Settings now, if the graph view wants a preference there.
 
 ## 10. Delete sparklines; bring back the double-width banner, behind Appearance
 
 Owner's call, 2026-08-04. Three pieces, and the second one reopens a decision
 this project made the day before, deliberately.
 
-**a. Remove sparklines completely.** Not the `S` toggle — the feature.
-`crates/multitop/src/sparkline.rs`, the per-panel history in `App`
-(`sparklines_cpu`/`sparklines_mem`), the row `ui::draw` composes into the banner,
-the `show_sparklines` config key and its writer (`config::save_show_sparklines`),
-the Settings row and its `[S]` hint, and every test that pins them. `G` (item 9)
-is the replacement and it is a better one: braille sub-cell graphs with real
-history, in the pane, instead of one bar squeezed onto the banner row.
-
-Do it before item 9 rather than after. `render_bar` is in the test-only baseline
-(item 5), so this closes an entry there too.
+**a. Remove sparklines completely. — done, 2026-08-04.** `sparkline.rs`, the
+three `App` history vectors, the banner row's `M:`/`C:` bars, the
+`show_sparklines` config key and `config::save_show_sparklines`, the Settings
+row, the `[S]` hint and the `s` binding, and every test that pinned them. A
+retired config key must not break a file that still carries it, which is now its
+own regression test. Baseline entry `sparkline.rs:render_bar` is gone (item 5:
+nine entries, now eight).
 
 **b. Restore the double-width banner when the font can draw it.** Class C
 removed `fmt::fullwidth` from the banner path for two reasons; this brings it

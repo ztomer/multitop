@@ -507,20 +507,6 @@ async fn removing_a_server_leaves_a_renderable_panel() {
     h.press(KeyCode::Enter);
 }
 
-/// The Experimental block is where sparklines live, and `s` toggles them.
-#[tokio::test]
-async fn s_toggles_sparklines_from_the_experimental_block() {
-    let _guard = setup().await;
-    let mut h = Harness::new(&["host-a"]);
-    h.press(KeyCode::Char('e'));
-
-    let screen = h.screen();
-    assert!(screen.contains("Experimental"), "got:\n{screen}");
-    let before = h.app.show_sparklines();
-    h.press(KeyCode::Char('s'));
-    assert_ne!(h.app.show_sparklines(), before, "s must toggle sparklines");
-}
-
 // ---------------------------------------------------------------------------
 // The structural gate: every short key sequence, drawn.
 // ---------------------------------------------------------------------------

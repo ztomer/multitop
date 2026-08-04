@@ -3,12 +3,12 @@
 //! Every writer used to round-trip through `toml::Table`, which rebuilds the
 //! file from its parsed values. Comments and blank lines are not values, so they
 //! vanished. Adding a server, deleting one, stripping a plaintext password, or
-//! merely pressing the sparklines toggle was enough to strip a hand-written
+//! merely pressing a settings toggle was enough to strip a hand-written
 //! config -- silently, and to a file the user maintains by hand.
 
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
-use multitop::config::{save_servers, save_show_sparklines, strip_plaintext_passwords, Server};
+use multitop::config::{save_servers, strip_plaintext_passwords, Server};
 
 const ANNOTATED: &str = r#"# multitop configuration -- keep these notes.
 theme = "Kare"
@@ -97,28 +97,6 @@ fn removing_a_server_keeps_the_remaining_comments() {
     let cfg = multitop::config::parse(&after).unwrap();
     assert_eq!(cfg.servers.len(), 1);
     assert_eq!(cfg.servers[0].host, "192.168.0.90");
-
-    let _ = std::fs::remove_dir_all(path.parent().unwrap());
-}
-
-#[test]
-fn toggling_sparklines_keeps_comments() {
-    let path = scratch("spark");
-    std::fs::write(&path, ANNOTATED).unwrap();
-
-    save_show_sparklines(&path, true);
-
-    let after = std::fs::read_to_string(&path).unwrap();
-    assert!(
-        after.contains("keep these notes"),
-        "a keystroke toggle destroyed the config comments:\n{after}"
-    );
-    assert!(
-        after.contains("Reboots on Sundays"),
-        "comment lost:\n{after}"
-    );
-    let cfg = multitop::config::parse(&after).unwrap();
-    assert!(cfg.show_sparklines, "the toggle did not take effect");
 
     let _ = std::fs::remove_dir_all(path.parent().unwrap());
 }

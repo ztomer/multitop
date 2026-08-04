@@ -24,5 +24,3 @@ port = 22
 user = ""
 # upgrade_cmd = "sudo apt update && sudo apt upgrade -y"
 
-# show_sparklines = false  # Experimental sparklines; toggle with S in Settings
-

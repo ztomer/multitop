@@ -124,7 +124,6 @@ pub struct Config {
     pub servers: Vec<Server>,
     pub theme: Option<String>,
     pub upgrade_history_lines: usize,
-    pub show_sparklines: bool,
     /// Plaintext `sudo_password` values found in the config file, paired with
     /// the server they belong to.
     ///
@@ -237,16 +236,10 @@ pub fn parse(text: &str) -> Result<Config, ConfigError> {
         .and_then(|v| usize::try_from(v).ok())
         .unwrap_or(DEFAULT_UPGRADE_HISTORY_LINES);
 
-    let show_sparklines = value
-        .get("show_sparklines")
-        .and_then(toml::Value::as_bool)
-        .unwrap_or(false);
-
     Ok(Config {
         servers: out,
         theme,
         upgrade_history_lines,
-        show_sparklines,
         plaintext_passwords: plaintext,
     })
 }
@@ -296,22 +289,6 @@ pub fn save_theme(path: &Path, theme_name: &str) {
         return;
     };
     let _ = std::fs::write(path, new_content);
-}
-
-/// Save `show_sparklines` preference back to the TOML configuration file.
-pub fn save_show_sparklines(path: &Path, show: bool) {
-    let Ok(content) = std::fs::read_to_string(path) else {
-        return;
-    };
-    // Edited in place rather than re-serialised. Round-tripping through
-    // `toml::Table` rebuilds the file from its values, so every comment and
-    // blank line the user wrote disappears -- and this runs on a keystroke,
-    // meaning toggling sparklines was enough to strip a hand-written config.
-    let Ok(mut doc) = content.parse::<toml_edit::DocumentMut>() else {
-        return;
-    };
-    doc["show_sparklines"] = toml_edit::value(show);
-    let _ = std::fs::write(path, doc.to_string());
 }
 
 /// Replace the server list while preserving other top-level configuration.

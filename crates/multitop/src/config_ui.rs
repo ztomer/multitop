@@ -252,27 +252,6 @@ pub fn draw(f: &mut Frame, app: &App) {
                 Style::default().fg(Color::DarkGray),
             )));
         }
-        lines.push(Line::from(""));
-        lines.push(Line::from(Span::styled(
-            "Experimental",
-            Style::default().fg(accent),
-        )));
-        let spark_on = app.show_sparklines();
-        lines.push(Line::from(vec![
-            Span::raw("  Sparklines  "),
-            Span::styled(
-                if spark_on { "[On]" } else { "[Off]" },
-                Style::default().fg(if spark_on {
-                    Color::Green
-                } else {
-                    Color::DarkGray
-                }),
-            ),
-        ]));
-        lines.push(Line::from(Span::styled(
-            "  [S] Toggle sparklines",
-            Style::default().fg(Color::DarkGray),
-        )));
     }
     if let Some(notice) = &manager.notice {
         lines.push(Line::from(""));
