@@ -592,10 +592,16 @@ where
                     // A resize that landed while the process was stopped is a
                     // resize this loop has to act on: the agents are still
                     // rendering for the size the terminal had before the stop.
-                    if let Some(d) = dims.refresh(
-                        terminal.size().unwrap_or_default(),
-                        app.panels.len(),
-                    ) {
+                    // `unwrap_or_default` would be a lie here: a terminal
+                    // that cannot report its size is not a terminal of size
+                    // zero, and treating it as one publishes the minimum render
+                    // size to every agent and re-renders the whole grid tiny.
+                    // Keeping the last known size is the honest failure.
+                    if let Some(d) = terminal
+                        .size()
+                        .ok()
+                        .and_then(|size| dims.refresh(size, app.panels.len()))
+                    {
                         app.rerender_all(d);
                     }
                     dirty = true;
@@ -621,10 +627,11 @@ where
                             // half of what the agent render size is made of, so
                             // an edit to the list resizes every pane. The new
                             // monitors must start already knowing that.
-                            if let Some(d) = dims.refresh(
-                                terminal.size().unwrap_or_default(),
-                                servers.len(),
-                            ) {
+                            if let Some(d) = terminal
+                                .size()
+                                .ok()
+                                .and_then(|size| dims.refresh(size, servers.len()))
+                            {
                                 app.rerender_all(d);
                             }
                             restart_all_agents(&app, &servers, dims_rx.clone(), &tx, &mut tasks);

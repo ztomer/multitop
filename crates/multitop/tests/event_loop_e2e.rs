@@ -19,8 +19,9 @@ use tokio_stream::StreamExt as _;
 
 static PORT_COUNTER: AtomicU16 = AtomicU16::new(41000);
 
-/// Reserved for documentation (RFC 5737) and never routable, so a monitor task
-/// that reaches for it during the test cannot touch anything real.
+/// Callers pass `.example` hosts, a name RFC 2606 reserves and no resolver
+/// answers, so a monitor task that reaches for one during the test cannot
+/// touch anything real.
 fn test_server(host: &str) -> Server {
     Server {
         host: host.to_string(),

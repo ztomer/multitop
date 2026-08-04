@@ -208,7 +208,104 @@ pub async fn next_packet(
     full_packet.extend_from_slice(&header);
     full_packet.extend_from_slice(&payload_bytes);
 
-    Ok(proto::decode_packet(&full_packet))
+    Ok(interpret_packet(&full_packet, header[5], len, errbuf))
+}
+
+/// Turn a framed packet into a payload, or record why it could not be read.
+///
+/// Split out so the undecodable case can be reached from a test: `next_packet`
+/// needs a `PacketStream`, and a `PacketStream` owns a live child process.
+fn interpret_packet(
+    full_packet: &[u8],
+    mode: u8,
+    len: usize,
+    errbuf: &mut Vec<String>,
+) -> Option<multitop_agent::proto::Payload> {
+    use multitop_agent::proto;
+
+    let decoded = proto::decode_packet(full_packet);
+    if decoded.is_none() {
+        // `None` is the caller's word for "the stream ended", and every caller
+        // turns it into `Connection to <host> closed`. A packet that arrived
+        // intact and could not be read is not a closed connection: it is an
+        // agent speaking a dialect this build does not know, and saying
+        // "closed" about a host that is up and talking sends the operator to
+        // look at the network. The framing stayed aligned -- `len` bytes were
+        // read either way -- so the session still ends here on purpose, to make
+        // the reconnect re-run the version check that should have caught it.
+        let reason = format!(
+            "agent sent a packet this build cannot read (mode {mode}, {len} bytes) \
+             -- the host is reachable; the agent is a different version"
+        );
+        if errbuf.len() >= MAX_STDERR_LINES {
+            errbuf.remove(0);
+        }
+        errbuf.push(reason);
+    }
+    decoded
+}
+
+#[cfg(test)]
+mod packet_tests {
+    #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+
+    use super::interpret_packet;
+    use multitop_agent::proto;
+
+    /// A packet that arrived intact and could not be read is not a closed
+    /// connection.
+    ///
+    /// It used to become one: `decode_packet` returns `None` for a mode byte
+    /// this build does not know, `next_packet` handed that straight back as
+    /// `Ok(None)`, and every caller turns `Ok(None)` into
+    /// `Connection to <host> closed`. The operator was sent to look at the
+    /// network for a host that was up and talking.
+    #[test]
+    fn an_unreadable_packet_says_so_rather_than_claiming_the_host_went_away() {
+        let mut packet = Vec::from(*proto::MAGIC);
+        // version, an unknown mode, and a zero-length body.
+        packet.extend_from_slice(&[1, 200, 0, 0]);
+        let mut errbuf = Vec::new();
+
+        let payload = interpret_packet(&packet, 200, 0, &mut errbuf);
+
+        assert!(payload.is_none(), "an unknown mode cannot be decoded");
+        assert_eq!(errbuf.len(), 1, "and it must leave a reason behind");
+        assert!(
+            errbuf[0].contains("mode 200") && errbuf[0].contains("host is reachable"),
+            "the reason must name the mode and clear the host: {:?}",
+            errbuf[0]
+        );
+    }
+
+    /// The reason goes in the same bounded buffer as the stderr lines, so a
+    /// stream that produces nothing but unreadable packets cannot grow it
+    /// without limit.
+    #[test]
+    fn the_reason_respects_the_buffer_bound() {
+        let mut packet = Vec::from(*proto::MAGIC);
+        packet.extend_from_slice(&[1, 200, 0, 0]);
+        let mut errbuf = Vec::new();
+        for _ in 0..(super::MAX_STDERR_LINES * 3) {
+            interpret_packet(&packet, 200, 0, &mut errbuf);
+        }
+        assert_eq!(errbuf.len(), super::MAX_STDERR_LINES);
+    }
+
+    /// A packet that decodes is handed back untouched, with nothing added to
+    /// the buffer that reports failures.
+    #[test]
+    fn a_readable_packet_is_returned_and_reports_nothing() {
+        let payload = proto::Payload::Fetch(multitop_agent::fetch::FetchSnapshot::default());
+        let encoded = proto::encode_packet(&payload);
+        let len = encoded.len() - 8;
+        let mut errbuf = Vec::new();
+
+        let got = interpret_packet(&encoded, encoded[5], len, &mut errbuf);
+
+        assert!(got.is_some(), "a well-formed packet must decode");
+        assert!(errbuf.is_empty(), "and must report nothing: {errbuf:?}");
+    }
 }
 
 #[cfg(test)]
