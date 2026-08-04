@@ -635,3 +635,48 @@ fn a_state_write_that_failed_is_reported() {
         app.panels[0].view
     );
 }
+
+/// The failed-state-write notice must survive the path that actually runs.
+///
+/// `confirm_upgrade` marks each host started -- which is where the write
+/// happens, and where the notice is pushed -- and *then* calls `run_upgrade`,
+/// which clears each panel's `last_upgrade` ring before streaming into it. The
+/// panels are already in Upgrade mode by then, so `Panel::note` had put the
+/// notice in exactly the buffer the next line clears.
+///
+/// Found reviewing this session's own work. Testing `mark_upgrades_started`
+/// directly passed, because nothing clears the ring afterwards; the defect
+/// lives in the order of the real path, which is the only thing worth pinning.
+#[test]
+fn the_failed_state_write_notice_survives_confirm_upgrade() {
+    let _keychain = isolate_keychain();
+    let mut app = App::new(vec![Server {
+        host: "host1".to_string(),
+        port: 22,
+        user: "admin".to_string(),
+        upgrade_cmd: Some("apt upgrade".to_string()),
+    }]);
+
+    let blocker =
+        std::env::temp_dir().join(format!("multitop_confirm_blocker_{}", std::process::id()));
+    let _ = std::fs::remove_file(&blocker);
+    std::fs::write(&blocker, b"not a directory").unwrap();
+    app.config_path = Some(blocker.join("config.toml"));
+
+    // The real sequence: `u` to enter the view, then confirm.
+    app.enter_upgrade_view();
+    let _ = app.confirm_upgrade();
+
+    let ring: Vec<String> = app.panels[0].last_upgrade.iter().cloned().collect();
+    let said = ring
+        .iter()
+        .any(|l| l.contains("could not save upgrade state"));
+
+    let _ = std::fs::remove_file(&blocker);
+
+    assert!(
+        said,
+        "the notice must still be in the pane the operator is looking at; \
+         the ring holds: {ring:?}"
+    );
+}

@@ -338,7 +338,6 @@ pub fn apply(
                 // host's own `started_at` was never written and a resumed run
                 // cut short was reported afterwards as the *previous* run's
                 // outcome -- a success, or "never upgraded".
-                app.mark_upgrades_started(&[panel]);
                 // Into the ring, not `view`: this panel is in Upgrade mode and
                 // the Upgrade pane is composed from the ring, so a line put in
                 // `view` here would be one nothing draws.
@@ -349,6 +348,11 @@ pub fn apply(
                         palette.meter_mid(),
                         palette.reset
                     )));
+                // After the `replace_with`, for the reason `confirm_upgrade`
+                // documents: this panel is in Upgrade mode, so anything the
+                // state write has to say goes into the ring the line above
+                // empties.
+                app.mark_upgrades_started(&[panel]);
                 let handle = crate::tasks::spawn_upgrade(
                     panel,
                     gen,

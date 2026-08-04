@@ -982,11 +982,20 @@ impl App {
     /// Confirm upgrade from modal and execute `run_upgrade`.
     pub fn confirm_upgrade(&mut self) -> Vec<Command> {
         self.mode = AppMode::Running;
-        if self.upgrade_runnable() {
+        let runnable = self.upgrade_runnable();
+        // `run_upgrade` first, and the order is the whole point.
+        //
+        // It clears each started panel's `last_upgrade` ring before streaming
+        // into it, and the panels are already in Upgrade mode by now -- so
+        // anything `mark_upgrades_started` says goes into exactly the buffer
+        // the next line empties. Marked first, a failed state write was written
+        // to the pane and wiped before the frame that would have drawn it.
+        let cmds = self.run_upgrade();
+        if runnable {
             let shown = self.filtered_indices();
             self.mark_upgrades_started(&shown);
         }
-        self.run_upgrade()
+        cmds
     }
 
     /// Move to the next banner style and report the one now in force.
