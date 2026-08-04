@@ -211,6 +211,12 @@ pub fn save_state(config_path: &Path, state: &AppState) -> Result<(), String> {
 /// Write via a temporary file and a rename, so the destination is only ever the
 /// old contents or the new ones.
 ///
+/// Shared with `config`, which had the same hazard and none of the protection:
+/// `config.toml` is written on a *keystroke* -- the theme and banner toggles --
+/// and it is the file the user maintains by hand. A truncating write that is
+/// interrupted there costs them the whole server list, which is strictly worse
+/// than losing the state file this was originally built for.
+///
 /// `fs::write` truncates before it writes, so an interruption does not merely
 /// fail to record the new value -- it destroys the previous one. That matters
 /// here more than most places: `upgrade_started_at` exists so an upgrade cut
@@ -222,7 +228,7 @@ pub fn save_state(config_path: &Path, state: &AppState) -> Result<(), String> {
 /// The temporary name carries the pid so two instances cannot write the same
 /// scratch file, and it is removed on every failure path -- a leftover would
 /// otherwise accumulate beside the config forever.
-fn write_atomic(path: &Path, content: &str) -> Result<(), String> {
+pub(crate) fn write_atomic(path: &Path, content: &str) -> Result<(), String> {
     use std::io::Write as _;
 
     let tmp = path.with_extension(format!("toml.{}.tmp", std::process::id()));

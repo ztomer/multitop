@@ -305,7 +305,7 @@ pub fn strip_plaintext_passwords(path: &Path) -> Result<usize, String> {
         }
     }
     if removed > 0 {
-        std::fs::write(path, doc.to_string()).map_err(|e| e.to_string())?;
+        crate::state::write_atomic(path, &doc.to_string())?;
     }
     Ok(removed)
 }
@@ -315,17 +315,21 @@ pub fn save_theme(path: &Path, theme_name: &str) {
     let Ok(content) = std::fs::read_to_string(path) else {
         return;
     };
-    let Ok(mut doc) = content.parse::<toml::Table>() else {
+    // `toml_edit`, not `toml`, for the reason `save_banner_style` below spells
+    // out -- and this function is where that reason came from without being
+    // applied. Parsing to `toml::Table` and re-serialising rebuilds the file
+    // from its values; comments and blank lines are not values, so a single
+    // press of `t` reduced a hand-maintained config to a bare key list.
+    //
+    // The fix landed on the toggle immediately below this one and not on this
+    // one, which is the shape this round has found more than any other: an
+    // instance cured while its sibling, doing the identical job on the identical
+    // file, kept the defect.
+    let Ok(mut doc) = content.parse::<toml_edit::DocumentMut>() else {
         return;
     };
-    doc.insert(
-        "theme".to_string(),
-        toml::Value::String(theme_name.to_string()),
-    );
-    let Ok(new_content) = toml::to_string(&doc) else {
-        return;
-    };
-    let _ = std::fs::write(path, new_content);
+    doc["theme"] = toml_edit::value(theme_name);
+    let _ = crate::state::write_atomic(path, &doc.to_string());
 }
 
 /// Save the banner style back to the TOML configuration file.
@@ -342,7 +346,7 @@ pub fn save_banner_style(path: &Path, style: crate::layout::BannerStyle) {
         return;
     };
     doc["banner_style"] = toml_edit::value(style.as_str());
-    let _ = std::fs::write(path, doc.to_string());
+    let _ = crate::state::write_atomic(path, &doc.to_string());
 }
 
 /// Replace the server list while preserving other top-level configuration.
@@ -419,7 +423,7 @@ pub fn save_servers(path: &Path, servers: &[Server]) -> Result<(), String> {
         out.push(table);
     }
     doc["servers"] = toml_edit::Item::ArrayOfTables(out);
-    std::fs::write(path, doc.to_string()).map_err(|error| error.to_string())
+    crate::state::write_atomic(path, &doc.to_string())
 }
 
 /// Where the user's SSH client configuration lives.
