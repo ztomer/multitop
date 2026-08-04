@@ -43,7 +43,7 @@ server" is not, however it is drawn.
 | Vault + credential path | 7 rounds (1, 2, 3, 4, 4b, 5, 6), all 2026-08-01 | **On a finding.** Round 6 found that a release binary could silently use the mock keystore, and the review stopped there. The next day `29bdbb3` -- rotating the master password could destroy the vault -- turned up during feature work. The subsystem was still producing defects when review stopped looking. |
 | Agent parsing / protocol | 6 fuzz targets, 114M iterations, 0 crashes; plus targeted hardening (bogus chunk size, >64 KiB payload desync, null `ifa_addr`) | Mechanized, still running when asked. The only area no user-reported defect has come from. |
 | Configuration panel | Keystroke-through-render e2e plus a bounded sweep of every key sequence | Not a review round; a harness that closes one class. |
-| Terminal / process lifecycle | Round C, 2026-08-04, twenty passes so far, with `tests/event_loop_e2e.rs` built for it | **On findings, twenty times.** 7, 3, 1, 2, 3, 1, 1, 4, 1, 2, 3, 2, 2, 2, 1, 1, 1, 2, 2, 2. What is running out is unexamined surface, not defects. Two classes account for most of them: *one quantity derived in two places by different rules*, and class H, *a failure reported as something else* -- the eighth pass was class H four times out of four. A twenty-first pass is owed. Six consecutive passes re-covered ground already walked and all six found something. |
+| Terminal / process lifecycle | Round C, 2026-08-04, twenty-one passes so far, with `tests/event_loop_e2e.rs` built for it | **On findings, twenty times out of twenty-one.** 7, 3, 1, 2, 3, 1, 1, 4, 1, 2, 3, 2, 2, 2, 1, 1, 1, 2, 2, 2, 0. The first zero is the twenty-first, and it covered two files rather than an area -- a partial pass coming back empty is not the bar. What is running out is unexamined surface, not defects. Two classes account for most of them: *one quantity derived in two places by different rules*, and class H, *a failure reported as something else* -- the eighth pass was class H four times out of four. A twenty-second pass is owed, over `ui.rs`'s draw path and `layout.rs` -- the rest of the rendering area the twenty-first left unopened. |
 | SSH + upgrade transport | Covered by Round C where the lifecycle reaches it -- child process groups, the two output streams, the session handshake, the packet-decode boundary, and (eighth pass) every `Err` path out of `next_packet` plus the agent-replacement repair | Partial. `read_handshake`, `interpret_packet`, `framing_lost` and `describe_failure` have seams and tests; the bootstrap retry was read and found correct; the lock wrappers were read in the twelfth pass and `upload_agent`'s framing in the thirteenth. The bootstrap quoting and the `-tt` pty path were read in the fourteenth. No named part of the transport is unreviewed now. |
 
 Every round that ran found something. That is evidence the rounds were
@@ -520,7 +520,7 @@ earlier passes only brushed, and the reconnect loop's repair path. Four more
   "agent replaced" -- the only line in that sequence that is not true, about a
   host that was up and had just been talking.
 
-**The counts so far are 7, 3, 1, 2, 3, 1, 1, 4, 1, 2, 3, 2, 2, 2, 1, 1, 1, 2, 2, 2** -- and they are not
+**The counts so far are 7, 3, 1, 2, 3, 1, 1, 4, 1, 2, 3, 2, 2, 2, 1, 1, 1, 2, 2, 2, 0** -- and they are not
 converging. Every pass so far went back up the moment it opened a part of the
 loop the earlier ones had not looked at, which is the argument against reading
 a falling count as progress toward zero. What is running out is *unexamined
@@ -796,6 +796,51 @@ run the panel on the work you are pleased with.
   through `show_frame`, and `monitor-with-notice` renders one at all four sizes.
   Confirmed by reading the frame rather than the assertion -- the notice appears
   in both panes at 80x24.
+
+#### Twenty-first pass -- `refit.rs` and `ansi.rs`. **Nothing found (42 in total)**
+
+The first pass in this round to end with no findings. It does **not** meet the
+bar, and saying why is the point: the bar is a *full* round that produces
+nothing, and this covered two files and a question, not the rendering area.
+`ui.rs`'s draw path -- some nine hundred lines -- and `layout.rs` were not
+opened. A partial pass coming back empty is what stopping too early looks like
+from the inside, which is exactly the mistake this item exists to stop repeating.
+
+What was asked, and answered clean. Every answer is now a test, so none of it
+has to be re-derived:
+
+- *What an unterminated escape sequence does* -- one of the two questions the
+  roadmap set for this area. The CSI parameter loop runs off the end of the
+  line, `final_byte` stays `None`, the sequence is discarded and the text before
+  it is kept. No hang, no panic, nothing swallowed.
+- *What a private-parameter sequence does.* `\x1b[?25l`, which any progress
+  display emits, skips its `?`, reads `25`, terminates on `l`, and is dropped
+  whole because it is not SGR. No literal reaches the pane.
+- *What the embedded newline the control filter exempts does.* The filter drops
+  `\r`, BEL and backspace "so they don't corrupt Ratatui's cursor/layout" and
+  lets `\n` through, which reads like an oversight. Rendered into a real buffer
+  rather than reasoned about: ratatui swallows it exactly as it swallows the
+  `\r` the filter does drop -- text joined onto one row, row count unchanged.
+  Harmless, and now pinned.
+- *Whether any pane gets negative or wrapping arithmetic at extreme sizes* --
+  the other question set for this area. `regions`, `agent_dims` and `visible`
+  driven across every combination of width and height in `{0,1,2,3,5,10}` with
+  0 to 8 panels and four scroll offsets: no pane escapes its screen, no agent is
+  told to render into zero, no window exceeds its height. `render_views.rs`
+  claims to be a gate for sizes "smaller than the content" and its smallest is
+  40x12, which is small but is not the case that finds a subtraction.
+- *`refit_header` rebuilds its label by filtering to fullwidth characters and
+  spaces, dropping everything else* -- which would silently delete the `…` from
+  a truncated wide banner. **Checked for reachability rather than reported:**
+  `ui::draw` composes the banner over row 0 *after* `visible` has refitted, so
+  the banner never passes through it. Not a finding.
+
+**The keychain gate fired on this pass's own new test and was obeyed.** It
+checks *reaching* per file and *diverting* per test -- asymmetric on purpose,
+because the reaching call is usually one helper away and text matching cannot
+follow a call graph. The test touches no credential; it holds the guard anyway.
+Arguing with a structural gate is how the gate gets switched off, and this file
+warns about that twice in its own comments.
 
 #### Twentieth pass -- the two persistence questions. Two more (42 in total)
 

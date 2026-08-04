@@ -387,3 +387,60 @@ mod tests {
         assert_eq!(line_rgb.spans[0].style.bg, Some(Color::Rgb(10, 20, 30)));
     }
 }
+
+#[cfg(test)]
+mod control_char_tests {
+    #![allow(clippy::unwrap_used, clippy::panic)]
+    use super::{line_to_spans, to_text};
+
+    /// An embedded newline is exempt from the control-character filter, and that
+    /// is harmless -- established by rendering it rather than by reading the
+    /// filter.
+    ///
+    /// The filter's stated job is to stop control characters corrupting
+    /// ratatui's layout, and `\n` is the one it lets through. Rendered, ratatui
+    /// swallows it exactly as it swallows the `\r` the filter *does* drop: the
+    /// text either side is joined and the row count is unchanged. Pinned here so
+    /// the question does not have to be re-derived.
+    #[test]
+    fn an_embedded_newline_neither_wraps_nor_corrupts_the_row() {
+        use ratatui::backend::TestBackend;
+        use ratatui::widgets::Paragraph;
+        use ratatui::Terminal;
+
+        let mut term = Terminal::new(TestBackend::new(12, 3)).unwrap();
+        term.draw(|f| {
+            f.render_widget(Paragraph::new(to_text(&["before\nafter"])), f.area());
+        })
+        .unwrap();
+        let buf = term.backend().buffer().clone();
+        let row =
+            |y: u16| -> String { (0..12).map(|x| buf[(x, y)].symbol().to_string()).collect() };
+
+        assert_eq!(row(0), "beforeafter ", "joined onto one row, not wrapped");
+        assert_eq!(row(1).trim(), "", "and nothing spills onto the next");
+        assert_eq!(
+            line_to_spans("before\nafter").spans.len(),
+            1,
+            "one span: the newline is not a style boundary"
+        );
+    }
+
+    /// A CSI that never terminates must not hang or swallow what came before it.
+    /// One of the two questions the roadmap set for this area.
+    #[test]
+    fn an_unterminated_escape_keeps_the_text_before_it() {
+        let line = line_to_spans("visible\x1b[38;2;255");
+        let joined: String = line.spans.iter().map(|s| s.content.as_ref()).collect();
+        assert_eq!(joined, "visible", "the text before it survives");
+    }
+
+    /// A private-parameter CSI -- `\x1b[?25l`, which any progress display emits
+    /// -- is not an SGR and must change no styling and print nothing.
+    #[test]
+    fn a_private_parameter_sequence_is_dropped_whole() {
+        let line = line_to_spans("a\x1b[?25lb");
+        let joined: String = line.spans.iter().map(|s| s.content.as_ref()).collect();
+        assert_eq!(joined, "ab", "the sequence leaves no literal behind");
+    }
+}

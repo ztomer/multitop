@@ -140,3 +140,64 @@ fn reset_scroll_clears_all_panels_not_just_selected() {
         assert_eq!(p.scroll_offset, 0, "panel {i} scroll must reset");
     }
 }
+
+/// Every pane arithmetic at sizes smaller than any content.
+///
+/// `render_views.rs` says it is a gate for sizes "smaller than the content",
+/// and its smallest is 40x12 -- which is small, and is not the case that finds
+/// a subtraction. `regions`, `pane_window` and `agent_dims` all divide a rect
+/// among panels and window a body inside it; a one-column or one-row terminal
+/// is where a `- 2` for a border becomes a wrap.
+///
+/// The roadmap set this question for the rendering round: whether any pane can
+/// be given a negative or wrapping arithmetic result at extreme sizes.
+#[test]
+fn every_pane_arithmetic_survives_a_terminal_too_small_to_draw_in() {
+    // Nothing here touches a credential, but the gate checks *reaching* per file
+    // and *diverting* per test -- deliberately, because the reaching call is
+    // usually one helper away and text matching cannot follow a call graph. A
+    // test that argues with a structural gate is how the gate gets switched off.
+    use ratatui::layout::{Rect, Size};
+
+    let _keychain = isolate_keychain();
+
+    for w in [0u16, 1, 2, 3, 5, 10] {
+        for h in [0u16, 1, 2, 3, 5, 10] {
+            for panels in [0usize, 1, 2, 3, 4, 8] {
+                let area = Rect::new(0, 0, w, h);
+                let (areas, keybar) = multitop::ui::regions(area, panels);
+                for a in &areas {
+                    assert!(
+                        a.x + a.width <= w && a.y + a.height <= h,
+                        "pane {a:?} escapes a {w}x{h} screen with {panels} panels"
+                    );
+                }
+                assert!(
+                    keybar.y + keybar.height <= h,
+                    "keybar {keybar:?} escapes a {w}x{h} screen"
+                );
+
+                let dims = multitop::ui::agent_dims(
+                    Size {
+                        width: w,
+                        height: h,
+                    },
+                    panels,
+                );
+                assert!(dims.0 > 0 && dims.1 > 0, "agent told to render {dims:?}");
+
+                // And the windowing, at every scroll offset that could be stored.
+                for off in [0usize, 1, 7, 1000] {
+                    let body: Vec<String> = (0..5).map(|i| format!("line {i}")).collect();
+                    let (out, _badge) =
+                        multitop::ui::visible(&body, usize::from(h), usize::from(w), 1, off);
+                    assert!(
+                        out.len() <= usize::from(h).max(1),
+                        "windowed {} lines into a height of {h}",
+                        out.len()
+                    );
+                }
+            }
+        }
+    }
+}
