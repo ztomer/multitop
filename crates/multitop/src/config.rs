@@ -119,11 +119,34 @@ fn missing_config_message(path: &Path, legacy: Option<&Path>) -> ConfigError {
 
 pub const DEFAULT_UPGRADE_HISTORY_LINES: usize = 5000;
 
+/// The smallest upgrade log that still works as one.
+///
+/// Not tidiness. The Upgrade *pane* is composed from the same ring as the
+/// history, so a capacity of zero does not mean "keep no scrollback" -- it
+/// means `RingLines::push` is a silent no-op and the pane shows nothing while
+/// an upgrade runs. Every line this round has been carefully arranging to
+/// reach the operator goes through that push: the completion note, the
+/// sudo-refused warning, the held-lock warning naming the file to remove. All
+/// of them dropped, with nothing saying why.
+///
+/// `RingLines::from` was fixed for exactly this in an earlier round, when an
+/// empty fixture set a capacity of zero. The config file was the other door
+/// into the same state, and it was still open.
+pub const MIN_UPGRADE_HISTORY_LINES: usize = 50;
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Config {
     pub servers: Vec<Server>,
     pub theme: Option<String>,
     pub upgrade_history_lines: usize,
+    /// The value the file asked for, when it was below
+    /// [`MIN_UPGRADE_HISTORY_LINES`] and was raised to it. `None` when the
+    /// file's value was used as written.
+    ///
+    /// Carried rather than silently substituted: a setting that does not do
+    /// what it says is worth one line in the panel, and the user is the only
+    /// one who can put the file right.
+    pub history_lines_raised_from: Option<usize>,
     pub banner_style: crate::layout::BannerStyle,
     /// Plaintext `sudo_password` values found in the config file, paired with
     /// the server they belong to.
@@ -230,12 +253,16 @@ pub fn parse(text: &str) -> Result<Config, ConfigError> {
         out.push(server);
     }
 
-    let upgrade_history_lines = value
+    // Clamped here, in the one place that reads it, so no consumer downstream
+    // has to know the floor exists or remember to apply it.
+    let requested = value
         .get("upgrade_history_lines")
         .or_else(|| value.get("history_lines"))
         .and_then(toml::Value::as_integer)
         .and_then(|v| usize::try_from(v).ok())
         .unwrap_or(DEFAULT_UPGRADE_HISTORY_LINES);
+    let upgrade_history_lines = requested.max(MIN_UPGRADE_HISTORY_LINES);
+    let history_lines_raised_from = (upgrade_history_lines != requested).then_some(requested);
 
     let banner_style = value
         .get("banner_style")
@@ -248,6 +275,7 @@ pub fn parse(text: &str) -> Result<Config, ConfigError> {
         servers: out,
         theme,
         upgrade_history_lines,
+        history_lines_raised_from,
         banner_style,
         plaintext_passwords: plaintext,
     })

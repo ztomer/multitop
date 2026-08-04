@@ -504,6 +504,21 @@ where
         for p in &mut app.panels {
             p.last_upgrade.set_cap(cfg.upgrade_history_lines);
         }
+        // A value below the floor was raised rather than obeyed, because
+        // obeying it would have made the Upgrade pane silently swallow every
+        // line -- including the warnings that name a lock file to remove. Said
+        // out loud: the file still asks for something it will not get, and only
+        // the user can put that right.
+        if let Some(asked) = cfg.history_lines_raised_from {
+            let note = format!(
+                "config: upgrade_history_lines = {asked} would leave the Upgrade pane \
+                 with nothing to show; using {} instead.",
+                cfg.upgrade_history_lines
+            );
+            for p in &mut app.panels {
+                p.note(note.clone());
+            }
+        }
         // A sudo password in config.toml is plaintext on disk and was never
         // even read. Move any we find into the OS credential store and delete
         // them from the file, once, so the unsupported mechanism cannot linger.

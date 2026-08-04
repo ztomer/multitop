@@ -100,6 +100,7 @@ async fn app_with_vault(
         servers: servers.clone(),
         theme: None,
         upgrade_history_lines: 5000,
+        history_lines_raised_from: None,
         banner_style: multitop::layout::BannerStyle::Plain,
         plaintext_passwords: Vec::new(),
     };

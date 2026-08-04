@@ -309,3 +309,66 @@ upgrade_cmd = "sudo apt upgrade"
     assert_eq!(config.upgrade_history_lines, 1234);
     assert_eq!(config.servers.len(), 1);
 }
+
+/// `upgrade_history_lines = 0` must not be obeyed.
+///
+/// The Upgrade pane is composed from the same ring as the history, and
+/// `RingLines::push` on a zero-capacity ring is a silent no-op -- so obeying it
+/// meant the pane showed nothing for the whole of an upgrade, and the
+/// completion note, the sudo-refused warning and the held-lock warning naming
+/// the file to remove were all dropped with nothing saying why.
+///
+/// `RingLines::from` was fixed for this exact state in an earlier round, when
+/// an empty fixture set a capacity of zero. The config file was the other door
+/// into it, and it was still open.
+#[test]
+fn a_zero_history_setting_is_raised_rather_than_silently_swallowing_the_log() {
+    let tmp = TempDir::new().unwrap();
+    let config_path = tmp.path().join("config.toml");
+    fs::write(
+        &config_path,
+        "upgrade_history_lines = 0\n\n\
+         [[servers]]\nhost = \"server1\"\nport = 22\nuser = \"admin\"\n",
+    )
+    .unwrap();
+
+    let config = load(&config_path).unwrap();
+
+    assert!(
+        config.upgrade_history_lines >= multitop::config::MIN_UPGRADE_HISTORY_LINES,
+        "a ring that swallows every line is not a setting: got {}",
+        config.upgrade_history_lines
+    );
+    assert_eq!(
+        config.history_lines_raised_from,
+        Some(0),
+        "and the substitution must be reported, not made silently"
+    );
+
+    // The point of the floor, proven where it matters: a line pushed into a
+    // ring built at this capacity survives.
+    let mut ring = multitop::panel::RingLines::new(config.upgrade_history_lines);
+    ring.push("upgrade finished".to_string());
+    assert_eq!(
+        ring.last().map(String::as_str),
+        Some("upgrade finished"),
+        "the pane must be able to show what an upgrade said"
+    );
+}
+
+/// A value the user actually chose is left alone, and reports no substitution.
+#[test]
+fn a_usable_history_setting_is_used_as_written() {
+    let tmp = TempDir::new().unwrap();
+    let config_path = tmp.path().join("config.toml");
+    fs::write(
+        &config_path,
+        "upgrade_history_lines = 200\n\n\
+         [[servers]]\nhost = \"server1\"\nport = 22\nuser = \"admin\"\n",
+    )
+    .unwrap();
+
+    let config = load(&config_path).unwrap();
+    assert_eq!(config.upgrade_history_lines, 200);
+    assert_eq!(config.history_lines_raised_from, None);
+}
