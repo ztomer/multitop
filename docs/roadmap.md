@@ -43,8 +43,8 @@ server" is not, however it is drawn.
 | Vault + credential path | 7 rounds (1, 2, 3, 4, 4b, 5, 6), all 2026-08-01 | **On a finding.** Round 6 found that a release binary could silently use the mock keystore, and the review stopped there. The next day `29bdbb3` -- rotating the master password could destroy the vault -- turned up during feature work. The subsystem was still producing defects when review stopped looking. |
 | Agent parsing / protocol | 6 fuzz targets, 114M iterations, 0 crashes; plus targeted hardening (bogus chunk size, >64 KiB payload desync, null `ifa_addr`) | Mechanized, still running when asked. The only area no user-reported defect has come from. |
 | Configuration panel | Keystroke-through-render e2e plus a bounded sweep of every key sequence | Not a review round; a harness that closes one class. |
-| Terminal / process lifecycle | Round C, 2026-08-04, thirteen passes so far, with `tests/event_loop_e2e.rs` built for it | **On findings, thirteen times.** 7, 3, 1, 2, 3, 1, 1, 4, 1, 2, 3, 2, 2. What is running out is unexamined surface, not defects. Two classes account for most of them: *one quantity derived in two places by different rules*, and class H, *a failure reported as something else* -- the eighth pass was class H four times out of four. A fourteenth pass is owed. |
-| SSH + upgrade transport | Covered by Round C where the lifecycle reaches it -- child process groups, the two output streams, the session handshake, the packet-decode boundary, and (eighth pass) every `Err` path out of `next_packet` plus the agent-replacement repair | Partial. `read_handshake`, `interpret_packet`, `framing_lost` and `describe_failure` have seams and tests; the bootstrap retry was read and found correct; the lock wrappers were read in the twelfth pass and `upload_agent`'s framing in the thirteenth. What remains unreviewed is the bootstrap script's own quoting and the `-tt` pty path. |
+| Terminal / process lifecycle | Round C, 2026-08-04, fourteen passes so far, with `tests/event_loop_e2e.rs` built for it | **On findings, fourteen times.** 7, 3, 1, 2, 3, 1, 1, 4, 1, 2, 3, 2, 2, 2. What is running out is unexamined surface, not defects. Two classes account for most of them: *one quantity derived in two places by different rules*, and class H, *a failure reported as something else* -- the eighth pass was class H four times out of four. A fifteenth pass is owed -- and it is the one that matters: every named area of this round now has a pass behind it, so a sweep that re-covers the same ground is finally the test the bar describes. |
+| SSH + upgrade transport | Covered by Round C where the lifecycle reaches it -- child process groups, the two output streams, the session handshake, the packet-decode boundary, and (eighth pass) every `Err` path out of `next_packet` plus the agent-replacement repair | Partial. `read_handshake`, `interpret_packet`, `framing_lost` and `describe_failure` have seams and tests; the bootstrap retry was read and found correct; the lock wrappers were read in the twelfth pass and `upload_agent`'s framing in the thirteenth. The bootstrap quoting and the `-tt` pty path were read in the fourteenth. No named part of the transport is unreviewed now. |
 
 Every round that ran found something. That is evidence the rounds were
 productive *and* evidence they stopped too early.
@@ -104,7 +104,7 @@ keep is what closed the last four: e2e tests that drive real `KeyEvent`s through
 asserting on the final state. The final state can look correct while three
 vaults' worth of work happened.
 
-The streak stops at eight. Round C's thirty-one findings were all found by review,
+The streak stops at eight. Round C's thirty-three findings were all found by review,
 before anyone hit them -- and the reason is the same rule read the other way:
 the round's first act was to build the seam the loop had never had. The area
 with the worst detection record was the area with no harness at all. Where the
@@ -504,7 +504,7 @@ earlier passes only brushed, and the reconnect loop's repair path. Four more
   "agent replaced" -- the only line in that sequence that is not true, about a
   host that was up and had just been talking.
 
-**The counts so far are 7, 3, 1, 2, 3, 1, 1, 4, 1, 2, 3, 2, 2** -- and they are not
+**The counts so far are 7, 3, 1, 2, 3, 1, 1, 4, 1, 2, 3, 2, 2, 2** -- and they are not
 converging. Every pass so far went back up the moment it opened a part of the
 loop the earlier ones had not looked at, which is the argument against reading
 a falling count as progress toward zero. What is running out is *unexamined
@@ -695,6 +695,48 @@ worst-consequence finding of the whole round.
   `mv`, the staging file is removed rather than left to accumulate, and the
   command exits non-zero. Pinned by a test that runs the real script under `sh`
   against a short stream and asserts the agent did **not** land.
+
+#### Fourteenth pass -- the bootstrap script's quoting and the `-tt` pty path. Two more (33 in total)
+
+- *The SSH control socket lived in `/tmp`.* Every session multitop opens is
+  multiplexed over it -- including the upgrade, whose stdin carries the host's
+  sudo password. The path was `/tmp/multitop-ssh-%u-%C`, and both halves are
+  predictable from outside: `%u` is the local username, and `%C` hashes the
+  user, host and port, which `ssh` itself puts in argv where `/proc` publishes
+  them to every account on the machine. The sticky bit stops another user
+  *replacing* that socket; nothing stops them **creating** it first, and
+  `ControlMaster=auto` joins a socket that is already there rather than becoming
+  the master.
+
+  **This is the same threat model, on the same kind of shared machine, that
+  moved the sudo password off the command line** -- "argv is not secret, and
+  `/proc/<pid>/cmdline` is world-readable". Taking the password out of argv and
+  then handing the whole session to a socket anyone could have created is
+  defending one half of a path. It is `~/.ssh/multitop-%C` now, reachable only
+  by its owner; if `~/.ssh` does not exist the bind fails and `auto` degrades to
+  an unmultiplexed connection, which is the right way round. Pinned by a test
+  that rejects any world-writable prefix, plus one for the `sockaddr_un` length
+  limit, since `%C` alone expands to forty characters.
+
+- *The held-lock sentinel was checked on the one stream it cannot arrive on.*
+  `SUDO_FAILED` was scanned on stdout and `LOCK_HELD` on stderr, which describes
+  the **local** shape, where the two pipes stay separate. A remote upgrade runs
+  under `ssh -tt`, and **a pty has one stream**: sshd merges the remote's stderr
+  into it, so `echo "__multitop_lock_held__" >&2` arrives on the local client's
+  *stdout*. Two consequences, on every remote host. The sentinel never fired, so
+  detection fell back to the distinct exit code alone -- which is precisely what
+  the sentinel exists to survive without, in a login shell noisy enough to lose
+  a status. And the stdout branch had no reason to skip it, so the raw
+  `__multitop_lock_held__` was printed into the operator's upgrade log as if it
+  were output. One `marker()` scanner for both sentinels on both streams now,
+  under the same rule `is_sudo_help` already carries: two streams disagreeing
+  about what counts is how one of them stops recognising it.
+
+**Checked and correct (2):** `sh_quote` is correct POSIX single-quoting, and the
+double layer in `spawn_command` (`sh_quote`, then `'\''`-escaping the result for
+the inner `zsh -c '...'`) composes correctly; and the `-tt` pty's CRLF is
+already handled -- `tokio`'s `Lines` strips `\r\n`, and `painted_states` has a
+test for the CRLF case.
 
 **Checked and correct (1):** `config_ui`'s notice rendering. The delete
 confirmation's `[y] confirm  [Esc] cancel` reaches the screen -- the notice is

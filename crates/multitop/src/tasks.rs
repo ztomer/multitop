@@ -217,6 +217,44 @@ fn painted_states(line: &str) -> impl DoubleEndedIterator<Item = &str> {
         .map(|state| state.trim_end_matches('\r'))
 }
 
+/// A marker the remote prints for this program rather than for the operator.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum Marker {
+    /// `sudo` refused the password we handed it.
+    SudoFailed,
+    /// Another run already holds the upgrade lock.
+    LockHeld,
+}
+
+/// Recognise a marker on **either** stream, and take it out of the log.
+///
+/// It used to be one sentinel per stream -- `SUDO_FAILED` checked only on
+/// stdout, `LOCK_HELD` only on stderr -- which describes the *local* shape,
+/// where the two pipes stay separate.
+///
+/// A remote upgrade runs under `ssh -tt`, and **a pty has one stream**: sshd
+/// merges the remote's stderr into it, so everything the remote writes arrives
+/// on the local client's stdout. The held-lock sentinel therefore reached the
+/// branch that was not looking for it. Two things followed. The detection was
+/// dead for every remote host -- only the distinct exit code still caught it,
+/// so the sentinel's whole purpose, surviving a lost exit status in a noisy
+/// login shell, was gone. And because the stdout branch had no reason to skip
+/// it, `__multitop_lock_held__` was printed into the operator's upgrade log
+/// verbatim: an internal marker shown as output.
+///
+/// One scanner, both streams -- the same rule `is_sudo_help` is written under,
+/// for the same reason: two streams disagreeing about what counts is how one of
+/// them stops recognising it.
+fn marker(trimmed: &str) -> Option<Marker> {
+    if trimmed == ssh::SUDO_FAILED_SENTINEL {
+        return Some(Marker::SudoFailed);
+    }
+    if trimmed == ssh::LOCK_HELD_SENTINEL {
+        return Some(Marker::LockHeld);
+    }
+    None
+}
+
 /// Whether a line is sudo explaining that it could not ask for a password.
 ///
 /// One copy, because the two streams disagreeing about what counts is how one
@@ -384,9 +422,19 @@ pub fn spawn_upgrade(
                             let mut visible = None;
                             for state in painted_states(&line) {
                                 let trimmed = state.trim();
-                                if trimmed == ssh::SUDO_FAILED_SENTINEL {
-                                    sudo_rejected = true;
-                                    continue;
+                                match marker(trimmed) {
+                                    Some(Marker::SudoFailed) => {
+                                        sudo_rejected = true;
+                                        continue;
+                                    }
+                                    // Reachable here, not only on stderr: a
+                                    // remote runs under `ssh -tt` and a pty has
+                                    // one stream.
+                                    Some(Marker::LockHeld) => {
+                                        lock_held = true;
+                                        continue;
+                                    }
+                                    None => {}
                                 }
                                 if trimmed.is_empty() {
                                     continue;
@@ -416,14 +464,23 @@ pub fn spawn_upgrade(
                     let mut visible = None;
                     for state in painted_states(&line) {
                         let trimmed = state.trim();
+                        // Both markers, on this stream too: the local path keeps
+                        // its pipes separate, so either can arrive here.
+                        match marker(trimmed) {
+                            Some(Marker::SudoFailed) => {
+                                sudo_rejected = true;
+                                continue;
+                            }
+                            Some(Marker::LockHeld) => {
+                                lock_held = true;
+                                continue;
+                            }
+                            None => {}
+                        }
                         if trimmed.is_empty() {
                             continue;
                         }
                         let lower = trimmed.to_lowercase();
-                        if trimmed == ssh::LOCK_HELD_SENTINEL {
-                            lock_held = true;
-                            continue;
-                        }
                         if is_sudo_help(&lower) {
                             sudo_help = true;
                         }
@@ -736,5 +793,45 @@ mod painted_line_tests {
     fn the_lock_held_sentinel_is_scannable() {
         let line = format!("{}\r\n", ssh::LOCK_HELD_SENTINEL);
         assert!(painted_states(&line).any(|state| state.trim() == ssh::LOCK_HELD_SENTINEL));
+    }
+}
+
+#[cfg(test)]
+mod marker_tests {
+    #![allow(clippy::unwrap_used, clippy::panic)]
+
+    use super::{marker, painted_states, ssh, Marker};
+
+    /// Both markers are recognised, whichever stream they arrived on.
+    ///
+    /// The held-lock sentinel used to be checked only on stderr. A remote
+    /// upgrade runs under `ssh -tt`, and a pty has one stream -- sshd merges the
+    /// remote's stderr into it -- so on every remote host that sentinel reached
+    /// the branch that was not looking for it. The detection fell back to the
+    /// exit code alone, which is the thing the sentinel exists to survive
+    /// without, and the raw `__multitop_lock_held__` was printed into the
+    /// operator's upgrade log because the stdout branch had no reason to skip
+    /// it.
+    #[test]
+    fn both_markers_are_recognised_on_either_stream() {
+        assert_eq!(
+            marker(ssh::LOCK_HELD_SENTINEL),
+            Some(Marker::LockHeld),
+            "a pty merges stderr into stdout, so this must be seen anywhere"
+        );
+        assert_eq!(marker(ssh::SUDO_FAILED_SENTINEL), Some(Marker::SudoFailed));
+        assert_eq!(marker("Reading package lists..."), None);
+        assert_eq!(marker(""), None);
+    }
+
+    /// And a marker painted over by a progress redraw is still found, so the
+    /// scan and the log agree about what was consumed.
+    #[test]
+    fn a_marker_survives_being_painted_over() {
+        let line = format!("{}\rcarrying on", ssh::LOCK_HELD_SENTINEL);
+        assert!(
+            painted_states(&line).any(|state| marker(state.trim()) == Some(Marker::LockHeld)),
+            "the scan sees every state"
+        );
     }
 }

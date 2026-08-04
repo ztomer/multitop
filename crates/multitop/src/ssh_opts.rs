@@ -16,8 +16,33 @@ pub const SSH_OPTS: &[&str] = &[
     "BatchMode=yes",
     "-o",
     "ControlMaster=auto",
+    // Under the user's own home, never `/tmp`.
+    //
+    // Every SSH session multitop opens is multiplexed over this socket --
+    // including the upgrade, whose stdin carries the host's sudo password. The
+    // path was `/tmp/multitop-ssh-%u-%C`, and every part of it is predictable
+    // from outside: `%u` is the local username, and `%C` hashes the user, host
+    // and port, which `ssh` itself puts in argv where `/proc` publishes them to
+    // every account on the machine.
+    //
+    // `/tmp` is world-writable. A socket there cannot be *replaced* by another
+    // user -- the sticky bit sees to that -- but it can be **created first**,
+    // before multitop ever runs, and `ControlMaster=auto` connects to a socket
+    // that is already there rather than becoming the master. Whoever is holding
+    // that end is then between multitop and the remote host on every channel.
+    //
+    // This is the same threat model, and the same shared machine, that moved the
+    // sudo password off the command line: "argv is not secret, and
+    // `/proc/<pid>/cmdline` is world-readable". Taking the password out of argv
+    // and then handing the whole session to a socket anyone could have created
+    // is defending one half of a path.
+    //
+    // `~` is expanded by `ssh`, and `~/.ssh` is reachable only by its owner. If
+    // it does not exist the bind fails and `ControlMaster=auto` falls back to an
+    // unmultiplexed connection -- slower, and correct, which is the right way
+    // round for this to degrade.
     "-o",
-    "ControlPath=/tmp/multitop-ssh-%u-%C",
+    "ControlPath=~/.ssh/multitop-%C",
     "-o",
     "ControlPersist=30s",
     "-o",
@@ -170,5 +195,62 @@ mod tests {
         assert!(twice.contains("test"));
         assert!(twice.contains("quote"));
         assert!(twice.contains("here"));
+    }
+}
+
+#[cfg(test)]
+mod control_path_tests {
+    #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+
+    use super::SSH_OPTS;
+
+    fn control_path() -> &'static str {
+        SSH_OPTS
+            .iter()
+            .find_map(|opt| opt.strip_prefix("ControlPath="))
+            .expect("multiplexing needs a control path")
+    }
+
+    /// The control socket carries every session multitop opens, including the
+    /// upgrade whose stdin is the host's sudo password. It must not live
+    /// anywhere another account can get to first.
+    ///
+    /// It was `/tmp/multitop-ssh-%u-%C`. The sticky bit stops another user
+    /// *replacing* that socket, but nothing stops them **creating** it before
+    /// multitop first runs -- and `ControlMaster=auto` joins a socket that is
+    /// already there instead of becoming the master. Both halves of the name are
+    /// predictable: `%u` is the local username, and `%C` hashes the user, host
+    /// and port, which `ssh` puts in argv where `/proc` publishes them.
+    ///
+    /// This is the same threat model that moved the sudo password off the
+    /// command line, so it gets the same answer.
+    #[test]
+    fn the_control_socket_is_not_somewhere_anyone_can_create_it() {
+        let path = control_path();
+        for shared in ["/tmp/", "/var/tmp/", "/dev/shm/"] {
+            assert!(
+                !path.starts_with(shared),
+                "the control socket must not sit in a world-writable directory: {path}"
+            );
+        }
+        assert!(
+            path.starts_with("~/") || path.starts_with("%d/"),
+            "it belongs under the user's own home: {path}"
+        );
+    }
+
+    /// A control path is a unix socket path, and those are capped near 104
+    /// bytes on macOS and 108 on Linux. `%C` alone expands to 40 hex
+    /// characters, so a long prefix is how this silently stops multiplexing.
+    #[test]
+    fn the_control_path_leaves_room_for_what_it_expands_to() {
+        let expanded = control_path()
+            .replace('~', "/home/some-long-username")
+            .replace("%C", "0123456789abcdef0123456789abcdef01234567");
+        assert!(
+            expanded.len() < 100,
+            "expanded to {} bytes, which risks the sockaddr_un limit: {expanded}",
+            expanded.len()
+        );
     }
 }
