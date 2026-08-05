@@ -227,9 +227,12 @@ async fn monitor_loop_re_reads_dims_each_frame() {
 
 #[test]
 fn resize_path_must_not_call_restart_all_agents() {
-    let run_source = include_str!("../src/run.rs");
+    // restart_all_agents lives in event_loop.rs; the resize path must not call it.
+    let event_loop_source = include_str!("../src/run/event_loop.rs");
+    let handle_key_source = include_str!("../src/run/handle_key.rs");
+    let combined = format!("{event_loop_source}\n{handle_key_source}");
 
-    let restart_call_lines: Vec<usize> = run_source
+    let restart_call_lines: Vec<usize> = combined
         .lines()
         .enumerate()
         .filter(|(_, l)| l.contains("restart_all_agents"))
@@ -245,8 +248,8 @@ fn resize_path_must_not_call_restart_all_agents() {
 
     for line_no in &restart_call_lines {
         let start = line_no.saturating_sub(3);
-        let end = (*line_no + 2).min(run_source.lines().count());
-        let context: Vec<&str> = run_source.lines().skip(start).take(end - start).collect();
+        let end = (*line_no + 2).min(combined.lines().count());
+        let context: Vec<&str> = combined.lines().skip(start).take(end - start).collect();
         let ctx_block = context.join("\n");
         // Matched against the terminal-resize machinery specifically, not the
         // bare word: `Tasks::fit_to` used to be called `resize`, and its call

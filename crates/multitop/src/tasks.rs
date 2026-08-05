@@ -211,7 +211,7 @@ pub fn spawn_docker(
 /// over, and the flags that come from scanning must not miss it. Only the last
 /// non-empty one is what a terminal would be showing, and that is the one worth
 /// keeping in the log.
-fn painted_states(line: &str) -> impl DoubleEndedIterator<Item = &str> {
+pub(crate) fn painted_states(line: &str) -> impl DoubleEndedIterator<Item = &str> {
     line.trim_end_matches('\n')
         .split('\r')
         .map(|state| state.trim_end_matches('\r'))
@@ -219,7 +219,7 @@ fn painted_states(line: &str) -> impl DoubleEndedIterator<Item = &str> {
 
 /// A marker the remote prints for this program rather than for the operator.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
-enum Marker {
+pub(crate) enum Marker {
     /// `sudo` refused the password we handed it.
     SudoFailed,
     /// Another run already holds the upgrade lock.
@@ -245,7 +245,7 @@ enum Marker {
 /// One scanner, both streams -- the same rule `is_sudo_help` is written under,
 /// for the same reason: two streams disagreeing about what counts is how one of
 /// them stops recognising it.
-fn marker(trimmed: &str) -> Option<Marker> {
+pub(crate) fn marker(trimmed: &str) -> Option<Marker> {
     if trimmed == ssh::SUDO_FAILED_SENTINEL {
         return Some(Marker::SudoFailed);
     }
@@ -264,7 +264,7 @@ fn marker(trimmed: &str) -> Option<Marker> {
 /// root?" and dpkg's "permission denied" on its own lock files contain no
 /// "sudo", so without these arms a command that merely forgot the `sudo`
 /// prefix was reported as a failing command with no hint why.
-fn is_sudo_help(lower: &str) -> bool {
+pub(crate) fn is_sudo_help(lower: &str) -> bool {
     lower.contains("sudo")
         && (lower.contains("terminal")
             || lower.contains("password")

@@ -236,8 +236,8 @@ fn entering_a_view_puts_something_on_the_screen() {
             upgrade_cmd: None,
         }]);
         match key {
-            "f" => drop(app.toggle_fetch()),
-            "d" => drop(app.toggle_docker()),
+            "f" => drop(app.toggle_fetch((80, 24))),
+            "d" => drop(app.toggle_docker((80, 24))),
             _ => drop(app.switch_stats()),
         }
         let mut term = ratatui::Terminal::new(ratatui::backend::TestBackend::new(60, 8)).unwrap();
@@ -289,8 +289,8 @@ fn a_notice_survives_every_view_switch() {
     for view in ["monitor", "upgrade", "fetch", "docker", "back to monitor"] {
         match view {
             "upgrade" => app.enter_upgrade_view(),
-            "fetch" => drop(app.toggle_fetch()),
-            "docker" => drop(app.toggle_docker()),
+            "fetch" => drop(app.toggle_fetch((80, 24))),
+            "docker" => drop(app.toggle_docker((80, 24))),
             "back to monitor" => drop(app.switch_stats()),
             _ => {}
         }

@@ -131,7 +131,7 @@ fn switching_modes_does_not_retire_the_running_monitor() {
     let mut app = App::new(vec![server("host-a")]);
     let epoch = app.panels_epoch;
 
-    app.toggle_docker();
+    app.toggle_docker((80, 24));
     app.switch_stats();
 
     app.apply(Msg::Frame {

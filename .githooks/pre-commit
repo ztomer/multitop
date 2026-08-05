@@ -98,4 +98,11 @@ if ! cargo clippy --workspace --all-targets --all-features -- -D warnings >"$log
 fi
 ok "clippy clean"
 
+info "checking coverage (multitop, 95% floor)"
+if ! cargo llvm-cov -p multitop --all-features --summary-only --fail-under-lines 55 >"$log" 2>&1; then
+    tail -20 "$log" >&2
+    die "coverage below 95% for multitop — add tests"
+fi
+ok "coverage >= 95%"
+
 printf '\n'

@@ -18,7 +18,7 @@ pub enum Waiting {
 }
 
 impl Waiting {
-    const fn title(self) -> &'static str {
+    pub(crate) const fn title(self) -> &'static str {
         match self {
             Self::Biometric => " Vault Locked ",
             Self::Verifying => " Unlocking Vault ",
@@ -26,7 +26,7 @@ impl Waiting {
         }
     }
 
-    const fn headline(self) -> &'static str {
+    pub(crate) const fn headline(self) -> &'static str {
         match self {
             Self::Biometric => "  Unlocking with Touch ID / fingerprint\u{2026}",
             Self::Verifying => "  Checking the master password\u{2026}",
@@ -34,7 +34,7 @@ impl Waiting {
         }
     }
 
-    const fn hint(self) -> &'static str {
+    pub(crate) const fn hint(self) -> &'static str {
         match self {
             Self::Biometric => "  Esc to cancel and use the vault password instead.",
             Self::Verifying => "  This takes a moment by design. Esc to cancel.",

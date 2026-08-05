@@ -12,11 +12,14 @@ use crate::stream;
 
 use super::{reconnect_wait, SessionOutcome};
 use multitop_agent::proto::Payload;
+use multitop_agent::SortBy;
+
+use crate::app::Msg;
 
 /// One status line for a panel, stamped with the generation this task was
 /// started for so a later panel list rejects it.
-fn frame(idx: usize, epoch: u64, line: String) -> super::Msg {
-    super::Msg::Frame {
+fn frame(idx: usize, epoch: u64, line: String) -> Msg {
+    Msg::Frame {
         panel: idx,
         epoch,
         lines: vec![line],
@@ -55,13 +58,14 @@ async fn replace_agent(server: &Server) -> Result<String, String> {
     Ok(format!("\u{2713} agent replaced on {}", server.host))
 }
 
+#[must_use]
 pub fn spawn_monitor(
     idx: usize,
     epoch: u64,
     server: Server,
     dims_rx: Arc<watch::Receiver<(u16, u16)>>,
-    sort: super::SortBy,
-    tx: tokio::sync::mpsc::Sender<super::Msg>,
+    sort: SortBy,
+    tx: tokio::sync::mpsc::Sender<Msg>,
 ) -> JoinHandle<()> {
     tokio::spawn(async move {
         let local_version = env!("CARGO_PKG_VERSION");
@@ -92,12 +96,12 @@ pub fn spawn_monitor(
                                     && snap.agent_version != local_version
                                 {
                                     let _ = tx
-                                        .send(super::Msg::Frame {
+                                        .send(Msg::Frame {
                                             panel: idx,
                                             epoch,
                                             lines: vec![format!(
                                                 "\u{2192} agent version mismatch: \
-                                                 remote {} vs local {}, replacing...",
+                             remote {} vs local {}, replacing...",
                                                 snap.agent_version, local_version
                                             )],
                                         })
@@ -110,7 +114,7 @@ pub fn spawn_monitor(
                         let dims = *dims_rx.borrow();
                         delivered = true;
                         if tx
-                            .send(super::Msg::Packet {
+                            .send(Msg::Packet {
                                 panel: idx,
                                 gen: 0,
                                 epoch,
@@ -135,7 +139,7 @@ pub fn spawn_monitor(
                             .cloned()
                             .unwrap_or_else(|| format!("Connection to {} closed", server.host));
                         let _ = tx
-                            .send(super::Msg::Frame {
+                            .send(Msg::Frame {
                                 panel: idx,
                                 epoch,
                                 lines: vec![error_line(detail)],
@@ -159,7 +163,7 @@ pub fn spawn_monitor(
                             Err(reason) => error_line(reason),
                         };
                         let _ = tx
-                            .send(super::Msg::Frame {
+                            .send(Msg::Frame {
                                 panel: idx,
                                 epoch,
                                 lines: vec![line],
