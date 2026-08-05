@@ -58,7 +58,6 @@ async fn test_spawn_upgrade_sets_mode_and_state() {
     let mut tasks = multitop::run::Tasks::new(1);
 
     // Use password_actions::apply to trigger upgrade through the normal path
-    let servers = vec![test_server("127.0.0.1")];
     multitop::password_actions::apply(
         multitop::passwords::PasswordAction::Save {
             panel: 0,
@@ -66,7 +65,6 @@ async fn test_spawn_upgrade_sets_mode_and_state() {
             resume_upgrade: true,
         },
         &mut app,
-        &servers,
         &tx,
         &mut tasks,
     );
@@ -87,7 +85,6 @@ async fn test_spawn_upgrade_saves_state_file() {
 
     let (tx, _rx) = mpsc::channel::<Msg>(100);
     let mut tasks = multitop::run::Tasks::new(1);
-    let servers = vec![test_server("127.0.0.1")];
 
     multitop::password_actions::apply(
         multitop::passwords::PasswordAction::Save {
@@ -96,7 +93,6 @@ async fn test_spawn_upgrade_saves_state_file() {
             resume_upgrade: true,
         },
         &mut app,
-        &servers,
         &tx,
         &mut tasks,
     );
@@ -115,8 +111,6 @@ async fn test_task_cancellation_on_panel_switch() {
     let (tx, _rx) = mpsc::channel::<Msg>(100);
     let mut tasks = multitop::run::Tasks::new(2);
 
-    let servers = vec![test_server("127.0.0.1"), test_server("127.0.0.2")];
-
     // Start upgrade on panel 0
     multitop::password_actions::apply(
         multitop::passwords::PasswordAction::Save {
@@ -125,7 +119,6 @@ async fn test_task_cancellation_on_panel_switch() {
             resume_upgrade: true,
         },
         &mut app,
-        &servers,
         &tx,
         &mut tasks,
     );
@@ -140,7 +133,6 @@ async fn test_task_cancellation_on_panel_switch() {
             resume_upgrade: true,
         },
         &mut app,
-        &servers,
         &tx,
         &mut tasks,
     );
@@ -174,7 +166,6 @@ async fn test_task_cancellation_on_panel_switch() {
             resume_upgrade: true,
         },
         &mut app,
-        &servers,
         &tx,
         &mut tasks,
     );
@@ -239,7 +230,7 @@ async fn test_concurrent_upgrade_generations_isolated() {
 async fn a_view_switch_during_an_upgrade_keeps_the_upgrade_tracked() {
     let _store_guard = enable_mock_store().await;
     let servers = vec![test_server("127.0.0.1")];
-    let mut app = App::new(servers.clone());
+    let mut app = App::new(servers);
     let (tx, _rx) = mpsc::channel::<Msg>(100);
     let mut tasks = multitop::run::Tasks::new(1);
 
@@ -250,7 +241,6 @@ async fn a_view_switch_during_an_upgrade_keeps_the_upgrade_tracked() {
             resume_upgrade: true,
         },
         &mut app,
-        &servers,
         &tx,
         &mut tasks,
     );
@@ -265,7 +255,6 @@ async fn a_view_switch_during_an_upgrade_keeps_the_upgrade_tracked() {
             crossterm::event::KeyEventKind::Press,
         ),
         &mut app,
-        &servers,
         (80, 24),
         std::sync::Arc::new(dims_rx),
         &tx,
@@ -356,7 +345,6 @@ async fn a_server_edit_stops_running_upgrades_and_says_so() {
             resume_upgrade: true,
         },
         &mut app,
-        &servers,
         &tx,
         &mut tasks,
     );
@@ -381,7 +369,6 @@ async fn a_server_edit_stops_running_upgrades_and_says_so() {
     multitop::password_actions::apply(
         multitop::passwords::PasswordAction::ApplyServers(vec![servers[1].clone()]),
         &mut app,
-        &servers,
         &tx,
         &mut tasks,
     );

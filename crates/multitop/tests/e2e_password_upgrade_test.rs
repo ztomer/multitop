@@ -78,13 +78,7 @@ async fn test_e2e_password_storage_and_os_keyring_lifecycle() {
     let (tx, _rx) = tokio::sync::mpsc::channel::<Msg>(100);
     let mut tasks = multitop::run::Tasks::new(1);
 
-    multitop::password_actions::apply(
-        save_action,
-        &mut app,
-        std::slice::from_ref(&server),
-        &tx,
-        &mut tasks,
-    );
+    multitop::password_actions::apply(save_action, &mut app, &tx, &mut tasks);
 
     // Verify in-memory panel state
     assert_eq!(
@@ -99,13 +93,7 @@ async fn test_e2e_password_storage_and_os_keyring_lifecycle() {
 
     // Delete password
     let delete_action = PasswordAction::Delete { panel: 0 };
-    multitop::password_actions::apply(
-        delete_action,
-        &mut app,
-        std::slice::from_ref(&server),
-        &tx,
-        &mut tasks,
-    );
+    multitop::password_actions::apply(delete_action, &mut app, &tx, &mut tasks);
 
     assert_eq!(app.panels[0].sudo_password, None);
     assert!(!app.panels[0].password_saved);

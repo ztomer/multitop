@@ -95,7 +95,6 @@ impl Harness {
                 state: crossterm::event::KeyEventState::NONE,
             },
             &mut self.app,
-            &self.servers,
             (80, 24),
             Arc::clone(&self.dims_rx),
             &self.tx,
@@ -543,7 +542,6 @@ async fn ctrl_c_arms_the_same_confirmation_while_upgrades_are_running() {
     handle_key(
         ctrl_c,
         &mut h.app,
-        &h.servers,
         (80, 24),
         Arc::clone(&h.dims_rx),
         &h.tx,

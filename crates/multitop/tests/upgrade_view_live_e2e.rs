@@ -85,7 +85,6 @@ fn ssh_server(cmd: &str) -> Server {
 
 struct Live {
     app: App,
-    servers: Vec<Server>,
     tasks: Tasks,
     tx: mpsc::Sender<Msg>,
     rx: mpsc::Receiver<Msg>,
@@ -97,10 +96,10 @@ impl Live {
         let (tx, rx) = mpsc::channel::<Msg>(512);
         let (dims_tx, drx) = watch::channel((100u16, 30u16));
         drop(dims_tx);
+        let panels = servers.len();
         Self {
-            app: App::new(servers.clone()),
-            tasks: Tasks::new(servers.len()),
-            servers,
+            app: App::new(servers),
+            tasks: Tasks::new(panels),
             tx,
             rx,
             dims_rx: Arc::new(drx),
@@ -117,7 +116,6 @@ impl Live {
                 state: KeyEventState::NONE,
             },
             &mut self.app,
-            &self.servers,
             (100, 30),
             Arc::clone(&self.dims_rx),
             &self.tx,

@@ -49,7 +49,6 @@ fn srv() -> Server {
 
 struct H {
     app: App,
-    servers: Vec<Server>,
     tasks: Tasks,
     tx: mpsc::Sender<Msg>,
     /// Kept alive so `tx` stays connected.
@@ -66,7 +65,6 @@ impl H {
         Self {
             app: App::new(servers.clone()),
             tasks: Tasks::new(servers.len()),
-            servers,
             tx,
             rx,
             drx: Arc::new(drx),
@@ -90,7 +88,6 @@ impl H {
                 state: KeyEventState::NONE,
             },
             &mut self.app,
-            &self.servers,
             (80, 24),
             Arc::clone(&self.drx),
             &self.tx,

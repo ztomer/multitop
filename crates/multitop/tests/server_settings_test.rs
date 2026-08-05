@@ -128,9 +128,8 @@ fn test_apply_servers_updates_panels_dynamically() {
     let mut tasks = multitop::run::Tasks::new(2);
 
     multitop::password_actions::apply(
-        PasswordAction::ApplyServers(new_servers.clone()),
+        PasswordAction::ApplyServers(new_servers),
         &mut app,
-        &new_servers,
         &tx,
         &mut tasks,
     );
@@ -152,7 +151,6 @@ async fn test_save_password_in_upgrade_mode_triggers_upgrade_resume() {
 
     let (tx, _rx) = tokio::sync::mpsc::channel::<Msg>(10);
     let mut tasks = multitop::run::Tasks::new(1);
-    let servers = vec![test_server("host1")];
 
     multitop::password_actions::apply(
         PasswordAction::Save {
@@ -161,7 +159,6 @@ async fn test_save_password_in_upgrade_mode_triggers_upgrade_resume() {
             resume_upgrade: false,
         },
         &mut app,
-        &servers,
         &tx,
         &mut tasks,
     );
@@ -216,7 +213,6 @@ fn test_save_server_with_password() {
             password: Some("new_password".to_string()),
         },
         &mut app,
-        &[test_server("host1"), test_server("host2")],
         &tx,
         &mut tasks,
     );
@@ -246,7 +242,6 @@ fn test_delete_password_removes_from_keychain() {
     multitop::password_actions::apply(
         PasswordAction::Delete { panel: 0 },
         &mut app,
-        std::slice::from_ref(&server),
         &tx,
         &mut tasks,
     );
@@ -270,7 +265,6 @@ fn test_save_resume_upgrade_false() {
 
     let (tx, _rx) = tokio::sync::mpsc::channel::<Msg>(10);
     let mut tasks = multitop::run::Tasks::new(1);
-    let servers = vec![test_server("host1")];
 
     // Panel in Monitor mode, save with resume_upgrade=false
     multitop::password_actions::apply(
@@ -280,7 +274,6 @@ fn test_save_resume_upgrade_false() {
             resume_upgrade: false,
         },
         &mut app,
-        &servers,
         &tx,
         &mut tasks,
     );
@@ -316,9 +309,8 @@ fn test_apply_servers_preserves_existing_passwords() {
     let mut tasks = multitop::run::Tasks::new(2);
 
     multitop::password_actions::apply(
-        PasswordAction::ApplyServers(vec![s1.clone(), s2.clone(), s3.clone()]),
+        PasswordAction::ApplyServers(vec![s1, s2, s3]),
         &mut app,
-        &[s1, s2, s3],
         &tx,
         &mut tasks,
     );
@@ -353,7 +345,6 @@ async fn test_saving_a_password_does_not_restart_a_running_upgrade() {
 
     let (tx, _rx) = tokio::sync::mpsc::channel::<Msg>(10);
     let mut tasks = multitop::run::Tasks::new(1);
-    let servers = vec![test_server("host1")];
 
     multitop::password_actions::apply(
         PasswordAction::Save {
@@ -362,7 +353,6 @@ async fn test_saving_a_password_does_not_restart_a_running_upgrade() {
             resume_upgrade: false,
         },
         &mut app,
-        &servers,
         &tx,
         &mut tasks,
     );
@@ -394,7 +384,6 @@ async fn test_saving_a_password_resumes_a_finished_upgrade() {
 
     let (tx, _rx) = tokio::sync::mpsc::channel::<Msg>(10);
     let mut tasks = multitop::run::Tasks::new(1);
-    let servers = vec![test_server("host1")];
 
     multitop::password_actions::apply(
         PasswordAction::Save {
@@ -403,7 +392,6 @@ async fn test_saving_a_password_resumes_a_finished_upgrade() {
             resume_upgrade: false,
         },
         &mut app,
-        &servers,
         &tx,
         &mut tasks,
     );
@@ -457,7 +445,6 @@ fn a_failed_server_edit_is_not_reported_as_a_saved_password() {
             password: Some("new_password".to_string()),
         },
         &mut app,
-        &[test_server("host1")],
         &tx,
         &mut tasks,
     );
@@ -514,7 +501,6 @@ fn a_server_edit_that_interrupts_an_upgrade_still_says_so_after_saving_the_passw
             password: Some("new_password".to_string()),
         },
         &mut app,
-        &[test_server("host1")],
         &tx,
         &mut tasks,
     );
@@ -589,7 +575,6 @@ async fn a_resumed_upgrade_records_that_it_started() {
             resume_upgrade: true,
         },
         &mut app,
-        std::slice::from_ref(&server),
         &tx,
         &mut tasks,
     );

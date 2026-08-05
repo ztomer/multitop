@@ -697,7 +697,7 @@ where
             maybe = events.next() => {
                 match maybe {
                     Some(Ok(Event::Key(key))) => {
-                        handle_key(key, &mut app, &servers, dims.current(), dims_rx.clone(), &tx, &mut tasks);
+                        handle_key(key, &mut app, dims.current(), dims_rx.clone(), &tx, &mut tasks);
                         // An edit to the server list retires every task bound to
                         // the old one. Without respawning here the panels simply
                         // stopped updating: the running monitors still hold the
@@ -717,7 +717,7 @@ where
                             {
                                 app.rerender_all(d);
                             }
-                            restart_all_agents(&app, &servers, dims_rx.clone(), &tx, &mut tasks);
+                            restart_all_agents(&app, dims_rx.clone(), &tx, &mut tasks);
                         }
                         dirty = true;
                     }
@@ -859,7 +859,6 @@ fn panel_at_pos(x: u16, y: u16, total_area: Rect, shown: &[usize]) -> Option<usi
 pub fn handle_key(
     key: KeyEvent,
     app: &mut App,
-    servers: &[Server],
     dims: (u16, u16),
     dims_rx: Arc<watch::Receiver<(u16, u16)>>,
     tx: &Sender<Msg>,
@@ -930,7 +929,7 @@ pub fn handle_key(
                 // key that cancels can only ever be the safe answer.
                 KeyCode::Char('u' | 'U') => {
                     let cmds = app.confirm_upgrade();
-                    execute_cmds(cmds, app, servers, dims, tx, tasks);
+                    execute_cmds(cmds, app, dims, tx, tasks);
                 }
                 KeyCode::Esc | KeyCode::Char('q' | 'Q' | 'n' | 'N') => {
                     app.set_show_upgrade_modal(false);
@@ -1047,7 +1046,7 @@ pub fn handle_key(
 
     if app.password_manager.is_some() {
         let action = crate::passwords::handle_key(app, key.code);
-        crate::password_actions::apply(action, app, servers, tx, tasks);
+        crate::password_actions::apply(action, app, tx, tasks);
         return;
     }
 
@@ -1118,7 +1117,7 @@ pub fn handle_key(
             let old_sort = app.sort;
             app.sort = SortBy::Cpu;
             if old_sort != app.sort {
-                restart_all_agents(app, servers, dims_rx, tx, tasks);
+                restart_all_agents(app, dims_rx, tx, tasks);
             }
             return;
         }
@@ -1126,7 +1125,7 @@ pub fn handle_key(
             let old_sort = app.sort;
             app.sort = SortBy::Mem;
             if old_sort != app.sort {
-                restart_all_agents(app, servers, dims_rx, tx, tasks);
+                restart_all_agents(app, dims_rx, tx, tasks);
             }
             return;
         }
@@ -1220,13 +1219,12 @@ pub fn handle_key(
         _ => return,
     };
 
-    execute_cmds(cmds, app, servers, dims, tx, tasks);
+    execute_cmds(cmds, app, dims, tx, tasks);
 }
 
 fn execute_cmds(
     cmds: Vec<Command>,
     app: &App,
-    servers: &[Server],
     dims: (u16, u16),
     tx: &Sender<Msg>,
     tasks: &mut Tasks,
@@ -1243,7 +1241,7 @@ fn execute_cmds(
                     panel,
                     gen,
                     app.panels_epoch,
-                    servers[panel].clone(),
+                    app.panels[panel].server.clone(),
                     dims,
                     app.sort,
                     tx.clone(),
@@ -1255,7 +1253,7 @@ fn execute_cmds(
                     panel,
                     gen,
                     app.panels_epoch,
-                    servers[panel].clone(),
+                    app.panels[panel].server.clone(),
                     dims,
                     app.sort,
                     tx.clone(),
@@ -1269,7 +1267,7 @@ fn execute_cmds(
                     crate::tasks::spawn_upgrade(
                         panel,
                         gen,
-                        servers[panel].clone(),
+                        app.panels[panel].server.clone(),
                         password,
                         tx.clone(),
                     ),
@@ -1282,12 +1280,16 @@ fn execute_cmds(
 #[allow(clippy::needless_pass_by_value)]
 fn restart_all_agents(
     app: &App,
-    servers: &[Server],
     dims_rx: Arc<watch::Receiver<(u16, u16)>>,
     tx: &Sender<Msg>,
     tasks: &mut Tasks,
 ) {
-    for (i, server) in servers.iter().enumerate() {
+    // Sized from the panel list here rather than trusted to have been sized
+    // elsewhere, and iterated over the panels rather than a caller's copy of
+    // them: the two are the same list, and only one of them cannot go stale.
+    tasks.fit_to(app.panels.len());
+    for (i, panel) in app.panels.iter().enumerate() {
+        let server = &panel.server;
         if let Some(h) = tasks.monitors[i].take() {
             h.abort();
         }
@@ -1311,7 +1313,7 @@ fn restart_all_agents(
                         i,
                         gen,
                         app.panels_epoch,
-                        servers[i].clone(),
+                        panel.server.clone(),
                         dims,
                         app.sort,
                         tx.clone(),

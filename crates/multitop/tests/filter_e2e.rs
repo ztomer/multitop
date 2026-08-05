@@ -62,7 +62,6 @@ fn server(host: &str, user: &str) -> Server {
 
 struct Harness {
     app: App,
-    servers: Vec<Server>,
     tasks: Tasks,
     tx: mpsc::Sender<Msg>,
     dims_rx: Arc<watch::Receiver<(u16, u16)>>,
@@ -91,7 +90,6 @@ impl Harness {
             tasks: Tasks::new(servers.len()),
             terminal: Terminal::new(TestBackend::new(120, 40)).unwrap(),
             app,
-            servers,
             tx,
             dims_rx: Arc::new(drx),
         }
@@ -106,7 +104,6 @@ impl Harness {
                 state: KeyEventState::NONE,
             },
             &mut self.app,
-            &self.servers,
             (120, 40),
             Arc::clone(&self.dims_rx),
             &self.tx,

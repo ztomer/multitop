@@ -95,13 +95,23 @@ fn prepend_notice(app: &mut App, before: Option<String>) {
 }
 
 #[allow(clippy::too_many_lines)]
-pub fn apply(
-    action: PasswordAction,
-    app: &mut App,
-    servers: &[Server],
-    tx: &Sender<Msg>,
-    tasks: &mut Tasks,
-) {
+/// Carry out one [`PasswordAction`].
+///
+/// # There is no `servers` parameter, and that is the point
+///
+/// There was: the caller's `Vec<Server>`, indexed by *panel index*. But
+/// `write_servers` calls `App::replace_panels` in the middle of this function,
+/// so from that line on `app.panels[i]` and `servers[i]` are two different
+/// machines -- and the recursive `apply` below ran with the stale one. An
+/// upgrade spawned through it would have used one host's SSH target and another
+/// host's sudo password, reported under a third host's name.
+///
+/// Nothing reaches that today: `replace_panels` builds fresh panels in Monitor
+/// mode, and the resume guard needs `Mode::Upgrade`. It is one line's change
+/// away from reaching it, and the fix is not a guard but removing the second
+/// copy: `app.panels[i].server` is the same fact, and cannot go stale because it
+/// *is* what `replace_panels` writes.
+pub fn apply(action: PasswordAction, app: &mut App, tx: &Sender<Msg>, tasks: &mut Tasks) {
     match action {
         PasswordAction::None => {}
         PasswordAction::ApplyServers(new_servers) => {
@@ -137,7 +147,7 @@ pub fn apply(
                             resume_upgrade: false,
                         }
                     });
-                apply(follow_up, app, servers, tx, tasks);
+                apply(follow_up, app, tx, tasks);
                 prepend_notice(app, reported);
             }
         }
@@ -321,10 +331,12 @@ pub fn apply(
             let should_resume = (resume_upgrade
                 || app.panels[panel].mode == crate::app::Mode::Upgrade)
                 && !already_running;
+            // From the panel, not from a caller's list: see `apply`'s own note.
             if should_resume
-                && servers
+                && app
+                    .panels
                     .get(panel)
-                    .and_then(|s| s.upgrade_cmd.as_ref())
+                    .and_then(|p| p.server.upgrade_cmd.as_ref())
                     .is_some()
             {
                 let gen = app.bump(panel);
@@ -353,13 +365,9 @@ pub fn apply(
                 // state write has to say goes into the ring the line above
                 // empties.
                 app.mark_upgrades_started(&[panel]);
-                let handle = crate::tasks::spawn_upgrade(
-                    panel,
-                    gen,
-                    servers[panel].clone(),
-                    Some(password),
-                    tx.clone(),
-                );
+                let server = app.panels[panel].server.clone();
+                let handle =
+                    crate::tasks::spawn_upgrade(panel, gen, server, Some(password), tx.clone());
                 tasks.set_upgrade(panel, handle);
             }
         }

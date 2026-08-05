@@ -251,7 +251,6 @@ async fn a_second_rotation_cannot_start_while_one_is_running() {
     let _keychain = isolate_keychain_async().await;
     let (mut app, dir) = app_with_vault_async("no-double-rotation").await;
     let (tx, mut rx) = tokio::sync::mpsc::channel::<multitop::app::Msg>(16);
-    let servers = vec![server("host-a")];
     let mut tasks = multitop::run::Tasks::new(1);
 
     handle_key(&mut app, KeyCode::Char('r'));
@@ -259,7 +258,7 @@ async fn a_second_rotation_cannot_start_while_one_is_running() {
     handle_key(&mut app, KeyCode::Enter);
     type_in(&mut app, "new-master");
     let action = handle_key(&mut app, KeyCode::Enter);
-    multitop::password_actions::apply(action, &mut app, &servers, &tx, &mut tasks);
+    multitop::password_actions::apply(action, &mut app, &tx, &mut tasks);
 
     assert!(
         app.password_manager.as_ref().unwrap().rotating,

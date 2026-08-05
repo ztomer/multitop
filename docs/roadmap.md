@@ -43,7 +43,7 @@ server" is not, however it is drawn.
 | Vault + credential path | 7 rounds (1, 2, 3, 4, 4b, 5, 6), all 2026-08-01 | **On a finding.** Round 6 found that a release binary could silently use the mock keystore, and the review stopped there. The next day `29bdbb3` -- rotating the master password could destroy the vault -- turned up during feature work. The subsystem was still producing defects when review stopped looking. |
 | Agent parsing / protocol | 6 fuzz targets, 114M iterations, 0 crashes; plus targeted hardening (bogus chunk size, >64 KiB payload desync, null `ifa_addr`) | Mechanized, still running when asked. The only area no user-reported defect has come from. |
 | Configuration panel | Keystroke-through-render e2e plus a bounded sweep of every key sequence | Not a review round; a harness that closes one class. |
-| Terminal / process lifecycle | Round C, 2026-08-04, thirty-three passes so far, with `tests/event_loop_e2e.rs` built for it | **On findings, thirty-one times out of thirty-three.** 7, 3, 1, 2, 3, 1, 1, 4, 1, 2, 3, 2, 2, 2, 1, 1, 1, 2, 2, 2, 0, 1, 1, 1, 0, 1, 2, 1, 1, 1, 2, 1, 1. The twenty-fifth fixed the twenty-fourth's finding rather than opening new ground, so it adds no count of its own. The one zero is the twenty-first, and the twenty-second -- finishing the area the twenty-first left half-open -- found something immediately. A partial pass coming back empty is not the bar, and this is the evidence. What is running out is unexamined surface, not defects. Two classes account for most of them: *one quantity derived in two places by different rules*, and class H, *a failure reported as something else* -- the eighth pass was class H four times out of four. The twenty-seventh re-covered `ui::draw`, as the twenty-sixth said to, and found two more -- both siblings of what the twenty-sixth had just fixed, four lines away in the file it had just edited. **A class named but not swept is a class still alive**, and that is now the round's sharpest lesson about its own method. The twenty-eighth did that and found a fourth site of the same shape, plus the `pinned_lines` copy, which turned out to be harmless and was deleted anyway. The twenty-ninth did that, built a 4,608-case differential test for the window, and found the notice bound counting the wrong quantity. The thirtieth did that and found the fourth in a row, in what the twenty-ninth had written. **Four consecutive passes have found their defect in the previous pass's new code, and that is now the round's most reliable predictor of where the next one is.** The thirty-first read the notice path end to end and found two, both left behind by earlier fixes in this same round rather than by the original code. **Five consecutive passes have found their defect in ground a previous pass had just disturbed.** The thirty-second did that and found a recoverable failure that ended the session and killed running upgrades -- the first finding in six passes not caused by an earlier pass. The thirty-third re-covered it and found the confirmation-priority split, plus two survivors of the fallback the thirty-second had just condemned in a comment without grepping for it. **The next pass re-covers `run.rs` a third time** -- `handle_key`'s remaining guards and `execute_cmds`/`restart_all_agents`, which no pass has read -- and then Round C needs its terminating pass: the same ground, nothing found. See "What has never been looked at" above for what comes after. |
+| Terminal / process lifecycle | Round C, 2026-08-04, thirty-four passes so far, with `tests/event_loop_e2e.rs` built for it | **On findings, thirty-one times out of thirty-four.** 7, 3, 1, 2, 3, 1, 1, 4, 1, 2, 3, 2, 2, 2, 1, 1, 1, 2, 2, 2, 0, 1, 1, 1, 0, 1, 2, 1, 1, 1, 2, 1, 1, 0. The twenty-fifth fixed the twenty-fourth's finding rather than opening new ground, so it adds no count of its own. The one zero is the twenty-first, and the twenty-second -- finishing the area the twenty-first left half-open -- found something immediately. A partial pass coming back empty is not the bar, and this is the evidence. What is running out is unexamined surface, not defects. Two classes account for most of them: *one quantity derived in two places by different rules*, and class H, *a failure reported as something else* -- the eighth pass was class H four times out of four. The twenty-seventh re-covered `ui::draw`, as the twenty-sixth said to, and found two more -- both siblings of what the twenty-sixth had just fixed, four lines away in the file it had just edited. **A class named but not swept is a class still alive**, and that is now the round's sharpest lesson about its own method. The twenty-eighth did that and found a fourth site of the same shape, plus the `pinned_lines` copy, which turned out to be harmless and was deleted anyway. The twenty-ninth did that, built a 4,608-case differential test for the window, and found the notice bound counting the wrong quantity. The thirtieth did that and found the fourth in a row, in what the twenty-ninth had written. **Four consecutive passes have found their defect in the previous pass's new code, and that is now the round's most reliable predictor of where the next one is.** The thirty-first read the notice path end to end and found two, both left behind by earlier fixes in this same round rather than by the original code. **Five consecutive passes have found their defect in ground a previous pass had just disturbed.** The thirty-second did that and found a recoverable failure that ended the session and killed running upgrades -- the first finding in six passes not caused by an earlier pass. The thirty-third re-covered it and found the confirmation-priority split, plus two survivors of the fallback the thirty-second had just condemned in a comment without grepping for it. **The next pass re-covers `run.rs` a third time** -- `handle_key`'s remaining guards and `execute_cmds`/`restart_all_agents`, which no pass has read -- and then Round C needs its terminating pass: the same ground, nothing found. See "What has never been looked at" above for what comes after. |
 | SSH + upgrade transport | Covered by Round C where the lifecycle reaches it -- child process groups, the two output streams, the session handshake, the packet-decode boundary, and (eighth pass) every `Err` path out of `next_packet` plus the agent-replacement repair | Partial. `read_handshake`, `interpret_packet`, `framing_lost` and `describe_failure` have seams and tests; the bootstrap retry was read and found correct; the lock wrappers were read in the twelfth pass and `upload_agent`'s framing in the thirteenth. The bootstrap quoting and the `-tt` pty path were read in the fourteenth. No named part of the transport is unreviewed now. |
 
 Every round that ran found something. That is evidence the rounds were
@@ -601,7 +601,7 @@ earlier passes only brushed, and the reconnect loop's repair path. Four more
   "agent replaced" -- the only line in that sequence that is not true, about a
   host that was up and had just been talking.
 
-**The counts so far are 7, 3, 1, 2, 3, 1, 1, 4, 1, 2, 3, 2, 2, 2, 1, 1, 1, 2, 2, 2, 0, 1, 1, 1, 0, 1, 2, 1, 1, 1, 2, 1, 1** -- and they are not
+**The counts so far are 7, 3, 1, 2, 3, 1, 1, 4, 1, 2, 3, 2, 2, 2, 1, 1, 1, 2, 2, 2, 0, 1, 1, 1, 0, 1, 2, 1, 1, 1, 2, 1, 1, 0** -- and they are not
 converging. Every pass so far went back up the moment it opened a part of the
 loop the earlier ones had not looked at, which is the argument against reading
 a falling count as progress toward zero. What is running out is *unexamined
@@ -877,6 +877,39 @@ run the panel on the work you are pleased with.
   through `show_frame`, and `monitor-with-notice` renders one at all four sizes.
   Confirmed by reading the frame rather than the assertion -- the notice appears
   in both panes at 80x24.
+
+#### Thirty-fourth pass -- `execute_cmds`, `restart_all_agents`, the config-panel actions. **Nothing countable (55 in total)**
+
+The second zero of the round, and unlike the twenty-first it is not a partial
+pass: all three named areas were read end to end.
+
+**What it removed, and why it is not counted.** `servers: &[Server]` was threaded
+through `handle_key`, `execute_cmds`, `restart_all_agents` and
+`password_actions::apply`, and indexed *by panel index* at six sites. It is a
+second copy of `app.panels[i].server`, and `write_servers` calls
+`App::replace_panels` in the middle of `apply` -- so from that line on the two
+lists are different machines, and the recursive `apply` ran with the stale one.
+An upgrade spawned through it would have used one host's SSH target with another
+host's sudo password, reported under a third host's name.
+
+Nothing reaches it today: `replace_panels` builds fresh panels in Monitor mode
+and the resume guard needs `Mode::Upgrade`. By the twenty-eighth pass's
+precedent that makes it a latent defect, not a countable one.
+
+The sharpest instance is worth recording anyway. `restart_all_agents` contained
+**two loops over the same list from two different sources** -- one iterating
+`servers`, the next iterating `app.panels` and indexing `servers[i]` by the panel
+index. One function, one list, two authorities, ten lines apart.
+
+The parameter is gone rather than guarded: `app.panels[i].server` is the same
+fact and cannot go stale, because it *is* what `replace_panels` writes.
+`restart_all_agents` also sizes `tasks` from the panel list itself instead of
+trusting a caller to have done it.
+
+**A zero is the round's terminating signal, and this is one of two.** The bar is
+"a pass covers the same ground and finds nothing" -- this pass covered *new*
+ground and found nothing countable, which is weaker. The next pass should
+re-cover `run.rs` a fourth time before anyone reads a zero as done.
 
 #### Thirty-third pass -- `run.rs` again. One more (55 in total)
 

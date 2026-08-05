@@ -114,7 +114,6 @@ impl Harness {
                 state: KeyEventState::NONE,
             },
             &mut self.app,
-            &self.servers,
             (80, 24),
             Arc::clone(&self.dims_rx),
             &self.tx,

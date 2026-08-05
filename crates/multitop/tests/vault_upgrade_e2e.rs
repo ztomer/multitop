@@ -621,11 +621,9 @@ async fn deleting_a_password_removes_it_from_the_vault_too() {
 
     let (tx, _rx) = mpsc::channel::<multitop::app::Msg>(16);
     let mut tasks = multitop::run::Tasks::new(app.panels.len());
-    let servers: Vec<Server> = app.panels.iter().map(|p| p.server.clone()).collect();
     multitop::password_actions::apply(
         multitop::passwords::PasswordAction::Delete { panel: 0 },
         &mut app,
-        &servers,
         &tx,
         &mut tasks,
     );
