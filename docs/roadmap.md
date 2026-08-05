@@ -43,7 +43,7 @@ server" is not, however it is drawn.
 | Vault + credential path | 7 rounds (1, 2, 3, 4, 4b, 5, 6), all 2026-08-01 | **On a finding.** Round 6 found that a release binary could silently use the mock keystore, and the review stopped there. The next day `29bdbb3` -- rotating the master password could destroy the vault -- turned up during feature work. The subsystem was still producing defects when review stopped looking. |
 | Agent parsing / protocol | 6 fuzz targets, 114M iterations, 0 crashes; plus targeted hardening (bogus chunk size, >64 KiB payload desync, null `ifa_addr`) | Mechanized, still running when asked. The only area no user-reported defect has come from. |
 | Configuration panel | Keystroke-through-render e2e plus a bounded sweep of every key sequence | Not a review round; a harness that closes one class. |
-| Terminal / process lifecycle | Round C, 2026-08-04, twenty-three passes so far, with `tests/event_loop_e2e.rs` built for it | **On findings, twenty-two times out of twenty-three.** 7, 3, 1, 2, 3, 1, 1, 4, 1, 2, 3, 2, 2, 2, 1, 1, 1, 2, 2, 2, 0, 1, 1. The one zero is the twenty-first, and the twenty-second -- finishing the area the twenty-first left half-open -- found something immediately. A partial pass coming back empty is not the bar, and this is the evidence. What is running out is unexamined surface, not defects. Two classes account for most of them: *one quantity derived in two places by different rules*, and class H, *a failure reported as something else* -- the eighth pass was class H four times out of four. A twenty-fourth pass is owed. `ui::draw`'s modal composition and `draw_no_matches` were read but nothing was driven through them; the keybar assembly has only been measured at 40x12. |
+| Terminal / process lifecycle | Round C, 2026-08-04, twenty-four passes so far, with `tests/event_loop_e2e.rs` built for it | **On findings, twenty-three times out of twenty-four.** 7, 3, 1, 2, 3, 1, 1, 4, 1, 2, 3, 2, 2, 2, 1, 1, 1, 2, 2, 2, 0, 1, 1, 1. The twenty-fourth's is measured and recorded but **not fixed** -- see below. The one zero is the twenty-first, and the twenty-second -- finishing the area the twenty-first left half-open -- found something immediately. A partial pass coming back empty is not the bar, and this is the evidence. What is running out is unexamined surface, not defects. Two classes account for most of them: *one quantity derived in two places by different rules*, and class H, *a failure reported as something else* -- the eighth pass was class H four times out of four. **The next pass starts with the vault modals** -- measured by the twenty-fourth, deliberately left unfixed, and needing a design call rather than a patch. |
 | SSH + upgrade transport | Covered by Round C where the lifecycle reaches it -- child process groups, the two output streams, the session handshake, the packet-decode boundary, and (eighth pass) every `Err` path out of `next_packet` plus the agent-replacement repair | Partial. `read_handshake`, `interpret_packet`, `framing_lost` and `describe_failure` have seams and tests; the bootstrap retry was read and found correct; the lock wrappers were read in the twelfth pass and `upload_agent`'s framing in the thirteenth. The bootstrap quoting and the `-tt` pty path were read in the fourteenth. No named part of the transport is unreviewed now. |
 
 Every round that ran found something. That is evidence the rounds were
@@ -115,7 +115,7 @@ keep is what closed the last four: e2e tests that drive real `KeyEvent`s through
 asserting on the final state. The final state can look correct while three
 vaults' worth of work happened.
 
-The streak stops at eight. Round C's forty-four findings were all found by review,
+The streak stops at eight. Round C's forty-five findings were all found by review,
 before anyone hit them -- and the reason is the same rule read the other way:
 the round's first act was to build the seam the loop had never had. The area
 with the worst detection record was the area with no harness at all. Where the
@@ -520,7 +520,7 @@ earlier passes only brushed, and the reconnect loop's repair path. Four more
   "agent replaced" -- the only line in that sequence that is not true, about a
   host that was up and had just been talking.
 
-**The counts so far are 7, 3, 1, 2, 3, 1, 1, 4, 1, 2, 3, 2, 2, 2, 1, 1, 1, 2, 2, 2, 0, 1, 1** -- and they are not
+**The counts so far are 7, 3, 1, 2, 3, 1, 1, 4, 1, 2, 3, 2, 2, 2, 1, 1, 1, 2, 2, 2, 0, 1, 1, 1** -- and they are not
 converging. Every pass so far went back up the moment it opened a part of the
 loop the earlier ones had not looked at, which is the argument against reading
 a falling count as progress toward zero. What is running out is *unexamined
@@ -796,6 +796,48 @@ run the panel on the work you are pleased with.
   through `show_frame`, and `monitor-with-notice` renders one at all four sizes.
   Confirmed by reading the frame rather than the assertion -- the notice appears
   in both panes at 80x24.
+
+#### Twenty-fourth pass -- modals and the no-matches screen. One found, **deliberately not fixed** (45 in total)
+
+- ***The vault modals clip their own text, including the footer that names the
+  way out.*** At 40x12:
+
+  ```text
+  │  Enter vault master password to unl│
+  │  Press Enter to unlock, Esc to canc│
+  ```
+
+  This is the defect the detection record already lists as user-reported -- "a
+  modal clipping its own footer". **Kare's ruling fixed it for the upgrade
+  confirmation** by replacing the box with a keybar row, because "the box was 38
+  cells wide at 40 columns and clipped its own cancel line to `Esc t`". The
+  vault modals are still boxes and still clip. `settings-delete-confirm`, which
+  wraps, shows the fixed shape one screen over.
+
+  **Attempted and reverted, and the reason is the finding's real shape.** Adding
+  `Wrap` fixed the unlock prompt outright -- full text, and moving the indent
+  into the block's padding aligned the continuation lines. But it turned the
+  create-vault modal's horizontal clipping into *vertical* loss: the box height
+  is a literal (`12` when creating, `10` when unlocking) whose own comment
+  records it was already bumped once because it "clipped the `Press Enter to
+  create` footer off the bottom" -- a guessed line count, correct only at the
+  width it was guessed for. Deriving the height from the wrapped content fixes
+  that, and still does not fit: the create modal is nested *inside* the Settings
+  box, so at twelve rows it has eight for nine lines of content.
+  
+  So the honest fix is not "wrap it" -- it is Kare's, again: **this box wants to
+  stop being a box**, or the create-vault explanation has to become one short
+  sentence. That is a design call on a screen the operator meets when they
+  cannot get in, and it is not one to make and ship unvalidated at the end of a
+  session. The work is reverted; the measurement stands.
+
+**Checked and correct (1):** a filter query is user-typed and unbounded, and is
+interpolated into both the no-matches headline and the keybar echo, neither of
+which wraps. `draw_no_matches` exists because "the way out -- `Esc` -- is not
+guessable from a blank terminal", so the question is whether a long enough query
+can push that instruction off the screen. Driven through `ui::draw` at 1, 20,
+60, 200 and 1000 characters across three terminal sizes: `Esc` survives every
+one, because the instruction is its own short `Line`. Pinned.
 
 #### Twenty-third pass -- the render harness used as a review instrument. One more (44 in total)
 

@@ -201,3 +201,48 @@ fn every_pane_arithmetic_survives_a_terminal_too_small_to_draw_in() {
         }
     }
 }
+
+/// A filter query is user-typed and unbounded; the rows it is drawn into are
+/// not. The way out must survive any of them.
+///
+/// `draw_no_matches` exists because "an empty result and a dead app look
+/// identical otherwise, and the way out -- `Esc` -- is not guessable from a
+/// blank terminal". The query is interpolated into its first line and echoed in
+/// the keybar, both fixed-width and both hard-clipping. If a long enough query
+/// can push the instruction off the screen, the screen built to state the way
+/// out stops stating it.
+#[test]
+fn a_long_filter_query_cannot_push_the_way_out_off_the_screen() {
+    use ratatui::backend::TestBackend;
+    use ratatui::Terminal;
+
+    let _keychain = isolate_keychain();
+    for query_len in [1usize, 20, 60, 200, 1000] {
+        for (w, h) in [(40u16, 12u16), (80, 24), (20, 6)] {
+            let mut app = multitop::app::App::new(vec![multitop::config::Server {
+                host: "web-01".into(),
+                port: 22,
+                user: "admin".into(),
+                upgrade_cmd: None,
+            }]);
+            app.filter_query = "z".repeat(query_len);
+
+            let mut term = Terminal::new(TestBackend::new(w, h)).unwrap();
+            term.draw(|f| multitop::ui::draw(f, &mut app)).unwrap();
+            let buf = term.backend().buffer().clone();
+            let screen: String = (0..h)
+                .map(|y| {
+                    (0..w)
+                        .map(|x| buf[(x, y)].symbol().to_string())
+                        .collect::<String>()
+                })
+                .collect::<Vec<_>>()
+                .join("\n");
+
+            assert!(
+                screen.contains("Esc"),
+                "a {query_len}-character query at {w}x{h} left no way out on screen:\n{screen}"
+            );
+        }
+    }
+}
