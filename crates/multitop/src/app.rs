@@ -31,6 +31,18 @@ pub enum AppMode {
     ShowUpgradeModal,
 }
 
+/// A confirmation the user is being asked, and whose keys are therefore live.
+///
+/// See [`App::active_confirm`]: this exists so the row on screen and the keys
+/// that act cannot be chosen by two different priority orders.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Confirm {
+    /// Upgrades are in flight and a quit is armed.
+    Quit,
+    /// The upgrade confirmation row is up.
+    Upgrade,
+}
+
 /// Vault authentication state machine.
 #[derive(Debug, Default)]
 pub enum VaultState {
@@ -985,6 +997,33 @@ impl App {
     #[must_use]
     pub const fn quit_armed(&self) -> bool {
         self.quit_armed
+    }
+
+    /// Which confirmation owns the screen, if any.
+    ///
+    /// Two places need this answer -- `ui::keybar_content`, to draw the row, and
+    /// `run::handle_key`, to decide which keys are live -- and they each had
+    /// their own copy of the priority, in **opposite orders**. The keybar put
+    /// the armed quit first; the key handler put the upgrade modal first. With
+    /// both set the screen read `N upgrades running · [Q] quit anyway · [Esc]
+    /// stay` while `q` was closing an invisible upgrade modal and `u` would have
+    /// started `apt upgrade` on every visible host.
+    ///
+    /// The quit wins, because it is the one guarding a package transaction
+    /// already running, and because it is what the screen was showing anyway.
+    ///
+    /// One function, asked by both. A confirmation whose keys are chosen by
+    /// different code from the row that names them is the defect the twelfth
+    /// pass removed by hand; this is the shape that lets it back in.
+    #[must_use]
+    pub const fn active_confirm(&self) -> Option<Confirm> {
+        if self.quit_armed {
+            Some(Confirm::Quit)
+        } else if matches!(self.mode, AppMode::ShowUpgradeModal) {
+            Some(Confirm::Upgrade)
+        } else {
+            None
+        }
     }
 
     /// Stand the pending-quit confirmation down without quitting.

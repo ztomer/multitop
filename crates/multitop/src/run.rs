@@ -432,12 +432,16 @@ use multitop_agent::SortBy;
 ///
 /// It is also redundant as a way of noticing the terminal is gone: that arrives
 /// as `Some(Err(_)) | None` from the event stream and is already an orderly quit.
+#[allow(
+    clippy::needless_pass_by_value,
+    reason = "takes the backend's own Result; E is generic and may not be Copy"
+)]
 fn size_change<E>(
     query: Result<ratatui::layout::Size, E>,
     dims: &mut AgentDims,
     panels: usize,
 ) -> Option<(u16, u16)> {
-    query.ok().and_then(|size| dims.refresh(size, panels))
+    query.map_or(None, |size| dims.refresh(size, panels))
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -448,20 +452,55 @@ struct DimsInputs {
 
 /// The agent render size, and the only thing allowed to publish it.
 struct AgentDims {
-    inputs: DimsInputs,
+    /// `None` until a size query has succeeded, so the first one that does is
+    /// never mistaken for "nothing changed".
+    inputs: Option<DimsInputs>,
     dims: (u16, u16),
     tx: watch::Sender<(u16, u16)>,
 }
 
 impl AgentDims {
-    fn new(tx: watch::Sender<(u16, u16)>, size: ratatui::layout::Size, panels: usize) -> Self {
-        let inputs = DimsInputs {
+    /// Seed from a size query that may have failed.
+    ///
+    /// `terminal.size().unwrap_or_default()` was the third policy for this one
+    /// call, and `size_change`'s own comment names it as the wrong one: a size
+    /// of zero yields the *minimum* agent render size, so a transient failure
+    /// here would have published 40x4 to every agent and rendered the whole grid
+    /// tiny, with nothing to recover it until the next resize.
+    ///
+    /// There is nothing to fall back to on failure but the value the caller
+    /// already published, which is what the channel holds -- so that is what is
+    /// kept, and `inputs` is left unmeasured so the next successful query
+    /// recomputes rather than comparing against a size nobody ever read.
+    #[allow(
+        clippy::needless_pass_by_value,
+        reason = "takes the backend's own Result; E is generic and may not be Copy"
+    )]
+    fn new<E>(
+        tx: watch::Sender<(u16, u16)>,
+        query: Result<ratatui::layout::Size, E>,
+        panels: usize,
+    ) -> Self {
+        let Ok(size) = query else {
+            let dims = *tx.borrow();
+            return Self {
+                inputs: None,
+                dims,
+                tx,
+            };
+        };
+        let inputs = Some(DimsInputs {
             size: (size.width, size.height),
             panels,
-        };
+        });
         let dims = ui::agent_dims(size, panels);
         let _ = tx.send(dims);
         Self { inputs, dims, tx }
+    }
+
+    /// The terminal size this was last measured at, if it ever was.
+    fn last_size(&self) -> Option<(u16, u16)> {
+        self.inputs.map(|i| i.size)
     }
 
     const fn current(&self) -> (u16, u16) {
@@ -471,10 +510,10 @@ impl AgentDims {
     /// Recompute from the current inputs. Returns the new size when anything
     /// that feeds it changed, so the caller can re-render at it.
     fn refresh(&mut self, size: ratatui::layout::Size, panels: usize) -> Option<(u16, u16)> {
-        let inputs = DimsInputs {
+        let inputs = Some(DimsInputs {
             size: (size.width, size.height),
             panels,
-        };
+        });
         if inputs == self.inputs {
             return None;
         }
@@ -584,7 +623,7 @@ where
     let mut tasks = Tasks::new(servers.len());
 
     let dims_rx = Arc::new(dims_tx.subscribe());
-    let mut dims = AgentDims::new(dims_tx, terminal.size().unwrap_or_default(), servers.len());
+    let mut dims = AgentDims::new(dims_tx, terminal.size(), servers.len());
     for (i, server) in servers.iter().enumerate() {
         tasks.monitors[i] = Some(spawn_monitor(
             i,
@@ -692,9 +731,19 @@ where
                             MouseEventKind::Down(crossterm::event::MouseButton::Left)
                             | MouseEventKind::ScrollUp
                             | MouseEventKind::ScrollDown => {
-                                let term_size = terminal.size().unwrap_or_default();
-                                let term_area =
-                                    Rect::new(0, 0, term_size.width, term_size.height);
+                                // The last measured size, not zero. A zero
+                                // area matches no pane, so a failed query here
+                                // silently swallowed the click -- and a click
+                                // that does nothing reads as a dead button.
+                                let Some((w, h)) = terminal
+                                    .size()
+                                    .ok()
+                                    .map(|s| (s.width, s.height))
+                                    .or_else(|| dims.last_size())
+                                else {
+                                    continue;
+                                };
+                                let term_area = Rect::new(0, 0, w, h);
                                 // The same list `ui::draw` lays the grid out
                                 // from, so the rectangles being tested are the
                                 // ones on screen.
@@ -842,47 +891,55 @@ pub fn handle_key(
         return;
     }
 
-    if app.show_upgrade_modal() {
-        match key.code {
-            // Only the key the row names. It reads `[U] go  [Esc] cancel`, and
-            // `y`, `Y` and `Enter` confirmed as well -- three keys that start
-            // `apt upgrade` on every visible host without appearing anywhere on
-            // the screen that asked. `Enter` is the worst of them: it is what an
-            // operator hits to dismiss a row they have not read, which is the
-            // reason the quit confirmation dropped it, and the reason the server
-            // removal dropped it in this same pass.
-            //
-            // Extra *cancel* keys below are not the same thing and stay: a stray
-            // key that cancels can only ever be the safe answer.
-            KeyCode::Char('u' | 'U') => {
-                let cmds = app.confirm_upgrade();
-                execute_cmds(cmds, app, servers, dims, tx, tasks);
+    // Which confirmation is in force is `App::active_confirm`'s answer, not a
+    // second copy of the priority. This used to test `show_upgrade_modal` first
+    // while `ui::keybar_content` tested `quit_armed` first, so with both set the
+    // screen named one set of keys and this ran the other -- and the one that
+    // lost was the confirmation guarding a running dpkg.
+    match app.active_confirm() {
+        // A quit armed by Esc/q/Ctrl-C while upgrades were in flight. `q`
+        // confirms, Esc stands down. Every other key is ignored until one of the
+        // two: the row is a modal in all but shape, and letting stray keys
+        // through while it is up would be acting on a screen the user has asked
+        // a question of.
+        Some(crate::app::Confirm::Quit) => {
+            match key.code {
+                // Only the keys the row names, plus Ctrl-C, which means the same
+                // thing everywhere. `Enter` and `y` used to confirm too, and they
+                // are exactly the wrong keys to accept here: this press kills a
+                // running dpkg transaction on N production hosts, and `Enter` is
+                // what an operator hits to dismiss something they have not read.
+                KeyCode::Char('q' | 'Q') => app.quit(),
+                KeyCode::Char('c') if key.modifiers.contains(KeyModifiers::CONTROL) => app.quit(),
+                KeyCode::Esc => app.cancel_quit(),
+                _ => {}
             }
-            KeyCode::Esc | KeyCode::Char('q' | 'Q' | 'n' | 'N') => {
-                app.set_show_upgrade_modal(false);
+            return;
+        }
+        Some(crate::app::Confirm::Upgrade) => {
+            match key.code {
+                // Only the key the row names. It reads `[U] go  [Esc] cancel`, and
+                // `y`, `Y` and `Enter` confirmed as well -- three keys that start
+                // `apt upgrade` on every visible host without appearing anywhere on
+                // the screen that asked. `Enter` is the worst of them: it is what an
+                // operator hits to dismiss a row they have not read, which is the
+                // reason the quit confirmation dropped it, and the reason the server
+                // removal dropped it in this same pass.
+                //
+                // Extra *cancel* keys below are not the same thing and stay: a stray
+                // key that cancels can only ever be the safe answer.
+                KeyCode::Char('u' | 'U') => {
+                    let cmds = app.confirm_upgrade();
+                    execute_cmds(cmds, app, servers, dims, tx, tasks);
+                }
+                KeyCode::Esc | KeyCode::Char('q' | 'Q' | 'n' | 'N') => {
+                    app.set_show_upgrade_modal(false);
+                }
+                _ => {}
             }
-            _ => {}
+            return;
         }
-        return;
-    }
-
-    // A quit armed by Esc/q/Ctrl-C while upgrades were in flight. `q` confirms,
-    // Esc stands down. Every other key is ignored until one of the two: the
-    // row is a modal in all but shape, and letting stray keys through while it
-    // is up would be acting on a screen the user has asked a question of.
-    if app.quit_armed() {
-        match key.code {
-            // Only the keys the row names, plus Ctrl-C, which means the same
-            // thing everywhere. `Enter` and `y` used to confirm too, and they
-            // are exactly the wrong keys to accept here: this press kills a
-            // running dpkg transaction on N production hosts, and `Enter` is
-            // what an operator hits to dismiss something they have not read.
-            KeyCode::Char('q' | 'Q') => app.quit(),
-            KeyCode::Char('c') if key.modifiers.contains(KeyModifiers::CONTROL) => app.quit(),
-            KeyCode::Esc => app.cancel_quit(),
-            _ => {}
-        }
-        return;
+        None => {}
     }
 
     if app.vault_creating() {
@@ -1528,12 +1585,12 @@ mod terminal_mode_tests {
     fn a_failed_size_query_keeps_the_last_size_rather_than_ending_the_run() {
         use ratatui::layout::Size;
         let (tx, rx) = tokio::sync::watch::channel((0u16, 0u16));
-        let mut dims = super::AgentDims::new(
+        let mut dims = super::AgentDims::new::<std::io::Error>(
             tx,
-            Size {
+            Ok(Size {
                 width: 120,
                 height: 40,
-            },
+            }),
             2,
         );
         let established = dims.current();

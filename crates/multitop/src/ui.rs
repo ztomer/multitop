@@ -844,13 +844,15 @@ pub fn keybar_content(
     let key_hi = Style::default()
         .fg(Color::White)
         .add_modifier(ratatui::style::Modifier::BOLD);
-    if app.quit_armed() {
-        return quit_confirm_row(app, key_hi, label, keybar_width);
+    // The same answer `run::handle_key` acts on, so the row cannot name one set
+    // of keys while another set is live.
+    match app.active_confirm() {
+        Some(crate::app::Confirm::Quit) => quit_confirm_row(app, key_hi, label, keybar_width),
+        Some(crate::app::Confirm::Upgrade) => {
+            upgrade_confirm_row(app, accent_color, key_hi, label, keybar_width)
+        }
+        None => keybar_line(app.sort, theme, keybar_width, active_mode, filter_hint(app)),
     }
-    if app.show_upgrade_modal() {
-        return upgrade_confirm_row(app, accent_color, key_hi, label, keybar_width);
-    }
-    keybar_line(app.sort, theme, keybar_width, active_mode, filter_hint(app))
 }
 /// What the keybar should say about the current filter.
 fn filter_hint(app: &App) -> FilterHint<'_> {

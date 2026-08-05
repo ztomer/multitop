@@ -757,3 +757,68 @@ fn a_notice_survives_a_rendered_monitor_packet() {
         "the pane says: {shown}"
     );
 }
+
+/// The row on screen and the keys that act must name the same confirmation.
+///
+/// `ui::keybar_content` chose which confirmation to draw and `run::handle_key`
+/// chose which keys were live, each from its own copy of the priority -- in
+/// **opposite orders**. The keybar put the armed quit first; the key handler put
+/// the upgrade modal first. With both set the screen read
+/// `1 upgrade running · [Q] quit anyway · [Esc] stay` while `q` closed an
+/// invisible upgrade modal and `u` would have started `apt upgrade` on every
+/// visible host -- a confirmation acting on keys it never named, which is the
+/// defect the twelfth pass removed by hand.
+///
+/// Asserted as the pair, not as either order: whatever the priority is, the two
+/// must agree.
+#[test]
+fn the_confirmation_on_screen_is_the_one_whose_keys_are_live() {
+    let _keychain = isolate_keychain();
+    let mut app = App::new(vec![Server {
+        host: "host1".to_string(),
+        port: 22,
+        user: "admin".to_string(),
+        upgrade_cmd: Some("apt upgrade".to_string()),
+    }]);
+
+    // An upgrade is running, so Esc arms a quit rather than taking it.
+    app.panels[0].upgrade_state = multitop::panel::UpgradeState::STARTED;
+    app.request_quit();
+    assert!(
+        app.quit_armed(),
+        "a running upgrade must arm rather than quit"
+    );
+
+    // And now the upgrade modal is raised underneath it -- which `VaultUnlocked`
+    // does on its own, from a message, with no key involved.
+    app.set_show_upgrade_modal(true);
+    assert!(app.quit_armed() && app.show_upgrade_modal(), "both are set");
+
+    let theme = app.current_theme();
+    let row: String = multitop::ui::keybar_content(&app, theme, 80, multitop::app::Mode::Monitor)
+        .spans
+        .iter()
+        .map(|s| s.content.as_ref())
+        .collect();
+
+    // Whichever the row is, the live keys have to be that one's keys.
+    if row.contains("quit anyway") {
+        assert_eq!(
+            app.active_confirm(),
+            Some(multitop::app::Confirm::Quit),
+            "the row names the quit confirmation, so its keys must be the live ones; row: {row}"
+        );
+    } else {
+        assert_eq!(
+            app.active_confirm(),
+            Some(multitop::app::Confirm::Upgrade),
+            "the row names the upgrade confirmation, so its keys must be the live ones; row: {row}"
+        );
+    }
+
+    // And concretely: the screen offers `[Q] quit anyway`, so `q` must quit.
+    assert!(
+        row.contains("quit anyway"),
+        "a quit armed over a running upgrade is the confirmation that must win; row: {row}"
+    );
+}
