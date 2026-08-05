@@ -157,18 +157,26 @@ pub fn visible(
     (out, badge)
 }
 
-/// Window a pinned header over a `RingLines` body, like `visible` for the
-/// Upgrade pane.
+/// Window a pinned header over a `RingLines` body and a trailing block, like
+/// `visible` for the Upgrade pane.
 ///
 /// The pane is composed at draw time from the ring rather than mirrored into
 /// `view`, so this is the one path that must not materialise the whole log to
-/// show it: the window takes at most `height` lines from either source, and the
+/// show it: the window takes at most `height` lines from any source, and the
 /// ring's slots are borrowed, not cloned. The windowing rule itself is
 /// `pane_window`, shared with `visible`.
+///
+/// `tail` is the pane's notices, already wrapped. They go here rather than being
+/// left to `Panel::note`'s mode check because that check runs when the notice is
+/// *written* and this one runs when the pane is *drawn*, and the two modes need
+/// not agree: every startup notice is written in Monitor mode, so pressing `u`
+/// made them all disappear -- including the one that says the Upgrade pane's
+/// scrollback was clamped, which is about the very pane that was hiding it.
 #[must_use]
 pub fn visible_upgrade(
     header: &[String],
     body: &crate::panel::RingLines,
+    tail: &[String],
     height: usize,
     target_cols: usize,
     scroll_offset: usize,
@@ -176,7 +184,7 @@ pub fn visible_upgrade(
     if height == 0 {
         return (Vec::new(), 0);
     }
-    let total = header.len() + body.len();
+    let total = header.len() + body.len() + tail.len();
     if total == 0 {
         return (Vec::new(), 0);
     }
@@ -187,17 +195,23 @@ pub fn visible_upgrade(
     if pinned > 0 {
         out.extend_from_slice(&header[..pinned]);
     }
-    // The body window may straddle the header/ring boundary (a header taller
-    // than the pinned clamp scrolls into the body). Take from each source.
+    // The window may straddle any of the three boundaries (a header taller than
+    // the pinned clamp scrolls into the body; the body's tail runs into the
+    // notices). Take whatever part of it falls in each source.
     let header_end = header.len();
+    let body_end = header_end + body.len();
     let h_hi = end.min(header_end);
     if start < h_hi {
         out.extend_from_slice(&header[start..h_hi]);
     }
-    let b_start = start.max(header_end).saturating_sub(header_end);
-    let b_end = end.saturating_sub(header_end);
-    if b_end > b_start {
-        out.extend(body.slice(b_start, b_end - b_start).cloned());
+    let b_lo = start.max(header_end).min(body_end);
+    let b_hi = end.min(body_end);
+    if b_hi > b_lo {
+        out.extend(body.slice(b_lo - header_end, b_hi - b_lo).cloned());
+    }
+    let t_lo = start.max(body_end);
+    if end > t_lo {
+        out.extend_from_slice(&tail[t_lo - body_end..end - body_end]);
     }
     if !out.is_empty() && target_cols > 0 {
         for line in &mut out {
@@ -206,6 +220,17 @@ pub fn visible_upgrade(
     }
     (out, badge)
 }
+
+/// Rows an ordinary pane pins: row 0, which the host banner owns.
+///
+/// This was `Panel::pinned_lines`, a field stamped on every view switch. It was
+/// 1 at every site that read it -- the only writes that set anything else were
+/// made on the way *into* the Upgrade view, which is the one pane that does not
+/// read the field, because `visible_upgrade` is given the header it just built
+/// and measures that. A stored copy of a number the renderer recomputes anyway,
+/// with a doc comment claiming it was what pinned the header. Deleted, and the
+/// constant says what the rule actually is.
+const ORDINARY_PINNED: usize = 1;
 
 /// The lines one panel's pane shows, windowed to `height` and fitted to
 /// `target_cols`, plus the scroll-badge offset.
@@ -227,37 +252,37 @@ pub fn pane_lines(
     let Some(p) = app.panels.get(panel) else {
         return (Vec::new(), 0);
     };
+    // Wrapped here because here is the only place that knows the pane's width.
+    // A pane hard-truncates, so a notice appended to `view` lost its own ending
+    // -- at 40 columns, four panels wide, "config: upgrade_history_lines = 0
+    // would leave the Upgrade pane with nothing to show; using 50 instead."
+    // reached the operator as "...= 0 woul".
+    //
+    // One place for both panes. It was the ordinary pane's business alone, and
+    // the Upgrade pane consequently drew no notices at all.
+    let notes: Vec<String> = p
+        .notes
+        .iter()
+        .flat_map(|note| crate::layout::wrap_words(note, target_cols))
+        .collect();
     if p.mode == crate::app::Mode::Upgrade {
-        let (header, _) = app.upgrade_pane_header(panel);
-        visible_upgrade(&header, &p.last_upgrade, height, target_cols, scroll_offset)
-    } else if p.notes.is_empty() {
-        visible(
-            &p.view,
+        let header = app.upgrade_pane_header(panel);
+        visible_upgrade(
+            &header,
+            &p.last_upgrade,
+            &notes,
             height,
-            p.pinned_lines.max(1),
             target_cols,
             scroll_offset,
         )
+    } else if notes.is_empty() {
+        visible(&p.view, height, ORDINARY_PINNED, target_cols, scroll_offset)
     } else {
-        // Wrapped here because here is the only place that knows the pane's
-        // width. A pane hard-truncates, so a notice appended to `view` lost its
-        // own ending -- at 40 columns, four panels wide, "config:
-        // upgrade_history_lines = 0 would leave the Upgrade pane with nothing to
-        // show; using 50 instead." reached the operator as "...= 0 woul".
-        //
         // The clone is paid only when a notice exists, which is rare and never
         // on the streaming path.
         let mut body = p.view.clone();
-        for note in &p.notes {
-            body.extend(crate::layout::wrap_words(note, target_cols));
-        }
-        visible(
-            &body,
-            height,
-            p.pinned_lines.max(1),
-            target_cols,
-            scroll_offset,
-        )
+        body.extend(notes);
+        visible(&body, height, ORDINARY_PINNED, target_cols, scroll_offset)
     }
 }
 

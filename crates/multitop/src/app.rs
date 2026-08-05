@@ -634,7 +634,6 @@ impl App {
             let gen = self.bump(i);
             let p = &mut self.panels[i];
             p.mode = Mode::Fetch;
-            p.pinned_lines = 1;
             p.show_body(std::iter::once(format!(
                 "{}\u{2192} Fetching system info...{}",
                 pal.meter_mid(),
@@ -657,7 +656,6 @@ impl App {
             let gen = self.bump(i);
             let p = &mut self.panels[i];
             p.mode = Mode::Docker;
-            p.pinned_lines = 1;
             p.show_body(std::iter::once(format!(
                 "{}\u{2192} Docker loading...{}",
                 pal.meter_mid(),
@@ -680,7 +678,6 @@ impl App {
             // it would now also copy the pane's status header into the log and
             // duplicate it on the way back in.
             p.mode = Mode::Monitor;
-            p.pinned_lines = 1;
             p.show_last_frame();
         }
         Vec::new()
@@ -692,13 +689,17 @@ impl App {
     /// frame, so the pane is never mirrored into `view` and the log is not
     /// cloned once per line. The header is always present — before, during and
     /// after a run — so the pane has one shape and `u` always means the same
-    /// thing in it. The returned `usize` is the pinned count: the block that
-    /// must not scroll away while the output under it does.
+    /// thing in it.
+    ///
+    /// The whole of it is the pinned block, so there is nothing else to return.
+    /// This used to hand back `header.len()` alongside it, which every caller
+    /// discarded, and `Panel::pinned_lines` stored that copy for a renderer that
+    /// measures the header it was given.
     #[must_use]
-    pub fn upgrade_pane_header(&self, panel: usize) -> (Vec<String>, usize) {
+    pub fn upgrade_pane_header(&self, panel: usize) -> Vec<String> {
         let pal = self.current_theme();
         let Some(p) = self.panels.get(panel) else {
-            return (Vec::new(), 1);
+            return Vec::new();
         };
         let running = p.upgrade_state == crate::panel::UpgradeState::STARTED;
 
@@ -727,9 +728,7 @@ impl App {
             running,
         };
 
-        let header = crate::upgrade_view::header(&status, pal, Self::now_secs(), 0);
-        let pinned = header.len();
-        (header, pinned)
+        crate::upgrade_view::header(&status, pal, Self::now_secs(), 0)
     }
 
     // `pane_len` used to live here: how many lines a pane could scroll through,
@@ -797,13 +796,13 @@ impl App {
         // this view is a deliberate user action, and telling them whether they
         // are about to be asked for a password is the point of it.
         self.load_known_passwords();
-        for i in 0..self.panels.len() {
-            self.panels[i].mode = Mode::Upgrade;
-            // The pane itself is composed by the renderer from the ring each
-            // frame; all the view-switch needs to record is how much of the
-            // header must stay pinned while the log scrolls under it.
-            let (_, pinned) = self.upgrade_pane_header(i);
-            self.panels[i].pinned_lines = pinned;
+        for p in &mut self.panels {
+            // Nothing else to record. The pane is composed by the renderer from
+            // the ring each frame, and how much of the header stays pinned is
+            // recomputed there from the header it just built -- the header
+            // changes shape when a run finishes, so a count stamped here would
+            // be a stale copy of a number that moves.
+            p.mode = Mode::Upgrade;
         }
     }
 
@@ -819,8 +818,6 @@ impl App {
         // Vault first, same as the view does.
         self.load_known_passwords();
         let mut cmds = Vec::new();
-        let mut started = Vec::new();
-        let mut skipped = Vec::new();
         for i in self.filtered_indices() {
             let gen = self.bump(i);
             let p = &mut self.panels[i];
@@ -830,7 +827,6 @@ impl App {
                 p.upgrade_state = crate::panel::UpgradeState::STARTED;
                 p.upgrade_gen = gen;
                 p.last_upgrade.clear();
-                started.push(i);
                 cmds.push(Command::RunUpgrade { panel: i, gen });
             } else {
                 // One line, naming the host. The pane header already carries the
@@ -845,20 +841,12 @@ impl App {
                     p.server.host,
                     pal.reset
                 )));
-                skipped.push(i);
             }
         }
-
-        // Record the pinned-header count for both kinds of panel. Done after
-        // the loop because building the header needs `&self` while the loop
-        // holds `&mut self.panels`. The pane itself is composed by the renderer
-        // each frame, so the skip message can never be swallowed by `ui::draw`
-        // overwriting view row 0 again: it lives in the ring, not in a slot the
-        // banner owns.
-        for i in started.into_iter().chain(skipped) {
-            let (_, pinned) = self.upgrade_pane_header(i);
-            self.panels[i].pinned_lines = pinned;
-        }
+        // Nothing is recorded per panel afterwards. The pane is composed by the
+        // renderer each frame, so the skip message cannot be swallowed by
+        // `ui::draw` overwriting view row 0 again: it lives in the ring, not in
+        // a slot the banner owns.
         cmds
     }
 

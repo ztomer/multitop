@@ -835,9 +835,9 @@ async fn the_status_block_stays_pinned_under_heavy_output() {
 
     // What the renderer would actually show in a 20-row panel: the status
     // header pinned over the ring's tail.
-    let (header, _) = h.app.upgrade_pane_header(0);
+    let header = h.app.upgrade_pane_header(0);
     let (shown, _) =
-        multitop::ui::visible_upgrade(&header, &h.app.panels[0].last_upgrade, 20, 0, 0);
+        multitop::ui::visible_upgrade(&header, &h.app.panels[0].last_upgrade, &[], 20, 0, 0);
     let text = strip_ansi(&shown.join("\n"));
     assert!(
         text.contains("Command"),

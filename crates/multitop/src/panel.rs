@@ -170,11 +170,7 @@ pub struct Panel {
     pub sudo_password: Option<String>,
     pub password_saved: bool,
     pub external_password: bool,
-    /// Leading lines of `view` that must stay on screen while the rest
-    /// scrolls. 1 for the host banner; more in the Upgrade view, where the
-    /// status block is the whole point and used to scroll away the moment
-    /// output started arriving.
-    pub pinned_lines: usize,
+
     /// Things the app has told the user, kept out of `view` so a frame cannot
     /// destroy them.
     ///
@@ -226,18 +222,26 @@ impl Panel {
             sudo_password: None,
             password_saved: false,
             external_password: false,
-            pinned_lines: 1,
         }
     }
 
-    /// Append a user-facing notice to whichever pane this panel is showing.
+    /// Append a user-facing notice to this panel.
     ///
-    /// There are two pane sources now -- `view` for every ordinary mode, and
-    /// the `last_upgrade` ring the Upgrade pane is composed from -- and a
-    /// notice written to the wrong one is a notice nobody reads. That is the
-    /// same failure as the banner overwriting `view[0]`: a message built,
-    /// stored, and never drawn. Every site that wants to tell the user
-    /// something goes through here so the choice is made in one place.
+    /// # The mode check is a placement choice, not a visibility one
+    ///
+    /// It used to be both, and that was wrong. The rule was "write it to the
+    /// pane this panel is showing", which decides where a notice lands from the
+    /// mode **at the moment it is written** -- while `ui::pane_lines` decides
+    /// which pane to draw from the mode **at the moment of the frame**. The two
+    /// need not agree, and for the notices that matter most they never did:
+    /// every startup notice is written in Monitor mode, so pressing `u` made
+    /// them all vanish, including the one saying the Upgrade pane's own
+    /// scrollback had been clamped.
+    ///
+    /// `notes` is drawn by every pane now, so nothing here can hide a notice.
+    /// What is left is a placement choice: during a run the ring is the log the
+    /// user is reading, and a notice belongs in it *in order*, next to the
+    /// output it explains, rather than pinned below everything.
     pub fn note(&mut self, line: String) {
         if self.mode == Mode::Upgrade {
             // The ring is the durable log, not derived state, so a notice put

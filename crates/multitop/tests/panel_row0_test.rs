@@ -46,10 +46,11 @@ fn the_scroll_badge_survives_into_the_rendered_frame() {
         user: "admin".to_string(),
         upgrade_cmd: None,
     }]);
-    let mut view = vec![String::new(), " Status     running".to_string()];
+    // Row 0 is the banner's, and it is the only pinned row an ordinary pane has;
+    // the rest scrolls under it.
+    let mut view = vec![String::new()];
     view.extend((0..200).map(|i| format!("line {i}")));
     app.panels[0].view = view;
-    app.panels[0].pinned_lines = 2;
     app.panels[0].scroll_offset = 40;
 
     let mut term = ratatui::Terminal::new(ratatui::backend::TestBackend::new(80, 24)).unwrap();
@@ -255,6 +256,59 @@ fn entering_a_view_puts_something_on_the_screen() {
             rows.iter().any(|r| r.contains(expect)),
             "pressing `{key}` must say what it is doing; an empty pane is \
              indistinguishable from a hung connection. Got:\n{}",
+            rows.join("\n")
+        );
+    }
+}
+
+/// A notice is drawn wherever the user is, not where they were when it arrived.
+///
+/// The class: `Panel::note` chose a pane from the mode **at write time**, and
+/// `ui::pane_lines` chooses a pane from the mode **at draw time**. Nothing made
+/// those agree. Every startup notice is written while the panels are in Monitor
+/// mode, so it landed in `notes` -- which the Upgrade branch of `pane_lines` did
+/// not draw at all. Pressing `u` erased all of them, and the sharpest one is a
+/// notice *about the Upgrade pane*: that its scrollback was clamped, and why.
+///
+/// Asserted across every view a key can reach, rather than at the one site.
+#[test]
+fn a_notice_survives_every_view_switch() {
+    const NOTICE: &str = "config: upgrade_history_lines = 0 would leave the Upgrade \
+                          pane with nothing to show; using 50 instead.";
+    let _keychain = isolate_keychain();
+    let mut app = multitop::app::App::new(vec![multitop::config::Server {
+        host: "web-01".to_string(),
+        port: 22,
+        user: "admin".to_string(),
+        upgrade_cmd: Some("apt upgrade".to_string()),
+    }]);
+    app.panels[0].note(NOTICE.to_string());
+
+    // The notice's own distinguishing tail: the head of it survived the bug,
+    // because the bug was about which pane is drawn, not about truncation.
+    for view in ["monitor", "upgrade", "fetch", "docker", "back to monitor"] {
+        match view {
+            "upgrade" => app.enter_upgrade_view(),
+            "fetch" => drop(app.toggle_fetch()),
+            "docker" => drop(app.toggle_docker()),
+            "back to monitor" => drop(app.switch_stats()),
+            _ => {}
+        }
+        let mut term = ratatui::Terminal::new(ratatui::backend::TestBackend::new(70, 14)).unwrap();
+        term.draw(|f| multitop::ui::draw(f, &mut app)).unwrap();
+        let buf = term.backend().buffer();
+        let cols = buf.area.width as usize;
+        let rows: Vec<String> = buf
+            .content()
+            .iter()
+            .map(ratatui::buffer::Cell::symbol)
+            .collect::<Vec<_>>()
+            .chunks(cols)
+            .map(<[&str]>::concat)
+            .collect();
+        assert!(
+            rows.iter().any(|r| r.contains("using 50 instead")),
+            "the {view} view dropped a notice the user has to act on:\n{}",
             rows.join("\n")
         );
     }

@@ -43,7 +43,7 @@ server" is not, however it is drawn.
 | Vault + credential path | 7 rounds (1, 2, 3, 4, 4b, 5, 6), all 2026-08-01 | **On a finding.** Round 6 found that a release binary could silently use the mock keystore, and the review stopped there. The next day `29bdbb3` -- rotating the master password could destroy the vault -- turned up during feature work. The subsystem was still producing defects when review stopped looking. |
 | Agent parsing / protocol | 6 fuzz targets, 114M iterations, 0 crashes; plus targeted hardening (bogus chunk size, >64 KiB payload desync, null `ifa_addr`) | Mechanized, still running when asked. The only area no user-reported defect has come from. |
 | Configuration panel | Keystroke-through-render e2e plus a bounded sweep of every key sequence | Not a review round; a harness that closes one class. |
-| Terminal / process lifecycle | Round C, 2026-08-04, twenty-seven passes so far, with `tests/event_loop_e2e.rs` built for it | **On findings, twenty-five times out of twenty-seven.** 7, 3, 1, 2, 3, 1, 1, 4, 1, 2, 3, 2, 2, 2, 1, 1, 1, 2, 2, 2, 0, 1, 1, 1, 0, 1, 2. The twenty-fifth fixed the twenty-fourth's finding rather than opening new ground, so it adds no count of its own. The one zero is the twenty-first, and the twenty-second -- finishing the area the twenty-first left half-open -- found something immediately. A partial pass coming back empty is not the bar, and this is the evidence. What is running out is unexamined surface, not defects. Two classes account for most of them: *one quantity derived in two places by different rules*, and class H, *a failure reported as something else* -- the eighth pass was class H four times out of four. The twenty-seventh re-covered `ui::draw`, as the twenty-sixth said to, and found two more -- both siblings of what the twenty-sixth had just fixed, four lines away in the file it had just edited. **A class named but not swept is a class still alive**, and that is now the round's sharpest lesson about its own method. **The next pass re-covers the scroll and notice paths this one changed**, and greps for the third instance of *one quantity derived in two places*: `Panel::pinned_lines` is stamped at view-entry from `upgrade_pane_header`, while the renderer recomputes the header every frame and never reads the field in the Upgrade path. |
+| Terminal / process lifecycle | Round C, 2026-08-04, twenty-eight passes so far, with `tests/event_loop_e2e.rs` built for it | **On findings, twenty-six times out of twenty-eight.** 7, 3, 1, 2, 3, 1, 1, 4, 1, 2, 3, 2, 2, 2, 1, 1, 1, 2, 2, 2, 0, 1, 1, 1, 0, 1, 2, 1. The twenty-fifth fixed the twenty-fourth's finding rather than opening new ground, so it adds no count of its own. The one zero is the twenty-first, and the twenty-second -- finishing the area the twenty-first left half-open -- found something immediately. A partial pass coming back empty is not the bar, and this is the evidence. What is running out is unexamined surface, not defects. Two classes account for most of them: *one quantity derived in two places by different rules*, and class H, *a failure reported as something else* -- the eighth pass was class H four times out of four. The twenty-seventh re-covered `ui::draw`, as the twenty-sixth said to, and found two more -- both siblings of what the twenty-sixth had just fixed, four lines away in the file it had just edited. **A class named but not swept is a class still alive**, and that is now the round's sharpest lesson about its own method. The twenty-eighth did that and found a fourth site of the same shape, plus the `pinned_lines` copy, which turned out to be harmless and was deleted anyway. **The next pass re-covers `pane_lines` and `visible_upgrade`, which the twenty-eighth rewrote** -- three sources and a straddling window is the most intricate arithmetic in the renderer, and by this round's record one pass over new code has never been enough. |
 | SSH + upgrade transport | Covered by Round C where the lifecycle reaches it -- child process groups, the two output streams, the session handshake, the packet-decode boundary, and (eighth pass) every `Err` path out of `next_packet` plus the agent-replacement repair | Partial. `read_handshake`, `interpret_packet`, `framing_lost` and `describe_failure` have seams and tests; the bootstrap retry was read and found correct; the lock wrappers were read in the twelfth pass and `upload_agent`'s framing in the thirteenth. The bootstrap quoting and the `-tt` pty path were read in the fourteenth. No named part of the transport is unreviewed now. |
 
 Every round that ran found something. That is evidence the rounds were
@@ -520,7 +520,7 @@ earlier passes only brushed, and the reconnect loop's repair path. Four more
   "agent replaced" -- the only line in that sequence that is not true, about a
   host that was up and had just been talking.
 
-**The counts so far are 7, 3, 1, 2, 3, 1, 1, 4, 1, 2, 3, 2, 2, 2, 1, 1, 1, 2, 2, 2, 0, 1, 1, 1, 0, 1, 2** -- and they are not
+**The counts so far are 7, 3, 1, 2, 3, 1, 1, 4, 1, 2, 3, 2, 2, 2, 1, 1, 1, 2, 2, 2, 0, 1, 1, 1, 0, 1, 2, 1** -- and they are not
 converging. Every pass so far went back up the moment it opened a part of the
 loop the earlier ones had not looked at, which is the argument against reading
 a falling count as progress toward zero. What is running out is *unexamined
@@ -796,6 +796,48 @@ run the panel on the work you are pleased with.
   through `show_frame`, and `monitor-with-notice` renders one at all four sizes.
   Confirmed by reading the frame rather than the assertion -- the notice appears
   in both panes at 80x24.
+
+#### Twenty-eighth pass -- the scroll and notice paths this round just changed. One more (49 in total)
+
+- *Pressing `u` erased every notice the app had written.* The class is **a
+  decision made in two places at two different times**: `Panel::note` picked a
+  buffer from the panel's mode **when the notice was written**, and
+  `ui::pane_lines` picks a pane from the mode **when the frame is drawn**.
+  Nothing made those agree, and for the notices that matter they never did --
+  every startup notice is written while the panels are in Monitor mode, so it
+  lands in `Panel::notes`, and the Upgrade branch of `pane_lines` did not draw
+  `notes` at all.
+
+  The sharpest instance is a notice *about the Upgrade pane*: "config:
+  upgrade_history_lines = 0 would leave the Upgrade pane with nothing to show;
+  using 50 instead." Rendered at 70x14 it is on screen in Monitor mode and gone
+  in the Upgrade view -- the one view where it is about what you are looking at
+  is the one view that hid it. So are the unreadable-`state.toml` notice, the
+  plaintext-password migration, and every vault report.
+
+  `visible_upgrade` takes the wrapped notices as a third source now and windows
+  across all three, so nothing is materialised and the ring is still borrowed
+  rather than cloned. Wrapping happens in one place for both panes; it had been
+  the ordinary pane's business alone, which is *why* the Upgrade pane had none.
+  `Panel::note`'s mode check stays, but only as a placement choice -- during a
+  run the ring is the log being read and a notice belongs in it *in order* --
+  and its doc comment no longer claims to be what makes a notice visible.
+
+**The third instance of "one quantity derived in two places", found where the
+twenty-seventh said to look, and it had no consequence.** `Panel::pinned_lines`
+was stamped on every view switch from `upgrade_pane_header`. Reading every
+writer against every reader: it is **1 at every site that reads it**. The only
+writes that set anything else were made entering the Upgrade view, and the
+Upgrade pane is the one pane that never reads the field -- `visible_upgrade`
+measures the header it was handed. So the field was a stored copy of a number
+the renderer recomputes, with a doc comment saying it was what pinned the
+header, and a test setting it to a value production cannot produce.
+
+Not counted as a defect, because nothing on screen was ever wrong. It is deleted
+all the same, with `ui::ORDINARY_PINNED` naming the actual rule, and
+`upgrade_pane_header` no longer returns the `header.len()` that all three
+callers discarded. Latent instances of a class this round has found five times
+do not get to keep their doc comments.
 
 #### Twenty-seventh pass -- `ui::draw` again, and the class the twenty-sixth left alive. Two more (48 in total)
 

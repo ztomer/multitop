@@ -1105,7 +1105,7 @@ fn test_upgrade_skip_message_persists_across_views() {
     // The Upgrade pane now always opens with a status header, so the previous
     // output follows it rather than being the whole view. The message itself
     // must still survive intact.
-    let (header, _) = app.upgrade_pane_header(0);
+    let header = app.upgrade_pane_header(0);
     assert!(
         !header.is_empty(),
         "expected a status header above the previous output"
