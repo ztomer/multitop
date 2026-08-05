@@ -2,6 +2,8 @@
 use multitop::app::*;
 use multitop::config::Server;
 use multitop::fmt::{error_line, header_line, status_line};
+use multitop::panel::UpgradeState;
+use multitop_agent::fetch::FetchSnapshot;
 
 /// Divert credentials to the in-memory store, and hold the process-global guard.
 ///
@@ -64,7 +66,7 @@ fn empty_server_list_is_allowed() {
     let _keychain = isolate_keychain();
     let mut a = app(0);
     assert!(a.panels.is_empty());
-    assert!(a.toggle_docker().is_empty());
+    assert!(a.toggle_docker((80, 24)).is_empty());
     assert!(a.switch_stats().is_empty());
 }
 
@@ -84,7 +86,7 @@ fn frame_is_shown_in_monitor_mode() {
 fn frame_is_stored_but_hidden_in_docker_mode() {
     let _keychain = isolate_keychain();
     let mut a = app(1);
-    a.toggle_docker();
+    a.toggle_docker((80, 24));
     a.apply(Msg::Frame {
         panel: 0,
         epoch: 0,
@@ -116,7 +118,7 @@ fn frame_for_unknown_panel_is_ignored() {
 fn toggle_docker_switches_every_panel_at_once() {
     let _keychain = isolate_keychain();
     let mut a = app(3);
-    let cmds = a.toggle_docker();
+    let cmds = a.toggle_docker((80, 24));
     assert_eq!(cmds.len(), 3);
     for p in &a.panels {
         assert_eq!(p.mode, Mode::Docker);
@@ -128,8 +130,8 @@ fn toggle_docker_switches_every_panel_at_once() {
 fn toggle_docker_twice_stays_in_docker_mode() {
     let _keychain = isolate_keychain();
     let mut a = app(3);
-    a.toggle_docker();
-    let cmds = a.toggle_docker();
+    a.toggle_docker((80, 24));
+    let cmds = a.toggle_docker((80, 24));
     assert!(cmds.is_empty());
     for p in &a.panels {
         assert_eq!(p.mode, Mode::Docker);
@@ -147,7 +149,7 @@ fn switch_stats_restores_the_last_frame() {
             lines: vec![format!("data{i}")],
         });
     }
-    a.toggle_docker();
+    a.toggle_docker((80, 24));
     a.switch_stats();
     for (i, p) in a.panels.iter().enumerate() {
         assert_eq!(text(p), format!("data{i}"), "panel {i}");
@@ -158,7 +160,7 @@ fn switch_stats_restores_the_last_frame() {
 fn switch_stats_without_data_says_waiting() {
     let _keychain = isolate_keychain();
     let mut a = app(1);
-    a.toggle_docker();
+    a.toggle_docker((80, 24));
     a.switch_stats();
     assert!(text(&a.panels[0]).contains("waiting for data"));
 }
@@ -167,7 +169,7 @@ fn switch_stats_without_data_says_waiting() {
 fn switch_stats_from_docker() {
     let _keychain = isolate_keychain();
     let mut a = app(3);
-    a.toggle_docker();
+    a.toggle_docker((80, 24));
     a.switch_stats();
     for p in &a.panels {
         assert_eq!(p.mode, Mode::Monitor);
@@ -179,7 +181,7 @@ fn every_transition_bumps_the_generation() {
     let _keychain = isolate_keychain();
     let mut a = app(1);
     let g0 = a.panels[0].gen;
-    a.toggle_docker();
+    a.toggle_docker((80, 24));
     let g1 = a.panels[0].gen;
     a.switch_stats();
     let g2 = a.panels[0].gen;
@@ -190,7 +192,7 @@ fn every_transition_bumps_the_generation() {
 fn stale_results_are_dropped() {
     let _keychain = isolate_keychain();
     let mut a = app(1);
-    let cmds = a.toggle_docker();
+    let cmds = a.toggle_docker((80, 24));
     let Command::RunDocker { gen, .. } = cmds[0] else {
         panic!()
     };
@@ -213,7 +215,7 @@ fn stale_results_are_dropped() {
 fn current_results_are_shown() {
     let _keychain = isolate_keychain();
     let mut a = app(1);
-    let cmds = a.toggle_docker();
+    let cmds = a.toggle_docker((80, 24));
     let Command::RunDocker { gen, .. } = cmds[0] else {
         panic!()
     };
@@ -821,4 +823,185 @@ fn the_confirmation_on_screen_is_the_one_whose_keys_are_live() {
         row.contains("quit anyway"),
         "a quit armed over a running upgrade is the confirmation that must win; row: {row}"
     );
+}
+
+// ---------------------------------------------------------------------------
+// Fix 2: switch_stats preserves gen + scroll for mid-upgrade panels
+// ---------------------------------------------------------------------------
+
+#[test]
+fn switch_stats_preserves_gen_for_mid_upgrade_panels() {
+    let _guard = isolate_keychain();
+    let mut a = app(2);
+
+    // Put panel 0 into upgrade and mark it STARTED.
+    a.panels[0].mode = Mode::Upgrade;
+    a.panels[0].upgrade_state = UpgradeState::STARTED;
+    a.panels[0].upgrade_gen = 42;
+    let gen_before = a.panels[0].gen;
+
+    a.switch_stats();
+
+    // Mid-upgrade panel: gen preserved so AuxLine stamped 42 still belongs.
+    assert_eq!(a.panels[0].gen, gen_before, "gen must not bump mid-upgrade");
+    assert_eq!(a.panels[0].mode, Mode::Monitor);
+    assert_eq!(a.panels[0].upgrade_state, UpgradeState::STARTED);
+}
+
+#[test]
+fn switch_stats_resets_scroll_for_idle_panels() {
+    let _guard = isolate_keychain();
+    let mut a = app(2);
+
+    a.panels[0].scroll_offset = 25;
+    a.switch_stats();
+
+    assert_eq!(a.panels[0].scroll_offset, 0, "idle panel scroll resets");
+}
+
+#[test]
+fn switch_stats_preserves_scroll_for_mid_upgrade() {
+    let _guard = isolate_keychain();
+    let mut a = app(2);
+
+    a.panels[0].mode = Mode::Upgrade;
+    a.panels[0].upgrade_state = UpgradeState::STARTED;
+    a.panels[0].upgrade_gen = 5;
+    a.panels[0].scroll_offset = 20;
+
+    a.switch_stats();
+
+    assert_eq!(
+        a.panels[0].scroll_offset, 20,
+        "mid-upgrade scroll preserved"
+    );
+}
+
+#[test]
+fn enter_upgrade_view_preserves_scroll() {
+    let _guard = isolate_keychain();
+    let mut a = app(2);
+
+    a.panels[0].scroll_offset = 15;
+    a.enter_upgrade_view();
+
+    assert_eq!(
+        a.panels[0].scroll_offset, 15,
+        "re-entering upgrade keeps scroll"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// Fix 3: cached payload on view entry
+// ---------------------------------------------------------------------------
+
+#[test]
+fn toggle_docker_shows_cached_payload_immediately() {
+    let _guard = isolate_keychain();
+    let mut a = app(2);
+
+    // Simulate a previously-fetched docker payload.
+    let payload = multitop_agent::proto::Payload::Docker {
+        host: "test-host".into(),
+        rows: vec![multitop_agent::docker::Row {
+            name: "web".into(),
+            status: "Up 2 hours".into(),
+            cpu: "0.5%".into(),
+            cpu_pct: 0.5,
+            mem: "64M".into(),
+            mem_bytes: 67_108_864,
+        }],
+    };
+    a.panels[0].last_docker = Some(payload);
+
+    let cmds = a.toggle_docker((80, 24));
+
+    // Commands spawned to refresh, and view shows cached data.
+    assert!(!cmds.is_empty(), "refresh task spawned");
+    assert!(
+        a.panels[0].view.iter().any(|l| l.contains("web")),
+        "cached container name visible"
+    );
+}
+
+#[test]
+fn toggle_fetch_shows_cached_payload_immediately() {
+    let _guard = isolate_keychain();
+    let mut a = app(2);
+
+    a.panels[0].last_fetch = Some(FetchSnapshot {
+        user_host: "test-host".into(),
+        ..FetchSnapshot::default()
+    });
+
+    let cmds = a.toggle_fetch((80, 24));
+
+    assert!(!cmds.is_empty(), "refresh task spawned");
+    // Cached fetch rendered into view (non-empty, has content beyond the loading row).
+    assert!(
+        a.panels[0].view.len() > 1,
+        "cached fetch rendered multiple lines"
+    );
+    // The host name is rendered as fullwidth glyphs by center_header; what matters
+    // is that the cached snapshot produced real output (not a loading placeholder).
+    assert!(
+        a.panels[0].view.iter().any(|l| l.contains("OS")),
+        "cached fetch rendered detail rows, not a loading placeholder"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// Fix 5: task-death watchdog via mark_upgrade_interrupted
+// ---------------------------------------------------------------------------
+
+#[test]
+fn mark_upgrade_interrupted_flips_started_to_done() {
+    let _guard = isolate_keychain();
+    let mut a = app(2);
+
+    a.panels[0].upgrade_state = UpgradeState::STARTED;
+    a.panels[0].server = Server {
+        host: "test.example".into(),
+        port: 22,
+        user: "admin".into(),
+        upgrade_cmd: Some("sudo apt upgrade".into()),
+    };
+
+    a.mark_upgrade_interrupted(0);
+
+    assert_eq!(a.panels[0].upgrade_state, UpgradeState::DONE);
+}
+
+#[test]
+fn mark_upgrade_interrupted_persists_finished_at() {
+    let _guard = isolate_keychain();
+    let mut a = app(2);
+    a.config_path = Some(std::env::temp_dir().join("multitop_test_state.toml"));
+
+    a.panels[0].upgrade_state = UpgradeState::STARTED;
+    a.panels[0].server = Server {
+        host: "persist.example".into(),
+        port: 22,
+        user: "admin".into(),
+        upgrade_cmd: Some("sudo apt upgrade".into()),
+    };
+
+    a.mark_upgrade_interrupted(0);
+
+    let key = multitop::password_store::account(&a.panels[0].server);
+    let entry = a.host_updates.get(&key).expect("state persisted");
+    assert!(entry.finished_at.is_some(), "finished_at recorded");
+    assert!(!entry.success, "interrupted = not success");
+}
+
+#[test]
+fn mark_upgrade_interrupted_noop_for_done_panel() {
+    let _guard = isolate_keychain();
+    let mut a = app(2);
+
+    a.panels[0].upgrade_state = UpgradeState::DONE;
+    a.mark_upgrade_interrupted(0);
+
+    assert_eq!(a.panels[0].upgrade_state, UpgradeState::DONE);
+    assert!(a.host_updates.is_empty(), "no state written for DONE panel");
 }

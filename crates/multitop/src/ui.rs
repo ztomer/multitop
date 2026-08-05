@@ -268,7 +268,11 @@ pub fn visible_upgrade(
 /// pinned block, and for the same reason: the thing being announced must not
 /// displace the thing it is about. Whole notices only -- a notice cut in half is
 /// the defect the wrapping exists to prevent.
-fn notice_split(notes: &[String], target_cols: usize, height: usize) -> (Vec<String>, Vec<String>) {
+pub(crate) fn notice_split(
+    notes: &[String],
+    target_cols: usize,
+    height: usize,
+) -> (Vec<String>, Vec<String>) {
     if notes.is_empty() || target_cols == 0 {
         return (Vec::new(), Vec::new());
     }
@@ -407,7 +411,8 @@ pub enum FilterHint<'a> {
 ///
 /// Six copies of this if/else pair inline are what made `keybar_line` too long
 /// to read, and the sixth was the one that had to be edited to add a view.
-fn mode_pair(
+#[must_use]
+pub fn mode_pair(
     active_mode: crate::app::Mode,
     this: crate::app::Mode,
     on: Style,
@@ -440,7 +445,8 @@ fn filter_prompt(query: &str, label: Style, accent: Color) -> Line<'static> {
 /// The `{:<11}` pad on the theme name is gone with it: it spent seven dead
 /// columns on a four-letter word at exactly the width where the bar overflows,
 /// which both Rams and Kare called out independently.
-fn keybar_badges(
+#[must_use]
+pub fn keybar_badges(
     sort: multitop_agent::SortBy,
     theme: &multitop_agent::color::Palette,
     label: Style,

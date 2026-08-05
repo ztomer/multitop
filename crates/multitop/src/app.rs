@@ -635,7 +635,7 @@ impl App {
     }
 
     /// `f`: all panels into the Fastfetch view.
-    pub fn toggle_fetch(&mut self) -> Vec<Command> {
+    pub fn toggle_fetch(&mut self, dims: (u16, u16)) -> Vec<Command> {
         self.reset_scroll();
         if self.in_fetch() {
             return Vec::new();
@@ -646,18 +646,25 @@ impl App {
             let gen = self.bump(i);
             let p = &mut self.panels[i];
             p.mode = Mode::Fetch;
-            p.show_body(std::iter::once(format!(
-                "{}\u{2192} Fetching system info...{}",
-                pal.meter_mid(),
-                pal.reset
-            )));
+            // Show cached data immediately if we have it; the spawned task refreshes.
+            if let Some(snap) = &p.last_fetch {
+                let lines =
+                    crate::fetch_render::render_fetch(snap, dims.0 as usize, dims.1 as usize, pal);
+                p.show_frame(lines);
+            } else {
+                p.show_body(std::iter::once(format!(
+                    "{}\u{2192} Fetching system info...{}",
+                    pal.meter_mid(),
+                    pal.reset
+                )));
+            }
             cmds.push(Command::RunFetch { panel: i, gen });
         }
         cmds
     }
 
     /// `d`: all panels into the Docker view.
-    pub fn toggle_docker(&mut self) -> Vec<Command> {
+    pub fn toggle_docker(&mut self, dims: (u16, u16)) -> Vec<Command> {
         self.reset_scroll();
         if self.in_docker() {
             return Vec::new();
@@ -668,11 +675,17 @@ impl App {
             let gen = self.bump(i);
             let p = &mut self.panels[i];
             p.mode = Mode::Docker;
-            p.show_body(std::iter::once(format!(
-                "{}\u{2192} Docker loading...{}",
-                pal.meter_mid(),
-                pal.reset
-            )));
+            // Show cached data immediately if we have it; the spawned task refreshes.
+            if let Some(payload) = &p.last_docker {
+                let lines = crate::render_payload::render_payload(payload, dims, self.sort, pal);
+                p.show_frame(lines);
+            } else {
+                p.show_body(std::iter::once(format!(
+                    "{}\u{2192} Docker loading...{}",
+                    pal.meter_mid(),
+                    pal.reset
+                )));
+            }
             cmds.push(Command::RunDocker { panel: i, gen });
         }
         cmds
@@ -680,10 +693,19 @@ impl App {
 
     /// `s`: back to the live stats view on every panel.
     pub fn switch_stats(&mut self) -> Vec<Command> {
-        self.reset_scroll();
         for i in 0..self.panels.len() {
-            self.bump(i);
+            // A panel mid-upgrade keeps its gen valid: the in-flight task
+            // holds that gen and its output must keep landing in `last_upgrade`.
+            // Bumping would retire the gen and discard every line the task
+            // sends while the user is looking elsewhere.
+            let started = self.panels[i].upgrade_state == crate::panel::UpgradeState::STARTED;
+            if !started {
+                self.bump(i);
+            }
             let p = &mut self.panels[i];
+            if !started {
+                p.scroll_offset = 0;
+            }
             // `last_upgrade` is maintained directly by the AuxLine/AuxDone
             // handlers, so it needs no snapshot here. Copying the view into it
             // used to be the only thing preserving the completion marker, and
@@ -800,7 +822,8 @@ impl App {
     /// anything. This is the screen the user reads before deciding to press
     /// `u` again, so it must have no side effects.
     pub fn enter_upgrade_view(&mut self) {
-        self.reset_scroll();
+        // Do NOT reset_scroll — the user is returning to a log they may have
+        // scrolled. The content is the same ring; the offset is still valid.
         // Report on credentials from what can be read silently. Passwords are
         // loaded lazily, so a panel that has not run an upgrade yet this
         // session holds nothing in memory -- and the pane read that emptiness
@@ -909,6 +932,25 @@ impl App {
                 },
             );
         }
+        self.persist_state();
+    }
+
+    /// A panel's upgrade task finished without sending `AuxDone` (it was
+    /// aborted, panicked, or the runtime shut down under it). Record the
+    /// interruption so the panel leaves STARTED and the next launch detects it.
+    pub fn mark_upgrade_interrupted(&mut self, panel: usize) {
+        let Some(p) = self.panels.get_mut(panel) else {
+            return;
+        };
+        if p.upgrade_state != crate::panel::UpgradeState::STARTED {
+            return;
+        }
+        p.upgrade_state = crate::panel::UpgradeState::DONE;
+        let now = Self::now_secs();
+        let key = crate::password_store::account(&p.server);
+        let entry = self.host_updates.entry(key).or_default();
+        entry.finished_at = Some(now);
+        entry.success = false;
         self.persist_state();
     }
 
