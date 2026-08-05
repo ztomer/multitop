@@ -312,3 +312,47 @@ fn a_vault_prompt_keeps_its_way_out_at_every_size() {
         }
     }
 }
+
+/// A status line must survive the banner that is drawn over row 0.
+///
+/// `ui::draw` replaces `lines[0]` with the host banner on every frame, which is
+/// why `Panel::new` reserves row 0 with a placeholder -- Round B found that "a
+/// one-line body is eaten, so the connecting state is a blank box". `Msg::Status`
+/// still assigned `vec![text]`: one line, which *is* row 0, so a fetch or docker
+/// connection error was written into the pane and destroyed by the banner on the
+/// same frame it arrived.
+#[test]
+fn a_status_line_is_not_eaten_by_the_banner() {
+    use ratatui::backend::TestBackend;
+    use ratatui::Terminal;
+
+    let _keychain = isolate_keychain();
+    let mut app = multitop::app::App::new(vec![multitop::config::Server {
+        host: "web-01".into(),
+        port: 22,
+        user: "admin".into(),
+        upgrade_cmd: None,
+    }]);
+    app.apply(multitop::app::Msg::Status {
+        panel: 0,
+        gen: app.panels[0].gen,
+        text: "ssh command not found".to_string(),
+    });
+
+    let mut term = Terminal::new(TestBackend::new(60, 8)).unwrap();
+    term.draw(|f| multitop::ui::draw(f, &mut app)).unwrap();
+    let buf = term.backend().buffer().clone();
+    let screen: String = (0..8)
+        .map(|y| {
+            (0..60)
+                .map(|x| buf[(x, y)].symbol().to_string())
+                .collect::<String>()
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+
+    assert!(
+        screen.contains("ssh command not found"),
+        "the status the panel was given never reached the screen:\n{screen}"
+    );
+}

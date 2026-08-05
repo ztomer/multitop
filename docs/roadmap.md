@@ -43,7 +43,7 @@ server" is not, however it is drawn.
 | Vault + credential path | 7 rounds (1, 2, 3, 4, 4b, 5, 6), all 2026-08-01 | **On a finding.** Round 6 found that a release binary could silently use the mock keystore, and the review stopped there. The next day `29bdbb3` -- rotating the master password could destroy the vault -- turned up during feature work. The subsystem was still producing defects when review stopped looking. |
 | Agent parsing / protocol | 6 fuzz targets, 114M iterations, 0 crashes; plus targeted hardening (bogus chunk size, >64 KiB payload desync, null `ifa_addr`) | Mechanized, still running when asked. The only area no user-reported defect has come from. |
 | Configuration panel | Keystroke-through-render e2e plus a bounded sweep of every key sequence | Not a review round; a harness that closes one class. |
-| Terminal / process lifecycle | Round C, 2026-08-04, twenty-five passes so far, with `tests/event_loop_e2e.rs` built for it | **On findings, twenty-three times out of twenty-five.** 7, 3, 1, 2, 3, 1, 1, 4, 1, 2, 3, 2, 2, 2, 1, 1, 1, 2, 2, 2, 0, 1, 1, 1. The twenty-fifth fixed the twenty-fourth's finding rather than opening new ground, so it adds no count of its own. The one zero is the twenty-first, and the twenty-second -- finishing the area the twenty-first left half-open -- found something immediately. A partial pass coming back empty is not the bar, and this is the evidence. What is running out is unexamined surface, not defects. Two classes account for most of them: *one quantity derived in two places by different rules*, and class H, *a failure reported as something else* -- the eighth pass was class H four times out of four. **The next pass starts on `ui::draw`'s remaining surface** -- `draw_no_matches` and the keybar assembly have been driven, but `draw` itself is nine hundred lines and only the paths a finding led to have been read. |
+| Terminal / process lifecycle | Round C, 2026-08-04, twenty-six passes so far, with `tests/event_loop_e2e.rs` built for it | **On findings, twenty-four times out of twenty-six.** 7, 3, 1, 2, 3, 1, 1, 4, 1, 2, 3, 2, 2, 2, 1, 1, 1, 2, 2, 2, 0, 1, 1, 1. The twenty-fifth fixed the twenty-fourth's finding rather than opening new ground, so it adds no count of its own. The one zero is the twenty-first, and the twenty-second -- finishing the area the twenty-first left half-open -- found something immediately. A partial pass coming back empty is not the bar, and this is the evidence. What is running out is unexamined surface, not defects. Two classes account for most of them: *one quantity derived in two places by different rules*, and class H, *a failure reported as something else* -- the eighth pass was class H four times out of four. **The next pass re-covers `ui::draw`.** The twenty-sixth read its composition and found the banner eating a one-line body; by this round's own record, one pass over an area has never been enough. |
 | SSH + upgrade transport | Covered by Round C where the lifecycle reaches it -- child process groups, the two output streams, the session handshake, the packet-decode boundary, and (eighth pass) every `Err` path out of `next_packet` plus the agent-replacement repair | Partial. `read_handshake`, `interpret_packet`, `framing_lost` and `describe_failure` have seams and tests; the bootstrap retry was read and found correct; the lock wrappers were read in the twelfth pass and `upload_agent`'s framing in the thirteenth. The bootstrap quoting and the `-tt` pty path were read in the fourteenth. No named part of the transport is unreviewed now. |
 
 Every round that ran found something. That is evidence the rounds were
@@ -115,7 +115,7 @@ keep is what closed the last four: e2e tests that drive real `KeyEvent`s through
 asserting on the final state. The final state can look correct while three
 vaults' worth of work happened.
 
-The streak stops at eight. Round C's forty-five findings were all found by review,
+The streak stops at eight. Round C's forty-six findings were all found by review,
 before anyone hit them -- and the reason is the same rule read the other way:
 the round's first act was to build the seam the loop had never had. The area
 with the worst detection record was the area with no harness at all. Where the
@@ -520,7 +520,7 @@ earlier passes only brushed, and the reconnect loop's repair path. Four more
   "agent replaced" -- the only line in that sequence that is not true, about a
   host that was up and had just been talking.
 
-**The counts so far are 7, 3, 1, 2, 3, 1, 1, 4, 1, 2, 3, 2, 2, 2, 1, 1, 1, 2, 2, 2, 0, 1, 1, 1** -- and they are not
+**The counts so far are 7, 3, 1, 2, 3, 1, 1, 4, 1, 2, 3, 2, 2, 2, 1, 1, 1, 2, 2, 2, 0, 1, 1, 1, 0, 1** -- and they are not
 converging. Every pass so far went back up the moment it opened a part of the
 loop the earlier ones had not looked at, which is the argument against reading
 a falling count as progress toward zero. What is running out is *unexamined
@@ -796,6 +796,29 @@ run the panel on the work you are pleased with.
   through `show_frame`, and `monitor-with-notice` renders one at all four sizes.
   Confirmed by reading the frame rather than the assertion -- the notice appears
   in both panes at 80x24.
+
+#### Twenty-sixth pass -- `ui::draw`'s composition. One more (46 in total)
+
+- *A status line was eaten by the banner on the frame it arrived.* `ui::draw`
+  replaces `lines[0]` with the host banner every frame -- which is why
+  `Panel::new` reserves row 0 with a placeholder, after Round B found that "a
+  one-line body is eaten, so the connecting state is a blank box".
+
+  `Msg::Status` assigned `vec![text]`. One line, which *is* row 0. So every
+  status a fetch or docker task sends -- "installing agent...", and the error
+  path's `error_line(e)` carrying `ssh command not found` or a refused key --
+  was written into the pane and destroyed before anything drew it. Driven
+  through `ui::draw` at 60x8, the screen was the banner and nothing else.
+  `Msg::AuxBegin` had the same shape: a `Some(header)` is one line, and a
+  `None` left the body empty, which `draw` skips entirely.
+
+  **Round B's fix reached `Panel::new` and `show_last_frame` and stopped there.**
+  `Panel::show_body` reserves the row in one place now, and the two message arms
+  that build a body from scratch go through it. Rendered agent frames keep
+  `show_frame` -- they carry their own row 0 and must not get a second.
+
+  Three tests asserted `view` equalled the text exactly, which encoded the shape
+  that ate the body; they assert presence now.
 
 #### Twenty-fifth pass -- the vault modals, fixed. (45 in total; no new finding)
 

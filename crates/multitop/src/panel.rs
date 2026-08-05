@@ -255,6 +255,21 @@ impl Panel {
         self.notes.push(line);
     }
 
+    /// Show app-authored lines in the pane, reserving row 0 for the banner.
+    ///
+    /// `ui::draw` replaces `lines[0]` with the host banner on every frame. A
+    /// body that starts at row 0 therefore has its first line eaten -- and a
+    /// one-line body is eaten *whole*, which is how a connection error written
+    /// into the pane was destroyed on the frame it arrived.
+    ///
+    /// `Panel::new` and [`Panel::show_last_frame`] reserved that row; the two
+    /// message arms that build a body from scratch did not. One place to do it
+    /// now, so a third cannot forget. Rendered agent frames go through
+    /// [`Panel::show_frame`] instead -- they carry their own row 0.
+    pub fn show_body(&mut self, lines: impl IntoIterator<Item = String>) {
+        self.view = std::iter::once(String::new()).chain(lines).collect();
+    }
+
     /// Show a rendered frame.
     ///
     /// The one place that replaces `view` with a frame -- it was four, and a

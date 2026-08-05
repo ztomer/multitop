@@ -227,7 +227,10 @@ fn current_results_are_shown() {
         gen,
         line: "container list".into(),
     });
-    assert_eq!(text(&a.panels[0]), "container list");
+    // Row 0 is reserved for the banner `ui::draw` composes over it, so the
+    // body starts at row 1. Asserting the whole buffer here encoded the shape
+    // that ate a one-line body.
+    assert!(text(&a.panels[0]).contains("container list"));
 }
 
 #[test]
@@ -248,7 +251,7 @@ fn aux_output_streams_line_by_line() {
         });
     }
     let t = text(&a.panels[0]);
-    assert!(t.starts_with("Upgrade on s0"));
+    assert!(t.contains("Upgrade on s0"), "{t:?}");
     assert!(t.contains("step 0") && t.contains("step 2"));
 }
 
@@ -434,7 +437,7 @@ fn status_respects_generation() {
         gen,
         text: "installing agent".into(),
     });
-    assert_eq!(text(&a.panels[0]), "installing agent");
+    assert!(text(&a.panels[0]).contains("installing agent"));
     a.switch_stats();
     a.apply(Msg::Status {
         panel: 0,

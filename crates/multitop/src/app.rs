@@ -1163,7 +1163,7 @@ impl App {
                         // "sudo ready" in the middle of a run.
                         p.last_upgrade.push(text);
                     } else {
-                        p.view = vec![text];
+                        p.show_body(std::iter::once(text));
                     }
                     true
                 } else {
@@ -1195,7 +1195,7 @@ impl App {
                     if p.mode == Mode::Upgrade {
                         false
                     } else {
-                        p.view = header.into_iter().collect();
+                        p.show_body(header);
                         true
                     }
                 } else {
