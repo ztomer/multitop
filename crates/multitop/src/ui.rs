@@ -817,12 +817,14 @@ fn draw_modals(f: &mut Frame, app: &App) {
 /// Draw one frame.
 ///
 /// Takes `&mut App` for one reason: the scroll offset is bounded here and
-/// nowhere else. `App::scroll_up` cannot know a pane's height, so its own
-/// clamp was `pane_len - 1` -- looser than the real limit by the height of the
-/// pane. Scrolling to the top left the stored offset far past anything the
-/// view could use, and the next dozen presses in the other direction moved
-/// nothing: a key that reads as dead. The effective offset computed for the
-/// frame is written back, so what is stored is always what is shown.
+/// nowhere else. `App::scroll_up` cannot know a pane's height *or* its composed
+/// length, and its own clamp -- `pane_len - 1` -- was wrong in both directions:
+/// looser than the real limit by the height of the pane, so scrolling to the top
+/// stored an offset far past anything the view could use and the next dozen
+/// presses the other way moved nothing; and tighter than it by every wrapped
+/// notice, so `Home` stopped short of the very lines a notice is written to
+/// deliver. That clamp is gone. The effective offset computed for the frame is
+/// written back, so what is stored is always what is shown.
 pub fn draw(f: &mut Frame, app: &mut App) {
     if app.password_manager.is_some() {
         crate::config_ui::draw(f, app);

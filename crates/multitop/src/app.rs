@@ -635,11 +635,11 @@ impl App {
             let p = &mut self.panels[i];
             p.mode = Mode::Fetch;
             p.pinned_lines = 1;
-            p.view = vec![format!(
+            p.show_body(std::iter::once(format!(
                 "{}\u{2192} Fetching system info...{}",
                 pal.meter_mid(),
                 pal.reset
-            )];
+            )));
             cmds.push(Command::RunFetch { panel: i, gen });
         }
         cmds
@@ -658,11 +658,11 @@ impl App {
             let p = &mut self.panels[i];
             p.mode = Mode::Docker;
             p.pinned_lines = 1;
-            p.view = vec![format!(
+            p.show_body(std::iter::once(format!(
                 "{}\u{2192} Docker loading...{}",
                 pal.meter_mid(),
                 pal.reset
-            )];
+            )));
             cmds.push(Command::RunDocker { panel: i, gen });
         }
         cmds
@@ -732,27 +732,12 @@ impl App {
         (header, pinned)
     }
 
-    /// How many lines a panel's pane can scroll through, whatever view it is in.
-    ///
-    /// The Upgrade pane is composed at draw time from the status header and the
-    /// ring, so its scrollable length is those two -- not the `view` the other
-    /// modes keep materialised, which the Upgrade pane does not draw at all.
-    ///
-    /// The header length is recomputed rather than read from `pinned_lines`:
-    /// that field is stamped when the view is entered and the header changes
-    /// shape when a run finishes, so it is a second copy of a number that
-    /// moves.
-    fn pane_len(&self, panel: usize) -> usize {
-        let Some(p) = self.panels.get(panel) else {
-            return 0;
-        };
-        if p.mode == Mode::Upgrade {
-            let (header, _) = self.upgrade_pane_header(panel);
-            header.len().saturating_add(p.last_upgrade.len())
-        } else {
-            p.view.len()
-        }
-    }
+    // `pane_len` used to live here: how many lines a pane could scroll through,
+    // computed from `view` (or the header plus the ring, in the Upgrade view).
+    // It is gone rather than corrected. A pane's real length is what
+    // `ui::pane_lines` composes at the pane's own width, and any copy of that
+    // number kept over here is a second derivation that drifts -- this one
+    // already had, by every wrapped notice. See `App::SCROLL_TOP`.
 
     /// Second `u` with no host configured to upgrade: there is nothing to
     /// confirm, so explain that in the pane rather than opening a modal whose
@@ -1178,7 +1163,7 @@ impl App {
             } => {
                 if self.accepts(panel, gen) {
                     self.panels[panel].last_fetch = Some(snap);
-                    self.panels[panel].view = lines;
+                    self.panels[panel].show_frame(lines);
                     true
                 } else {
                     false
@@ -1373,11 +1358,24 @@ impl App {
         }
     }
 
+    /// "As far back as this pane can go", left for the renderer to resolve.
+    ///
+    /// The real bound is `total - height`, where `total` is the pane
+    /// [`crate::ui::pane_lines`] *composes* -- `view` plus every notice, wrapped
+    /// to the pane's width. `App` knows neither the width nor the height, so it
+    /// used to guess with `pane_len()`: a second derivation of one quantity by a
+    /// different rule, and short by exactly the notices. `Home` -- documented as
+    /// "the oldest line the pane holds" -- stopped `notes` lines from the top,
+    /// and the lines it could not reach were the notices themselves.
+    ///
+    /// So `App` stops guessing. A scroll-back is stored unclamped and `ui::draw`
+    /// writes back the offset it actually used, which is the same "what is
+    /// stored becomes what was shown" rule that already bounds the other end.
+    pub const SCROLL_TOP: usize = usize::MAX;
+
     pub fn scroll_up(&mut self, delta: usize) {
-        if self.selected_panel < self.panels.len() {
-            let max_scroll = self.pane_len(self.selected_panel).saturating_sub(1);
-            let p = &mut self.panels[self.selected_panel];
-            p.scroll_offset = (p.scroll_offset + delta).min(max_scroll);
+        if let Some(p) = self.panels.get_mut(self.selected_panel) {
+            p.scroll_offset = p.scroll_offset.saturating_add(delta);
         }
     }
 
@@ -1389,10 +1387,8 @@ impl App {
     }
 
     pub fn scroll_panel_up(&mut self, panel: usize, delta: usize) {
-        if panel < self.panels.len() {
-            let max_scroll = self.pane_len(panel).saturating_sub(1);
-            let p = &mut self.panels[panel];
-            p.scroll_offset = (p.scroll_offset + delta).min(max_scroll);
+        if let Some(p) = self.panels.get_mut(panel) {
+            p.scroll_offset = p.scroll_offset.saturating_add(delta);
         }
     }
 
@@ -1406,14 +1402,13 @@ impl App {
     /// `Home`: the oldest line the pane holds.
     ///
     /// `scroll_offset` counts lines scrolled *back*, so the top is the largest
-    /// offset the pane allows -- the same bound `scroll_up` clamps to. This
-    /// used to be `saturating_sub(1)`, which is a scroll of one line towards
-    /// the newest: the key advertised as "top" moved one line in the opposite
-    /// direction.
+    /// offset the pane allows. This used to be `saturating_sub(1)`, which is a
+    /// scroll of one line towards the newest: the key advertised as "top" moved
+    /// one line in the opposite direction. It then became `pane_len() - 1`,
+    /// which is the wrong quantity -- see [`Self::SCROLL_TOP`].
     pub fn scroll_to_top(&mut self) {
-        if self.selected_panel < self.panels.len() {
-            let max_scroll = self.pane_len(self.selected_panel).saturating_sub(1);
-            self.panels[self.selected_panel].scroll_offset = max_scroll;
+        if let Some(p) = self.panels.get_mut(self.selected_panel) {
+            p.scroll_offset = Self::SCROLL_TOP;
         }
     }
 
@@ -1455,24 +1450,25 @@ impl App {
             match panel.mode {
                 Mode::Monitor => {
                     if let Some(payload) = &panel.last_monitor {
-                        panel.view =
-                            crate::render_payload::render_payload(payload, dims, sort, pal);
+                        let lines = crate::render_payload::render_payload(payload, dims, sort, pal);
+                        panel.show_frame(lines);
                     }
                 }
                 Mode::Docker => {
                     if let Some(payload) = &panel.last_docker {
-                        panel.view =
-                            crate::render_payload::render_payload(payload, dims, sort, pal);
+                        let lines = crate::render_payload::render_payload(payload, dims, sort, pal);
+                        panel.show_frame(lines);
                     }
                 }
                 Mode::Fetch => {
                     if let Some(snap) = &panel.last_fetch {
-                        panel.view = crate::fetch_render::render_fetch(
+                        let lines = crate::fetch_render::render_fetch(
                             snap,
                             dims.0 as usize,
                             dims.1 as usize,
                             pal,
                         );
+                        panel.show_frame(lines);
                     }
                 }
                 Mode::Upgrade => {}

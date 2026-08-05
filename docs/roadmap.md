@@ -43,7 +43,7 @@ server" is not, however it is drawn.
 | Vault + credential path | 7 rounds (1, 2, 3, 4, 4b, 5, 6), all 2026-08-01 | **On a finding.** Round 6 found that a release binary could silently use the mock keystore, and the review stopped there. The next day `29bdbb3` -- rotating the master password could destroy the vault -- turned up during feature work. The subsystem was still producing defects when review stopped looking. |
 | Agent parsing / protocol | 6 fuzz targets, 114M iterations, 0 crashes; plus targeted hardening (bogus chunk size, >64 KiB payload desync, null `ifa_addr`) | Mechanized, still running when asked. The only area no user-reported defect has come from. |
 | Configuration panel | Keystroke-through-render e2e plus a bounded sweep of every key sequence | Not a review round; a harness that closes one class. |
-| Terminal / process lifecycle | Round C, 2026-08-04, twenty-six passes so far, with `tests/event_loop_e2e.rs` built for it | **On findings, twenty-four times out of twenty-six.** 7, 3, 1, 2, 3, 1, 1, 4, 1, 2, 3, 2, 2, 2, 1, 1, 1, 2, 2, 2, 0, 1, 1, 1. The twenty-fifth fixed the twenty-fourth's finding rather than opening new ground, so it adds no count of its own. The one zero is the twenty-first, and the twenty-second -- finishing the area the twenty-first left half-open -- found something immediately. A partial pass coming back empty is not the bar, and this is the evidence. What is running out is unexamined surface, not defects. Two classes account for most of them: *one quantity derived in two places by different rules*, and class H, *a failure reported as something else* -- the eighth pass was class H four times out of four. **The next pass re-covers `ui::draw`.** The twenty-sixth read its composition and found the banner eating a one-line body; by this round's own record, one pass over an area has never been enough. |
+| Terminal / process lifecycle | Round C, 2026-08-04, twenty-seven passes so far, with `tests/event_loop_e2e.rs` built for it | **On findings, twenty-five times out of twenty-seven.** 7, 3, 1, 2, 3, 1, 1, 4, 1, 2, 3, 2, 2, 2, 1, 1, 1, 2, 2, 2, 0, 1, 1, 1, 0, 1, 2. The twenty-fifth fixed the twenty-fourth's finding rather than opening new ground, so it adds no count of its own. The one zero is the twenty-first, and the twenty-second -- finishing the area the twenty-first left half-open -- found something immediately. A partial pass coming back empty is not the bar, and this is the evidence. What is running out is unexamined surface, not defects. Two classes account for most of them: *one quantity derived in two places by different rules*, and class H, *a failure reported as something else* -- the eighth pass was class H four times out of four. The twenty-seventh re-covered `ui::draw`, as the twenty-sixth said to, and found two more -- both siblings of what the twenty-sixth had just fixed, four lines away in the file it had just edited. **A class named but not swept is a class still alive**, and that is now the round's sharpest lesson about its own method. **The next pass re-covers the scroll and notice paths this one changed**, and greps for the third instance of *one quantity derived in two places*: `Panel::pinned_lines` is stamped at view-entry from `upgrade_pane_header`, while the renderer recomputes the header every frame and never reads the field in the Upgrade path. |
 | SSH + upgrade transport | Covered by Round C where the lifecycle reaches it -- child process groups, the two output streams, the session handshake, the packet-decode boundary, and (eighth pass) every `Err` path out of `next_packet` plus the agent-replacement repair | Partial. `read_handshake`, `interpret_packet`, `framing_lost` and `describe_failure` have seams and tests; the bootstrap retry was read and found correct; the lock wrappers were read in the twelfth pass and `upload_agent`'s framing in the thirteenth. The bootstrap quoting and the `-tt` pty path were read in the fourteenth. No named part of the transport is unreviewed now. |
 
 Every round that ran found something. That is evidence the rounds were
@@ -520,7 +520,7 @@ earlier passes only brushed, and the reconnect loop's repair path. Four more
   "agent replaced" -- the only line in that sequence that is not true, about a
   host that was up and had just been talking.
 
-**The counts so far are 7, 3, 1, 2, 3, 1, 1, 4, 1, 2, 3, 2, 2, 2, 1, 1, 1, 2, 2, 2, 0, 1, 1, 1, 0, 1** -- and they are not
+**The counts so far are 7, 3, 1, 2, 3, 1, 1, 4, 1, 2, 3, 2, 2, 2, 1, 1, 1, 2, 2, 2, 0, 1, 1, 1, 0, 1, 2** -- and they are not
 converging. Every pass so far went back up the moment it opened a part of the
 loop the earlier ones had not looked at, which is the argument against reading
 a falling count as progress toward zero. What is running out is *unexamined
@@ -796,6 +796,60 @@ run the panel on the work you are pleased with.
   through `show_frame`, and `monitor-with-notice` renders one at all four sizes.
   Confirmed by reading the frame rather than the assertion -- the notice appears
   in both panes at 80x24.
+
+#### Twenty-seventh pass -- `ui::draw` again, and the class the twenty-sixth left alive. Two more (48 in total)
+
+The twenty-sixth read `ui::draw`'s composition and this pass re-covered it, as
+that entry said to. Both findings are the *same two classes this round is named
+for*, and both were sitting in the ground the twenty-sixth had just walked over.
+
+- *Pressing `f` or `d` rendered an empty pane.* The twenty-sixth found that
+  `ui::draw` overwrites row 0 with the host banner, so a one-line body is eaten
+  whole, and fixed `Msg::Status` and `Msg::AuxBegin` with a new `Panel::show_body`
+  that reserves the row. **It did not grep for the siblings.** `App::toggle_fetch`
+  and `App::toggle_docker` each assign `p.view = vec![one line]` -- the exact
+  shape just fixed -- so `-> Fetching system info...` and `-> Docker loading...`
+  were destroyed on the frame they were written. Driven through `ui::draw` at
+  60x8 the pane was the banner and six blank rows, for as long as the fetch took
+  and forever if the connection had hung. Two of the four view keys, and the
+  keybar highlights the new mode, so the screen said "you are in Fetch" over an
+  empty box.
+
+  This is the fifth site of one class: `Panel::new`, `show_last_frame`,
+  `Msg::Status`, `Msg::AuxBegin`, and now the two toggles. Four site-fixes in a
+  row, so the sixth site was going to be written. **The fix is structural this
+  time.** Every write to `view` in `crates/multitop/src` now goes through
+  `show_body` (app text, reserves row 0) or `show_frame` (an agent frame, carries
+  its own row 0) -- `Msg::FetchData` and all three arms of `rerender_all` were
+  converted for that reason, though they were correct -- and
+  `tools/check_row0_owner.py` rejects any `.view =` outside `panel.rs`. Wired
+  into CI and the pre-commit hook, with its own self-test, per rule 3. Run
+  against `HEAD`'s tree it flags all six sites, including the two live defects.
+  The regression test asserts the rule, not the sites: enter each view, draw,
+  and require the pane to have something in it.
+
+- *`Home` could not reach the lines it existed to reach.* `App::pane_len` counted
+  `view.len()`, while the pane `ui::pane_lines` composes is `view` **plus every
+  notice, wrapped to the pane's width**. One quantity, two derivations, and the
+  scroll clamp used the shorter one -- so `Home`, documented as "the oldest line
+  the pane holds", stopped short by exactly the notices, and the unreachable
+  lines were the notices themselves. At 40x12 with four notices the pane showed
+  `[^ -1 lines]` at the top and the first notice's opening line was above the
+  window, permanently.
+
+  `pane_len` is deleted rather than corrected. A pane's real length is what the
+  renderer composes at the pane's own width, and any copy kept in `App` is a
+  second derivation that drifts -- this one already had. `App` now stores a
+  scroll-back unclamped and `ui::draw` writes back the offset it actually used,
+  which is the same "what is stored becomes what was shown" rule that already
+  bounded the other end. `App::SCROLL_TOP` names the sentinel.
+
+**What this pass says about the round's own method.** Rule 6 says name the class,
+then grep for siblings. The twenty-sixth named the class correctly, in a doc
+comment, and did not do the grep -- and the two siblings were four lines apart in
+the same file it had just edited. A class named but not swept is a class still
+alive. Both fixes here are structural for that reason: a gate that rejects the
+shape, and a deleted second derivation, rather than two more correct sites.
 
 #### Twenty-sixth pass -- `ui::draw`'s composition. One more (46 in total)
 

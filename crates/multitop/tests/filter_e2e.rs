@@ -388,10 +388,11 @@ fn number_keys_still_select_by_position_when_nothing_is_filtered() {
 /// moved one line towards the newest. `End` used to reset every pane in the
 /// grid, so returning one pane to the bottom threw away where the user had
 /// scrolled all the others to. And the offset was bounded in two places by
-/// different rules: `App::scroll_up` clamps to `pane_len - 1` because it cannot
-/// know a pane's height, while the view can only go back `pane_len - height` --
+/// different rules: `App::scroll_up` clamped to `pane_len - 1` because it could
+/// not know a pane's height, while the view can only go back `total - height` --
 /// so an offset could sit a whole pane-height past anything the view could use,
-/// and the next dozen presses the other way moved nothing at all.
+/// and the next dozen presses the other way moved nothing at all. `App` no
+/// longer clamps at all; `ui::draw` writes back the offset it used.
 #[test]
 fn home_and_end_move_the_selected_pane_to_its_ends() {
     let _keychain = isolate_keychain();

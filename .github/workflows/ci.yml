@@ -35,6 +35,8 @@ jobs:
           python3 tools/check_key_hints.py
           python3 tools/check_keychain_isolation.py --self-test
           python3 tools/check_keychain_isolation.py
+          python3 tools/check_row0_owner.py --self-test
+          python3 tools/check_row0_owner.py
 
       - name: Formatting
         run: cargo fmt --all -- --check

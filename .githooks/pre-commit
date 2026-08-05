@@ -73,6 +73,17 @@ if ! python3 tools/check_keychain_isolation.py >"$log" 2>&1; then
 fi
 ok "tests cannot reach the real keychain"
 
+info "checking row 0 has one owner"
+if ! python3 tools/check_row0_owner.py --self-test >"$log" 2>&1; then
+    cat "$log" >&2
+    die "the row0-owner checker's own self-test failed -- it cannot be trusted"
+fi
+if ! python3 tools/check_row0_owner.py >"$log" 2>&1; then
+    cat "$log" >&2
+    die "a pane's view is assigned outside panel.rs — use show_body or show_frame"
+fi
+ok "row 0 belongs to the banner alone"
+
 info "checking formatting"
 if ! cargo fmt --all -- --check >"$log" 2>&1; then
     cat "$log" >&2
