@@ -198,6 +198,18 @@ def step_release_notes(tag: str) -> str:
 
     notes = f"## What's new\n\n{commits}\n"
     if detail:
+        # Bounded. GitHub rejects a body over 125000 characters, and this
+        # concatenated every commit body -- so a release with many
+        # well-documented commits failed *after* the tag was already pushed,
+        # leaving the repo tagged and unreleased. That is the exact state
+        # RELEASE.md says this script exists to prevent.
+        budget = 100_000 - len(notes)
+        if len(detail) > budget:
+            cut = detail[:budget].rsplit("\n", 1)[0]
+            detail = (
+                f"{cut}\n\n_Truncated. Full detail: "
+                f"`git log {prev}..{tag}`._"
+            )
         notes += f"\n### Details\n\n{detail}\n"
 
     return notes
