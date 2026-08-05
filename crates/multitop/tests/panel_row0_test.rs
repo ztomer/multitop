@@ -313,3 +313,85 @@ fn a_notice_survives_every_view_switch() {
         );
     }
 }
+
+/// Notices must never take the pane away from what they are about.
+///
+/// `MAX_NOTES` bounds how many notices a panel *keeps*, and its comment says the
+/// bound exists so a repeated one "cannot crowd out the pane it is drawn in".
+/// It could not do that: a pane's cost is in wrapped lines, and at forty columns
+/// one notice is four of them. Four notices are sixteen rows; the pane is eleven.
+/// Rendered at 40x12 over a live monitor frame, not one line of the machine was
+/// on screen -- no cpu, no memory, no load, no uptime.
+///
+/// The rule asserted here is the one `pane_window` already applies to the pinned
+/// block: half the pane at most, and say what was held back rather than dropping
+/// it silently.
+#[test]
+fn notices_never_take_the_pane_from_the_host() {
+    let _keychain = isolate_keychain();
+    let mut app = multitop::app::App::new(vec![multitop::config::Server {
+        host: "web-01".to_string(),
+        port: 22,
+        user: "admin".to_string(),
+        upgrade_cmd: None,
+    }]);
+    app.panels[0].show_frame(vec![
+        String::new(),
+        " cpu   12%  mem  41%".to_string(),
+        " load  0.4 0.3 0.2".to_string(),
+        " disk  61% of 500G".to_string(),
+        " up    31 days".to_string(),
+    ]);
+    for n in 0..4 {
+        app.panels[0].note(format!(
+            "notice {n}: could not save upgrade state (Permission denied (os error 13)) \
+             -- an interrupted run will not be detectable after a restart."
+        ));
+    }
+
+    let mut term = ratatui::Terminal::new(ratatui::backend::TestBackend::new(40, 12)).unwrap();
+    term.draw(|f| multitop::ui::draw(f, &mut app)).unwrap();
+    let buf = term.backend().buffer();
+    let cols = buf.area.width as usize;
+    let rows: Vec<String> = buf
+        .content()
+        .iter()
+        .map(ratatui::buffer::Cell::symbol)
+        .collect::<Vec<_>>()
+        .chunks(cols)
+        .map(<[&str]>::concat)
+        .collect();
+    let screen = rows.join("\n");
+
+    assert!(
+        rows.iter().any(|r| r.contains("cpu")),
+        "the host the notices are about must still be on screen:\n{screen}"
+    );
+    assert!(
+        rows.iter().any(|r| r.contains("notice 3")),
+        "the newest notice must be on screen:\n{screen}"
+    );
+    assert!(
+        rows.iter().any(|r| r.contains("earlier notices above")),
+        "notices held back must be counted, not dropped in silence:\n{screen}"
+    );
+
+    // And held back is not thrown away: the twenty-seventh pass made every
+    // notice reachable by `Home`, and this pass's bound does not get to undo it.
+    app.scroll_to_top();
+    term.draw(|f| multitop::ui::draw(f, &mut app)).unwrap();
+    let buf = term.backend().buffer();
+    let rows: Vec<String> = buf
+        .content()
+        .iter()
+        .map(ratatui::buffer::Cell::symbol)
+        .collect::<Vec<_>>()
+        .chunks(cols)
+        .map(<[&str]>::concat)
+        .collect();
+    assert!(
+        rows.iter().any(|r| r.contains("notice 0")),
+        "Home must still reach the oldest notice:\n{}",
+        rows.join("\n")
+    );
+}

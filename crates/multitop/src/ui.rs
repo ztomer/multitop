@@ -111,7 +111,14 @@ fn pane_window(
         let eff = scroll_offset.min(max_offset);
         let end = total.saturating_sub(eff);
         let start = end.saturating_sub(height);
-        (0, start, end, 0)
+        // `eff`, not 0. This branch scrolls the window by `eff` and used to
+        // report no scroll at all -- and `draw` writes the reported value back
+        // as the pane's offset, so the frame that scrolled also reset itself.
+        // Reachable only with no pinned block, which today means a one-row pane,
+        // where the one row is the banner and nothing was visibly wrong. It is
+        // still one quantity computed and a different one returned, in the
+        // function this round has now changed twice.
+        (0, start, end, eff)
     }
 }
 
@@ -221,6 +228,76 @@ pub fn visible_upgrade(
     (out, badge)
 }
 
+/// The pane's notices, split into what it draws at rest and what it pushes
+/// above the content.
+///
+/// # Why a pane's notices need a bound at all
+///
+/// `MAX_NOTES` bounds how many notices a panel *keeps*, and its comment says the
+/// bound exists so a repeated one "cannot crowd out the pane it is drawn in".
+/// It could not do that. A pane's cost is in **wrapped lines**, and at forty
+/// columns one notice is four of them -- so four notices are sixteen rows, and
+/// in an eleven-row pane they were the entire pane. Rendered at 40x12 over a
+/// live monitor frame, not one line of the machine was on screen: no cpu, no
+/// memory, no load. A bound stated in one quantity to govern a different one,
+/// and converting between them needs the width, which `Panel` does not have.
+///
+/// # Why it is a split and not a truncation
+///
+/// Held-back notices go *above* the pane's content rather than being dropped,
+/// so `Home` still reaches every one of them -- that was the twenty-seventh
+/// pass's finding and it does not get to be undone by this one. What the two
+/// rules together give is: the newest notices and the content are both on screen
+/// at rest, a line says how many are above, and scrolling back finds them.
+///
+/// The share is half the pane, which is what `pane_window` already allows the
+/// pinned block, and for the same reason: the thing being announced must not
+/// displace the thing it is about. Whole notices only -- a notice cut in half is
+/// the defect the wrapping exists to prevent.
+fn notice_split(notes: &[String], target_cols: usize, height: usize) -> (Vec<String>, Vec<String>) {
+    if notes.is_empty() || target_cols == 0 {
+        return (Vec::new(), Vec::new());
+    }
+    let wrapped: Vec<Vec<String>> = notes
+        .iter()
+        .map(|note| crate::layout::wrap_words(note, target_cols))
+        .collect();
+
+    // Newest first, whole blocks only, until the next one would not fit.
+    let fit = |budget: usize| -> usize {
+        let mut used = 0;
+        let mut kept = 0;
+        for block in wrapped.iter().rev() {
+            if used + block.len() > budget {
+                break;
+            }
+            used += block.len();
+            kept += 1;
+        }
+        kept
+    };
+
+    let budget = (height / 2).max(1);
+    if fit(budget) == wrapped.len() {
+        return (Vec::new(), wrapped.into_iter().flatten().collect());
+    }
+    // Something is going above, so a row of the budget goes to saying so.
+    let kept = fit(budget.saturating_sub(1));
+    let split = wrapped.len() - kept;
+    let hidden = split;
+    let mut shown = crate::layout::wrap_words(
+        &format!(
+            "\u{2026} {hidden} earlier notice{} above",
+            if hidden == 1 { "" } else { "s" }
+        ),
+        target_cols,
+    );
+    let mut iter = wrapped.into_iter();
+    let held: Vec<String> = iter.by_ref().take(split).flatten().collect();
+    shown.extend(iter.flatten());
+    (held, shown)
+}
+
 /// Rows an ordinary pane pins: row 0, which the host banner owns.
 ///
 /// This was `Panel::pinned_lines`, a field stamped on every view switch. It was
@@ -252,36 +329,38 @@ pub fn pane_lines(
     let Some(p) = app.panels.get(panel) else {
         return (Vec::new(), 0);
     };
-    // Wrapped here because here is the only place that knows the pane's width.
-    // A pane hard-truncates, so a notice appended to `view` lost its own ending
-    // -- at 40 columns, four panels wide, "config: upgrade_history_lines = 0
-    // would leave the Upgrade pane with nothing to show; using 50 instead."
-    // reached the operator as "...= 0 woul".
+    // Composed here because here is the only place that knows the pane's width
+    // *and* its height -- see `notice_split` for why both are needed. One place
+    // for both panes; it was the ordinary pane's business alone, and the Upgrade
+    // pane consequently drew no notices at all.
     //
-    // One place for both panes. It was the ordinary pane's business alone, and
-    // the Upgrade pane consequently drew no notices at all.
-    let notes: Vec<String> = p
-        .notes
-        .iter()
-        .flat_map(|note| crate::layout::wrap_words(note, target_cols))
-        .collect();
+    // `held` goes above the pane's content, where scrolling back reaches it;
+    // `shown` goes below, where it is on screen at rest.
+    let (held, shown) = notice_split(&p.notes, target_cols, height);
     if p.mode == crate::app::Mode::Upgrade {
-        let header = app.upgrade_pane_header(panel);
+        let mut header = app.upgrade_pane_header(panel);
+        header.extend(held);
         visible_upgrade(
             &header,
             &p.last_upgrade,
-            &notes,
+            &shown,
             height,
             target_cols,
             scroll_offset,
         )
-    } else if notes.is_empty() {
+    } else if held.is_empty() && shown.is_empty() {
         visible(&p.view, height, ORDINARY_PINNED, target_cols, scroll_offset)
     } else {
         // The clone is paid only when a notice exists, which is rare and never
         // on the streaming path.
-        let mut body = p.view.clone();
-        body.extend(notes);
+        let mut body = Vec::with_capacity(p.view.len() + held.len() + shown.len());
+        // Row 0 is the banner's and must stay row 0, so the held block goes
+        // *after* it rather than at the front.
+        let mut view = p.view.iter().cloned();
+        body.extend(view.next());
+        body.extend(held);
+        body.extend(view);
+        body.extend(shown);
         visible(&body, height, ORDINARY_PINNED, target_cols, scroll_offset)
     }
 }

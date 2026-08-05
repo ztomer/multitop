@@ -43,7 +43,7 @@ server" is not, however it is drawn.
 | Vault + credential path | 7 rounds (1, 2, 3, 4, 4b, 5, 6), all 2026-08-01 | **On a finding.** Round 6 found that a release binary could silently use the mock keystore, and the review stopped there. The next day `29bdbb3` -- rotating the master password could destroy the vault -- turned up during feature work. The subsystem was still producing defects when review stopped looking. |
 | Agent parsing / protocol | 6 fuzz targets, 114M iterations, 0 crashes; plus targeted hardening (bogus chunk size, >64 KiB payload desync, null `ifa_addr`) | Mechanized, still running when asked. The only area no user-reported defect has come from. |
 | Configuration panel | Keystroke-through-render e2e plus a bounded sweep of every key sequence | Not a review round; a harness that closes one class. |
-| Terminal / process lifecycle | Round C, 2026-08-04, twenty-eight passes so far, with `tests/event_loop_e2e.rs` built for it | **On findings, twenty-six times out of twenty-eight.** 7, 3, 1, 2, 3, 1, 1, 4, 1, 2, 3, 2, 2, 2, 1, 1, 1, 2, 2, 2, 0, 1, 1, 1, 0, 1, 2, 1. The twenty-fifth fixed the twenty-fourth's finding rather than opening new ground, so it adds no count of its own. The one zero is the twenty-first, and the twenty-second -- finishing the area the twenty-first left half-open -- found something immediately. A partial pass coming back empty is not the bar, and this is the evidence. What is running out is unexamined surface, not defects. Two classes account for most of them: *one quantity derived in two places by different rules*, and class H, *a failure reported as something else* -- the eighth pass was class H four times out of four. The twenty-seventh re-covered `ui::draw`, as the twenty-sixth said to, and found two more -- both siblings of what the twenty-sixth had just fixed, four lines away in the file it had just edited. **A class named but not swept is a class still alive**, and that is now the round's sharpest lesson about its own method. The twenty-eighth did that and found a fourth site of the same shape, plus the `pinned_lines` copy, which turned out to be harmless and was deleted anyway. **The next pass re-covers `pane_lines` and `visible_upgrade`, which the twenty-eighth rewrote** -- three sources and a straddling window is the most intricate arithmetic in the renderer, and by this round's record one pass over new code has never been enough. |
+| Terminal / process lifecycle | Round C, 2026-08-04, twenty-nine passes so far, with `tests/event_loop_e2e.rs` built for it | **On findings, twenty-seven times out of twenty-nine.** 7, 3, 1, 2, 3, 1, 1, 4, 1, 2, 3, 2, 2, 2, 1, 1, 1, 2, 2, 2, 0, 1, 1, 1, 0, 1, 2, 1, 1. The twenty-fifth fixed the twenty-fourth's finding rather than opening new ground, so it adds no count of its own. The one zero is the twenty-first, and the twenty-second -- finishing the area the twenty-first left half-open -- found something immediately. A partial pass coming back empty is not the bar, and this is the evidence. What is running out is unexamined surface, not defects. Two classes account for most of them: *one quantity derived in two places by different rules*, and class H, *a failure reported as something else* -- the eighth pass was class H four times out of four. The twenty-seventh re-covered `ui::draw`, as the twenty-sixth said to, and found two more -- both siblings of what the twenty-sixth had just fixed, four lines away in the file it had just edited. **A class named but not swept is a class still alive**, and that is now the round's sharpest lesson about its own method. The twenty-eighth did that and found a fourth site of the same shape, plus the `pinned_lines` copy, which turned out to be harmless and was deleted anyway. The twenty-ninth did that, built a 4,608-case differential test for the window, and found the notice bound counting the wrong quantity. **The next pass re-covers `notice_split` and the composition around it** -- new code, one pass old, and it is the third consecutive pass whose finding was in what the previous pass had just written. |
 | SSH + upgrade transport | Covered by Round C where the lifecycle reaches it -- child process groups, the two output streams, the session handshake, the packet-decode boundary, and (eighth pass) every `Err` path out of `next_packet` plus the agent-replacement repair | Partial. `read_handshake`, `interpret_packet`, `framing_lost` and `describe_failure` have seams and tests; the bootstrap retry was read and found correct; the lock wrappers were read in the twelfth pass and `upload_agent`'s framing in the thirteenth. The bootstrap quoting and the `-tt` pty path were read in the fourteenth. No named part of the transport is unreviewed now. |
 
 Every round that ran found something. That is evidence the rounds were
@@ -520,7 +520,7 @@ earlier passes only brushed, and the reconnect loop's repair path. Four more
   "agent replaced" -- the only line in that sequence that is not true, about a
   host that was up and had just been talking.
 
-**The counts so far are 7, 3, 1, 2, 3, 1, 1, 4, 1, 2, 3, 2, 2, 2, 1, 1, 1, 2, 2, 2, 0, 1, 1, 1, 0, 1, 2, 1** -- and they are not
+**The counts so far are 7, 3, 1, 2, 3, 1, 1, 4, 1, 2, 3, 2, 2, 2, 1, 1, 1, 2, 2, 2, 0, 1, 1, 1, 0, 1, 2, 1, 1** -- and they are not
 converging. Every pass so far went back up the moment it opened a part of the
 loop the earlier ones had not looked at, which is the argument against reading
 a falling count as progress toward zero. What is running out is *unexamined
@@ -796,6 +796,56 @@ run the panel on the work you are pleased with.
   through `show_frame`, and `monitor-with-notice` renders one at all four sizes.
   Confirmed by reading the frame rather than the assertion -- the notice appears
   in both panes at 80x24.
+
+#### Twenty-ninth pass -- the three-source window, re-read. One more (50 in total)
+
+The pass began by building the instrument rather than reading the code: a
+differential test that runs `visible_upgrade` against `visible` over the
+materialised concatenation, for every shape of header, ring and notice block up
+to five lines each, every height to seven and every offset to nine -- 4,608
+cases. The borrowed window and the naive one must agree exactly, badge included.
+It passed, and it caught a deliberate `t_lo` break, so the arithmetic the
+twenty-eighth wrote is now pinned rather than believed.
+
+- *Four notices took the whole pane away from the machine they were about.*
+  `MAX_NOTES` bounds how many notices a panel keeps, and its comment states the
+  reason: so a repeated one "cannot crowd out the pane it is drawn in". It never
+  could enforce that. **A pane's cost is in wrapped lines, and the bound counts
+  notices** -- at forty columns one notice is four rows, so four notices are
+  sixteen, and the pane is eleven. Rendered at 40x12 over a live monitor frame,
+  not one line of the host was on screen: no cpu, no memory, no load, no uptime.
+  The same class again -- a bound stated in one quantity to govern another, with
+  a conversion that needs the width `Panel` does not have.
+
+  The bound lives in `notice_split` now, where the width and the height are both
+  known. The share is half the pane, which is exactly what `pane_window` already
+  allows the pinned block and for the same reason: the thing being announced must
+  not displace the thing it is about.
+
+  **And it is a split, not a truncation, because the twenty-seventh pass's fix
+  does not get to be undone by this one.** The first attempt capped the block and
+  dropped the rest -- which made `home_reaches_the_oldest_line_when_the_pane_carries_notices`
+  go red, correctly: the twenty-seventh had just made every notice reachable by
+  `Home`. Two fixes in genuine conflict, and the resolution is that held-back
+  notices go *above* the pane's content rather than away. At rest the pane shows
+  its content, the newest notices, and a row saying how many are above; `Home`
+  still reaches all of them. The regression test asserts both halves.
+
+**Also corrected, without counting it:** `pane_window`'s second branch scrolled
+its window by `eff` and returned 0 as the badge -- and since the twenty-seventh
+made `draw`'s write-back the only clamp, the frame that scrolled also reset
+itself. Reachable only with no pinned block, which today means a one-row pane
+whose one row is the banner, so nothing on screen was ever wrong. It is still one
+quantity computed and a different one returned, in the function this round has
+now changed twice.
+
+**A negative result worth recording.** The first break-proof attempted on the
+differential test -- removing the `.min(body_end)` clamp on the ring's upper
+bound -- did not go red, because `RingLines::slice` clamps internally. The clamp
+is defensive rather than load-bearing, and a break that a test cannot see is a
+break that proves nothing: the second attempt, on `t_lo`, went red and drew two
+rows into a one-row pane. Rule 2 is about proving the *test*, and an unfalsifiable
+break does not do that.
 
 #### Twenty-eighth pass -- the scroll and notice paths this round just changed. One more (49 in total)
 

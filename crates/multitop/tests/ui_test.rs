@@ -256,3 +256,51 @@ fn the_keybar_keeps_the_way_out_when_it_keeps_nothing_else() {
     .collect();
     assert!(text.contains('Q'), "quit must never be shed: {text:?}");
 }
+
+/// The three-source window must equal the materialised one, everywhere.
+///
+/// `visible_upgrade` composes a pane from a pinned header, a borrowed `RingLines`
+/// body and a trailing block of notices, and windows across all three without
+/// ever building the concatenation -- that is the whole point, because the ring
+/// holds up to `upgrade_history_lines` lines and this runs every frame.
+///
+/// Index arithmetic that spans three sources and may straddle either boundary is
+/// the most intricate thing in the renderer, and the twenty-seventh pass had just
+/// finished proving that a *second* derivation of one quantity always drifts. So
+/// this asserts the two against each other rather than against a hand-written
+/// expectation: for every shape and every offset, the borrowed window and
+/// `visible` over the materialised concatenation must agree exactly, including
+/// the scroll badge.
+#[test]
+fn the_borrowed_window_matches_the_materialised_one() {
+    for h_len in 0..5usize {
+        for b_len in 0..5usize {
+            for t_len in 0..5usize {
+                let header: Vec<String> = (0..h_len).map(|i| format!("H{i}")).collect();
+                let body: Vec<String> = (0..b_len).map(|i| format!("B{i}")).collect();
+                let tail: Vec<String> = (0..t_len).map(|i| format!("T{i}")).collect();
+                let ring = multitop::panel::RingLines::from(body.clone());
+                let mut whole = header.clone();
+                whole.extend(body.clone());
+                whole.extend(tail.clone());
+
+                for height in 0..8usize {
+                    for offset in 0..9usize {
+                        let got =
+                            multitop::ui::visible_upgrade(&header, &ring, &tail, height, 0, offset);
+                        let want = multitop::ui::visible(&whole, height, h_len, 0, offset);
+                        assert_eq!(
+                            got, want,
+                            "h={h_len} b={b_len} t={t_len} height={height} offset={offset}"
+                        );
+                        assert!(
+                            got.0.len() <= height.max(1) || height == 0,
+                            "a pane drew {} rows into {height}: h={h_len} b={b_len} t={t_len}",
+                            got.0.len()
+                        );
+                    }
+                }
+            }
+        }
+    }
+}
