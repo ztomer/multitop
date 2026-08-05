@@ -43,7 +43,7 @@ server" is not, however it is drawn.
 | Vault + credential path | 7 rounds (1, 2, 3, 4, 4b, 5, 6), all 2026-08-01 | **On a finding.** Round 6 found that a release binary could silently use the mock keystore, and the review stopped there. The next day `29bdbb3` -- rotating the master password could destroy the vault -- turned up during feature work. The subsystem was still producing defects when review stopped looking. |
 | Agent parsing / protocol | 6 fuzz targets, 114M iterations, 0 crashes; plus targeted hardening (bogus chunk size, >64 KiB payload desync, null `ifa_addr`) | Mechanized, still running when asked. The only area no user-reported defect has come from. |
 | Configuration panel | Keystroke-through-render e2e plus a bounded sweep of every key sequence | Not a review round; a harness that closes one class. |
-| Terminal / process lifecycle | Round C, 2026-08-04, twenty-four passes so far, with `tests/event_loop_e2e.rs` built for it | **On findings, twenty-three times out of twenty-four.** 7, 3, 1, 2, 3, 1, 1, 4, 1, 2, 3, 2, 2, 2, 1, 1, 1, 2, 2, 2, 0, 1, 1, 1. The twenty-fourth's is measured and recorded but **not fixed** -- see below. The one zero is the twenty-first, and the twenty-second -- finishing the area the twenty-first left half-open -- found something immediately. A partial pass coming back empty is not the bar, and this is the evidence. What is running out is unexamined surface, not defects. Two classes account for most of them: *one quantity derived in two places by different rules*, and class H, *a failure reported as something else* -- the eighth pass was class H four times out of four. **The next pass starts with the vault modals** -- measured by the twenty-fourth, deliberately left unfixed, and needing a design call rather than a patch. |
+| Terminal / process lifecycle | Round C, 2026-08-04, twenty-five passes so far, with `tests/event_loop_e2e.rs` built for it | **On findings, twenty-three times out of twenty-five.** 7, 3, 1, 2, 3, 1, 1, 4, 1, 2, 3, 2, 2, 2, 1, 1, 1, 2, 2, 2, 0, 1, 1, 1. The twenty-fifth fixed the twenty-fourth's finding rather than opening new ground, so it adds no count of its own. The one zero is the twenty-first, and the twenty-second -- finishing the area the twenty-first left half-open -- found something immediately. A partial pass coming back empty is not the bar, and this is the evidence. What is running out is unexamined surface, not defects. Two classes account for most of them: *one quantity derived in two places by different rules*, and class H, *a failure reported as something else* -- the eighth pass was class H four times out of four. **The next pass starts on `ui::draw`'s remaining surface** -- `draw_no_matches` and the keybar assembly have been driven, but `draw` itself is nine hundred lines and only the paths a finding led to have been read. |
 | SSH + upgrade transport | Covered by Round C where the lifecycle reaches it -- child process groups, the two output streams, the session handshake, the packet-decode boundary, and (eighth pass) every `Err` path out of `next_packet` plus the agent-replacement repair | Partial. `read_handshake`, `interpret_packet`, `framing_lost` and `describe_failure` have seams and tests; the bootstrap retry was read and found correct; the lock wrappers were read in the twelfth pass and `upload_agent`'s framing in the thirteenth. The bootstrap quoting and the `-tt` pty path were read in the fourteenth. No named part of the transport is unreviewed now. |
 
 Every round that ran found something. That is evidence the rounds were
@@ -797,7 +797,38 @@ run the panel on the work you are pleased with.
   Confirmed by reading the frame rather than the assertion -- the notice appears
   in both panes at 80x24.
 
-#### Twenty-fourth pass -- modals and the no-matches screen. One found, **deliberately not fixed** (45 in total)
+#### Twenty-fifth pass -- the vault modals, fixed. (45 in total; no new finding)
+
+The twenty-fourth measured this and stopped, because wrapping alone converted
+horizontal clipping into vertical loss and the honest answer was a design call.
+Here it is: **a password prompt cannot become a keybar row -- it needs a field
+-- so it does the other half of Kare's ruling instead. It sheds.**
+
+The parts are ranked, exactly as `fit_row` ranks a keybar's chunks:
+
+1. the explanation of what the password is for -- useful, never essential
+2. the blank lines that space the block out -- decoration
+
+The headline, the field, the error and the footer naming both keys are never
+shed. An operator who cannot read what the password protects can still act; one
+who cannot see `Esc` is stuck. The box height is derived from the wrapped
+content at the width it will actually be drawn at, rather than the literal whose
+own comment recorded it had already been bumped once for this.
+
+At 40x12 the create prompt now sheds its explanation and keeps headline, field,
+error and footer; at 80x24 everything is present and nothing is clipped. Pinned
+by a test that drives `ui::draw` for both prompts, with and without an error, at
+four sizes, and asserts the footer's `Enter`, `Esc` and `cancel` all reach the
+screen.
+
+**One process note worth keeping.** The first version of that test failed for a
+reason that was not the code: `begin_vault_creation` refuses when another prompt
+could be up, so the modal was never drawn and the assertion read as "the footer
+lost Enter". The harness has to reach the state the product reaches -- the same
+lesson as the eleventh pass's `HostUpdate::default()` and the sixteenth's
+`upgrade-running` screen, for the third time.
+
+#### Twenty-fourth pass -- modals and the no-matches screen. One found, **fixed by the twenty-fifth** (45 in total)
 
 - ***The vault modals clip their own text, including the footer that names the
   way out.*** At 40x12:

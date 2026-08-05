@@ -246,3 +246,69 @@ fn a_long_filter_query_cannot_push_the_way_out_off_the_screen() {
         }
     }
 }
+
+/// A modal must never amputate its own way out, at any size.
+///
+/// The vault prompts clipped at 40 columns -- "Press Enter to unlock, Esc to
+/// canc" -- which is the defect the detection record lists as user-reported,
+/// fixed for the upgrade confirmation by Kare's ruling and left in these boxes.
+/// A password prompt cannot become a keybar row, so it sheds instead: the
+/// explanation goes first, then the spacing blanks, and the headline, the field
+/// and the footer never do.
+#[test]
+fn a_vault_prompt_keeps_its_way_out_at_every_size() {
+    use ratatui::backend::TestBackend;
+    use ratatui::Terminal;
+
+    let _keychain = isolate_keychain();
+    for creating in [false, true] {
+        for with_error in [false, true] {
+            for (w, h) in [(40u16, 12u16), (56, 14), (80, 24), (200, 50)] {
+                let mut app = multitop::app::App::new(vec![multitop::config::Server {
+                    host: "web-01".into(),
+                    port: 22,
+                    user: "admin".into(),
+                    upgrade_cmd: None,
+                }]);
+                if creating {
+                    // Set directly, as the render harness does: the modal is
+                    // drawn from this state, and `begin_vault_creation` refuses
+                    // when another prompt could be up.
+                    app.vault_state = multitop::app::VaultState::Creating {
+                        error: with_error.then(|| "Master password cannot be empty".to_string()),
+                        in_flight: false,
+                    };
+                } else {
+                    app.set_show_vault_password_prompt(true);
+                    if with_error {
+                        app.set_vault_password_error(Some("Wrong password".into()));
+                    }
+                }
+
+                let mut term = Terminal::new(TestBackend::new(w, h)).unwrap();
+                term.draw(|f| multitop::ui::draw(f, &mut app)).unwrap();
+                let buf = term.backend().buffer().clone();
+                let screen: String = (0..h)
+                    .map(|y| {
+                        (0..w)
+                            .map(|x| buf[(x, y)].symbol().to_string())
+                            .collect::<String>()
+                    })
+                    .collect::<Vec<_>>()
+                    .join("\n");
+
+                let what = format!("creating={creating} error={with_error} at {w}x{h}");
+                for needed in ["Enter", "Esc", "cancel"] {
+                    assert!(
+                        screen.contains(needed),
+                        "{what}: the footer lost {needed:?}:\n{screen}"
+                    );
+                }
+                assert!(
+                    screen.contains("master password"),
+                    "{what}: the headline is gone:\n{screen}"
+                );
+            }
+        }
+    }
+}
