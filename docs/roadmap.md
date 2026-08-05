@@ -49,6 +49,87 @@ server" is not, however it is drawn.
 Every round that ran found something. That is evidence the rounds were
 productive *and* evidence they stopped too early.
 
+### What has never been looked at  (audited 2026-08-04, after Round C's 31st pass)
+
+The table above says where review *went*. This says where it has not, because
+after thirty-one passes the round's own binding constraint is unexamined surface
+rather than defect density, and the next session should not have to rediscover
+where that surface is.
+
+**Method, and its limits.** Every `.rs` file outside `tests/` was counted against
+this document by filename *and* by distinctive identifier (`sample_procs`,
+`meter_bar`, `center_header`, `render_layout`, `human_bytes`, …), because several
+reviewed files are only ever described here by function name and a filename count
+alone undercounts them. The ambiguous ones were checked by hand. Re-run it before
+trusting it — it is a proxy, not a ledger.
+
+#### 1. The agent's own internals -- the largest dark area
+
+About 4,300 lines in `crates/agent/src/` that run **on the remote host** and
+produce every frame the client draws. Round C has been entirely client-side.
+
+| Never reviewed | What it does |
+|---|---|
+| `sys.rs`, `proc.rs`, `proc_sys.rs`, `monitor.rs` | reads `/proc`, computes CPU, memory, load |
+| `docker.rs`, `docker_cli.rs`, `docker_render.rs` | shells out to docker, parses and lays out |
+| `render.rs`, `render_layout.rs`, `fmt.rs`, `color.rs` | builds the frame, meters, column widths |
+| `fetch.rs` | the one-shot system-info snapshot |
+
+The table above credits "Agent parsing / protocol -- 6 fuzz targets, 114M
+iterations". That covered the **decode boundary**. It did not touch the sampling
+or the rendering, and this document has zero occurrences of `sample_procs`,
+`read_proc`, `meter_bar`, `human_bytes`, `center_header` or `render_layout`.
+
+**Why it matters more than the line count suggests.** Every one of Round C's 53
+findings is about how the client *arranges* lines. Nothing has ever checked
+whether the numbers in those lines are right. A CPU percentage taken from the
+wrong delta, a memory figure double-counting cache, a container name truncated
+before it becomes distinguishable -- **every test written in this round would
+pass.** The one crossover already on record is suggestive: `center_header` is
+named in `ui.rs`'s own comments as the helper whose fullwidth mapping caused a
+client-side defect, and the agent-side copy of that problem was never read.
+
+This is a **different subject** from Round C's, not a continuation of it. It
+wants its own round with its own harness -- probably a fixture-driven one that
+feeds known `/proc` contents in and asserts the rendered numbers, since there is
+no way to check arithmetic through a screenshot.
+
+#### 2. The vault crate -- covered, and stopped on a finding
+
+Seven rounds, all 2026-08-01, and the table records how they ended: Round 6 found
+that a release binary could silently use the mock keystore and review stopped
+there; the next day `29bdbb3` -- rotating the master password could destroy the
+vault -- turned up during feature work. **It has not been re-covered since.** By
+this document's own thesis it is the highest-risk area in the repository: it was
+still producing defects when someone decided it was done.
+
+#### 3. Client-side leftovers
+
+- `main.rs`'s **startup path**: `parse_cli`, `require_ssh`, `resolve_servers`.
+  Terminal setup and teardown *are* covered (raw mode, the alternate screen and
+  the panic hook all appear in this log); argument and server resolution are not.
+- `fetch_render.rs`, `render_payload.rs` -- the client-side rendering of the
+  fetch and docker payloads.
+- `run.rs`'s event loop -- unread since the eighteenth pass, and the path every
+  renderer change is reached through. Round C's thirty-second pass is on it.
+
+#### 4. A process gap
+
+Coverage is **78.00%** of lines with **no CI gate**. `make coverage-check` has an
+80% threshold that nothing enforces. Raising it to a CI job is an open decision
+left to the owner, recorded here so it stops being rediscovered.
+
+#### Recommended order for the next session
+
+1. **Finish Round C** (`run.rs`'s event loop, then a pass that covers the same
+   ground and finds nothing). Starting a new subject mid-round is exactly the
+   "stopped too early" failure this document is built around.
+2. **A vault round.** Highest risk by evidence, and the one area where a defect
+   destroys user data rather than misdrawing it.
+3. **An agent-internals round**, with a fixture harness for the arithmetic.
+   Largest dark area, and the one where a defect is invisible to every test that
+   exists today.
+
 ### The keychain probe, and what it is for  (2026-08-04)
 
 The one procedure that answers "can the suite raise a credential dialog"
