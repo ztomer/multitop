@@ -283,9 +283,8 @@ pub fn header(status: &Status, pal: &Palette, now: u64, width: usize) -> Vec<Str
     if status.server.upgrade_cmd.is_some() {
         let cred = match status.credential {
             Credential::Stored => format!("{}password stored{}", pal.meter_low(), pal.reset),
-            Credential::Session => {
-                format!("{}password set for this session{}", pal.reset, pal.reset)
-            }
+            // "password" is the `Sudo` row: saying it again cost the ending.
+            Credential::Session => format!("{}set for this session{}", pal.reset, pal.reset),
             Credential::Missing => {
                 format!(
                     "{}will prompt \u{b7} {} to save{}",
@@ -296,16 +295,13 @@ pub fn header(status: &Status, pal: &Palette, now: u64, width: usize) -> Vec<Str
             }
             Credential::MissingNoVault => {
                 format!(
-                    "{}will prompt \u{b7} no vault set up{}",
+                    "{}will prompt \u{b7} no vault{}",
                     pal.meter_high(),
                     pal.reset
                 )
             }
             Credential::VaultLocked => {
-                format!(
-                    "{}from the vault \u{b7} unlocks on run{}",
-                    pal.reset, pal.reset
-                )
+                format!("{}vault \u{b7} unlocks on run{}", pal.reset, pal.reset)
             }
         };
         out.push(format!("{}  {cred}", label(pal, "Sudo     ")));
@@ -545,5 +541,75 @@ mod tests {
         assert_eq!(fmt_ago(NOW - 2 * 3600, NOW), "2 hours ago");
         assert_eq!(fmt_ago(NOW - DAY, NOW), "1 day ago");
         assert_eq!(fmt_ago(NOW - 5 * DAY, NOW), "5 days ago");
+    }
+}
+
+#[cfg(test)]
+mod header_width_tests {
+    #![allow(clippy::unwrap_used, clippy::panic)]
+
+    use super::{header, Credential, Status};
+    use crate::config::Server;
+    use crate::state::HostUpdate;
+
+    /// The widest pane a host actually gets in the ordinary grid.
+    ///
+    /// At 40 columns the grid is one column wide and `ui::draw` leaves 38 cells
+    /// of content after the side margins. Four panels halve that again; this is
+    /// the generous case, and three of the five credential states did not fit
+    /// even here.
+    const PANE: usize = 38;
+
+    fn visible_width(line: &str) -> usize {
+        multitop_agent::color::strip_ansi(line).chars().count()
+    }
+
+    /// Every line of the header must fit the pane, for every credential state.
+    ///
+    /// `next_action`'s doc comment states the rule -- "Kept under ~40 visible
+    /// columns per line ... `ui::visible` hard-truncates rather than wrapping,
+    /// so a longer sentence loses exactly the part that tells the user what to
+    /// do" -- and the `next_action` lines obey it. The `Sudo` row, in the same
+    /// header, did not: three of the five states ran to 40, 40 and 42 cells and
+    /// reached the operator as "no vault set", "this sessio" and "unlocks on r".
+    ///
+    /// Asserted over every variant so a sixth cannot be added over-width.
+    #[test]
+    fn every_credential_state_fits_the_pane_it_is_drawn_in() {
+        let server = Server {
+            host: "web-01".into(),
+            port: 22,
+            user: "admin".into(),
+            upgrade_cmd: Some("sudo apt update && sudo apt upgrade -y".into()),
+        };
+        for credential in [
+            Credential::Stored,
+            Credential::Session,
+            Credential::Missing,
+            Credential::VaultLocked,
+            Credential::MissingNoVault,
+        ] {
+            for running in [false, true] {
+                let status = Status {
+                    server: &server,
+                    record: HostUpdate::default(),
+                    credential,
+                    running,
+                };
+                for line in header(&status, &multitop_agent::color::ANSI, 1_800_000_000, PANE) {
+                    let w = visible_width(&line);
+                    // The command row is data, not guidance: it is allowed to be
+                    // clipped, and the separator rule is built to the width.
+                    let plain = multitop_agent::color::strip_ansi(&line);
+                    if plain.contains("Command") || plain.trim_start().starts_with('\u{2500}') {
+                        continue;
+                    }
+                    assert!(
+                        w <= PANE,
+                        "{credential:?} running={running}: {w} cells needs {PANE}: {plain:?}"
+                    );
+                }
+            }
+        }
     }
 }
