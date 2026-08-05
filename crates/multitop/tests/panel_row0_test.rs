@@ -395,3 +395,83 @@ fn notices_never_take_the_pane_from_the_host() {
         rows.join("\n")
     );
 }
+
+/// "N earlier notices above" must be true.
+///
+/// `visible_upgrade` derived its pinned count as `header.len()`, which was right
+/// exactly as long as the header held nothing but pinned content. The
+/// twenty-ninth pass then appended the *held* notices to it -- lines whose whole
+/// purpose is to sit above the content and be reached by scrolling -- and the
+/// clamp pinned them. At 40x31 the pane drew "1 earlier notice above" with that
+/// notice four rows higher, on screen, and gave sixteen of thirty rows to
+/// notices while the live log got six.
+///
+/// The class, for the third pass running: a quantity derived from something that
+/// stopped being the right thing to derive it from. Measuring a slice is a
+/// derivation like any other.
+#[test]
+fn a_held_notice_is_above_the_content_not_on_screen_twice() {
+    let _keychain = isolate_keychain();
+    let mut app = multitop::app::App::new(vec![multitop::config::Server {
+        host: "web-01".to_string(),
+        port: 22,
+        user: "admin".to_string(),
+        upgrade_cmd: Some("apt upgrade".to_string()),
+    }]);
+    for n in 0..4 {
+        app.panels[0].note(format!(
+            "notice {n}: could not save upgrade state (Permission denied (os error 13)) \
+             -- an interrupted run will not be detectable after a restart."
+        ));
+    }
+    app.enter_upgrade_view();
+    for i in 0..30 {
+        app.panels[0].last_upgrade.push(format!("log line {i}"));
+    }
+
+    let mut term = ratatui::Terminal::new(ratatui::backend::TestBackend::new(40, 31)).unwrap();
+    term.draw(|f| multitop::ui::draw(f, &mut app)).unwrap();
+    let buf = term.backend().buffer();
+    let cols = buf.area.width as usize;
+    let rows: Vec<String> = buf
+        .content()
+        .iter()
+        .map(ratatui::buffer::Cell::symbol)
+        .collect::<Vec<_>>()
+        .chunks(cols)
+        .map(<[&str]>::concat)
+        .collect();
+    let screen = rows.join("\n");
+
+    assert!(
+        rows.iter().any(|r| r.contains("earlier notice above")),
+        "the pane must say what it held back:\n{screen}"
+    );
+    assert!(
+        !rows.iter().any(|r| r.contains("notice 0")),
+        "a notice reported as ABOVE the content must not also be on screen:\n{screen}"
+    );
+    assert!(
+        rows.iter().filter(|r| r.contains("log line")).count() >= 8,
+        "the live log is what this pane is for; notices must not take it:\n{screen}"
+    );
+
+    // And "above" has to mean reachable.
+    app.scroll_to_top();
+    term.draw(|f| multitop::ui::draw(f, &mut app)).unwrap();
+    let rows: Vec<String> = term
+        .backend()
+        .buffer()
+        .content()
+        .iter()
+        .map(ratatui::buffer::Cell::symbol)
+        .collect::<Vec<_>>()
+        .chunks(cols)
+        .map(<[&str]>::concat)
+        .collect();
+    assert!(
+        rows.iter().any(|r| r.contains("notice 0")),
+        "Home must reach the notice the pane said was above it:\n{}",
+        rows.join("\n")
+    );
+}

@@ -286,8 +286,9 @@ fn the_borrowed_window_matches_the_materialised_one() {
 
                 for height in 0..8usize {
                     for offset in 0..9usize {
-                        let got =
-                            multitop::ui::visible_upgrade(&header, &ring, &tail, height, 0, offset);
+                        let got = multitop::ui::visible_upgrade(
+                            &header, h_len, &ring, &tail, height, 0, offset,
+                        );
                         let want = multitop::ui::visible(&whole, height, h_len, 0, offset);
                         assert_eq!(
                             got, want,

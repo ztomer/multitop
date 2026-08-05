@@ -43,7 +43,7 @@ server" is not, however it is drawn.
 | Vault + credential path | 7 rounds (1, 2, 3, 4, 4b, 5, 6), all 2026-08-01 | **On a finding.** Round 6 found that a release binary could silently use the mock keystore, and the review stopped there. The next day `29bdbb3` -- rotating the master password could destroy the vault -- turned up during feature work. The subsystem was still producing defects when review stopped looking. |
 | Agent parsing / protocol | 6 fuzz targets, 114M iterations, 0 crashes; plus targeted hardening (bogus chunk size, >64 KiB payload desync, null `ifa_addr`) | Mechanized, still running when asked. The only area no user-reported defect has come from. |
 | Configuration panel | Keystroke-through-render e2e plus a bounded sweep of every key sequence | Not a review round; a harness that closes one class. |
-| Terminal / process lifecycle | Round C, 2026-08-04, twenty-nine passes so far, with `tests/event_loop_e2e.rs` built for it | **On findings, twenty-seven times out of twenty-nine.** 7, 3, 1, 2, 3, 1, 1, 4, 1, 2, 3, 2, 2, 2, 1, 1, 1, 2, 2, 2, 0, 1, 1, 1, 0, 1, 2, 1, 1. The twenty-fifth fixed the twenty-fourth's finding rather than opening new ground, so it adds no count of its own. The one zero is the twenty-first, and the twenty-second -- finishing the area the twenty-first left half-open -- found something immediately. A partial pass coming back empty is not the bar, and this is the evidence. What is running out is unexamined surface, not defects. Two classes account for most of them: *one quantity derived in two places by different rules*, and class H, *a failure reported as something else* -- the eighth pass was class H four times out of four. The twenty-seventh re-covered `ui::draw`, as the twenty-sixth said to, and found two more -- both siblings of what the twenty-sixth had just fixed, four lines away in the file it had just edited. **A class named but not swept is a class still alive**, and that is now the round's sharpest lesson about its own method. The twenty-eighth did that and found a fourth site of the same shape, plus the `pinned_lines` copy, which turned out to be harmless and was deleted anyway. The twenty-ninth did that, built a 4,608-case differential test for the window, and found the notice bound counting the wrong quantity. **The next pass re-covers `notice_split` and the composition around it** -- new code, one pass old, and it is the third consecutive pass whose finding was in what the previous pass had just written. |
+| Terminal / process lifecycle | Round C, 2026-08-04, thirty passes so far, with `tests/event_loop_e2e.rs` built for it | **On findings, twenty-eight times out of thirty.** 7, 3, 1, 2, 3, 1, 1, 4, 1, 2, 3, 2, 2, 2, 1, 1, 1, 2, 2, 2, 0, 1, 1, 1, 0, 1, 2, 1, 1, 1. The twenty-fifth fixed the twenty-fourth's finding rather than opening new ground, so it adds no count of its own. The one zero is the twenty-first, and the twenty-second -- finishing the area the twenty-first left half-open -- found something immediately. A partial pass coming back empty is not the bar, and this is the evidence. What is running out is unexamined surface, not defects. Two classes account for most of them: *one quantity derived in two places by different rules*, and class H, *a failure reported as something else* -- the eighth pass was class H four times out of four. The twenty-seventh re-covered `ui::draw`, as the twenty-sixth said to, and found two more -- both siblings of what the twenty-sixth had just fixed, four lines away in the file it had just edited. **A class named but not swept is a class still alive**, and that is now the round's sharpest lesson about its own method. The twenty-eighth did that and found a fourth site of the same shape, plus the `pinned_lines` copy, which turned out to be harmless and was deleted anyway. The twenty-ninth did that, built a 4,608-case differential test for the window, and found the notice bound counting the wrong quantity. The thirtieth did that and found the fourth in a row, in what the twenty-ninth had written. **Four consecutive passes have found their defect in the previous pass's new code, and that is now the round's most reliable predictor of where the next one is.** The next pass re-covers this pass's own change -- `visible_upgrade`'s new `pinned` parameter and every caller of it -- and then the notice path end to end, which four passes have now touched without a full re-read. |
 | SSH + upgrade transport | Covered by Round C where the lifecycle reaches it -- child process groups, the two output streams, the session handshake, the packet-decode boundary, and (eighth pass) every `Err` path out of `next_packet` plus the agent-replacement repair | Partial. `read_handshake`, `interpret_packet`, `framing_lost` and `describe_failure` have seams and tests; the bootstrap retry was read and found correct; the lock wrappers were read in the twelfth pass and `upload_agent`'s framing in the thirteenth. The bootstrap quoting and the `-tt` pty path were read in the fourteenth. No named part of the transport is unreviewed now. |
 
 Every round that ran found something. That is evidence the rounds were
@@ -520,7 +520,7 @@ earlier passes only brushed, and the reconnect loop's repair path. Four more
   "agent replaced" -- the only line in that sequence that is not true, about a
   host that was up and had just been talking.
 
-**The counts so far are 7, 3, 1, 2, 3, 1, 1, 4, 1, 2, 3, 2, 2, 2, 1, 1, 1, 2, 2, 2, 0, 1, 1, 1, 0, 1, 2, 1, 1** -- and they are not
+**The counts so far are 7, 3, 1, 2, 3, 1, 1, 4, 1, 2, 3, 2, 2, 2, 1, 1, 1, 2, 2, 2, 0, 1, 1, 1, 0, 1, 2, 1, 1, 1** -- and they are not
 converging. Every pass so far went back up the moment it opened a part of the
 loop the earlier ones had not looked at, which is the argument against reading
 a falling count as progress toward zero. What is running out is *unexamined
@@ -796,6 +796,50 @@ run the panel on the work you are pleased with.
   through `show_frame`, and `monitor-with-notice` renders one at all four sizes.
   Confirmed by reading the frame rather than the assertion -- the notice appears
   in both panes at 80x24.
+
+#### Thirtieth pass -- `notice_split` and what it hands the renderer. One more (51 in total)
+
+- *"1 earlier notice above", with that notice four rows higher and on screen.*
+  `visible_upgrade` derived its pinned count as `header.len()`. That was correct
+  exactly as long as `header` held nothing but pinned content -- and the
+  twenty-ninth pass appended the **held** notices to it, lines whose entire
+  purpose is to sit above the content and be reached by scrolling. The clamp
+  pinned them. At 40x31 the pane drew:
+
+  ```
+   → u to run · s to go back
+   notice 0: could not save upgrade state
+   ...
+   log line 29
+   … 1 earlier notice above
+   notice 1: could not save upgrade state
+  ```
+
+  Notice 0 is the one reported as above. It is on screen, above the log, pinned.
+  The label is a statement the frame contradicts. And notices took sixteen of the
+  pane's thirty rows while the live upgrade log got six -- the same crowding the
+  twenty-ninth pass had just fixed for the ordinary pane, reintroduced in the
+  Upgrade pane by the fix itself.
+
+  `pinned` is a parameter now, passed by the one place that knows what it built.
+  Afterwards the log gets ten rows, notice 0 is genuinely above and `Home`
+  reaches it, and the label is true.
+
+**The class, for the third consecutive pass, and it is worth stating precisely.**
+The twenty-eighth deleted `Panel::pinned_lines` because it was a stored copy of a
+number the renderer recomputes -- and that was right. But the replacement,
+*measuring the slice*, is a derivation too, and it is only correct while nothing
+else can get into the slice. One pass later something did. **Deriving a quantity
+from nearby data is not safer than storing it; it is the same bet with a shorter
+fuse.** What is actually safe is the quantity travelling from the place that
+decided it, which is what the parameter does.
+
+The differential test from the twenty-ninth pass did not catch this, and could
+not have: it compares `visible_upgrade` against `visible` over the same
+concatenation with the same pinned count, so it proves the two windows agree
+about whatever they are told. The defect was in what they were told. A
+consistency test cannot see a wrong input, and this is a good record of the
+difference.
 
 #### Twenty-ninth pass -- the three-source window, re-read. One more (50 in total)
 

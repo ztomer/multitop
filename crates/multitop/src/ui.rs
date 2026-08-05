@@ -179,9 +179,23 @@ pub fn visible(
 /// not agree: every startup notice is written in Monitor mode, so pressing `u`
 /// made them all disappear -- including the one that says the Upgrade pane's
 /// scrollback was clamped, which is about the very pane that was hiding it.
+///
+/// # `pinned` is a parameter, not `header.len()`
+///
+/// It was `header.len()`, and that was correct exactly as long as `header` held
+/// nothing but pinned content. The twenty-ninth pass then appended the *held*
+/// notices to it -- lines whose whole purpose is to be above the content and
+/// reached by scrolling -- and the clamp pinned them: the pane drew "1 earlier
+/// notice above" with that notice four rows higher, on screen. A label stating
+/// something the frame contradicts.
+///
+/// Measuring a slice is a derivation like any other, and it is only right while
+/// nothing else can get into the slice. The count comes from the one place that
+/// knows what it built.
 #[must_use]
 pub fn visible_upgrade(
     header: &[String],
+    pinned: usize,
     body: &crate::panel::RingLines,
     tail: &[String],
     height: usize,
@@ -195,7 +209,7 @@ pub fn visible_upgrade(
     if total == 0 {
         return (Vec::new(), 0);
     }
-    let (pinned, start, end, badge) = pane_window(total, height, header.len(), scroll_offset);
+    let (pinned, start, end, badge) = pane_window(total, height, pinned, scroll_offset);
     // `height` is the caller's; a caller asking for a height larger than the
     // content must not make this reserve it.
     let mut out = Vec::with_capacity(height.min(total));
@@ -339,9 +353,14 @@ pub fn pane_lines(
     let (held, shown) = notice_split(&p.notes, target_cols, height);
     if p.mode == crate::app::Mode::Upgrade {
         let mut header = app.upgrade_pane_header(panel);
+        // Only the status block is pinned. The held notices go after it so they
+        // sit above the log, in the scrollable part -- which is the whole claim
+        // the "N earlier notices above" line makes.
+        let pinned = header.len();
         header.extend(held);
         visible_upgrade(
             &header,
+            pinned,
             &p.last_upgrade,
             &shown,
             height,
