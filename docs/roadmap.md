@@ -43,7 +43,7 @@ server" is not, however it is drawn.
 | Vault + credential path | 7 rounds (1, 2, 3, 4, 4b, 5, 6), all 2026-08-01 | **On a finding.** Round 6 found that a release binary could silently use the mock keystore, and the review stopped there. The next day `29bdbb3` -- rotating the master password could destroy the vault -- turned up during feature work. The subsystem was still producing defects when review stopped looking. |
 | Agent parsing / protocol | 6 fuzz targets, 114M iterations, 0 crashes; plus targeted hardening (bogus chunk size, >64 KiB payload desync, null `ifa_addr`) | Mechanized, still running when asked. The only area no user-reported defect has come from. |
 | Configuration panel | Keystroke-through-render e2e plus a bounded sweep of every key sequence | Not a review round; a harness that closes one class. |
-| Terminal / process lifecycle | Round C, 2026-08-04, thirty passes so far, with `tests/event_loop_e2e.rs` built for it | **On findings, twenty-eight times out of thirty.** 7, 3, 1, 2, 3, 1, 1, 4, 1, 2, 3, 2, 2, 2, 1, 1, 1, 2, 2, 2, 0, 1, 1, 1, 0, 1, 2, 1, 1, 1. The twenty-fifth fixed the twenty-fourth's finding rather than opening new ground, so it adds no count of its own. The one zero is the twenty-first, and the twenty-second -- finishing the area the twenty-first left half-open -- found something immediately. A partial pass coming back empty is not the bar, and this is the evidence. What is running out is unexamined surface, not defects. Two classes account for most of them: *one quantity derived in two places by different rules*, and class H, *a failure reported as something else* -- the eighth pass was class H four times out of four. The twenty-seventh re-covered `ui::draw`, as the twenty-sixth said to, and found two more -- both siblings of what the twenty-sixth had just fixed, four lines away in the file it had just edited. **A class named but not swept is a class still alive**, and that is now the round's sharpest lesson about its own method. The twenty-eighth did that and found a fourth site of the same shape, plus the `pinned_lines` copy, which turned out to be harmless and was deleted anyway. The twenty-ninth did that, built a 4,608-case differential test for the window, and found the notice bound counting the wrong quantity. The thirtieth did that and found the fourth in a row, in what the twenty-ninth had written. **Four consecutive passes have found their defect in the previous pass's new code, and that is now the round's most reliable predictor of where the next one is.** The next pass re-covers this pass's own change -- `visible_upgrade`'s new `pinned` parameter and every caller of it -- and then the notice path end to end, which four passes have now touched without a full re-read. |
+| Terminal / process lifecycle | Round C, 2026-08-04, thirty-one passes so far, with `tests/event_loop_e2e.rs` built for it | **On findings, twenty-nine times out of thirty-one.** 7, 3, 1, 2, 3, 1, 1, 4, 1, 2, 3, 2, 2, 2, 1, 1, 1, 2, 2, 2, 0, 1, 1, 1, 0, 1, 2, 1, 1, 1, 2. The twenty-fifth fixed the twenty-fourth's finding rather than opening new ground, so it adds no count of its own. The one zero is the twenty-first, and the twenty-second -- finishing the area the twenty-first left half-open -- found something immediately. A partial pass coming back empty is not the bar, and this is the evidence. What is running out is unexamined surface, not defects. Two classes account for most of them: *one quantity derived in two places by different rules*, and class H, *a failure reported as something else* -- the eighth pass was class H four times out of four. The twenty-seventh re-covered `ui::draw`, as the twenty-sixth said to, and found two more -- both siblings of what the twenty-sixth had just fixed, four lines away in the file it had just edited. **A class named but not swept is a class still alive**, and that is now the round's sharpest lesson about its own method. The twenty-eighth did that and found a fourth site of the same shape, plus the `pinned_lines` copy, which turned out to be harmless and was deleted anyway. The twenty-ninth did that, built a 4,608-case differential test for the window, and found the notice bound counting the wrong quantity. The thirtieth did that and found the fourth in a row, in what the twenty-ninth had written. **Four consecutive passes have found their defect in the previous pass's new code, and that is now the round's most reliable predictor of where the next one is.** The thirty-first read the notice path end to end and found two, both left behind by earlier fixes in this same round rather than by the original code. **Five consecutive passes have found their defect in ground a previous pass had just disturbed.** The next pass leaves this area entirely and re-covers `run.rs`'s event loop, which no pass since the eighteenth has read and which every one of these renderer changes is reached through. |
 | SSH + upgrade transport | Covered by Round C where the lifecycle reaches it -- child process groups, the two output streams, the session handshake, the packet-decode boundary, and (eighth pass) every `Err` path out of `next_packet` plus the agent-replacement repair | Partial. `read_handshake`, `interpret_packet`, `framing_lost` and `describe_failure` have seams and tests; the bootstrap retry was read and found correct; the lock wrappers were read in the twelfth pass and `upload_agent`'s framing in the thirteenth. The bootstrap quoting and the `-tt` pty path were read in the fourteenth. No named part of the transport is unreviewed now. |
 
 Every round that ran found something. That is evidence the rounds were
@@ -520,7 +520,7 @@ earlier passes only brushed, and the reconnect loop's repair path. Four more
   "agent replaced" -- the only line in that sequence that is not true, about a
   host that was up and had just been talking.
 
-**The counts so far are 7, 3, 1, 2, 3, 1, 1, 4, 1, 2, 3, 2, 2, 2, 1, 1, 1, 2, 2, 2, 0, 1, 1, 1, 0, 1, 2, 1, 1, 1** -- and they are not
+**The counts so far are 7, 3, 1, 2, 3, 1, 1, 4, 1, 2, 3, 2, 2, 2, 1, 1, 1, 2, 2, 2, 0, 1, 1, 1, 0, 1, 2, 1, 1, 1, 2** -- and they are not
 converging. Every pass so far went back up the moment it opened a part of the
 loop the earlier ones had not looked at, which is the argument against reading
 a falling count as progress toward zero. What is running out is *unexamined
@@ -796,6 +796,55 @@ run the panel on the work you are pleased with.
   through `show_frame`, and `monitor-with-notice` renders one at all four sizes.
   Confirmed by reading the frame rather than the assertion -- the notice appears
   in both panes at 80x24.
+
+#### Thirty-first pass -- the notice path end to end. Two more (53 in total)
+
+Released as v0.26.0 before this pass; the two below are unreleased.
+
+- *The same notice drawn twice in one pane, one copy truncated mid-word.*
+  `Panel::note` branched on the panel's mode -- the ring in the Upgrade view,
+  `notes` everywhere else. The twenty-eighth pass made every pane draw `notes`,
+  which stopped that branch hiding notices; what it did not do was stop the
+  branch **duplicating** them. A state write that fails once in the Monitor view
+  and again during a run leaves one copy in each buffer, and the Upgrade pane
+  draws both:
+
+  ```
+   could not save upgrade state (Permission denied) -- an int
+   could not save upgrade state (Permission denied) -- an
+   interrupted run will not be detectable after a restart.
+  ```
+
+  The ring copy is the worse one. The ring is *fitted* to the pane, not wrapped,
+  so it arrives hard-truncated -- which is the exact defect the wrapping in
+  `pane_lines` exists to prevent, reached by the buffer that skips it.
+
+  `note` has one destination now. Upgrade *output* still goes to the ring:
+  `Msg::Status` and `note_nothing_to_upgrade` push there directly and belong in
+  the log in order. An app-level notice is not upgrade output, and the
+  twenty-eighth pass's reasoning for keeping the branch -- "a notice belongs in
+  the log in order, next to the output it explains" -- does not survive contact
+  with what it actually produced.
+
+- *The repeat guard only caught consecutive repeats.* `notes.last() == Some(&line)`,
+  under a comment reading "Repeats say nothing new and would push the pane's own
+  content off". Two notices that alternate -- a failed state write and a vault
+  report, each recurring once per run -- passed that guard every single time, and
+  a pane holds four. It is `notes.contains(&line)` now: four elements, and the
+  question being asked is "is this already on screen", which is what the comment
+  always claimed to be asking.
+
+**A test that named a buffer broke on a change that made the thing it tested more
+durable.** `the_failed_state_write_notice_survives_confirm_upgrade` -- written by
+the *fifteenth* pass, and written well, because the defect it caught lived in the
+order of the real path -- asserted against `panel.last_upgrade` directly. Moving
+notices out of the ring turned it red while the property it exists to defend was
+strictly better satisfied. It asks `ui::pane_lines` now, which this log has
+called "the single entry point to what is in that pane" since the eleventh pass.
+**A test that names the buffer passes or fails on the mechanism; only a test that
+asks the pane is testing what the operator gets.** That is the same lesson the
+fifteenth pass recorded about driving `mark_upgrades_started` directly, one level
+up.
 
 #### Thirtieth pass -- `notice_split` and what it hands the renderer. One more (51 in total)
 

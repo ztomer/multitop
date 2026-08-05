@@ -647,7 +647,9 @@ fn a_state_write_that_failed_is_reported() {
 /// happens, and where the notice is pushed -- and *then* calls `run_upgrade`,
 /// which clears each panel's `last_upgrade` ring before streaming into it. The
 /// panels are already in Upgrade mode by then, so `Panel::note` had put the
-/// notice in exactly the buffer the next line clears.
+/// notice in exactly the buffer the next line clears. `note` writes only to
+/// `notes` now, which nothing on the upgrade path clears, so the ordering can no
+/// longer bite -- but the ordering is still the thing under test.
 ///
 /// Found reviewing this session's own work. Testing `mark_upgrades_started`
 /// directly passed, because nothing clears the ring afterwards; the defect
@@ -672,8 +674,13 @@ fn the_failed_state_write_notice_survives_confirm_upgrade() {
     app.enter_upgrade_view();
     let _ = app.confirm_upgrade();
 
-    let ring: Vec<String> = app.panels[0].last_upgrade.iter().cloned().collect();
-    let said = ring
+    // Asked of the pane, not of a buffer. This used to read `last_upgrade`
+    // directly, and it broke the day `Panel::note` stopped writing there --
+    // on a change that made the notice *more* durable, not less. A test that
+    // names the buffer passes or fails on the mechanism; `ui::pane_lines` is
+    // the single entry point to what is actually in that pane.
+    let (pane, _) = multitop::ui::pane_lines(&app, 0, 20, 60, 0);
+    let said = pane
         .iter()
         .any(|l| l.contains("could not save upgrade state"));
 
@@ -682,7 +689,7 @@ fn the_failed_state_write_notice_survives_confirm_upgrade() {
     assert!(
         said,
         "the notice must still be in the pane the operator is looking at; \
-         the ring holds: {ring:?}"
+         the pane holds: {pane:?}"
     );
 }
 

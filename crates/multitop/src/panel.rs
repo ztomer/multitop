@@ -227,30 +227,37 @@ impl Panel {
 
     /// Append a user-facing notice to this panel.
     ///
-    /// # The mode check is a placement choice, not a visibility one
+    /// # One destination
     ///
-    /// It used to be both, and that was wrong. The rule was "write it to the
-    /// pane this panel is showing", which decides where a notice lands from the
-    /// mode **at the moment it is written** -- while `ui::pane_lines` decides
-    /// which pane to draw from the mode **at the moment of the frame**. The two
-    /// need not agree, and for the notices that matter most they never did:
-    /// every startup notice is written in Monitor mode, so pressing `u` made
-    /// them all vanish, including the one saying the Upgrade pane's own
-    /// scrollback had been clamped.
+    /// This used to branch on the panel's mode: the ring in the Upgrade view,
+    /// `notes` everywhere else. That was wrong twice over.
     ///
-    /// `notes` is drawn by every pane now, so nothing here can hide a notice.
-    /// What is left is a placement choice: during a run the ring is the log the
-    /// user is reading, and a notice belongs in it *in order*, next to the
-    /// output it explains, rather than pinned below everything.
+    /// First it decided *visibility* from the mode at the moment the notice was
+    /// **written**, while `ui::pane_lines` decides which pane to draw from the
+    /// mode at the moment of the **frame**. The two need not agree, and for the
+    /// notices that matter they never did: every startup notice is written in
+    /// Monitor mode, so pressing `u` made them all vanish. `notes` is drawn by
+    /// every pane now, which fixed that.
+    ///
+    /// What the branch became after that was a *placement* choice -- and it made
+    /// the same notice appear twice. A state write that fails once in the
+    /// Monitor view and again during a run leaves one copy in `notes` and one in
+    /// the ring, and the Upgrade pane draws both. The ring copy is also the
+    /// worse of the two: the ring is fitted to the pane, not wrapped, so it
+    /// arrives hard-truncated mid-word, which is the exact defect the wrapping
+    /// in `pane_lines` exists to prevent.
+    ///
+    /// So there is one destination. Upgrade *output* still goes to the ring --
+    /// `Msg::Status` and `note_nothing_to_upgrade` push there directly, and
+    /// belong in the log in order. An app-level notice is not upgrade output.
     pub fn note(&mut self, line: String) {
-        if self.mode == Mode::Upgrade {
-            // The ring is the durable log, not derived state, so a notice put
-            // here survives on its own.
-            self.last_upgrade.push(line);
-            return;
-        }
-        // Repeats say nothing new and would push the pane's own content off.
-        if self.notes.last() == Some(&line) {
+        // Already on screen. A second copy says nothing new and takes a row from
+        // the pane, and the bound on notices is the whole reason the pane still
+        // shows the host. Checked against every notice held rather than only the
+        // last: two that alternate -- a failed state write and a vault report,
+        // each repeating once per run -- passed a `last()`-only guard every
+        // single time, which is the shape of guard this round keeps finding.
+        if self.notes.contains(&line) {
             return;
         }
         if self.notes.len() >= MAX_NOTES {
@@ -392,15 +399,16 @@ mod ring_tests {
         assert_eq!(ring.len(), 3, "the new cap is in force");
     }
 
-    /// A notice must land in the buffer the pane it is showing actually draws.
+    /// A notice lands in `notes`, whatever view the panel happens to be in.
     ///
-    /// In the Upgrade view that is the ring; in every other view it is `notes`,
-    /// which `ui::pane_lines` appends *wrapped to the pane's width*. It used to
-    /// go into `view` -- which the next agent frame rebuilds, and which the pane
-    /// hard-truncates, so the notice was erased a second later and clipped
-    /// mid-word before then.
+    /// It used to go into `view` -- which the next agent frame rebuilds, and
+    /// which the pane hard-truncates, so the notice was erased a second later
+    /// and clipped mid-word before then. Then it branched on the mode, which put
+    /// the same notice in two buffers and drew both. `notes` is the one place:
+    /// every pane draws it, wrapped to that pane's width and bounded by its
+    /// height.
     #[test]
-    fn a_notice_lands_in_the_pane_the_panel_is_showing() {
+    fn a_notice_lands_in_notes_whatever_view_is_showing() {
         let mut p = Panel::new(Server {
             host: "web-01".into(),
             port: 22,
@@ -410,7 +418,7 @@ mod ring_tests {
         p.note("while monitoring".to_string());
         assert!(
             p.notes.iter().any(|l| l == "while monitoring"),
-            "a Monitor-mode notice belongs in `notes`, which survives the next frame"
+            "a notice belongs in `notes`, which survives the next frame"
         );
         assert!(
             !p.view.iter().any(|l| l == "while monitoring"),
@@ -420,12 +428,21 @@ mod ring_tests {
         p.mode = Mode::Upgrade;
         p.note("while upgrading".to_string());
         assert!(
-            p.last_upgrade.iter().any(|l| l == "while upgrading"),
-            "an Upgrade-mode notice belongs in the ring the pane draws"
+            p.notes.iter().any(|l| l == "while upgrading"),
+            "the Upgrade view draws `notes` too, so it goes to the same place"
         );
         assert!(
-            !p.view.iter().any(|l| l == "while upgrading"),
-            "and not in the buffer that pane ignores"
+            !p.last_upgrade.iter().any(|l| l == "while upgrading"),
+            "and not also into the ring, which is how one notice became two"
+        );
+
+        // The same notice arriving in both views must not become two rows.
+        p.mode = Mode::Monitor;
+        p.note("while upgrading".to_string());
+        assert_eq!(
+            p.notes.iter().filter(|l| *l == "while upgrading").count(),
+            1,
+            "a notice already on screen must not be added again"
         );
     }
 }
