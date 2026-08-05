@@ -412,6 +412,34 @@ use multitop_agent::SortBy;
 /// becomes two at three panels) while every agent kept rendering for the old
 /// one. A per-input hook misses whichever input it was not written for, and
 /// this is the input it missed.
+/// Recompute the agent render size from a terminal size query, or keep the last.
+///
+/// # Why the policy for a failed query lives in one function
+///
+/// It lived in three places with two different answers. Two of them wrote
+/// `terminal.size().ok().and_then(...)` -- keep the last known size and carry on
+/// -- under a comment stating the reasoning outright: *"a terminal that cannot
+/// report its size is not a terminal of size zero, and treating it as one
+/// publishes the minimum render size to every agent and re-renders the whole
+/// grid tiny. Keeping the last known size is the honest failure."*
+///
+/// The third, the resize arm, made the same failure **fatal**: it set the loop's
+/// error and broke, and every exit from that loop runs `abort_all`. So a
+/// transient `ioctl` failure while the user dragged a window corner ended the
+/// session *and killed every upgrade in flight*, leaving `dpkg` half-done and a
+/// lock file behind on each host -- for a condition its sibling five hundred
+/// lines up documents as survivable.
+///
+/// It is also redundant as a way of noticing the terminal is gone: that arrives
+/// as `Some(Err(_)) | None` from the event stream and is already an orderly quit.
+fn size_change<E>(
+    query: Result<ratatui::layout::Size, E>,
+    dims: &mut AgentDims,
+    panels: usize,
+) -> Option<(u16, u16)> {
+    query.ok().and_then(|size| dims.refresh(size, panels))
+}
+
 #[derive(Clone, Copy, PartialEq, Eq)]
 struct DimsInputs {
     size: (u16, u16),
@@ -620,11 +648,7 @@ where
                     // zero, and treating it as one publishes the minimum render
                     // size to every agent and re-renders the whole grid tiny.
                     // Keeping the last known size is the honest failure.
-                    if let Some(d) = terminal
-                        .size()
-                        .ok()
-                        .and_then(|size| dims.refresh(size, app.panels.len()))
-                    {
+                    if let Some(d) = size_change(terminal.size(), &mut dims, app.panels.len()) {
                         app.rerender_all(d);
                     }
                     dirty = true;
@@ -650,10 +674,7 @@ where
                             // half of what the agent render size is made of, so
                             // an edit to the list resizes every pane. The new
                             // monitors must start already knowing that.
-                            if let Some(d) = terminal
-                                .size()
-                                .ok()
-                                .and_then(|size| dims.refresh(size, servers.len()))
+                            if let Some(d) = size_change(terminal.size(), &mut dims, servers.len())
                             {
                                 app.rerender_all(d);
                             }
@@ -732,19 +753,13 @@ where
             }
             () = resize_wait, if resize_at.is_some() => {
                 resize_at = None;
-                match terminal.size() {
-                    Ok(size) => {
-                        // Re-render panels at the new size so logos and stats adapt.
-                        if let Some(d) = dims.refresh(size, app.panels.len()) {
-                            app.rerender_all(d);
-                        }
-                        dirty = true;
-                    }
-                    Err(e) => {
-                        fatal = Some(std::io::Error::other(e));
-                        break;
-                    }
+                // Re-render panels at the new size so logos and stats adapt. A
+                // failed size query keeps the last one -- see `size_change`; this
+                // arm used to make it fatal, which killed every running upgrade.
+                if let Some(d) = size_change(terminal.size(), &mut dims, app.panels.len()) {
+                    app.rerender_all(d);
                 }
+                dirty = true;
             }
         }
 
@@ -1495,5 +1510,65 @@ mod terminal_mode_tests {
                  set={set:?} reset={reset:?}"
             );
         }
+    }
+
+    /// A terminal that will not report its size does not end the session.
+    ///
+    /// It did, on the one path that runs while the user is dragging a window
+    /// corner. The resize arm made a failed `terminal.size()` fatal: it set the
+    /// loop's error and broke, and every exit from that loop runs `abort_all` --
+    /// so a transient `ioctl` failure killed every upgrade in flight, left
+    /// `dpkg` half-done and a lock file on each host, and did it for a condition
+    /// the resume arm five hundred lines up documents as survivable.
+    ///
+    /// Three call sites, two policies. The policy is one function now, and this
+    /// asserts the answer rather than the arm: a failed query keeps the last
+    /// published size, which is what the agents are still rendering for.
+    #[test]
+    fn a_failed_size_query_keeps_the_last_size_rather_than_ending_the_run() {
+        use ratatui::layout::Size;
+        let (tx, rx) = tokio::sync::watch::channel((0u16, 0u16));
+        let mut dims = super::AgentDims::new(
+            tx,
+            Size {
+                width: 120,
+                height: 40,
+            },
+            2,
+        );
+        let established = dims.current();
+        assert_eq!(*rx.borrow(), established);
+
+        // The query fails. Nothing new to publish, and nothing fatal about it.
+        let answer = super::size_change::<std::io::Error>(
+            Err(std::io::Error::other("ioctl failed")),
+            &mut dims,
+            2,
+        );
+        assert_eq!(
+            answer, None,
+            "a failed size query has no new size to publish"
+        );
+        assert_eq!(
+            dims.current(),
+            established,
+            "and must leave the size the agents are rendering for alone"
+        );
+        assert_eq!(
+            *rx.borrow(),
+            established,
+            "in particular it must not publish a smaller one to every agent"
+        );
+
+        // A query that succeeds at a new size still moves it.
+        let moved = super::size_change::<std::io::Error>(
+            Ok(Size {
+                width: 80,
+                height: 24,
+            }),
+            &mut dims,
+            2,
+        );
+        assert!(moved.is_some(), "a real resize must still be published");
     }
 }
