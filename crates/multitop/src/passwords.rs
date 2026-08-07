@@ -42,7 +42,13 @@ impl ServerDraft {
         }
     }
 
-    fn into_server(self) -> Result<Server, String> {
+    /// Convert this draft into a validated `Server`.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the host, user, or port fails validation, or if the
+    /// port is out of range.
+    pub fn into_server(self) -> Result<Server, String> {
         validate_host(&self.host).map_err(|error| error.0)?;
         validate_user(&self.user).map_err(|error| error.0)?;
         let port = self

@@ -8,7 +8,7 @@ than ticking it off.
 
 `tools/coverage_check.sh` runs `cargo llvm-cov -p multitop` with
 `--fail-under-lines 95`, ignoring OS-bound files (`ssh.rs`, `password_store.rs`,
-`sparkline.rs`, `main.rs`, `spawn.rs`). **Currently at 62.82%.** The gate is
+`sparkline.rs`, `main.rs`, `spawn.rs`). **Currently at 83.46%.** The gate is
 structural: enforced by CI job + pre-commit hook, cannot be bypassed with
 `--no-verify`.
 
@@ -27,19 +27,35 @@ events and inspects the `TestBackend` buffer. Extend that pattern.
 `mod.rs` (127), `terminal.rs` (159), `tasks.rs` (122), `dims.rs` (137),
 `event_loop.rs` (401), `handle_key.rs` (438), `spawn.rs` (227).
 
-Remaining (2026-08-05):
+Remaining:
 
 | File | Lines | Split target |
 |------|-------|--------------|
-| `app.rs` | 1542 | Apply state machine / upgrade flow / vault state / view switches |
-| `ui.rs` | 1101 | Draw / layout / keybar / modals |
+| `app.rs` | 1547 | Apply state machine / upgrade flow / vault state / view switches |
+| `ui.rs` | 1107 | Draw / layout / keybar / modals |
 | `tasks.rs` | 837 | spawn_upgrade / streaming / painted_states |
 | `ssh.rs` | 810 | Connection / command / upload |
-| `passwords.rs` | 779 | Editor / actions / draft |
 | `stream.rs` | 631 | Handshake / packet / framing |
 | `config.rs` | 547 | Load / save / validation |
+| `passwords.rs` | 779 | Editor / actions / draft |
 
 Split cleanly at module boundaries. Each new file = one `mod` in `lib.rs`.
+
+NOTE: Splitting impl-block-heavy files (app.rs, ui.rs, tasks.rs) requires care —
+each submodule needs its own imports and `crate::` paths for cross-module types.
+Multiple attempts hit import/visibility issues; this needs a careful pass with
+function-boundary-aware splitting.
+
+BLOCKER: nightly compiler (1.99.0-nightly) has a regression where `let-else`
+patterns fail with "size for values of type `str` cannot be known at compile
+time". This prevents the codebase from compiling at all. Pin to an older
+nightly or wait for the fix before continuing.
+
+### Done
+
+| File | Split into |
+|------|------------|
+| `run.rs` | `run/` (`mod.rs`, `terminal.rs`, `tasks.rs`, `dims.rs`, `event_loop.rs`, `handle_key.rs`, `spawn.rs`) |
 
 ## 3. Magic-number gate — no hardcoded values
 
