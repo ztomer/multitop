@@ -1,13 +1,10 @@
-use super::prod::*;
-
 #[cfg(test)]
 mod sudo_preamble_tests {
     #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
-    use super::{
-        password_preamble, wrap_with_upgrade_lock, LOCK_HELD_CODE, LOCK_HELD_SENTINEL,
-        SUDO_FAILED_CODE, SUDO_FAILED_SENTINEL,
-    };
+    use crate::ssh::password_preamble;
+    use crate::ssh::wrap_with_upgrade_lock;
+    use crate::ssh::{LOCK_HELD_CODE, LOCK_HELD_SENTINEL, SUDO_FAILED_CODE, SUDO_FAILED_SENTINEL};
 
     /// A held lock must be distinguishable from a failing command. The wrapper
     /// used to print "Upgrade already in progress" and exit 1, which the panel
@@ -76,7 +73,7 @@ mod sudo_preamble_tests {
 mod upload_failure_tests {
     #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
-    use super::upload_failure;
+    use crate::ssh::upload_failure;
 
     /// The remote's complaint wins over the local symptom.
     ///
@@ -125,7 +122,7 @@ mod upload_failure_tests {
 mod upload_command_tests {
     #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
-    use super::upload_command;
+    use crate::ssh::command::upload_command;
     use std::io::Write as _;
 
     /// Run the real upload script under `sh` against a scratch HOME, feeding it
