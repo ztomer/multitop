@@ -99,3 +99,110 @@ fn apply_import_ssh_hosts_no_file() {
         &mut multitop::run::Tasks::new(1),
     );
 }
+
+#[test]
+fn apply_save_with_empty_password_deletes() {
+    use multitop::app::App;
+    use multitop::password_actions::apply;
+    use multitop::passwords::PasswordAction;
+    use tokio::sync::mpsc;
+
+    let _guard = password_store::lock_for_test();
+    password_store::enable_mock_store();
+    password_store::clear_mock_store();
+
+    let server = Server {
+        host: "save-test".into(),
+        port: 22,
+        user: "admin".into(),
+        upgrade_cmd: None,
+    };
+    let mut app = App::new(vec![server]);
+    app.config_path = Some(std::path::PathBuf::from("/tmp/test_config_save.toml"));
+    app.password_manager = Some(multitop::passwords::PasswordManager::new(0, false));
+
+    let (tx, _rx) = mpsc::channel(16);
+    // Save with empty password should delete
+    apply(
+        PasswordAction::Save {
+            panel: 0,
+            password: String::new(),
+            resume_upgrade: false,
+        },
+        &mut app,
+        &tx,
+        &mut multitop::run::Tasks::new(1),
+    );
+}
+
+#[test]
+fn apply_delete_action() {
+    use multitop::app::App;
+    use multitop::password_actions::apply;
+    use multitop::passwords::PasswordAction;
+    use tokio::sync::mpsc;
+
+    let _guard = password_store::lock_for_test();
+    password_store::enable_mock_store();
+    password_store::clear_mock_store();
+
+    let server = Server {
+        host: "delete-test".into(),
+        port: 22,
+        user: "admin".into(),
+        upgrade_cmd: None,
+    };
+    let mut app = App::new(vec![server]);
+    app.password_manager = Some(multitop::passwords::PasswordManager::new(0, false));
+
+    let (tx, _rx) = mpsc::channel(16);
+    apply(
+        PasswordAction::Delete { panel: 0 },
+        &mut app,
+        &tx,
+        &mut multitop::run::Tasks::new(1),
+    );
+}
+
+#[test]
+fn apply_apply_servers() {
+    use multitop::app::App;
+    use multitop::password_actions::apply;
+    use multitop::passwords::PasswordAction;
+    use tokio::sync::mpsc;
+
+    let _guard = password_store::lock_for_test();
+    password_store::enable_mock_store();
+    password_store::clear_mock_store();
+
+    let server = Server {
+        host: "apply-test".into(),
+        port: 22,
+        user: "admin".into(),
+        upgrade_cmd: None,
+    };
+    let mut app = App::new(vec![server]);
+
+    let new_servers = vec![
+        Server {
+            host: "new1".into(),
+            port: 22,
+            user: "admin".into(),
+            upgrade_cmd: None,
+        },
+        Server {
+            host: "new2".into(),
+            port: 22,
+            user: "admin".into(),
+            upgrade_cmd: None,
+        },
+    ];
+
+    let (tx, _rx) = mpsc::channel(16);
+    apply(
+        PasswordAction::ApplyServers(new_servers),
+        &mut app,
+        &tx,
+        &mut multitop::run::Tasks::new(1),
+    );
+}
