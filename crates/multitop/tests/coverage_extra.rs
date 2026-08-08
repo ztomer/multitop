@@ -122,7 +122,6 @@ fn apply_save_with_empty_password_deletes() {
     app.password_manager = Some(multitop::passwords::PasswordManager::new(0, false));
 
     let (tx, _rx) = mpsc::channel(16);
-    // Save with empty password should delete
     apply(
         PasswordAction::Save {
             panel: 0,
@@ -205,4 +204,55 @@ fn apply_apply_servers() {
         &tx,
         &mut multitop::run::Tasks::new(1),
     );
+}
+
+#[test]
+fn app_scroll_panel_up_down() {
+    use multitop::app::App;
+
+    let _guard = password_store::lock_for_test();
+    password_store::enable_mock_store();
+    password_store::clear_mock_store();
+
+    let server = Server {
+        host: "scroll-test".into(),
+        port: 22,
+        user: "admin".into(),
+        upgrade_cmd: None,
+    };
+    let mut app = App::new(vec![server]);
+
+    app.scroll_panel_up(0, 5);
+    app.scroll_panel_down(0, 3);
+    assert_eq!(app.panels[0].scroll_offset, 2);
+}
+
+#[test]
+fn app_accessors() {
+    use multitop::app::App;
+
+    let _guard = password_store::lock_for_test();
+    password_store::enable_mock_store();
+    password_store::clear_mock_store();
+
+    let server = Server {
+        host: "accessor-test".into(),
+        port: 22,
+        user: "admin".into(),
+        upgrade_cmd: Some("true".into()),
+    };
+    let app = App::new(vec![server]);
+
+    assert!(!app.had_upgrade());
+    assert!(!app.in_upgrade());
+    assert!(!app.in_docker());
+    assert!(!app.in_fetch());
+    assert!(!app.upgrades_in_flight());
+    assert!(!app.quit_armed());
+    assert_eq!(app.filtered_indices().len(), 1);
+    assert!(app.upgrade_runnable());
+    assert!(app.upgrade_skip_hosts().is_empty());
+    assert!(app.running_upgrade_hosts().is_empty());
+    assert!(app.host_update(0).started_at.is_none());
+    assert!(app.vault_unlocked().is_none());
 }
