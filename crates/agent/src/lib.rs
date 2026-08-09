@@ -9,6 +9,7 @@ use std::os::unix::fs::FileTypeExt;
 
 pub mod color;
 pub mod consts;
+pub mod cpufreq;
 pub mod docker;
 pub mod docker_cli;
 pub mod docker_render;

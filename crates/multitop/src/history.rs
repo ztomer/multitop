@@ -75,6 +75,8 @@ pub struct History {
     pub rx: Series,
     /// Transmitted bytes per second.
     pub tx: Series,
+    /// Core clock in MHz. Empty on a machine that publishes no reading.
+    pub mhz: Series,
 }
 
 impl History {
@@ -90,6 +92,11 @@ impl History {
         self.mem.push(snap.mem.pct);
         self.rx.push(snap.rx_rate);
         self.tx.push(snap.tx_rate);
+        // Only when there is one. Pushing a zero for "not measured" would put a
+        // flat line on the graph that reads as a stalled CPU.
+        if let Some(mhz) = snap.cpu_mhz {
+            self.mhz.push(mhz);
+        }
     }
 
     #[must_use]

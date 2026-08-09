@@ -44,6 +44,7 @@ fn monitor(reported_host: &str, procs: &[&str]) -> Payload {
         host: reported_host.into(),
         agent_version: "9.9.9".into(),
         cpu_pct: 10.0,
+        cpu_mhz: Some(3600.0),
         cores: vec![(0, 10.0, None)],
         mem: Usage::new(100, 40),
         disk: Usage::new(100, 10),

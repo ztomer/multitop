@@ -49,6 +49,7 @@ fn host_line_never_overflows_narrow_panel() {
 fn single_core_uses_aggregate_bar() {
     let s = Snapshot {
         cpu_pct: 42.0,
+        cpu_mhz: Some(3600.0),
         ..snap()
     };
     let out = render(&s, 80, 0, 50, &ANSI);

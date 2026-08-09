@@ -187,6 +187,7 @@ fn a_packet_from_the_old_panel_list_cannot_paint_the_new_one() {
     let snap = multitop_agent::render::Snapshot {
         host: "alpha".to_string(),
         cpu_pct: 99.0,
+        cpu_mhz: Some(3600.0),
         ..Default::default()
     };
     let changed = app.apply(Msg::Packet {

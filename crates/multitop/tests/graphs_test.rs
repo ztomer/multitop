@@ -44,6 +44,7 @@ fn snapshot(cpu: f64, mem_used: u64, rx: f64, tx: f64) -> Snapshot {
         host: "web-01".into(),
         agent_version: "9.9.9".into(),
         cpu_pct: cpu,
+        cpu_mhz: Some(3600.0),
         cores: vec![(0, cpu, None)],
         mem: Usage::new(100, mem_used),
         disk: Usage::new(100, 10),
@@ -217,10 +218,10 @@ fn a_panel_with_no_samples_says_so_instead_of_drawing_a_flat_line() {
 }
 
 #[test]
-fn the_three_graphs_carry_headings_and_the_current_readings() {
+fn the_four_graphs_carry_headings_and_the_current_readings() {
     let mut h = History::default();
-    h.record(&snapshot(75.0, 50, 1024.0, 1024.0));
-    let text = render_graphs(&h, 40, 9, PLAIN).join("\n");
+    h.record(&snapshot(75.0, 50, 1024.0, 4096.0));
+    let text = render_graphs(&h, 40, 20, PLAIN).join("\n");
 
     assert!(text.contains("CPU"), "{text}");
     assert!(
@@ -232,12 +233,110 @@ fn the_three_graphs_carry_headings_and_the_current_readings() {
         text.contains("50%"),
         "the current MEM reading is missing:\n{text}"
     );
+    // Each direction of the link on its own. One combined line could not say
+    // which way the traffic was going.
+    assert!(
+        text.contains("NET \u{2193} down"),
+        "no download graph:\n{text}"
+    );
+    assert!(text.contains("NET \u{2191} up"), "no upload graph:\n{text}");
     // An autoscaled graph with no number on it is a shape that could mean a
     // kilobyte or a gigabit, so the scale is named.
-    assert!(text.contains("NET"), "{text}");
     assert!(
         text.contains("peak"),
-        "the net graph did not say its scale:\n{text}"
+        "the net graphs did not say their scale:\n{text}"
+    );
+}
+
+#[test]
+fn the_first_line_is_left_for_the_banner_to_overwrite() {
+    // Row 0 of every pane is composed in `ui::draw` from the host name and the
+    // scroll badge, over whatever the renderer put there. The CPU heading was
+    // on that line and invisible because of it.
+    let mut h = History::default();
+    h.record(&snapshot(75.0, 50, 0.0, 0.0));
+
+    for rows in [1usize, 2, 4, 9, 20] {
+        let out = render_graphs(&h, 40, rows, PLAIN);
+        assert_eq!(
+            out.first().map(String::as_str),
+            Some(""),
+            "at {rows} rows the first line was not left for the banner: {out:?}"
+        );
+        assert!(
+            !out.first().unwrap().contains("CPU"),
+            "the CPU heading is on the row the banner overwrites"
+        );
+    }
+}
+
+#[test]
+fn the_cpu_heading_carries_the_current_clock() {
+    let mut h = History::default();
+    let mut snap = snapshot(40.0, 50, 0.0, 0.0);
+    snap.cpu_mhz = Some(3600.0);
+    h.record(&snap);
+    let text = render_graphs(&h, 40, 20, PLAIN).join("\n");
+    assert!(
+        text.contains("3.60 GHz"),
+        "no clock on the CPU heading:\n{text}"
+    );
+
+    // Under a gigahertz it reads in megahertz rather than as `0.80 GHz`.
+    let mut slow = History::default();
+    let mut snap = snapshot(40.0, 50, 0.0, 0.0);
+    snap.cpu_mhz = Some(800.0);
+    slow.record(&snap);
+    assert!(render_graphs(&slow, 40, 20, PLAIN)
+        .join("\n")
+        .contains("800 MHz"));
+}
+
+#[test]
+fn a_machine_that_publishes_no_clock_says_so_rather_than_showing_zero() {
+    // Apple Silicon exposes no current-frequency reading at all. "Not measured"
+    // and "idling at nothing" must not look the same.
+    let mut h = History::default();
+    let mut snap = snapshot(40.0, 50, 0.0, 0.0);
+    snap.cpu_mhz = None;
+    h.record(&snap);
+
+    let text = render_graphs(&h, 40, 20, PLAIN).join("\n");
+    assert!(
+        text.contains("-- MHz"),
+        "an absent clock was not marked:\n{text}"
+    );
+    assert!(
+        !text.contains("0 MHz"),
+        "an absent clock was drawn as zero:\n{text}"
+    );
+}
+
+#[test]
+fn both_directions_of_the_link_share_one_scale() {
+    // A link where download dwarfs upload must read as exactly that. Scaling
+    // each graph to its own peak would draw them the same height.
+    let mut h = History::default();
+    h.record(&snapshot(10.0, 10, 1_000_000.0, 1_000.0));
+    let out = render_graphs(&h, 20, 20, PLAIN);
+
+    let dots = |from: usize| -> usize {
+        out[from + 1..]
+            .iter()
+            .take_while(|l| !l.contains("NET") && !l.contains("MEM"))
+            .map(|l| {
+                l.chars()
+                    .filter(|c| ('\u{2801}'..='\u{28ff}').contains(c))
+                    .count()
+            })
+            .sum()
+    };
+    let down_at = out.iter().position(|l| l.contains("down")).expect("down");
+    let up_at = out.iter().position(|l| l.contains("up")).expect("up");
+    assert!(
+        dots(down_at) > dots(up_at),
+        "upload was drawn as busy as download:\n{}",
+        out.join("\n")
     );
 }
 

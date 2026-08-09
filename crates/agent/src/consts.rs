@@ -114,3 +114,11 @@ pub const HWMON_READING_BUF: usize = 32;
 /// `hwmon` reports millidegrees; a value above this is millidegrees rather
 /// than degrees, and dividing is what makes the two agree.
 pub const HWMON_MILLIDEGREE_THRESHOLD: f64 = 1000.0;
+
+/// How many cores to read a `cpufreq` value from before averaging.
+///
+/// The loop stops at the first core that has no file, so this is only a ceiling
+/// for a machine with a very large core count -- reading 512 sysfs files every
+/// tick to average a number displayed to four significant figures is not worth
+/// the syscalls.
+pub const CPUFREQ_PROBE_CORES: usize = 32;

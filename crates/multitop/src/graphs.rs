@@ -21,6 +21,9 @@ const DOT_ROWS: usize = 4;
 /// dots.
 const BRAILLE_BASE: u32 = 0x2800;
 
+/// Where a clock reads better in gigahertz than in megahertz.
+const GHZ_IN_MHZ: f64 = 1000.0;
+
 /// Bit for each dot, indexed `[column][row]`.
 ///
 /// Braille numbers its dots 1-6 down the two columns and adds 7 and 8 at the
@@ -138,45 +141,66 @@ fn plot(spec: &Plot<'_>, cols: usize, rows: usize, pal: &Palette) -> Vec<String>
 }
 
 /// The whole graph view for one panel.
+///
+/// The first line is a placeholder. Row 0 of every pane is the banner, composed
+/// in `ui::draw` from the host name and the scroll badge and written over
+/// whatever the renderer put there -- which is why the CPU heading vanished the
+/// first time round. Every other renderer emits a throwaway first line for the
+/// same reason; this one now says so out loud.
 #[must_use]
 pub fn render_graphs(history: &History, cols: usize, rows: usize, pal: &Palette) -> Vec<String> {
+    let mut out = vec![String::new()];
     if history.is_empty() {
-        return vec![format!(
+        out.push(format!(
             "{}\u{2192} Graphs: no samples yet -- the first arrives with the next refresh{}",
             pal.meter_mid(),
             pal.reset
-        )];
+        ));
+        return out;
+    }
+    let body = rows.saturating_sub(1);
+    if body == 0 {
+        return out;
     }
 
     let window = cols * DOT_COLS;
     let cpu = history.cpu.tail(window);
     let mem = history.mem.tail(window);
-    // One line for the link, because two series in one braille grid are one
-    // series with extra dots -- there is no second colour inside a cell.
     let rx = history.rx.tail(window);
     let tx = history.tx.tail(window);
-    let net: Vec<f64> = rx.iter().zip(tx.iter()).map(|(r, t)| r + t).collect();
-    let net_peak = net.iter().copied().fold(0.0f64, f64::max);
-    let cpu_reading = pct(history.cpu.latest());
 
-    // Three stacked plots. Whatever does not divide evenly goes to CPU, which
-    // is the one people look at.
-    let each = rows / 3;
+    // Four plots: CPU, memory, and each direction of the link on its own. One
+    // combined line could not say which way the traffic was going, which is the
+    // first thing anyone wants to know about a busy host.
+    let each = body / 4;
+    let cpu_reading = format!(
+        "{} {}",
+        pct(history.cpu.latest()),
+        clock(history.mhz.latest())
+    );
     if each < 2 {
-        // Below two rows a plot is a heading and nothing else, so the pane
-        // gets one graph properly rather than three uselessly.
-        return plot(&cpu_plot(history, &cpu, &cpu_reading, pal), cols, rows, pal);
+        // No room for four. One graph drawn properly beats four headings with
+        // nothing under them.
+        return with_head(
+            out,
+            plot(&cpu_plot(history, &cpu, &cpu_reading, pal), cols, body, pal),
+        );
     }
-    let cpu_rows = rows - each * 2;
+    // The remainder goes to CPU, which is the one people look at.
+    let cpu_rows = body - each * 3;
 
-    let mut out = plot(
+    // One scale for both directions, so a link where transmit dwarfs receive
+    // reads as exactly that rather than as two equally busy graphs.
+    let net_peak = rx.iter().chain(tx.iter()).copied().fold(0.0f64, f64::max);
+
+    let mut lines = plot(
         &cpu_plot(history, &cpu, &cpu_reading, pal),
         cols,
         cpu_rows,
         pal,
     );
     let mem_reading = pct(history.mem.latest());
-    out.extend(plot(
+    lines.extend(plot(
         &Plot {
             heading: "MEM",
             reading: &mem_reading,
@@ -189,18 +213,15 @@ pub fn render_graphs(history: &History, cols: usize, rows: usize, pal: &Palette)
         pal,
     ));
     // The heading names the scale, because an autoscaled graph with no number
-    // on it is a shape that could mean a kilobyte or a gigabit.
-    let net_heading = format!("NET total, peak {}/s", rate(net_peak));
-    let net_now = format!(
-        "\u{2193}{}/s \u{2191}{}/s",
-        rate(history.rx.latest().unwrap_or(0.0)),
-        rate(history.tx.latest().unwrap_or(0.0))
-    );
-    out.extend(plot(
+    // on it is a shape that could mean a kilobyte or a gigabit. Both directions
+    // name the same scale, which is what makes them comparable by eye.
+    let scale = format!("peak {}/s", rate(net_peak));
+    let down_reading = format!("{}/s", rate(history.rx.latest().unwrap_or(0.0)));
+    lines.extend(plot(
         &Plot {
-            heading: &net_heading,
-            reading: &net_now,
-            samples: &net,
+            heading: &format!("NET \u{2193} down, {scale}"),
+            reading: &down_reading,
+            samples: &rx,
             max: net_peak,
             colour: pal.primary(),
         },
@@ -208,7 +229,20 @@ pub fn render_graphs(history: &History, cols: usize, rows: usize, pal: &Palette)
         each,
         pal,
     ));
-    out
+    let up_reading = format!("{}/s", rate(history.tx.latest().unwrap_or(0.0)));
+    lines.extend(plot(
+        &Plot {
+            heading: &format!("NET \u{2191} up, {scale}"),
+            reading: &up_reading,
+            samples: &tx,
+            max: net_peak,
+            colour: pal.secondary(),
+        },
+        cols,
+        each,
+        pal,
+    ));
+    with_head(out, lines)
 }
 
 /// The CPU plot, named once because both layouts draw it.
@@ -231,8 +265,29 @@ fn cpu_plot<'a>(
     }
 }
 
+fn with_head(mut head: Vec<String>, body: Vec<String>) -> Vec<String> {
+    head.extend(body);
+    head
+}
+
 fn pct(value: Option<f64>) -> String {
     value.map_or_else(|| "--".to_string(), |v| format!("{v:.0}%"))
+}
+
+/// The current core clock, or a dash.
+///
+/// A dash rather than a zero or an omission: Apple Silicon publishes no
+/// current-frequency reading at all, and "not measured" and "idling at nothing"
+/// must not look the same.
+fn clock(mhz: Option<f64>) -> String {
+    let Some(mhz) = mhz else {
+        return "-- MHz".to_string();
+    };
+    if mhz >= GHZ_IN_MHZ {
+        format!("{:.2} GHz", mhz / GHZ_IN_MHZ)
+    } else {
+        format!("{mhz:.0} MHz")
+    }
 }
 
 fn rate(bytes_per_sec: f64) -> String {

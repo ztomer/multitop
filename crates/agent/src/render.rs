@@ -56,6 +56,9 @@ pub struct Snapshot {
     pub host: String,
     pub agent_version: String,
     pub cpu_pct: f64,
+    /// What the cores are clocked at right now, in MHz, or `None` on a machine
+    /// that publishes no current-frequency reading.
+    pub cpu_mhz: Option<f64>,
     /// (core index, busy percent, temp deg C), ascending by index
     pub cores: Vec<(usize, f64, Option<f64>)>,
     pub temp_unit: TempUnit,

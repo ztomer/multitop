@@ -1,5 +1,8 @@
 # Release Process
 
+Run the gates first — `python3 scripts/local-ci.py` is everything CI runs, plus
+the fuzz and benchmark gates the hook does not carry.
+
 ## Prerequisites
 
 - `gh` (GitHub CLI) authenticated: `gh auth login`
@@ -15,7 +18,7 @@ so a plain `gh auth login` (keyring, no env var) is enough.
 One command — bump, commit, tag, push, release, and update the tap:
 
 ```bash
-python3 scripts/release.py v0.23.0 --cut
+python3 scripts/release.py v0.32.0 --cut
 ```
 
 Do not perform these steps by hand. Hand-running them is how `v0.21.0` and
@@ -25,7 +28,7 @@ Do not perform these steps by hand. Hand-running them is how `v0.21.0` and
 To release a tag that was already pushed, omit `--cut`:
 
 ```bash
-python3 scripts/release.py v0.23.0
+python3 scripts/release.py v0.32.0
 ```
 
 ## What the script does (`scripts/release.py`)
@@ -60,10 +63,10 @@ brew install ztomer/tap/multitop
 
 ```bash
 # 1. Get SHA256
-curl -sL https://github.com/ztomer/multitop/archive/refs/tags/v0.22.0.tar.gz | shasum -a 256
+curl -sL https://github.com/ztomer/multitop/archive/refs/tags/v0.32.0.tar.gz | shasum -a 256
 
 # 2. Update homebrew-tap/Formula/multitop.rb
-#    - Update url to v0.22.0.tar.gz
+#    - Update url to v0.32.0.tar.gz
 #    - Update sha256 to calculated value
 #    - Commit and push
 ```

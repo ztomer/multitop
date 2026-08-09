@@ -58,9 +58,10 @@ Each panel shows:
 
 Additional views accessible via keys:
 
-- **Graphs view** (`G`) — CPU, memory and network history per pane, drawn as
-  braille area graphs. Fed by the stats stream already running, so it costs
-  nothing extra on the wire
+- **Graphs view** (`G`) — history per pane as braille area graphs: CPU with its
+  current core clock, memory, and download and upload on separate graphs sharing
+  one scale so the two are comparable by eye. Fed by the stats stream already
+  running, so it costs nothing extra on the wire
 - **Docker view** (`d`) — container list with CPU/memory usage, sorted by load
 - **Update view** (`u`) — per-server update status; press `u` again to run
 - **Settings screen** (`e`) — servers, their passwords, and the vault
@@ -86,7 +87,7 @@ the graph history, so **G** has a past to draw the moment you press it.
 | **m** | Sort processes / Docker containers by Memory usage |
 | **d** | Toggle the Docker view on all panels |
 | **s** | Back to live stats |
-| **G** | Toggle the graphs view: CPU, memory and network history per pane |
+| **G** | Toggle the graphs view: CPU (with core clock), memory, and download/upload history per pane |
 | **u** | Show the update status view; press again to run the updates. **The run is scoped to the filter** — what is on screen is what gets upgraded |
 | **f** | Toggle the Fetch view |
 | **e** | Open Settings: servers, passwords, vault |

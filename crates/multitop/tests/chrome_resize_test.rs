@@ -25,6 +25,7 @@ fn sample_snapshot() -> Snapshot {
         host: "test-host.example.com (10.0.0.1)".into(),
         agent_version: "0.0.0".into(),
         cpu_pct: 42.0,
+        cpu_mhz: Some(3600.0),
         cores: (0..8u32)
             .map(|c| {
                 let load = f64::from(c).mul_add(8.0, 10.0);

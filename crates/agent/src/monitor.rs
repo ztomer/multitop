@@ -72,6 +72,7 @@ impl Monitor {
             host: self.host.clone(),
             agent_version: AGENT_VERSION.to_string(),
             cpu_pct,
+            cpu_mhz: crate::cpufreq::get_cpu_mhz(),
             cores,
             temp_unit: Default::default(),
             mem,

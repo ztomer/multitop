@@ -47,15 +47,34 @@ tagged but never released, with Homebrew left on `v0.20.10`.
 
 ## Commit Gates
 
-Three gates run on every commit via `.githooks/pre-commit`, and again in CI
-(`.github/workflows/ci.yml`) where they cannot be bypassed:
+Every gate below runs on **every commit** via `.githooks/pre-commit`, and again
+in CI (`.github/workflows/ci.yml`) where it cannot be bypassed. The two lists are
+deliberately identical: a local gate weaker than CI is a gate that lets you push
+red, which is how ten deprecations once shipped green.
 
-| Gate | Command |
-|------|---------|
-| No emoji | `python3 tools/check_no_emoji.py` |
-| Keychain isolation | `python3 tools/check_keychain_isolation.py` |
-| Formatting | `cargo fmt --all -- --check` |
-| Clippy | `cargo clippy --workspace --all-targets --all-features -- -D warnings` |
+| Gate | Command | What it stops |
+|------|---------|---------------|
+| No emoji | `python3 tools/check_no_emoji.py` | Decorative emoji anywhere, including as unicode escapes |
+| Test-only code | `python3 tools/check_test_only_code.py` | A function exercised only by tests, whose live duplicate is then untested |
+| Key hints | `python3 tools/check_key_hints.py` | A user-facing string naming a key nothing binds |
+| Keychain isolation | `python3 tools/check_keychain_isolation.py` | A test reaching the real OS keychain and stopping the suite on a dialog |
+| Row 0 owner | `python3 tools/check_row0_owner.py` | A pane's view assigned outside `panel.rs`, which overwrites the banner |
+| Magic numbers | `python3 tools/check_magic_numbers.py` | A literal carrying meaning nobody wrote down |
+| Formatting | `cargo fmt --all -- --check` | |
+| Clippy | `cargo clippy --workspace --all-targets --all-features -- -D warnings` | |
+| Coverage | `bash tools/coverage_check.sh` | Line coverage below 95% |
+
+Each checker has a `--self-test` that proves it still *detects* before it is
+trusted to report clean, and the hook runs it first. A checker that has quietly
+stopped detecting reports a clean tree exactly like a clean tree does -- the
+emoji gate missed escaped codepoints entirely until a padlock turned up in a
+repo it called clean.
+
+To run the whole set plus the fuzz and benchmark gates before pushing:
+
+```bash
+python3 scripts/local-ci.py
+```
 
 Enable the hook after cloning (it is a one-time, per-clone setting):
 

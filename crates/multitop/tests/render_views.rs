@@ -63,6 +63,7 @@ fn snapshot(host: &str, cpu: f64) -> multitop_agent::render::Snapshot {
         host: host.to_string(),
         agent_version: "0.24.0".to_string(),
         cpu_pct: cpu,
+        cpu_mhz: Some(3600.0),
         // `u8` throughout so every widening is `f64::from`, which is lossless
         // and needs no cast lint silenced.
         cores: (0..8u8)

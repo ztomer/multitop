@@ -10,7 +10,9 @@ pub const MAGIC: &[u8; 4] = b"MTOP";
 ///
 /// 2 added the container image to each Docker row, so that `/` can find a host
 /// by the image it is running.
-pub const PROTO_VERSION: u8 = 2;
+///
+/// 3 added the current CPU clock to the Monitor snapshot.
+pub const PROTO_VERSION: u8 = 3;
 
 #[repr(u8)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -112,6 +114,9 @@ fn encode_snapshot(snap: &Snapshot, buf: &mut Vec<u8>) {
     encode_str(&snap.host, buf);
     encode_str(&snap.agent_version, buf);
     buf.extend_from_slice(&(snap.cpu_pct as f32).to_le_bytes());
+    // Same sentinel the per-core temperature uses a few lines down: a negative
+    // is "not measured", because there is no such thing as a negative clock.
+    buf.extend_from_slice(&(snap.cpu_mhz.unwrap_or(-1.0) as f32).to_le_bytes());
 
     #[allow(clippy::cast_possible_truncation)]
     let num_cores = snap.cores.len().min(u16::MAX as usize) as u16;
@@ -264,7 +269,7 @@ pub fn decode_packet(data: &[u8]) -> Option<Payload> {
 
     let mut cur = Cursor::new(&data[8..]);
     match mode {
-        MODE_MONITOR => decode_snapshot(&mut cur).map(Payload::Monitor),
+        MODE_MONITOR => decode_snapshot(&mut cur, version).map(Payload::Monitor),
         // The Docker row layout gained a field in protocol 2. Read with the
         // wrong layout the rows do not fail -- they come out as plausible
         // nonsense, one field shifted along -- so an older agent's are refused.
@@ -297,10 +302,24 @@ fn decode_fetch(cur: &mut Cursor) -> Option<FetchSnapshot> {
     })
 }
 
-fn decode_snapshot(cur: &mut Cursor) -> Option<Snapshot> {
+/// `version` is the byte from the packet header.
+///
+/// The Monitor payload has to stay decodable at *every* version -- the
+/// agent-version mismatch that replaces a stale remote binary is read out of a
+/// decoded Monitor packet, so a snapshot this build refuses is a stale agent it
+/// can never notice and never replace. A field added to this payload is
+/// therefore read only when the sender's version says it is there, rather than
+/// the payload being refused wholesale the way a Docker packet is.
+fn decode_snapshot(cur: &mut Cursor, version: u8) -> Option<Snapshot> {
     let host = cur.read_str()?;
     let agent_version = cur.read_str()?;
     let cpu_pct = cur.read_f32()? as f64;
+    let cpu_mhz = if version >= 3 {
+        let raw = cur.read_f32()?;
+        (raw > 0.0).then_some(f64::from(raw))
+    } else {
+        None
+    };
 
     let num_cores = cur.read_u16()? as usize;
     let rem_cores = cur.remaining() / 10;
@@ -350,6 +369,7 @@ fn decode_snapshot(cur: &mut Cursor) -> Option<Snapshot> {
         host,
         agent_version,
         cpu_pct,
+        cpu_mhz,
         cores,
         temp_unit,
         mem: Usage::new(mem_total, mem_used),

@@ -17,6 +17,7 @@ use multitop_agent::render::{Snapshot, TempUnit};
 
 fn snapshot() -> Snapshot {
     Snapshot {
+        cpu_mhz: Some(3600.0),
         host: "web-01 (10.0.0.4)".into(),
         agent_version: "9.9.9".into(),
         cpu_pct: 42.5,
@@ -352,4 +353,50 @@ fn the_container_image_survives_a_round_trip() {
     };
     assert_eq!(rows[0].image, "registry.example.com/team/billing:2.1");
     assert_eq!(rows[0].name, "billing-api", "the fields came back shifted");
+}
+
+#[test]
+fn the_core_clock_survives_a_round_trip_and_its_absence_does_too() {
+    for mhz in [Some(3600.0), Some(800.5), None] {
+        let mut snap = snapshot();
+        snap.cpu_mhz = mhz;
+        let packet = multitop_agent::proto::encode_packet(&Payload::Monitor(snap));
+        let Some(Payload::Monitor(back)) = multitop_agent::proto::decode_packet(&packet) else {
+            panic!("the packet must decode as Monitor");
+        };
+        match (mhz, back.cpu_mhz) {
+            (None, got) => assert_eq!(got, None, "an absent clock came back as a number"),
+            (Some(want), Some(got)) => assert!((got - want).abs() < 1.0, "{want} -> {got}"),
+            (Some(want), None) => panic!("a clock of {want} was lost"),
+        }
+    }
+}
+
+#[test]
+fn a_monitor_packet_from_before_the_clock_field_still_decodes() {
+    // The invariant this payload is held to: it must be readable at *every*
+    // version, because the agent-version mismatch that replaces a stale remote
+    // binary is read out of a decoded Monitor packet. A snapshot refused on
+    // version alone is a stale agent that can never be noticed or replaced.
+    //
+    // So the field is read only when the sender says it is there -- and the
+    // rest of the payload must still land in the right fields without it.
+    let mut snap = snapshot();
+    snap.cpu_mhz = Some(3600.0);
+    snap.host = "web-01".into();
+    let packet = multitop_agent::proto::encode_packet(&Payload::Monitor(snap));
+
+    let old = with_version(packet, 2);
+    let Some(Payload::Monitor(back)) = multitop_agent::proto::decode_packet(&old) else {
+        panic!("a protocol-2 Monitor packet must still decode");
+    };
+    assert_eq!(back.host, "web-01", "the fields came back shifted");
+    assert_eq!(
+        back.cpu_mhz, None,
+        "a clock was read out of a packet without one"
+    );
+    assert!(
+        !back.agent_version.is_empty(),
+        "the version that triggers replacing the agent was lost"
+    );
 }

@@ -147,7 +147,11 @@ fn keybar_initials(
     // Shed the views before the doors: Fetch, Graphs, Docker, Upgrade, Stats,
     // then Filter and Settings. Graphs goes early because it is a second
     // reading of the numbers Stats already shows.
-    let kept = crate::layout::fit_row(&widths, 2, keybar_width as usize, &[4, 2, 3, 5, 1, 6, 7]);
+    //
+    // These are indices into the row above, so the order of the two lists is
+    // coupled -- moving a key in the row means moving its index here. The row
+    // is Q S D F G U / E.
+    let kept = crate::layout::fit_row(&widths, 2, keybar_width as usize, &[3, 4, 2, 5, 1, 6, 7]);
     let mut out = Vec::new();
     for (n, index) in kept.iter().enumerate() {
         if n > 0 {
@@ -215,14 +219,14 @@ pub fn keybar_line(
         Span::styled("S", s_hi),
         Span::styled("tats", s_lbl),
         Span::styled("  ", label),
-        Span::styled("G", g_hi),
-        Span::styled("raphs", g_lbl),
-        Span::styled("  ", label),
         Span::styled("D", d_hi),
         Span::styled("ocker", d_lbl),
         Span::styled("  ", label),
         Span::styled("F", f_hi),
         Span::styled("etch", f_lbl),
+        Span::styled("  ", label),
+        Span::styled("G", g_hi),
+        Span::styled("raphs", g_lbl),
         Span::styled("  ", label),
         Span::styled("U", u_hi),
         Span::styled(upgrade_word, u_lbl),
@@ -249,9 +253,9 @@ pub fn keybar_line(
         let keys = [
             ("Q", key_hi),
             ("S", s_hi),
-            ("G", g_hi),
             ("D", d_hi),
             ("F", f_hi),
+            ("G", g_hi),
             ("U", u_hi),
             ("/", key_hi),
             ("E", key_hi),
