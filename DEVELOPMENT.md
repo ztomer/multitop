@@ -54,6 +54,7 @@ red, which is how ten deprecations once shipped green.
 
 | Gate | Command | What it stops |
 |------|---------|---------------|
+| Gate parity | `python3 tools/check_gate_parity.py` | A gate named in one of the three lists and not the others |
 | No emoji | `python3 tools/check_no_emoji.py` | Decorative emoji anywhere, including as unicode escapes |
 | Test-only code | `python3 tools/check_test_only_code.py` | A function exercised only by tests, whose live duplicate is then untested |
 | Key hints | `python3 tools/check_key_hints.py` | A user-facing string naming a key nothing binds |
@@ -63,6 +64,12 @@ red, which is how ten deprecations once shipped green.
 | Formatting | `cargo fmt --all -- --check` | |
 | Clippy | `cargo clippy --workspace --all-targets --all-features -- -D warnings` | |
 | Coverage | `bash tools/coverage_check.sh` | Line coverage below 95% |
+
+The three lists -- the hook, `ci.yml` and `local-ci.py` -- are compared against
+each other by the first gate, and against what is actually in `tools/`. They had
+drifted before: this file itself said "three gates" while CI ran six and
+`local-ci.py` ran two. A comment asking people to keep lists in step is not a
+gate; that one is.
 
 Each checker has a `--self-test` that proves it still *detects* before it is
 trusted to report clean, and the hook runs it first. A checker that has quietly

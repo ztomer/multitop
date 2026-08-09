@@ -115,6 +115,8 @@ def run(label: str, cmd: list[str]) -> bool:
 # `.github/workflows/ci.yml`; the three lists must not disagree.
 
 CHECKERS = [
+    # First: it is the one that notices this list has fallen behind the others.
+    ("gate parity", "check_gate_parity.py"),
     ("no emoji", "check_no_emoji.py"),
     ("test-only code", "check_test_only_code.py"),
     ("key hints", "check_key_hints.py"),

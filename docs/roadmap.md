@@ -46,6 +46,7 @@ line of detection.
 | Touch ID unlock was unreachable: the fix for the double prompt left nothing able to start it | `check_test_only_code.py` | `Vault::biometric_available` decides which door to offer *before* a prompt goes up; `App::begin_vault_unlock` routes to it or to the master password |
 | A session's reason for ending was kept or lost at random -- `select!` raced stderr against stdout's EOF | coverage run | Drain stderr before reporting the close |
 | The graph view's CPU heading was invisible, drawn onto the row the banner overwrites | user | A placeholder first line, like every other renderer emits |
+| CI had been red on every run for days -- an Ubuntu runner with no `libdbus-1-dev`, so every cargo step died in a build script before compiling any of this project | user | The system library installed by a composite action every job uses; `check_gate_parity.py` so the three gate lists cannot drift again |
 | `/` could only find a host by a process near the top of its table, because the agent truncates that table to what fits the pane -- and filtering makes panes bigger, so the same query answered differently a second later | user | The snapshot carries every distinct process name; the table stays capped |
 | Four defects in one five-change round (below) | adversarial review | see the table under "The streak is broken" |
 

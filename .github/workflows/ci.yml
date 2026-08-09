@@ -1,7 +1,10 @@
 name: CI
 
-# The same three gates the pre-commit hook runs, enforced where they cannot be
-# bypassed with --no-verify.
+# Every gate the pre-commit hook runs, enforced where it cannot be bypassed
+# with --no-verify. The two lists are checked against each other by
+# `tools/check_gate_parity.py`, which runs in the first job below -- they had
+# drifted before, and a CI list shorter than the local one is a merge gate that
+# does less than the hook it is meant to backstop.
 on:
   push:
     branches: [main]
@@ -12,7 +15,7 @@ env:
 
 jobs:
   gates:
-    name: fmt / clippy / no-emoji
+    name: fmt / clippy / structural gates
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -23,10 +26,19 @@ jobs:
 
       - uses: Swatinem/rust-cache@v2
 
+      # `keyring` reaches the Linux credential store through
+      # `dbus-secret-service`, whose `libdbus-sys` needs the system library at
+      # build time. Without this every cargo step here dies in a build script
+      # before compiling a line of this project -- which is exactly what it did,
+      # on every run, while the local gates were green.
+      - uses: ./.github/actions/system-deps
+
       # Checks every tracked file, not just a diff: a gate that only looks at
       # what changed lets pre-existing violations sit forever.
-      - name: No emoji
+      - name: Structural gates
         run: |
+          python3 tools/check_gate_parity.py --self-test
+          python3 tools/check_gate_parity.py
           python3 tools/check_no_emoji.py --self-test
           python3 tools/check_no_emoji.py
           python3 tools/check_test_only_code.py --self-test
@@ -55,9 +67,10 @@ jobs:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
+      - uses: ./.github/actions/system-deps
 
       # The SSH-backed tests are #[ignore]d and stay that way here: CI has no
-      # reachable host. They are run manually against real machines — see
+      # reachable host. They are run manually against real machines -- see
       # DEVELOPMENT.md.
       - name: Test
         run: cargo test --workspace --all-features
@@ -74,21 +87,24 @@ jobs:
         with:
           components: llvm-tools-preview
       - uses: Swatinem/rust-cache@v2
+      - uses: ./.github/actions/system-deps
 
       - name: Install cargo-llvm-cov
         run: cargo install cargo-llvm-cov
 
-      # The multitop crate is where the bugs live and where the fixes land.
-      # 95% line coverage is the floor; falling below fails CI.
-      - name: Coverage (multitop, fail under 95%)
+      - name: Coverage (workspace, fail under 95%)
         run: |
           # The one definition of the floor and its exclusions lives in the
           # script. CI and the pre-commit hook both call it, so a local gate
           # cannot be weaker than the one that blocks the merge.
           bash tools/coverage_check.sh
 
+      # `target/lcov.info`, which is where the script writes it. This said
+      # `lcov.info` and matched nothing, so the artifact had been empty for as
+      # long as it had existed.
       - name: Upload coverage artifact
         uses: actions/upload-artifact@v4
         with:
-          name: lcov-multitop
-          path: lcov.info
+          name: lcov-workspace
+          path: target/lcov.info
+          if-no-files-found: error

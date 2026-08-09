@@ -1,0 +1,17 @@
+name: System dependencies
+description: >
+  The system libraries this workspace needs to build on a Linux runner.
+  One composite action rather than a copied step, because it is needed by every
+  job that runs cargo and the copy that gets forgotten is the job that breaks.
+runs:
+  using: composite
+  steps:
+    # `keyring` reaches the Linux credential store through
+    # `dbus-secret-service`, whose `libdbus-sys` build script shells out to
+    # pkg-config for `dbus-1`. Missing, it panics in the build script, so the
+    # failure arrives before any of this project is compiled and reads as
+    # nothing to do with the change that triggered it.
+    - shell: bash
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y libdbus-1-dev pkg-config

@@ -26,6 +26,17 @@ command -v python3 >/dev/null 2>&1 || die "python3 not on PATH — cannot run th
 
 section "pre-commit gates"
 
+info "checking the gate lists agree"
+if ! python3 tools/check_gate_parity.py --self-test >"$log" 2>&1; then
+    cat "$log" >&2
+    die "the gate-parity checker's own self-test failed -- it cannot be trusted"
+fi
+if ! python3 tools/check_gate_parity.py >"$log" 2>&1; then
+    cat "$log" >&2
+    die "a gate is not run everywhere it should be"
+fi
+ok "hook, CI and local-ci run the same gates"
+
 info "checking for emoji"
 # Verify the checker still detects before trusting it to report clean. It
 # missed escaped codepoints entirely until a padlock turned up in the config
