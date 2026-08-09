@@ -83,6 +83,26 @@ To run the whole set plus the fuzz and benchmark gates before pushing:
 python3 scripts/local-ci.py
 ```
 
+### CI runs stable; local development runs nightly
+
+There is no `rust-toolchain.toml`, on purpose -- `cargo fuzz` needs nightly and
+the fuzz gate in `local-ci.py` would stop working under a pin. The cost is that
+the two run different lint sets, in both directions:
+
+* a lint nightly has and stable does not makes the *name* in an `#[allow]` an
+  error on stable, under `-D unknown-lints`;
+* and removing the allow to satisfy stable makes the lint itself an error here.
+
+`clippy::unused_async_trait_impl` is exactly that, in three files. Both are
+needed until it reaches stable:
+
+```rust
+#[allow(unknown_lints)]
+#[allow(clippy::unused_async, clippy::unused_async_trait_impl)]
+```
+
+If clippy passes here and fails there, suspect the lint *name* before the code.
+
 ### Checking the Linux-only code from a Mac
 
 `fprintd.rs`, the `secure_enclave` stubs and the Linux arms of `api/` are

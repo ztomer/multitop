@@ -27,6 +27,11 @@ impl Vault {
     /// `VaultError::Io` if directory creation or file writing fails,
     /// `VaultError::Serialization` if contents cannot be serialized,
     /// or encryption-related errors.
+    // `unused_async_trait_impl` exists on nightly and not yet on stable, and CI
+    // runs stable: without `unknown_lints` the *name* is an error there, and
+    // without the allow the lint itself is an error here. Both are needed until
+    // it lands on stable, at which point the `unknown_lints` line can go.
+    #[allow(unknown_lints)]
     #[allow(clippy::unused_async, clippy::unused_async_trait_impl)]
     pub async fn initialize(&self, system_password: &str) -> Result<(), VaultError> {
         if self.exists() {

@@ -71,6 +71,11 @@ impl Vault {
     /// user toward the lockout backoff simply because their sensor was
     /// unavailable. `test_vault_biometric_failures_do_not_trigger_lockout`
     /// pins this.
+    // `unused_async_trait_impl` exists on nightly and not yet on stable, and CI
+    // runs stable: without `unknown_lints` the *name* is an error there, and
+    // without the allow the lint itself is an error here. Both are needed until
+    // it lands on stable, at which point the `unknown_lints` line can go.
+    #[allow(unknown_lints)]
     #[allow(clippy::unused_async, clippy::unused_async_trait_impl)]
     async fn try_unlock_biometric(&self) -> Result<UnlockedVault, VaultError> {
         // Load vault file

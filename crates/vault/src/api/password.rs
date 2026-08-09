@@ -14,6 +14,11 @@ impl Vault {
     /// # Errors
     /// Returns `VaultError` if unlock fails, Secure Enclave is unavailable,
     /// or saving the vault fails.
+    // `unused_async_trait_impl` exists on nightly and not yet on stable, and CI
+    // runs stable: without `unknown_lints` the *name* is an error there, and
+    // without the allow the lint itself is an error here. Both are needed until
+    // it lands on stable, at which point the `unknown_lints` line can go.
+    #[allow(unknown_lints)]
     #[allow(clippy::unused_async, clippy::unused_async_trait_impl)]
     pub async fn rebind_biometric(&self, password: &str) -> Result<(), VaultError> {
         // Refuse before the unlock, not after it. `unlock_with_password` runs
