@@ -67,6 +67,13 @@ pub struct Snapshot {
     pub rx_rate: f64,
     pub tx_rate: f64,
     pub procs: Vec<Proc>,
+    /// Every distinct process name the host is running, for `/` to search.
+    ///
+    /// Not the same list as `procs`, and deliberately so: `procs` is what there
+    /// is room to draw, capped by `proc_budget`, and this is what the machine
+    /// is actually running. Filtering against the drawn list meant `/` could
+    /// only find a host by a process near the top of its table.
+    pub proc_names: Vec<String>,
 }
 
 /// Bar width for the aggregate rows, derived from the panel width.

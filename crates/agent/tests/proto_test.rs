@@ -18,6 +18,7 @@ use multitop_agent::render::{Snapshot, TempUnit};
 fn snapshot() -> Snapshot {
     Snapshot {
         cpu_mhz: Some(3600.0),
+        proc_names: Vec::new(),
         host: "web-01 (10.0.0.4)".into(),
         agent_version: "9.9.9".into(),
         cpu_pct: 42.5,
@@ -399,4 +400,68 @@ fn a_monitor_packet_from_before_the_clock_field_still_decodes() {
         !back.agent_version.is_empty(),
         "the version that triggers replacing the agent was lost"
     );
+}
+
+#[test]
+fn the_process_name_list_survives_a_round_trip() {
+    let mut snap = snapshot();
+    snap.proc_names = vec!["nginx".into(), "postgres".into(), "sshd".into()];
+    let packet = multitop_agent::proto::encode_packet(&Payload::Monitor(snap));
+    let Some(Payload::Monitor(back)) = multitop_agent::proto::decode_packet(&packet) else {
+        panic!("the packet must decode as Monitor");
+    };
+    assert_eq!(back.proc_names, vec!["nginx", "postgres", "sshd"]);
+}
+
+#[test]
+fn a_monitor_packet_from_before_the_name_list_still_decodes_whole() {
+    // The name list is written last, which is what makes gating it on the
+    // version safe: everything before it is what protocol 3 already sent, so a
+    // reader that stops there has still read a correct snapshot -- including
+    // the agent version that triggers replacing the remote binary.
+    let mut snap = snapshot();
+    snap.host = "web-01".into();
+    snap.proc_names = vec!["postgres".into()];
+    let packet = multitop_agent::proto::encode_packet(&Payload::Monitor(snap));
+
+    for version in [1u8, 2, 3] {
+        let old = with_version(packet.clone(), version);
+        let Some(Payload::Monitor(back)) = multitop_agent::proto::decode_packet(&old) else {
+            panic!("a protocol-{version} Monitor packet must still decode");
+        };
+        assert_eq!(
+            back.host, "web-01",
+            "at v{version} the fields came back shifted"
+        );
+        assert!(
+            back.proc_names.is_empty(),
+            "at v{version} a name list was read out of a packet without one"
+        );
+        assert!(
+            !back.agent_version.is_empty(),
+            "at v{version} the version that replaces the agent was lost"
+        );
+    }
+}
+
+#[test]
+fn a_name_list_too_large_for_one_packet_is_truncated_rather_than_split() {
+    // A name is dropped whole or not at all. A half-written string would
+    // desynchronise everything after it.
+    let mut snap = snapshot();
+    snap.proc_names = (0..20_000)
+        .map(|i| format!("process-with-a-long-name-{i}"))
+        .collect();
+    let packet = multitop_agent::proto::encode_packet(&Payload::Monitor(snap));
+    let Some(Payload::Monitor(back)) = multitop_agent::proto::decode_packet(&packet) else {
+        panic!("an over-long list must still produce a readable packet");
+    };
+    assert!(!back.proc_names.is_empty(), "everything was dropped");
+    assert!(back.proc_names.len() < 20_000, "nothing was dropped");
+    for name in &back.proc_names {
+        assert!(
+            name.starts_with("process-with-a-long-name-"),
+            "a name came back cut: {name}"
+        );
+    }
 }

@@ -122,3 +122,10 @@ pub const HWMON_MILLIDEGREE_THRESHOLD: f64 = 1000.0;
 /// tick to average a number displayed to four significant figures is not worth
 /// the syscalls.
 pub const CPUFREQ_PROBE_CORES: usize = 32;
+
+/// How many distinct process names a snapshot will carry for the filter.
+///
+/// Deduplicated names, so a busy host is nowhere near this; it is a ceiling on
+/// what the machine at the other end can make this packet cost, not a budget
+/// anyone is expected to spend.
+pub const MAX_FILTER_NAMES: usize = 512;

@@ -80,9 +80,11 @@ impl Monitor {
             rx_rate,
             tx_rate,
             procs: Vec::new(),
+            proc_names: Vec::new(),
         };
         let budget = Chrome::of(&snap, cols, lines).proc_budget(lines);
         snap.procs = self.sampler.top(interval, budget, sort_by);
+        snap.proc_names = self.sampler.scanned_names();
 
         self.prev_cpu = cpu;
         self.prev_net = net;

@@ -45,6 +45,7 @@ fn snapshot() -> Snapshot {
         agent_version: "9.9.9".into(),
         cpu_pct: 12.0,
         cpu_mhz: Some(3600.0),
+        proc_names: Vec::new(),
         cores: vec![(0, 5.0, Some(40.0))],
         mem: Usage::new(8 << 30, 2 << 30),
         disk: Usage::new(256 << 30, 64 << 30),

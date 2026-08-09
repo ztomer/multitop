@@ -9,4 +9,3 @@
 #
 # path lines
 crates/agent/src/docker.rs 501
-crates/multitop/src/panel.rs 560

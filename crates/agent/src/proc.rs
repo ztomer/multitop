@@ -392,6 +392,35 @@ impl ProcSampler {
         self.scanned = scanned;
         result
     }
+
+    /// Every distinct process name the last scan saw, for the filter to search.
+    ///
+    /// Separate from `top`, which returns the rows the table draws. These are
+    /// what the host is *running*; those are what there is room to *show*, and
+    /// conflating the two is what made "filter by process" mean "filter by the
+    /// processes that happen to fit".
+    ///
+    /// Read straight off the scan rather than out of a pool filled somewhere
+    /// else. A pool would have to be filled by `top`, which makes this return
+    /// nothing unless the caller happens to have called `top` first -- an
+    /// ordering rule enforced by a comment, which is not enforced at all.
+    #[must_use]
+    pub fn scanned_names(&self) -> Vec<String> {
+        let mut names: Vec<String> = Vec::with_capacity(self.scanned.len());
+        for s in &self.scanned {
+            if !s.comm.is_empty() {
+                names.push(s.comm.clone());
+            }
+        }
+        // Sorted so an unchanged host produces the same bytes each tick -- and
+        // sorting is also what makes the dedup one pass instead of a set.
+        names.sort_unstable();
+        names.dedup();
+        // Deduplicated first: a host with forty `nginx` workers spends one name
+        // of the budget, not forty.
+        names.truncate(crate::consts::MAX_FILTER_NAMES);
+        names
+    }
 }
 
 /// Hostname from `/proc`, falling back to `gethostname(2)`.

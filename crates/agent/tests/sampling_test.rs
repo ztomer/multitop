@@ -351,3 +351,80 @@ fn usage_of_a_zero_sized_thing_is_zero_percent_not_a_nan() {
     assert_eq!(u.pct, 0.0);
     assert!(!u.pct.is_nan());
 }
+
+#[test]
+fn the_name_list_covers_processes_the_table_had_no_room_for() {
+    // The point of the list: the table is capped to what fits the pane, and the
+    // filter must not be capped with it. This host is running many more than
+    // three processes, so a three-row table proves the two lists differ.
+    let mut sampler = ProcSampler::new();
+    sampler.prime();
+    let table = sampler.top(1.0, 3, SortBy::Cpu);
+    let names = sampler.scanned_names();
+
+    assert!(table.len() <= 3, "the table ignored its budget");
+    assert!(
+        names.len() > table.len(),
+        "the name list is no bigger than the table it exists to look past: \
+         {} names, {} rows",
+        names.len(),
+        table.len()
+    );
+    for p in &table {
+        assert!(
+            names.iter().any(|n| n == &p.name),
+            "a process in the table is missing from the list: {}",
+            p.name
+        );
+    }
+}
+
+#[test]
+fn the_name_list_is_deduplicated_sorted_and_bounded() {
+    // Deduplicated because a host with forty `nginx` workers has one name worth
+    // sending; sorted so an unchanged host produces the same bytes each tick
+    // rather than a set's arbitrary order.
+    let mut sampler = ProcSampler::new();
+    sampler.prime();
+    let names = sampler.scanned_names();
+
+    let mut unique = names.clone();
+    unique.dedup();
+    assert_eq!(unique, names, "the list repeats a name");
+
+    let mut sorted = names.clone();
+    sorted.sort_unstable();
+    assert_eq!(sorted, names, "the list is not in a stable order");
+
+    assert!(
+        !names.is_empty(),
+        "this process is running, so something scanned"
+    );
+    assert!(
+        names.len() <= 512,
+        "the list is unbounded: {} names",
+        names.len()
+    );
+    assert!(
+        names.iter().all(|n| !n.is_empty()),
+        "an empty name reached the list"
+    );
+}
+
+#[test]
+fn the_name_list_is_rebuilt_each_scan_rather_than_accumulating() {
+    // It is a buffer reused between ticks. If it were appended to, a process
+    // that exited would stay findable forever.
+    let mut sampler = ProcSampler::new();
+    sampler.prime();
+    let _ = sampler.top(1.0, 3, SortBy::Cpu);
+    let first = sampler.scanned_names().len();
+    let _ = sampler.top(1.0, 3, SortBy::Cpu);
+    let second = sampler.scanned_names().len();
+    // Processes come and go on a real host, so this is a band rather than an
+    // equality -- but an accumulating list would roughly double.
+    assert!(
+        second < first * 2,
+        "the list grew from {first} to {second}; it is accumulating, not rebuilding"
+    );
+}

@@ -39,12 +39,27 @@ async fn isolate() -> tokio::sync::MutexGuard<'static, ()> {
     guard
 }
 
+/// A snapshot whose *table* holds `procs` and whose host is additionally
+/// running `also_running` -- the processes there was no room to draw.
+fn monitor_with_hidden(reported_host: &str, procs: &[&str], also_running: &[&str]) -> Payload {
+    let Payload::Monitor(mut snap) = monitor(reported_host, procs) else {
+        unreachable!("monitor builds a Monitor payload")
+    };
+    snap.proc_names = procs
+        .iter()
+        .chain(also_running.iter())
+        .map(|s| (*s).to_string())
+        .collect();
+    Payload::Monitor(snap)
+}
+
 fn monitor(reported_host: &str, procs: &[&str]) -> Payload {
     Payload::Monitor(Snapshot {
         host: reported_host.into(),
         agent_version: "9.9.9".into(),
         cpu_pct: 10.0,
         cpu_mhz: Some(3600.0),
+        proc_names: Vec::new(),
         cores: vec![(0, 10.0, None)],
         mem: Usage::new(100, 40),
         disk: Usage::new(100, 10),
@@ -338,5 +353,99 @@ async fn the_same_query_narrows_differently_once_the_view_changes() {
         app.filtered_indices(),
         vec![0],
         "the Docker view did not find the container"
+    );
+}
+
+// ------------------------------------------- what the host runs vs what it shows
+
+#[test]
+fn the_stats_view_finds_a_process_the_table_had_no_room_for() {
+    // The defect this exists for. The agent truncates its table to what fits
+    // the pane -- `proc_budget` -- so matching against the drawn rows meant `/`
+    // could only find a host by a process near the top of its table. A daemon
+    // at rank fifty was unfindable, and nothing on screen said why.
+    let mut p = Panel::new(test_server("web-01"));
+    p.mode = Mode::Monitor;
+    p.last_monitor = Some(monitor_with_hidden(
+        "web-01",
+        &["nginx", "sshd"],
+        &["postgres", "redis-server"],
+    ));
+
+    assert!(
+        p.matches_filter("postgres"),
+        "a running process was unfindable because the table had no room for it"
+    );
+    assert!(p.matches_filter("redis-server"));
+    // What is drawn still matches, obviously.
+    assert!(p.matches_filter("nginx"));
+    // And nothing it is not running does.
+    assert!(!p.matches_filter("mysqld"));
+}
+
+#[test]
+fn an_agent_too_old_to_send_the_full_list_still_matches_what_it_drew() {
+    // A protocol-3 agent sends no name list. Falling back to the drawn rows is
+    // worse than the full list and better than matching nothing, and it is what
+    // the user sees until the agent is replaced.
+    let mut p = Panel::new(test_server("web-01"));
+    p.mode = Mode::Monitor;
+    p.last_monitor = Some(monitor("web-01", &["nginx", "sshd"]));
+    let Some(Payload::Monitor(snap)) = &p.last_monitor else {
+        panic!("monitor payload");
+    };
+    assert!(
+        snap.proc_names.is_empty(),
+        "this test is meaningless if the fixture carries a name list"
+    );
+
+    assert!(p.matches_filter("nginx"));
+    assert!(!p.matches_filter("postgres"));
+}
+
+#[test]
+fn the_graphs_view_searches_the_full_list_too() {
+    // `G` draws the Monitor stream, so it must find the same hosts `s` does.
+    let mut p = Panel::new(test_server("web-01"));
+    p.mode = Mode::Graphs;
+    p.last_monitor = Some(monitor_with_hidden("web-01", &["nginx"], &["postgres"]));
+    assert!(p.matches_filter("postgres"));
+}
+
+#[tokio::test]
+async fn typing_finds_the_host_running_it_even_when_its_table_is_full() {
+    // End to end, key by key, with the process off the bottom of every table.
+    let _g = isolate().await;
+    let mut app = App::new(vec![
+        test_server("web-01"),
+        test_server("web-02"),
+        test_server("db-01"),
+    ]);
+    let epoch = app.panels_epoch;
+    for (i, hidden) in [vec!["cron"], vec!["cron"], vec!["postgres", "cron"]]
+        .into_iter()
+        .enumerate()
+    {
+        let gen = app.panels[i].gen;
+        app.apply(Msg::Packet {
+            panel: i,
+            gen,
+            epoch,
+            payload: monitor_with_hidden("agent-host", &["nginx", "sshd"], &hidden),
+            dims: (80, 12),
+        });
+    }
+
+    let (tx, _rx) = mpsc::channel::<Msg>(16);
+    let mut tasks = Tasks::new(3);
+    press(&mut app, KeyCode::Char('/'), &tx, &mut tasks);
+    for c in "postgres".chars() {
+        press(&mut app, KeyCode::Char(c), &tx, &mut tasks);
+    }
+
+    assert_eq!(
+        app.filtered_indices(),
+        vec![2],
+        "the only host running postgres was not the only one left"
     );
 }

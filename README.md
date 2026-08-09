@@ -91,7 +91,7 @@ the graph history, so **G** has a past to draw the moment you press it.
 | **u** | Show the update status view; press again to run the updates. **The run is scoped to the filter** — what is on screen is what gets upgraded |
 | **f** | Toggle the Fetch view |
 | **e** | Open Settings: servers, passwords, vault |
-| **/** | Filter the grid. Matches the host and user in every view, plus whatever the panes are showing right now: process names in **Stats** and **Graphs**, container names, images and status in **Docker**, the OS/kernel/model card in **Fetch**, the log in **Update**. **Enter** keeps it, **ESC** clears it |
+| **/** | Filter the grid. Matches the host and user in every view, plus whatever the panes are showing right now: process names in **Stats** and **Graphs** (every process the host is running, not only the ones its table had room to draw), container names, images and status in **Docker**, the OS/kernel/model card in **Fetch**, the log in **Update**. **Enter** keeps it, **ESC** clears it |
 | **1**–**9** | Select a panel |
 | **t** | Cycle the active theme |
 

@@ -15,6 +15,7 @@ fn sample_snapshot(server_id: u32) -> Snapshot {
         host: format!("server-{server_id}.prod.internal (10.0.0.{server_id})"),
         cpu_pct: 35.4 + (f64::from(server_id) * 2.5) % 50.0,
         cpu_mhz: Some(3600.0),
+        proc_names: Vec::new(),
         cores: (0..16u32)
             .map(|c| {
                 let load = 10.0 + (f64::from(c) * 5.0) % 80.0;
