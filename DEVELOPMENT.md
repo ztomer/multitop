@@ -83,6 +83,29 @@ To run the whole set plus the fuzz and benchmark gates before pushing:
 python3 scripts/local-ci.py
 ```
 
+### Checking the Linux-only code from a Mac
+
+`fprintd.rs`, the `secure_enclave` stubs and the Linux arms of `api/` are
+`cfg`-gated away on macOS, so nothing local compiles them and they can rot
+silently -- they had, for long enough to drift a whole zbus major version, while
+CI was failing earlier for an unrelated reason and never reached them.
+
+CI builds them now, and that is the real gate. To check before pushing, without
+waiting for a CI round trip: `cargo check` does not link, so a stub `.pc` is
+enough to satisfy the `libdbus-sys` build script.
+
+```bash
+rustup target add x86_64-unknown-linux-gnu
+printf 'Name: dbus\nDescription: stub\nVersion: 1.14.10\nLibs:\nCflags:\n' > /tmp/pc/dbus-1.pc
+PKG_CONFIG_ALLOW_CROSS=1 PKG_CONFIG_PATH=/tmp/pc \
+  cargo clippy -p multitop-vault --all-targets --all-features \
+  --target x86_64-unknown-linux-gnu -- -D warnings
+```
+
+The whole workspace will not cross-compile this way -- some C dependencies need
+a Linux toolchain -- but the vault crate is where all the platform-gated code
+is, and it does.
+
 Enable the hook after cloning (it is a one-time, per-clone setting):
 
 ```bash

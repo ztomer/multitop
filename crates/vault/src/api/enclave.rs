@@ -19,6 +19,11 @@
 
 use crate::crypto::{self, WrapperType};
 use crate::format;
+// Only used by the Linux arm below. The enclave split lost this import: it is
+// invisible on macOS, where the arm that needs it is compiled out, so nothing
+// local could notice and CI was red for an unrelated reason.
+#[cfg(target_os = "linux")]
+use crate::fprintd;
 #[cfg(target_os = "macos")]
 use crate::secure_enclave;
 use crate::VaultError;
@@ -141,7 +146,7 @@ impl Vault {
         //
         // Previously the verifier ran in the `else` arm, which is the arm that
         // is always taken: a Linux user was prompted to present a fingerprint,
-        // waited up to thirty seconds, and then reached the
+        // waited for the verifier's own timeout, and then reached the
         // `Err(BiometricFailed)` below no matter what happened -- succeeding,
         // failing, and timing out were indistinguishable. That failed closed,
         // which is the right direction, but the prompt was pure ceremony and it
@@ -149,19 +154,17 @@ impl Vault {
         #[cfg(target_os = "linux")]
         if vault_file.header.has_wrapper(WrapperType::Tpm2) {
             if let Ok(fv) = fprintd::FingerprintVerifier::new().await {
-                match fv.verify(30).await {
-                    Ok(crate::fprintd::FingerprintResult::Verified) => {
-                        // TPM2 unwrapping would go here once it exists. Until
-                        // then a verified fingerprint still releases nothing, so
-                        // this falls through rather than claiming success.
-                    }
-                    Ok(
-                        crate::fprintd::FingerprintResult::Failed
-                        | crate::fprintd::FingerprintResult::Timeout,
-                    ) => {
-                        return Err(VaultError::BiometricFailed);
-                    }
-                    _ => {}
+                // Only the refusals are acted on. `Verified` falls through
+                // with everything else: TPM2 unwrapping would go here once it
+                // exists, and until then a verified fingerprint still releases
+                // no key, so claiming an unlock here would be claiming one this
+                // build cannot perform.
+                if let Ok(
+                    crate::fprintd::FingerprintResult::Failed
+                    | crate::fprintd::FingerprintResult::Timeout,
+                ) = fv.verify().await
+                {
+                    return Err(VaultError::BiometricFailed);
                 }
             }
         }
@@ -172,7 +175,14 @@ impl Vault {
     /// Repair an orphaned Secure Enclave wrapper, if there is one and it can be
     /// repaired. Best-effort and silent: every failure leaves the vault exactly
     /// as it opened.
-    #[allow(unused_variables, clippy::unused_self)]
+    #[allow(
+        unused_variables,
+        clippy::unused_self,
+        clippy::needless_pass_by_ref_mut,
+        clippy::missing_const_for_fn,
+        reason = "the body is macOS-only; on every other platform this is empty \
+                  and the parameters are untouched"
+    )]
     pub(super) fn rebind_enclave_wrapper(&self, unlocked: &mut UnlockedVault) {
         // Repair an orphaned Secure Enclave wrapper.
         //

@@ -16,23 +16,38 @@ impl Vault {
     /// or saving the vault fails.
     #[allow(clippy::unused_async, clippy::unused_async_trait_impl)]
     pub async fn rebind_biometric(&self, password: &str) -> Result<(), VaultError> {
-        let mut vault = self.unlock_with_password(password)?;
-
-        // Gated for the same reason as `initialize`: creating the Secure Enclave
-        // key writes to the login keychain and deletes any existing key first.
-        #[cfg(target_os = "macos")]
-        if self.config.use_os_keychain {
-            if let Ok(se) = secure_enclave::get_secure_enclave() {
-                let se_wrapper = se.wrap_key(&vault.vault_key)?;
-                vault.header.add_wrapper(se_wrapper)?;
-                vault.save()?;
-                return Ok(());
-            }
+        // Refuse before the unlock, not after it. `unlock_with_password` runs
+        // Argon2id at a quarter of system RAM; on a platform with no enclave to
+        // rebind to, that is seconds of work spent to reach a refusal that was
+        // certain from the first line.
+        #[cfg(not(target_os = "macos"))]
+        {
+            let _ = password;
+            Err(VaultError::PlatformNotSupported(
+                "No biometric hardware available".into(),
+            ))
         }
 
-        Err(VaultError::PlatformNotSupported(
-            "No biometric hardware available".into(),
-        ))
+        #[cfg(target_os = "macos")]
+        {
+            let mut vault = self.unlock_with_password(password)?;
+
+            // Gated for the same reason as `initialize`: creating the Secure Enclave
+            // key writes to the login keychain and deletes any existing key first.
+            #[cfg(target_os = "macos")]
+            if self.config.use_os_keychain {
+                if let Ok(se) = secure_enclave::get_secure_enclave() {
+                    let se_wrapper = se.wrap_key(&vault.vault_key)?;
+                    vault.header.add_wrapper(se_wrapper)?;
+                    vault.save()?;
+                    return Ok(());
+                }
+            }
+
+            Err(VaultError::PlatformNotSupported(
+                "No biometric hardware available".into(),
+            ))
+        }
     }
 
     /// Change vault password

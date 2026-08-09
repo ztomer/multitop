@@ -4,7 +4,7 @@
 //! stored in the Secure Enclave. Private key operations require Touch ID/Face ID authentication.
 
 use crate::{
-    crypto::{VaultKey, Wrapper, WrapperType},
+    crypto::{VaultKey, Wrapper},
     VaultError,
 };
 
@@ -17,6 +17,7 @@ use security_framework::key::{Algorithm, GenerateKeyOptions, KeyType, SecKey, To
 #[cfg(target_os = "macos")]
 use security_framework_sys::access_control::kSecAccessControlBiometryCurrentSet;
 
+#[cfg(target_os = "macos")]
 const SE_KEY_LABEL: &str = "com.ztomer.multitop.vault.se-key";
 
 /// Secure Enclave operations for macOS
@@ -146,7 +147,7 @@ impl SecureEnclave {
             .encrypt_data(Algorithm::ECIESEncryptionStandardX963SHA256AESGCM, data)
             .map_err(|e| VaultError::SecureEnclaveError(format!("wrap: {e}")))?;
 
-        Wrapper::new(WrapperType::SecureEnclave, encrypted)
+        Wrapper::new(crate::crypto::WrapperType::SecureEnclave, encrypted)
     }
 
     /// Unwrap a vault key using the Secure Enclave private key (triggers Touch ID)
@@ -242,12 +243,18 @@ pub fn is_available() -> bool {
     SecureEnclave::is_available()
 }
 
-/// Platform stub for non-macOS
+/// Platform stub for non-macOS. There is no Secure Enclave to be available.
 #[cfg(not(target_os = "macos"))]
-pub fn is_available() -> bool {
+#[must_use]
+pub const fn is_available() -> bool {
     false
 }
 
+/// Platform stub for non-macOS.
+///
+/// # Errors
+/// Always `PlatformNotSupported`. It returns a `Result` rather than not
+/// existing so the callers do not each need a `cfg`.
 #[cfg(not(target_os = "macos"))]
 pub fn get_secure_enclave() -> Result<SecureEnclave, VaultError> {
     Err(VaultError::PlatformNotSupported(
@@ -260,11 +267,20 @@ pub struct SecureEnclave;
 
 #[cfg(not(target_os = "macos"))]
 impl SecureEnclave {
+    /// Platform stub for non-macOS.
+    ///
+    /// # Errors
+    /// Always `PlatformNotSupported`.
     pub fn wrap_key(&self, _key: &VaultKey) -> Result<Wrapper, VaultError> {
         Err(VaultError::PlatformNotSupported(
             "Secure Enclave only on macOS".into(),
         ))
     }
+
+    /// Platform stub for non-macOS.
+    ///
+    /// # Errors
+    /// Always `PlatformNotSupported`.
     pub fn unwrap_key(&self, _wrapper: &Wrapper) -> Result<VaultKey, VaultError> {
         Err(VaultError::PlatformNotSupported(
             "Secure Enclave only on macOS".into(),
@@ -313,7 +329,8 @@ mod tests {
         #[cfg(not(target_os = "macos"))]
         {
             let se = SecureEnclave;
-            let wrapper = Wrapper::new(WrapperType::SecureEnclave, vec![1u8; 64]).unwrap();
+            let wrapper =
+                Wrapper::new(crate::crypto::WrapperType::SecureEnclave, vec![1u8; 64]).unwrap();
             let result = se.unwrap_key(&wrapper);
             assert!(result.is_err());
             assert!(matches!(result, Err(VaultError::PlatformNotSupported(_))));

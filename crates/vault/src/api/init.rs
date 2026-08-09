@@ -60,6 +60,8 @@ impl Vault {
         let argon2id_wrapper = crypto::wrap_argon2id(&vault_key, system_password, &salt, &params)?;
 
         // Try to create Secure Enclave wrapper (macOS)
+        // `mut` only on the platform that pushes a second wrapper below.
+        #[cfg_attr(not(target_os = "macos"), allow(unused_mut))]
         let mut wrappers = vec![crypto::Wrapper::new(
             WrapperType::Argon2id,
             argon2id_wrapper,
