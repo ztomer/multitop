@@ -91,6 +91,19 @@ pub fn cleanup_old_agents_command() -> String {
         .filter(|h| !h.is_empty() && **h != "missing")
         .map(|h| format!("agent-{h}"))
         .collect();
+    // Nothing to keep means nothing to do. Without this the `case` below has
+    // no `continue` arm and the catch-all deletes *every* agent, including the
+    // one currently in use.
+    //
+    // A build with no agent embedded -- a plain `cargo build`, as opposed to
+    // `./build.sh` -- has `HASH_* == "missing"` for both, so that is the
+    // command it generates today. It is unreachable only because the sweep runs
+    // after a successful upload and an upload needs an embedded agent: the
+    // safety lives in a different function's ordering rather than here. A sweep
+    // that does not know what to keep must delete nothing.
+    if keep_patterns.is_empty() {
+        return String::from(":");
+    }
     let mut cmd = String::from("cd ~/.cache/multitop 2>/dev/null && for f in agent-*; do\n");
     cmd.push_str("  case \"$f\" in\n");
     for pattern in &keep_patterns {

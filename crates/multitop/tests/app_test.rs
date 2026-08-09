@@ -553,27 +553,6 @@ fn server_configuration_persists_without_password_fields() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
-#[test]
-fn cleanup_old_agents_command_keeps_current_hashes() {
-    let _keychain = isolate_keychain();
-    let cmd = multitop::ssh::cleanup_old_agents_command();
-    // The command should contain "cd ~/.cache/multitop"
-    assert!(cmd.contains("cd ~/.cache/multitop"));
-    // Should iterate over agent-* files
-    assert!(cmd.contains("for f in agent-*"));
-    // Should have a case statement
-    assert!(cmd.contains("case"));
-    // Should have "rm -f" for stale hashes
-    assert!(cmd.contains("rm -f"));
-    // When agent binaries are embedded, the keep patterns include "continue"
-    // In debug builds without agents, keep_patterns may be empty
-    if cmd.contains("continue") {
-        // Verify the command structure is well-formed
-        assert!(cmd.contains("esac"));
-        assert!(cmd.contains("done"));
-    }
-}
-
 /// Editing the server list rebuilds every panel. The rebuilt panels used to
 /// come back at the compiled-in default scrollback, because the configured
 /// `upgrade_history_lines` is applied once at startup and `Panel::new` knows

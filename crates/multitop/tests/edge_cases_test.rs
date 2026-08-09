@@ -241,19 +241,47 @@ async fn the_cleanup_command_keeps_the_agents_this_build_ships() {
     // touch the filesystem, so none can run while another has diverted it.
     let _g = isolate().await;
     let cmd = multitop::ssh::cleanup_old_agents_command();
-    // Whatever this build embeds, the command must never be a bare `rm` over
-    // the cache directory.
-    assert!(cmd.contains("agent-*) rm -f"), "{cmd}");
+
+    let kept: Vec<String> = [multitop::ssh::Arch::X86_64, multitop::ssh::Arch::Aarch64]
+        .iter()
+        .map(|a| a.hash().to_string())
+        .filter(|h| h != "missing" && !h.is_empty())
+        .collect();
+
+    // The invariant, and the reason this test was rewritten: a catch-all delete
+    // must never appear without something to keep.
+    //
+    // It used to assert the command *always* contained `agent-*) rm -f`, which
+    // is the dangerous shape stated as the requirement. In a build with no
+    // agent embedded -- a plain `cargo build` rather than `./build.sh` -- both
+    // hashes are "missing", every keep-arm is filtered out, and what was left
+    // was a loop that deleted every agent in the cache including the one in
+    // use. That was unreachable only because the sweep runs after a successful
+    // upload and an upload needs an embedded agent, so the safety lived in a
+    // different function's ordering. The test asserted the landmine was there.
+    if kept.is_empty() {
+        assert!(
+            !cmd.contains("rm -f"),
+            "a build that ships no agent generated a command that deletes them:\n{cmd}"
+        );
+        return;
+    }
+
+    // Structure, folded in from a weaker duplicate in `app_test.rs` that
+    // asserted `rm -f` unconditionally -- with a comment noting that the keep
+    // list "may be empty" in a debug build, which is precisely the case where
+    // that assertion demands the destructive command.
     assert!(cmd.starts_with("cd ~/.cache/multitop"), "{cmd}");
+    assert!(cmd.contains("for f in agent-*"), "{cmd}");
+    assert!(cmd.contains("case") && cmd.contains("esac"), "{cmd}");
+    assert!(cmd.contains("done"), "{cmd}");
+    assert!(cmd.contains("agent-*) rm -f"), "{cmd}");
     // Every hash this build has is spared.
-    for arch in [multitop::ssh::Arch::X86_64, multitop::ssh::Arch::Aarch64] {
-        let hash = arch.hash();
-        if hash != "missing" && !hash.is_empty() {
-            assert!(
-                cmd.contains(&format!("agent-{hash}) continue")),
-                "the current {arch:?} agent would be deleted:\n{cmd}"
-            );
-        }
+    for hash in &kept {
+        assert!(
+            cmd.contains(&format!("agent-{hash}) continue")),
+            "the current agent {hash} would be deleted:\n{cmd}"
+        );
     }
 }
 
