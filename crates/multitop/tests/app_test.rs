@@ -967,6 +967,7 @@ fn toggle_docker_shows_cached_payload_immediately() {
         rows: vec![multitop_agent::docker::Row {
             name: "web".into(),
             status: "Up 2 hours".into(),
+            image: "nginx:latest".into(),
             cpu: "0.5%".into(),
             cpu_pct: 0.5,
             mem: "64M".into(),

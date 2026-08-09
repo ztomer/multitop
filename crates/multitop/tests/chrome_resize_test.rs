@@ -74,6 +74,7 @@ fn sample_docker() -> Payload {
                     } else {
                         "Up 3 hours".into()
                     },
+                    image: format!("registry.example.com/team/image-{i}:latest"),
                     cpu: format!("{cpu_pct:.1}%"),
                     cpu_pct,
                     mem: format!("{}MiB / {}MiB", 64 + i * 8, 256 + i * 16),

@@ -226,6 +226,7 @@ fn reentering_docker_shows_cached_data() {
         rows: vec![multitop_agent::docker::Row {
             name: "my-container".into(),
             status: "Up".into(),
+            image: "nginx:latest".into(),
             cpu: "1%".into(),
             cpu_pct: 1.0,
             mem: "64M".into(),

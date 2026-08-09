@@ -285,6 +285,33 @@ pub fn describe_failure(e: &std::io::Error) -> String {
     }
 }
 
+/// How long to keep reading stderr after stdout has closed.
+///
+/// The child is already ending, so in practice this is over in microseconds.
+/// It is bounded because a child that closes stdout and holds stderr open would
+/// otherwise wedge the reader, and a close with no reason beats a frozen pane.
+const STDERR_DRAIN_AFTER_EOF: std::time::Duration = std::time::Duration::from_millis(250);
+
+/// Collect whatever stderr still has to say, now that stdout has closed.
+///
+/// The reason a session ended is on stderr, and stdout closing is what tells us
+/// it ended. Racing the two in `select!` and returning on whichever arrived
+/// first threw the reason away whenever EOF won -- which is a race, so it
+/// depended on how loaded the machine was. `Permission denied (publickey)`,
+/// `Host key verification failed` and `sudo: a password is required` all lost
+/// it at least sometimes, and the operator was told only
+/// `Connection to <host> closed` about a host whose problem was written down.
+async fn drain_stderr(stream: &mut PacketStream, errbuf: &mut Vec<String>) {
+    let _ = tokio::time::timeout(STDERR_DRAIN_AFTER_EOF, async {
+        while let Ok(Some(line)) = stream.stderr.next_line().await {
+            if !line.trim().is_empty() {
+                note(errbuf, line);
+            }
+        }
+    })
+    .await;
+}
+
 async fn read_packet(
     stream: &mut PacketStream,
     errbuf: &mut Vec<String>,
@@ -297,7 +324,10 @@ async fn read_packet(
         header[..4].copy_from_slice(&pending4);
         match stream.stdout.read_exact(&mut header[4..8]).await {
             Ok(_) => {}
-            Err(e) if e.kind() == std::io::ErrorKind::UnexpectedEof => return Ok(None),
+            Err(e) if e.kind() == std::io::ErrorKind::UnexpectedEof => {
+                drain_stderr(stream, errbuf).await;
+                return Ok(None);
+            }
             Err(e) => return Err(e),
         }
     } else {
@@ -306,7 +336,10 @@ async fn read_packet(
                 res = stream.stdout.read_exact(&mut header) => {
                     match res {
                         Ok(_) => break,
-                        Err(e) if e.kind() == std::io::ErrorKind::UnexpectedEof => return Ok(None),
+                        Err(e) if e.kind() == std::io::ErrorKind::UnexpectedEof => {
+                            drain_stderr(stream, errbuf).await;
+                            return Ok(None);
+                        }
                         Err(e) => return Err(e),
                     }
                 }

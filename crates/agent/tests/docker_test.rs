@@ -6,6 +6,7 @@ fn row(name: &str, status: &str, cpu: f64) -> Row {
     Row {
         name: name.into(),
         status: status.into(),
+        image: "nginx:latest".into(),
         cpu: format!("{cpu:.1}%"),
         cpu_pct: cpu,
         mem: "1.0MiB/1.0GiB".into(),
@@ -268,6 +269,7 @@ fn render_rows_are_aligned() {
         Row {
             name: "firefly-db".into(),
             status: "Up 2 hours (healthy)".into(),
+            image: "nginx:latest".into(),
             cpu: "1.8%".into(),
             cpu_pct: 1.8,
             mem: Stats {
@@ -281,6 +283,7 @@ fn render_rows_are_aligned() {
         Row {
             name: "jellyfin".into(),
             status: "Up 2 hours (healthy)".into(),
+            image: "nginx:latest".into(),
             cpu: "640.0%".into(),
             cpu_pct: 640.0,
             mem: Stats {
@@ -294,6 +297,7 @@ fn render_rows_are_aligned() {
         Row {
             name: "no-limit".into(),
             status: "Up".into(),
+            image: "nginx:latest".into(),
             cpu: "0.0%".into(),
             cpu_pct: 0.0,
             mem: "-".into(),

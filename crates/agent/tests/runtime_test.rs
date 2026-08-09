@@ -78,6 +78,7 @@ fn docker_rows() -> Vec<DockerRow> {
         DockerRow {
             name: "web".into(),
             status: "Up 3 days".into(),
+            image: "nginx:latest".into(),
             cpu: "12.5%".into(),
             cpu_pct: 12.5,
             mem: "128.0M/512.0M".into(),
@@ -86,6 +87,7 @@ fn docker_rows() -> Vec<DockerRow> {
         DockerRow {
             name: "db".into(),
             status: "Up 1 hour".into(),
+            image: "nginx:latest".into(),
             cpu: "90.0%".into(),
             cpu_pct: 90.0,
             mem: "1.0G/2.0G".into(),
@@ -567,6 +569,7 @@ fn a_docker_table_taller_than_the_frame_says_how_much_it_hid() {
         .map(|i| DockerRow {
             name: format!("c{i}"),
             status: "Up".into(),
+            image: "nginx:latest".into(),
             cpu: "0.0%".into(),
             cpu_pct: f64::from(i),
             mem: "-".into(),

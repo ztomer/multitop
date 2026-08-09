@@ -63,6 +63,7 @@ fn docker_payload() -> Payload {
         rows: vec![multitop_agent::docker::Row {
             name: "web".into(),
             status: "Up".into(),
+            image: "nginx:latest".into(),
             cpu: "1.0%".into(),
             cpu_pct: 1.0,
             mem: "-".into(),

@@ -251,6 +251,7 @@ fn a_docker_row_survives_the_wire_field_for_field() {
     let row = DockerRow {
         name: "web".into(),
         status: "Up 3 days".into(),
+        image: "nginx:latest".into(),
         cpu: "12.5%".into(),
         cpu_pct: 12.5,
         mem: "128.0M/512.0M".into(),
@@ -284,4 +285,71 @@ fn a_string_longer_than_the_length_field_is_truncated_not_wrapped() {
     // keeps the stream framed.
     let declared = u16::from_le_bytes([pkt[6], pkt[7]]) as usize;
     assert_eq!(declared, pkt.len() - 8);
+}
+
+// ------------------------------------------------------ the version in the header
+
+/// Rewrite a packet's protocol-version byte, leaving everything else alone.
+fn with_version(mut packet: Vec<u8>, version: u8) -> Vec<u8> {
+    packet[4] = version;
+    packet
+}
+
+fn one_row() -> Vec<multitop_agent::docker::Row> {
+    vec![multitop_agent::docker::Row {
+        name: "billing-api".into(),
+        status: "Up 3 hours".into(),
+        image: "registry.example.com/team/billing:2.1".into(),
+        cpu: "1.0%".into(),
+        cpu_pct: 1.0,
+        mem: "-".into(),
+        mem_bytes: 0,
+    }]
+}
+
+#[test]
+fn a_docker_packet_from_before_the_image_field_is_refused_not_misread() {
+    // Read with the old layout the rows do not fail -- they come out one field
+    // shifted, which is plausible nonsense on screen. Refusing is what gets the
+    // agent replaced instead.
+    let packet = multitop_agent::proto::encode_packet(&Payload::Docker {
+        host: "web-01".into(),
+        rows: one_row(),
+    });
+    assert!(
+        multitop_agent::proto::decode_packet(&packet).is_some(),
+        "the current version must decode"
+    );
+    assert!(
+        multitop_agent::proto::decode_packet(&with_version(packet, 1)).is_none(),
+        "a protocol-1 Docker packet was read as if it carried an image"
+    );
+}
+
+#[test]
+fn a_monitor_packet_is_read_at_any_version_so_a_stale_agent_can_be_spotted() {
+    // The mismatch that replaces the remote binary is read out of a *decoded*
+    // Monitor packet. Refusing those on version alone would leave a stale agent
+    // undetectable and unreplaceable.
+    let packet = multitop_agent::proto::encode_packet(&Payload::Monitor(snapshot()));
+    for version in [0u8, 1, 2, 99] {
+        assert!(
+            multitop_agent::proto::decode_packet(&with_version(packet.clone(), version)).is_some(),
+            "a Monitor packet at protocol {version} could not be read, so the \
+             agent behind it could never be replaced"
+        );
+    }
+}
+
+#[test]
+fn the_container_image_survives_a_round_trip() {
+    let packet = multitop_agent::proto::encode_packet(&Payload::Docker {
+        host: "web-01".into(),
+        rows: one_row(),
+    });
+    let Some(Payload::Docker { rows, .. }) = multitop_agent::proto::decode_packet(&packet) else {
+        panic!("the packet must decode as Docker");
+    };
+    assert_eq!(rows[0].image, "registry.example.com/team/billing:2.1");
+    assert_eq!(rows[0].name, "billing-api", "the fields came back shifted");
 }

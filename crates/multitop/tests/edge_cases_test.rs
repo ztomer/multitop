@@ -269,6 +269,7 @@ async fn a_memory_tie_is_broken_by_cpu_and_then_by_name() {
     let row = |name: &str, cpu: f64, mem: u64| Row {
         name: name.into(),
         status: "Up".into(),
+        image: "nginx:latest".into(),
         cpu: format!("{cpu:.1}%"),
         cpu_pct: cpu,
         mem: "-".into(),

@@ -42,6 +42,8 @@ still has holes and user QA is still the detection layer.
 | Vault prompted for biometric + password when the user wanted one password | Skip biometric, go straight to password prompt |
 | A filtered grid re-split the screen but every agent kept rendering for the old pane size | `agent_dims` measured from `regions`, fed `App::visible_panes()` |
 | Touch ID unlock was unreachable: the fix for the double prompt left nothing able to start it | `Vault::biometric_available` decides which door to offer *before* a prompt goes up; `App::begin_vault_unlock` routes to it or to the master password |
+| `/` matched two fixed fields, so a process, container, image or OS on screen was unfindable | `Panel::matches_filter` answers from the view the panel is in; the container image now reaches the client |
+| A session's reason for ending was kept or lost at random -- `select!` raced stderr against stdout's EOF | Drain stderr before reporting the close. Found by the coverage run, not by a user: the same test passed under `cargo test` |
 
 Thirteen in a row. The pattern that closed the last five: e2e tests that drive
 real `KeyEvent`s through `run::handle_key` and **count what the presses actually

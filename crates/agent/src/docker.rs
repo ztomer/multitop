@@ -389,6 +389,10 @@ pub use crate::docker_cli::*;
 pub struct Row {
     pub name: String,
     pub status: String,
+    /// The image the container was started from. Collected on `Container` from
+    /// the first version and dropped here, so it never reached the client --
+    /// which is why `/` could not find a host by the image it is running.
+    pub image: String,
     pub cpu: String,
     pub cpu_pct: f64,
     pub mem: String,
@@ -406,6 +410,7 @@ pub fn rows_from_stats(containers: Vec<Container>, stats: &HashMap<String, Stats
             Row {
                 name: c.name,
                 status: c.status,
+                image: c.image,
                 cpu: format!("{:.1}%", s.cpu_pct),
                 cpu_pct: s.cpu_pct,
                 mem: if s.mem_limit > 0 {
@@ -435,6 +440,7 @@ pub fn rows_from_cli(ps: &str, stats: &HashMap<String, (String, String)>) -> Vec
                 cpu_pct: cpu.trim_end_matches('%').parse().unwrap_or(0.0),
                 name: c.name,
                 status: c.status,
+                image: c.image,
                 cpu,
                 mem,
                 mem_bytes: 0,

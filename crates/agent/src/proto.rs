@@ -6,7 +6,11 @@ use crate::proc::{Proc, Usage};
 use crate::render::{Snapshot, TempUnit};
 
 pub const MAGIC: &[u8; 4] = b"MTOP";
-pub const PROTO_VERSION: u8 = 1;
+/// Bumped whenever a payload's field layout changes.
+///
+/// 2 added the container image to each Docker row, so that `/` can find a host
+/// by the image it is running.
+pub const PROTO_VERSION: u8 = 2;
 
 #[repr(u8)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -159,6 +163,7 @@ fn encode_docker(host: &str, rows: &[DockerRow], buf: &mut Vec<u8>) {
         let before = buf.len();
         encode_str(&r.name, buf);
         encode_str(&r.status, buf);
+        encode_str(&r.image, buf);
         buf.extend_from_slice(&(r.cpu_pct as f32).to_le_bytes());
         encode_str(&r.cpu, buf);
         encode_str(&r.mem, buf);
@@ -250,7 +255,7 @@ pub fn decode_packet(data: &[u8]) -> Option<Payload> {
     if &data[..4] != MAGIC {
         return None;
     }
-    let _version = data[4];
+    let version = data[4];
     let mode = data[5];
     let payload_len = u16::from_le_bytes([data[6], data[7]]) as usize;
     if data.len() < HEADER_LEN + payload_len {
@@ -260,6 +265,18 @@ pub fn decode_packet(data: &[u8]) -> Option<Payload> {
     let mut cur = Cursor::new(&data[8..]);
     match mode {
         MODE_MONITOR => decode_snapshot(&mut cur).map(Payload::Monitor),
+        // The Docker row layout gained a field in protocol 2. Read with the
+        // wrong layout the rows do not fail -- they come out as plausible
+        // nonsense, one field shifted along -- so an older agent's are refused.
+        // The caller says so and ends the session, which is what makes the
+        // reconnect re-run the version check.
+        //
+        // Monitor and Fetch are deliberately still decoded at *any* version.
+        // The agent-version mismatch that replaces the remote binary is read
+        // out of a decoded Monitor packet, so refusing those on version alone
+        // would leave a stale agent undetectable and therefore unreplaceable --
+        // a wedge with no way out but editing the remote host by hand.
+        MODE_DOCKER if version < 2 => None,
         MODE_DOCKER => decode_docker(&mut cur),
         MODE_FETCH => decode_fetch(&mut cur).map(Payload::Fetch),
         _ => None,
@@ -351,6 +368,7 @@ fn decode_docker(cur: &mut Cursor) -> Option<Payload> {
     for _ in 0..num_rows {
         let name = cur.read_str()?;
         let status = cur.read_str()?;
+        let image = cur.read_str()?;
         let cpu_pct = cur.read_f32()? as f64;
         let cpu = cur.read_str()?;
         let mem = cur.read_str()?;
@@ -358,6 +376,7 @@ fn decode_docker(cur: &mut Cursor) -> Option<Payload> {
         rows.push(DockerRow {
             name,
             status,
+            image,
             cpu,
             cpu_pct,
             mem,
@@ -378,6 +397,7 @@ mod framing_tests {
             .map(|i| DockerRow {
                 name: format!("container-with-a-fairly-long-name-{i}"),
                 status: "Up 3 days (healthy) registry.example.com/team/svc".to_string(),
+                image: "nginx:latest".into(),
                 cpu: "12.5%".to_string(),
                 cpu_pct: 12.5,
                 mem: "128.0M/512.0M".to_string(),

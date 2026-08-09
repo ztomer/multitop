@@ -58,10 +58,14 @@ Each panel shows:
 
 Additional views accessible via keys:
 
+- **Graphs view** (`G`) — CPU, memory and network history per pane, drawn as
+  braille area graphs. Fed by the stats stream already running, so it costs
+  nothing extra on the wire
 - **Docker view** (`d`) — container list with CPU/memory usage, sorted by load
 - **Update view** (`u`) — per-server update status; press `u` again to run
 - **Settings screen** (`e`) — servers, their passwords, and the vault
-- **Filter** (`/`) — narrow the grid to hosts matching what you type
+- **Filter** (`/`) — narrow the grid to hosts matching what you type, searching
+  whatever the panes are currently showing
 
 The update view is deliberately two presses. The first switches to it and
 starts nothing, showing for each server what command would run, when it last
@@ -70,7 +74,8 @@ with no `upgrade_cmd` — what to add to the config. Only the second press asks
 for confirmation and runs, so you always see what you are about to do first.
 
 The stats stream keeps running underneath the Docker and upgrade views, so
-returning with **s** is instant rather than reconnecting.
+returning with **s** is instant rather than reconnecting. It is also what fills
+the graph history, so **G** has a past to draw the moment you press it.
 
 ## Keys
 
@@ -81,10 +86,11 @@ returning with **s** is instant rather than reconnecting.
 | **m** | Sort processes / Docker containers by Memory usage |
 | **d** | Toggle the Docker view on all panels |
 | **s** | Back to live stats |
+| **G** | Toggle the graphs view: CPU, memory and network history per pane |
 | **u** | Show the update status view; press again to run the updates. **The run is scoped to the filter** — what is on screen is what gets upgraded |
 | **f** | Toggle the Fetch view |
 | **e** | Open Settings: servers, passwords, vault |
-| **/** | Filter the grid by host or user; **Enter** keeps it, **ESC** clears it |
+| **/** | Filter the grid. Matches the host and user in every view, plus whatever the panes are showing right now: process names in **Stats** and **Graphs**, container names, images and status in **Docker**, the OS/kernel/model card in **Fetch**, the log in **Update**. **Enter** keeps it, **ESC** clears it |
 | **1**–**9** | Select a panel |
 | **t** | Cycle the active theme |
 

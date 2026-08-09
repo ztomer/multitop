@@ -108,21 +108,18 @@ impl App {
     }
 
     #[must_use]
+    /// The panels the grid draws, in order.
+    ///
+    /// What counts as a match is the panel's own question -- it depends on what
+    /// that panel is currently showing -- so it is asked rather than answered
+    /// here against two fields chosen once.
     pub fn filtered_indices(&self) -> Vec<usize> {
-        if self.filter_query.trim().is_empty() {
-            (0..self.panels.len()).collect()
-        } else {
-            let q = self.filter_query.to_lowercase();
-            self.panels
-                .iter()
-                .enumerate()
-                .filter(|(_, p)| {
-                    p.server.host.to_lowercase().contains(&q)
-                        || p.server.user.to_lowercase().contains(&q)
-                })
-                .map(|(i, _)| i)
-                .collect()
-        }
+        self.panels
+            .iter()
+            .enumerate()
+            .filter(|(_, p)| p.matches_filter(&self.filter_query))
+            .map(|(i, _)| i)
+            .collect()
     }
 
     /// How many panes the grid is currently laying out.

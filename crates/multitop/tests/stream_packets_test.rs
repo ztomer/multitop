@@ -40,7 +40,15 @@ fn packet(host: &str) -> Vec<u8> {
 /// `stderr_script` to stderr. Both are `printf` format strings, so `\\xNN`
 /// escapes put arbitrary bytes on the wire.
 fn stream_from(stdout_script: &str, stderr_script: &str) -> PacketStream {
-    let script = format!("printf '{stdout_script}'; printf '{stderr_script}' >&2");
+    stream_from_script(&format!(
+        "printf '{stdout_script}'; printf '{stderr_script}' >&2"
+    ))
+}
+
+/// A stream over a shell script written out in full, for the cases that need to
+/// control the *order* stdout and stderr close in.
+fn stream_from_script(script: &str) -> PacketStream {
+    let script = script.to_string();
     let mut child = Command::new("sh")
         .arg("-c")
         .arg(script)
@@ -489,4 +497,46 @@ fn any_other_spawn_failure_still_names_the_program() {
 
     assert!(spawn_failure(&local, &denied).starts_with("could not start multitop-agent"));
     assert!(spawn_failure(&remote, &denied).starts_with("ssh: "));
+}
+
+#[tokio::test]
+async fn the_reason_on_stderr_survives_stdout_closing_first() {
+    // The regression this exists for. `select!` raced the EOF against the
+    // stderr line and returned on whichever landed first, so the diagnosis was
+    // kept or thrown away depending on how loaded the machine was -- it passed
+    // under `cargo test` and failed under the slower instrumented run.
+    //
+    // Written so stdout closes *before* stderr is written, which is the losing
+    // order, and repeated so a single lucky scheduling cannot pass it.
+    // `exec 1>&-` closes stdout before anything is written to stderr, so the
+    // reader sees EOF first every time. That is the losing order, made certain
+    // rather than waited for: as a race it passed under `cargo test` and failed
+    // under the slower instrumented run.
+    let mut stream =
+        stream_from_script("exec 1>&-; sleep 0.05; printf 'Permission denied (publickey)\\n' >&2");
+    let mut errbuf = Vec::new();
+
+    assert!(next_packet(&mut stream, &mut errbuf)
+        .await
+        .unwrap()
+        .is_none());
+    assert!(
+        errbuf.iter().any(|l| l.contains("Permission denied")),
+        "the close was reported with no reason: {errbuf:?}"
+    );
+}
+
+#[tokio::test]
+async fn a_close_with_a_silent_stderr_is_still_a_close() {
+    // Draining must not turn "nothing to say" into a wait.
+    let mut stream = stream_from("", "");
+    let mut errbuf = Vec::new();
+    assert!(next_packet(&mut stream, &mut errbuf)
+        .await
+        .unwrap()
+        .is_none());
+    assert!(
+        errbuf.is_empty(),
+        "a silent close invented a reason: {errbuf:?}"
+    );
 }

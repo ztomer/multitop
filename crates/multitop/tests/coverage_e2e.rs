@@ -787,6 +787,7 @@ fn toggle_docker_then_stats_then_docker_uses_cache() {
         rows: vec![multitop_agent::docker::Row {
             name: "c1".into(),
             status: "Up".into(),
+            image: "nginx:latest".into(),
             cpu: "1%".into(),
             cpu_pct: 1.0,
             mem: "32M".into(),
@@ -2158,6 +2159,7 @@ fn frame_docker_view_shows_container() {
         rows: vec![multitop_agent::docker::Row {
             name: "web-container".into(),
             status: "Up".into(),
+            image: "nginx:latest".into(),
             cpu: "1%".into(),
             cpu_pct: 1.0,
             mem: "64M".into(),
