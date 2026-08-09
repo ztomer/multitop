@@ -328,6 +328,7 @@ pub fn handle_key(
     let cmds = match key.code {
         KeyCode::Char('f' | 'F') => app.toggle_fetch(dims),
         KeyCode::Char('d' | 'D') => app.toggle_docker(dims),
+        KeyCode::Char('g' | 'G') => app.toggle_graphs(dims),
         KeyCode::Char('s' | 'S') => app.switch_stats(),
         // `u` is deliberately two presses, and the rule does not depend on
         // whether an upgrade has run before:
@@ -352,12 +353,25 @@ pub fn handle_key(
                 // all of them, so say so in the pane instead of opening a
                 // modal that cannot do anything.
                 app.note_nothing_to_upgrade();
-            } else if app.begin_vault_unlock().is_some() {
-                // Vault exists but is locked. Skip biometric — go straight to the
-                // password prompt. The user wants one password entry, not a
-                // biometric prompt followed by a password prompt.
-                app.set_show_vault_password_prompt(true);
-                app.vault_password_input.clear();
+            } else if let Some((vault, epoch)) = app.begin_vault_unlock() {
+                // The vault is locked and this machine can open it with one
+                // touch. The Touch ID prompt is the whole interaction; if it is
+                // refused or the sensor is unavailable, `VaultBiometricFailed`
+                // falls back to the master password. One prompt either way.
+                //
+                // The handle is not kept. There is nothing to abort it with that
+                // the epoch does not already do: `Esc` retires this attempt, so
+                // whatever the sensor eventually says arrives stamped with a
+                // dead epoch and is dropped. A task waiting on a system prompt
+                // cannot be cancelled from here anyway.
+                drop(super::spawn::spawn_biometric_unlock(
+                    vault,
+                    epoch,
+                    tx.clone(),
+                ));
+            } else if app.show_vault_password_prompt() {
+                // Locked, but not by touch on this machine: the master password
+                // prompt is up and there is nothing more to start.
             } else {
                 app.set_show_upgrade_modal(true);
             }

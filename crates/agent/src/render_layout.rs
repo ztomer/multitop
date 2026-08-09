@@ -22,7 +22,7 @@ impl CoreGrid {
     ) -> Self {
         let idx_w = max_idx.to_string().len();
         let per_core = (bar_len / num_cores.max(1)).min(12);
-        let show_bars = per_core >= 5;
+        let show_bars = per_core >= crate::consts::MIN_READABLE_BAR_W;
         let temp_w = if has_temps { 5 } else { 0 };
         let seg_w = idx_w + 1 + if show_bars { per_core } else { 0 } + 4 + temp_w;
         let cell_w = seg_w + 1;
@@ -69,6 +69,9 @@ pub struct Chrome {
     pub has_disk: bool,
     pub has_net: bool,
     pub tier: Tier,
+    /// Rows the frame was asked to fit into. Only the smallest tier varies
+    /// with it — see `height`.
+    pub lines: usize,
 }
 
 impl Chrome {
@@ -103,6 +106,7 @@ impl Chrome {
             has_disk,
             has_net,
             tier,
+            lines,
         }
     }
 
@@ -126,7 +130,11 @@ impl Chrome {
 
     pub fn height(&self) -> usize {
         match self.tier {
-            Tier::TooSmall => 1,
+            // The header, plus the "too small" note when there is a second
+            // row to put it on. Reporting a flat 1 here disagreed with what
+            // `render` emits at two rows, so the predicted height was one
+            // short of the frame at exactly that size.
+            Tier::TooSmall => 1 + usize::from(self.lines > 1),
             Tier::Micro => 2,
             Tier::Minimal | Tier::Compact | Tier::Full => {
                 1 + self.cpu_rows()

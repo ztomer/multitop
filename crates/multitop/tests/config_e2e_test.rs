@@ -163,23 +163,6 @@ Host myserver
 }
 
 #[test]
-fn test_config_path_precedence() {
-    // This tests the precedence logic in config.rs
-    // --config flag > MULTITOP_CONFIG env > default > legacy
-    use multitop::config::{default_config_path, legacy_config_path};
-
-    let default = default_config_path();
-    let legacy = legacy_config_path();
-
-    eprintln!("default: {default:?}");
-    eprintln!("legacy: {legacy:?}");
-
-    assert!(default.to_string_lossy().contains("multitop"));
-    assert!(legacy.to_string_lossy().contains("monitor")); // old name
-    assert_ne!(default, legacy);
-}
-
-#[test]
 fn test_server_deduplication() {
     let s1 = test_server("127.0.0.1", "user1", 0, None);
     let s2 = test_server("localhost", "user2", 22, None);

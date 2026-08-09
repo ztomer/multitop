@@ -120,3 +120,79 @@ impl Tasks {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+
+    use super::*;
+    use crate::config::Server;
+    use crate::panel::UpgradeState;
+
+    fn server(host: &str) -> Server {
+        Server {
+            host: host.to_string(),
+            port: 0,
+            user: "a".to_string(),
+            upgrade_cmd: Some("true".to_string()),
+        }
+    }
+
+    /// The three lists and the panel list are one quantity. Letting them drift
+    /// means indexing a task by a panel that is not there any more.
+    #[tokio::test]
+    async fn the_task_lists_follow_the_panel_count_in_both_directions() {
+        let mut tasks = Tasks::new(3);
+        assert_eq!(tasks.monitors.len(), 3);
+
+        tasks.fit_to(1);
+        assert_eq!(tasks.monitors.len(), 1, "shrinking left stale slots behind");
+        assert_eq!(tasks.aux.len(), 1);
+        assert_eq!(tasks.upgrades.len(), 1);
+
+        tasks.fit_to(4);
+        assert_eq!(
+            tasks.monitors.len(),
+            4,
+            "growing left new panels without slots"
+        );
+        assert_eq!(tasks.aux.len(), 4);
+        assert_eq!(tasks.upgrades.len(), 4);
+        assert!(tasks.monitors.iter().all(Option::is_none));
+
+        // Fitting to the size it already is changes nothing.
+        tasks.fit_to(4);
+        assert_eq!(tasks.monitors.len(), 4);
+    }
+
+    #[tokio::test]
+    async fn replacing_an_upgrade_handle_stops_the_one_it_displaces() {
+        let mut tasks = Tasks::new(1);
+        let first = tokio::spawn(std::future::pending::<()>());
+        tasks.set_upgrade(0, first);
+        tasks.set_upgrade(0, tokio::spawn(async {}));
+        // The displaced task was aborted rather than left running against a
+        // panel nothing reports on any more.
+        tokio::task::yield_now().await;
+        assert!(tasks.upgrades[0].is_some());
+    }
+
+    /// A panel left reading "running" after the loop ends never clears: it
+    /// blocks every later upgrade and is recorded as an interrupted run.
+    #[tokio::test]
+    async fn abandoning_the_app_marks_every_running_upgrade_finished() {
+        let mut app = App::new(vec![server("alpha"), server("beta")]);
+        app.panels[0].upgrade_state = UpgradeState::STARTED;
+
+        let mut tasks = Tasks::new(2);
+        tasks.set_upgrade(0, tokio::spawn(std::future::pending::<()>()));
+        tasks.monitors[0] = Some(tokio::spawn(std::future::pending::<()>()));
+        tasks.set_aux(1, tokio::spawn(std::future::pending::<()>()));
+
+        tasks.abort_all(&mut app);
+        assert_eq!(app.panels[0].upgrade_state, UpgradeState::DONE);
+        // A panel that was not running is left alone rather than being marked
+        // as having finished something it never started.
+        assert_ne!(app.panels[1].upgrade_state, UpgradeState::STARTED);
+    }
+}

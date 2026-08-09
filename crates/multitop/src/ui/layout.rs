@@ -53,21 +53,30 @@ pub fn regions(area: Rect, panels: usize) -> (Vec<Rect>, Rect) {
 }
 
 /// The panel size to tell the agent about, so its frames arrive pre-fitted.
+///
+/// Measured from `regions` rather than re-derived. This used to be a second
+/// copy of the grid arithmetic -- its own `1 => (1, 1), 2 => (1, 2), n => (2,
+/// n/2)` table beside the one above -- and two copies of a layout are two
+/// layouts that agree until one of them is edited.
+///
+/// The *smallest* pane, not the first: an uneven split gives one pane a row or
+/// a column more than another, and a frame rendered for the larger one is
+/// clipped in the smaller. Rendering to the smallest is the size every pane can
+/// hold.
 #[must_use]
-#[allow(clippy::unwrap_used, clippy::missing_panics_doc, clippy::expect_used)]
 pub fn agent_dims(size: Size, panels: usize) -> (u16, u16) {
-    if panels == 0 {
-        return (MIN_AGENT_COLS, MIN_AGENT_ROWS);
-    }
-    let body_h = size.height.saturating_sub(KEYBAR_H);
-    let (grid_cols, grid_rows) = match panels {
-        1 => (1u16, 1u16),
-        2 => (1u16, 2u16),
-        n => (2u16, u16::try_from(n).expect("too many panels").div_ceil(2)),
-    };
-    let cols = (size.width / grid_cols)
-        .saturating_sub(SIDE_MARGIN * 2)
+    let (grid, _) = regions(Rect::new(0, 0, size.width, size.height), panels);
+    let cols = grid
+        .iter()
+        .map(|p| p.width.saturating_sub(SIDE_MARGIN * 2))
+        .min()
+        .unwrap_or(0)
         .max(MIN_AGENT_COLS);
-    let rows = (body_h / grid_rows).max(MIN_AGENT_ROWS);
+    let rows = grid
+        .iter()
+        .map(|p| p.height)
+        .min()
+        .unwrap_or(0)
+        .max(MIN_AGENT_ROWS);
     (cols, rows)
 }

@@ -60,7 +60,7 @@ fn regions_grid_layout_for_three_panels() {
 #[test]
 fn regions_with_no_panels_still_yield_a_keybar() {
     let (panels, keybar) = regions(Rect::new(0, 0, 80, 24), 0);
-    assert!(panels.is_empty());
+    assert_eq!(panels, [] as [ratatui::prelude::Rect; 0]);
     assert_eq!(keybar.height, KEYBAR_H);
 }
 
@@ -96,7 +96,10 @@ fn visible_preserves_header_and_tail_logs() {
 #[test]
 fn visible_handles_zero_height() {
     let lines: Vec<String> = (0..3).map(|i| i.to_string()).collect();
-    assert!(visible(&lines, 0, 0, 0, 0).0.is_empty());
+    assert_eq!(
+        visible(&lines, 0, 0, 0, 0).0,
+        [] as [std::string::String; 0]
+    );
 }
 
 #[test]

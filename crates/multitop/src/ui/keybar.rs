@@ -144,9 +144,10 @@ fn keybar_initials(
         )]);
     }
     let widths: Vec<usize> = chunks.iter().map(|c| span_width(c)).collect();
-    // Shed the views before the doors: Fetch, Docker, Upgrade, Stats, then
-    // Filter and Settings.
-    let kept = crate::layout::fit_row(&widths, 2, keybar_width as usize, &[3, 2, 4, 1, 5, 6]);
+    // Shed the views before the doors: Fetch, Graphs, Docker, Upgrade, Stats,
+    // then Filter and Settings. Graphs goes early because it is a second
+    // reading of the numbers Stats already shows.
+    let kept = crate::layout::fit_row(&widths, 2, keybar_width as usize, &[4, 2, 3, 5, 1, 6, 7]);
     let mut out = Vec::new();
     for (n, index) in kept.iter().enumerate() {
         if n > 0 {
@@ -198,6 +199,7 @@ pub fn keybar_line(
     let (f_hi, f_lbl) = pair(crate::app::Mode::Fetch);
     let (d_hi, d_lbl) = pair(crate::app::Mode::Docker);
     let (s_hi, s_lbl) = pair(crate::app::Mode::Monitor);
+    let (g_hi, g_lbl) = pair(crate::app::Mode::Graphs);
     let (u_hi, u_lbl) = pair(crate::app::Mode::Upgrade);
     let upgrade_word = if active_mode == crate::app::Mode::Upgrade {
         // In the Upgrade view the same key starts the run, so say which of the
@@ -212,6 +214,9 @@ pub fn keybar_line(
         Span::styled("uit  ", label),
         Span::styled("S", s_hi),
         Span::styled("tats", s_lbl),
+        Span::styled("  ", label),
+        Span::styled("G", g_hi),
+        Span::styled("raphs", g_lbl),
         Span::styled("  ", label),
         Span::styled("D", d_hi),
         Span::styled("ocker", d_lbl),
@@ -244,6 +249,7 @@ pub fn keybar_line(
         let keys = [
             ("Q", key_hi),
             ("S", s_hi),
+            ("G", g_hi),
             ("D", d_hi),
             ("F", f_hi),
             ("U", u_hi),

@@ -195,7 +195,7 @@ pub fn get_net_macos() -> NetTotals {
 
 #[cfg(target_os = "macos")]
 pub fn scan_macos() -> Vec<RawProcStat> {
-    let mut out = Vec::with_capacity(256);
+    let mut out = Vec::with_capacity(crate::consts::IOKIT_SENSOR_CAPACITY);
     let num_pids = unsafe { libc::proc_listallpids(std::ptr::null_mut(), 0) };
     if num_pids <= 0 {
         return out;
@@ -232,7 +232,7 @@ pub fn scan_macos() -> Vec<RawProcStat> {
             continue;
         }
 
-        let mut name_buf = [0u8; 256];
+        let mut name_buf = [0u8; crate::consts::SYSCTL_BUF];
         let name_res =
             unsafe { libc::proc_name(pid, name_buf.as_mut_ptr() as *mut _, name_buf.len() as u32) };
         let comm = if name_res > 0 {
@@ -319,12 +319,18 @@ pub fn get_core_temps() -> HashMap<usize, f64> {
                 let service = CFArrayGetValueAtIndex(services, i);
                 let event = IOHIDServiceClientCopyEvent(service as *mut _, 15, 0, 0);
                 if !event.is_null() {
-                    let temp = IOHIDEventGetFloatValue(event, 15 << 16);
+                    let temp =
+                        IOHIDEventGetFloatValue(event, crate::consts::HID_TEMPERATURE_PAGE << 16);
                     if (10.0..=120.0).contains(&temp) {
                         let prop = IOHIDServiceClientCopyProperty(service as *mut _, p_key);
                         if !prop.is_null() {
-                            let mut buf = [0u8; 128];
-                            if CFStringGetCString(prop, buf.as_mut_ptr(), 128, 0x08000100) {
+                            let mut buf = [0u8; crate::consts::IOKIT_NAME_BUF];
+                            if CFStringGetCString(
+                                prop,
+                                buf.as_mut_ptr(),
+                                crate::consts::IOKIT_NAME_BUF as _,
+                                0x08000100,
+                            ) {
                                 let len = buf.iter().position(|&b| b == 0).unwrap_or(buf.len());
                                 let name = String::from_utf8_lossy(&buf[..len]);
                                 if name.contains("tdie") {
@@ -440,12 +446,16 @@ pub fn get_core_temps() -> std::collections::HashMap<usize, f64> {
 
     let mut temps = std::collections::HashMap::new();
     if let Some(sensors) = guard.as_ref() {
-        let mut buf = String::with_capacity(32);
+        let mut buf = String::with_capacity(crate::consts::HWMON_READING_BUF);
         for (idx, path) in sensors {
             buf.clear();
             if crate::proc::read_proc_into(path, &mut buf) {
                 if let Ok(val) = buf.trim().parse::<f64>() {
-                    let c = if val > 1000.0 { val / 1000.0 } else { val };
+                    let c = if val > crate::consts::HWMON_MILLIDEGREE_THRESHOLD {
+                        val / crate::consts::HWMON_MILLIDEGREE_THRESHOLD
+                    } else {
+                        val
+                    };
                     if (0.0..=150.0).contains(&c) {
                         temps.entry(*idx).or_insert(c);
                     }

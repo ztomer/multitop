@@ -175,13 +175,13 @@ impl SecureEnclave {
                 }
             })?;
 
-        if decrypted.len() != 32 {
+        if decrypted.len() != crate::crypto::KEY_LEN {
             return Err(VaultError::SecureEnclaveError(
                 "invalid decrypted key size".into(),
             ));
         }
 
-        let mut key = [0u8; 32];
+        let mut key = [0u8; crate::crypto::KEY_LEN];
         key.copy_from_slice(&decrypted);
         Ok(VaultKey::from_bytes(key))
     }

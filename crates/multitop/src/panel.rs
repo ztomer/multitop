@@ -66,6 +66,40 @@ impl RingLines {
         }
     }
 
+    /// Overwrite the line `back` positions from the newest, where 0 is the
+    /// newest. Out of range does nothing.
+    ///
+    /// This is what lets a tool that repaints several lines in place update
+    /// them instead of appending another copy of its block on every tick.
+    pub fn overwrite_from_end(&mut self, back: usize, line: &str) {
+        // `checked_add` first: `back` comes off the wire as a cursor count and
+        // `usize::MAX + 1` is a panic, not a miss.
+        let Some(from_end) = back.checked_add(1) else {
+            return;
+        };
+        let Some(i) = self.slots.len().checked_sub(from_end) else {
+            return;
+        };
+        let Some(slot) = self.slot_mut(i) else {
+            return;
+        };
+        slot.clear();
+        slot.push_str(line);
+    }
+
+    /// The `i`th live line, oldest first, mutably.
+    fn slot_mut(&mut self, i: usize) -> Option<&mut String> {
+        if i >= self.slots.len() {
+            return None;
+        }
+        let idx = if self.slots.len() < self.cap {
+            i
+        } else {
+            (self.head + i) % self.cap
+        };
+        self.slots.get_mut(idx)
+    }
+
     /// Replace the contents, keeping the capacity. Used to reset a log to a
     /// fixed initial state (a skip message, a test fixture) while it must
     /// still hold `upgrade_history_lines` lines.
@@ -143,6 +177,8 @@ pub enum Mode {
     Docker,
     Fetch,
     Upgrade,
+    /// The same Monitor stream, drawn as history rather than as a moment.
+    Graphs,
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -164,9 +200,21 @@ pub struct Panel {
     pub upgrade_state: UpgradeState,
     pub upgrade_gen: u64,
     pub last_monitor: Option<multitop_agent::proto::Payload>,
+    /// What the Monitor packets said, kept so the `G` view has a past to
+    /// draw. Filled whatever view the panel is in.
+    pub history: crate::history::History,
     pub last_docker: Option<multitop_agent::proto::Payload>,
     pub view: Vec<String>,
+    /// How far the pane the user is *currently looking at* is scrolled back.
     pub scroll_offset: usize,
+    /// Where the Upgrade log was left, kept separately so leaving that view and
+    /// coming back returns to the same place.
+    ///
+    /// One shared offset could do neither: resetting it on every switch lost
+    /// the user's place in a running log, and not resetting it leaked the log's
+    /// offset into whichever view was entered next — the Monitor pane opened
+    /// scrolled to a position that meant nothing in it.
+    pub upgrade_scroll_offset: usize,
     pub sudo_password: Option<String>,
     pub password_saved: bool,
     pub external_password: bool,
@@ -207,6 +255,7 @@ impl Panel {
             upgrade_state: UpgradeState::NIL,
             upgrade_gen: 0,
             last_monitor: None,
+            history: crate::history::History::default(),
             last_docker: None,
             // Row 0 belongs to the host banner, which `ui::draw` composes over
             // whatever is there. A body that starts at row 0 therefore has its
@@ -218,6 +267,7 @@ impl Panel {
                 format!("{}connecting...{}", pal.muted(), pal.reset),
             ],
             scroll_offset: 0,
+            upgrade_scroll_offset: 0,
             notes: Vec::new(),
             sudo_password: None,
             password_saved: false,

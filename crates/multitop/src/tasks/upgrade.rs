@@ -10,7 +10,7 @@ use crate::app::Msg;
 use crate::config::Server;
 use crate::fmt::{error_line, header_line, status_line};
 use crate::ssh;
-use crate::tasks::painted::{is_sudo_help, marker, painted_states, Marker};
+use crate::tasks::painted::{is_sudo_help, marker, painted_states, Marker, Painter};
 use crate::tasks::spawn::deliver_sudo_password;
 use crate::tasks::spawn::SENTINEL_TIMEOUT;
 use tokio::sync::mpsc::Sender;
@@ -117,6 +117,9 @@ pub fn spawn_upgrade(
             })
             .await;
 
+        // The screen the remote thinks it is drawing on, for tools that repaint
+        // several lines rather than one.
+        let mut painter = Painter::new();
         let mut sudo_help = false;
         // Set when the remote says sudo refused the password we handed it.
         let mut sudo_rejected = false;
@@ -137,14 +140,16 @@ pub fn spawn_upgrade(
                 line = stdout_lines.next_line(), if stdout_open => {
                     match line {
                         Ok(Some(line)) => {
-                            // Scan every state this line passed through, log
-                            // only the one it ended on.
-                            let mut visible = None;
+                            // Scan every state this line passed through: a
+                            // marker or a sudo hint can appear in any of them,
+                            // not only the one the line ended on.
+                            let mut is_marker = false;
                             for state in painted_states(&line) {
                                 let trimmed = state.trim();
                                 match marker(trimmed) {
                                     Some(Marker::SudoFailed) => {
                                         sudo_rejected = true;
+                                        is_marker = true;
                                         continue;
                                     }
                                     // Reachable here, not only on stderr: a
@@ -152,6 +157,7 @@ pub fn spawn_upgrade(
                                     // one stream.
                                     Some(Marker::LockHeld) => {
                                         lock_held = true;
+                                        is_marker = true;
                                         continue;
                                     }
                                     None => {}
@@ -162,11 +168,26 @@ pub fn spawn_upgrade(
                                 if is_sudo_help(&trimmed.to_lowercase()) {
                                     sudo_help = true;
                                 }
-                                visible = Some(state);
                             }
-                            if let Some(state) = visible {
-                                if tx.send(Msg::AuxLine { panel: idx, gen, line: state.to_string() }).await.is_err() {
-                                    return;
+                            // Then through the screen model, which decides
+                            // whether this is a new line or a repaint of one
+                            // already shown.
+                            if !is_marker {
+                                if let Some(paint) = painter.feed(&line) {
+                                    let msg = if paint.back == 0 && paint.erase_below == 0 {
+                                        Msg::AuxLine { panel: idx, gen, line: paint.text }
+                                    } else {
+                                        Msg::AuxRepaint {
+                                            panel: idx,
+                                            gen,
+                                            line: paint.text,
+                                            back: paint.back,
+                                            erase_below: paint.erase_below,
+                                        }
+                                    };
+                                    if tx.send(msg).await.is_err() {
+                                        return;
+                                    }
                                 }
                             }
                         }
@@ -210,7 +231,7 @@ pub fn spawn_upgrade(
                         visible = Some(state);
                     }
                     if let Some(state) = visible {
-                        if errbuf.len() >= 100 {
+                        if errbuf.len() >= crate::consts::MAX_UPGRADE_ERR_LINES {
                             errbuf.remove(0);
                         }
                         errbuf.push(state.to_string());

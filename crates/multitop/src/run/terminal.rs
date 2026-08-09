@@ -155,3 +155,108 @@ impl Drop for TerminalGuard {
         ratatui::restore();
     }
 }
+
+#[cfg(test)]
+mod tests {
+    #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+
+    use super::*;
+
+    /// Every mode turned on has to come off again. `ratatui`'s own panic hook
+    /// restores raw mode and the alternate screen and nothing else, so a mode
+    /// added here and not removed survives into the shell that inherits the
+    /// terminal — which is how mouse reporting outlived every panic and made
+    /// the prompt print an escape sequence on every pointer move.
+    #[test]
+    fn every_mode_that_goes_on_comes_back_off() {
+        let mut on = Vec::new();
+        enter_terminal_modes(&mut on).unwrap();
+        let mut off = Vec::new();
+        leave_terminal_modes(&mut off);
+
+        let (on, off) = (
+            String::from_utf8(on).unwrap(),
+            String::from_utf8(off).unwrap(),
+        );
+        assert!(!on.is_empty(), "no modes were enabled");
+        assert_eq!(
+            on.matches("\x1b[?").count(),
+            off.matches("\x1b[?").count(),
+            "enter set {on:?} but leave cleared {off:?}"
+        );
+        // The inverse of a `h` (set) is the same parameter with `l` (reset).
+        for seq in on.split('\x1b').filter(|s| s.ends_with('h')) {
+            let reset = format!("{}l", &seq[..seq.len() - 1]);
+            assert!(
+                off.contains(&reset),
+                "{seq:?} is never reset; leave was {off:?}"
+            );
+        }
+    }
+
+    /// Leaving never propagates: it runs on the way out, including from a
+    /// panic hook, and refusing to finish the rest of the restore because one
+    /// mode would not come off is the bug the guard exists to remove.
+    #[test]
+    fn leaving_does_not_stop_at_a_writer_that_fails() {
+        struct Broken;
+        impl std::io::Write for Broken {
+            fn write(&mut self, _: &[u8]) -> std::io::Result<usize> {
+                Err(std::io::Error::other("terminal already gone"))
+            }
+            fn flush(&mut self) -> std::io::Result<()> {
+                Err(std::io::Error::other("terminal already gone"))
+            }
+        }
+        leave_terminal_modes(&mut Broken);
+    }
+
+    /// Without handlers installed there is no signal to wait for, so the arm
+    /// must never resolve — resolving would spin the select loop.
+    #[tokio::test]
+    async fn with_no_handlers_the_signal_arm_never_fires() {
+        let mut none = None;
+        let waited = tokio::time::timeout(
+            std::time::Duration::from_millis(50),
+            next_terminal_signal(&mut none),
+        )
+        .await;
+        assert!(
+            waited.is_err(),
+            "the signal arm resolved with nothing installed"
+        );
+    }
+
+    /// Numbers come from `libc`, never from this file: `SIGCONT` is 18 on
+    /// Linux and 19 on the BSDs, macOS included, and a hardcoded 18 registers
+    /// a handler for `SIGTSTP` on a Mac while reporting success.
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn a_resume_is_recognised_as_a_resume() {
+        let mut signals = Some(TerminalSignals::install().expect("install handlers"));
+
+        // Through `kill(1)` rather than `raise(3)`: this workspace denies
+        // `unsafe`, and a signal sent from outside is closer to the real thing
+        // anyway. `SIGCONT` to a process that is already running does nothing
+        // but deliver — the handler is what is under test.
+        for (arg, want) in [
+            ("-CONT", SignalAction::Resumed),
+            ("-HUP", SignalAction::Quit),
+        ] {
+            let sent = std::process::Command::new("kill")
+                .arg(arg)
+                .arg(std::process::id().to_string())
+                .status()
+                .expect("send the signal");
+            assert!(sent.success(), "kill {arg} failed");
+
+            let action = tokio::time::timeout(
+                std::time::Duration::from_secs(5),
+                next_terminal_signal(&mut signals),
+            )
+            .await
+            .unwrap_or_else(|_| panic!("{arg} was never caught"));
+            assert_eq!(action, want, "{arg}");
+        }
+    }
+}

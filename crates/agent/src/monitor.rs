@@ -100,7 +100,7 @@ mod tests {
     use super::*;
     use crate::color::ANSI;
     use crate::proc::{Proc, Usage};
-    use crate::render::{bar_len_for, frame_height, render};
+    use crate::render::{bar_len_for, render};
 
     fn snapshot(cores: usize, procs: usize) -> Snapshot {
         Snapshot {
@@ -139,7 +139,8 @@ mod tests {
                     let chrome = Chrome::of(&snapshot(cores, 0), cols, lines);
                     let budget = chrome.proc_budget(lines);
                     let s = snapshot(cores, budget);
-                    let height = frame_height(&s, cols, lines);
+                    let height = Chrome::of(&s, cols, lines).height()
+                        + Chrome::of(&s, cols, lines).table_height(s.procs.len());
                     // Below the irreducible chrome height nothing fits; the
                     // budget must at least not add to the overflow.
                     let limit = lines.max(chrome.height());

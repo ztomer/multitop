@@ -66,8 +66,8 @@ fn empty_server_list_is_allowed() {
     let _keychain = isolate_keychain();
     let mut a = app(0);
     assert!(a.panels.is_empty());
-    assert!(a.toggle_docker((80, 24)).is_empty());
-    assert!(a.switch_stats().is_empty());
+    assert_eq!(a.toggle_docker((80, 24)), [] as [multitop::app::Command; 0]);
+    assert_eq!(a.switch_stats(), [] as [multitop::app::Command; 0]);
 }
 
 #[test]
@@ -132,7 +132,7 @@ fn toggle_docker_twice_stays_in_docker_mode() {
     let mut a = app(3);
     a.toggle_docker((80, 24));
     let cmds = a.toggle_docker((80, 24));
-    assert!(cmds.is_empty());
+    assert_eq!(cmds, [] as [multitop::app::Command; 0]);
     for p in &a.panels {
         assert_eq!(p.mode, Mode::Docker);
     }
@@ -859,8 +859,14 @@ fn switch_stats_resets_scroll_for_idle_panels() {
     assert_eq!(a.panels[0].scroll_offset, 0, "idle panel scroll resets");
 }
 
+/// Leaving the Upgrade view must not carry its offset into the view being
+/// entered: an offset into a scrollback log means nothing in the Monitor pane,
+/// which opened scrolled to a position the user never chose.
+///
+/// These two used to assert the shared-field mechanism — that `scroll_offset`
+/// simply was not reset — and that is exactly what leaked.
 #[test]
-fn switch_stats_preserves_scroll_for_mid_upgrade() {
+fn leaving_the_upgrade_view_does_not_scroll_the_view_it_leaves_for() {
     let _guard = isolate_keychain();
     let mut a = app(2);
 
@@ -872,23 +878,78 @@ fn switch_stats_preserves_scroll_for_mid_upgrade() {
     a.switch_stats();
 
     assert_eq!(
-        a.panels[0].scroll_offset, 20,
-        "mid-upgrade scroll preserved"
+        a.panels[0].scroll_offset, 0,
+        "the Monitor pane opened at the upgrade log's offset"
+    );
+    assert_eq!(
+        a.panels[0].upgrade_gen, 5,
+        "the in-flight generation must still survive the switch"
     );
 }
 
+/// The requirement behind the fix: the user's place in a log they scrolled is
+/// still there when they come back to it.
 #[test]
-fn enter_upgrade_view_preserves_scroll() {
+fn a_round_trip_returns_to_the_place_in_the_log() {
     let _guard = isolate_keychain();
     let mut a = app(2);
 
-    a.panels[0].scroll_offset = 15;
     a.enter_upgrade_view();
+    a.panels[0].scroll_offset = 15;
 
+    a.switch_stats();
+    assert_eq!(
+        a.panels[0].scroll_offset, 0,
+        "the stats pane is not scrolled"
+    );
+
+    a.enter_upgrade_view();
     assert_eq!(
         a.panels[0].scroll_offset, 15,
-        "re-entering upgrade keeps scroll"
+        "coming back to the log lost the place the user had in it"
     );
+}
+
+/// And the same round trip through the other two views.
+#[test]
+fn the_place_in_the_log_survives_the_docker_and_fetch_views_too() {
+    let _guard = isolate_keychain();
+    let mut a = app(2);
+
+    a.enter_upgrade_view();
+    a.panels[0].scroll_offset = 9;
+
+    a.toggle_docker((80, 24));
+    assert_eq!(a.panels[0].scroll_offset, 0);
+    a.toggle_fetch((80, 24));
+    assert_eq!(a.panels[0].scroll_offset, 0);
+
+    a.enter_upgrade_view();
+    assert_eq!(a.panels[0].scroll_offset, 9);
+}
+
+/// Pressing the view's own key again is documented as doing nothing. It used
+/// to throw every pane's scroll position away first.
+#[test]
+fn asking_for_the_view_already_showing_keeps_the_scroll_position() {
+    let _guard = isolate_keychain();
+    let mut a = app(2);
+
+    a.toggle_docker((80, 24));
+    a.panels[0].scroll_offset = 12;
+    assert!(
+        a.toggle_docker((80, 24)).is_empty(),
+        "a no-op spawns nothing"
+    );
+    assert_eq!(
+        a.panels[0].scroll_offset, 12,
+        "a no-op discarded the scroll"
+    );
+
+    a.toggle_fetch((80, 24));
+    a.panels[0].scroll_offset = 7;
+    assert_eq!(a.toggle_fetch((80, 24)), []);
+    assert_eq!(a.panels[0].scroll_offset, 7);
 }
 
 // ---------------------------------------------------------------------------

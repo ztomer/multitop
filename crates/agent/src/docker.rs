@@ -57,17 +57,27 @@ pub enum DockerEndpoint {
     Tcp(String),
 }
 
+/// Where the daemon lives when `DOCKER_HOST` says nothing.
+pub const DEFAULT_SOCKET: &str = "/var/run/docker.sock";
+
 impl DockerEndpoint {
     pub fn from_env() -> Self {
-        match std::env::var("DOCKER_HOST") {
-            Ok(h) if h.starts_with("tcp://") => DockerEndpoint::Tcp(h),
-            Ok(h) if h.starts_with("unix://") => DockerEndpoint::Unix(
+        Self::from_docker_host(std::env::var("DOCKER_HOST").ok().as_deref())
+    }
+
+    /// Read a `DOCKER_HOST` value. Anything that is neither `tcp://` nor
+    /// `unix://` is taken as a bare socket path, which is what the CLI does.
+    pub fn from_docker_host(host: Option<&str>) -> Self {
+        match host {
+            Some(h) if h.starts_with("tcp://") => DockerEndpoint::Tcp(h.to_string()),
+            Some(h) if h.starts_with("unix://") => DockerEndpoint::Unix(
                 h.strip_prefix("unix://")
-                    .unwrap_or("/var/run/docker.sock")
+                    .filter(|p| !p.is_empty())
+                    .unwrap_or(DEFAULT_SOCKET)
                     .to_string(),
             ),
-            Ok(h) if !h.trim().is_empty() => DockerEndpoint::Unix(h),
-            _ => DockerEndpoint::Unix("/var/run/docker.sock".to_string()),
+            Some(h) if !h.trim().is_empty() => DockerEndpoint::Unix(h.to_string()),
+            _ => DockerEndpoint::Unix(DEFAULT_SOCKET.to_string()),
         }
     }
 }
@@ -113,16 +123,15 @@ pub fn decode_chunked(body: &[u8]) -> Vec<u8> {
 ///
 /// `Connection: close` lets us read to EOF instead of tracking content
 /// lengths, and the daemon answers every one of these in a single response.
-fn http_get(path: &str) -> io::Result<Vec<u8>> {
-    let endpoint = DockerEndpoint::from_env();
+pub fn http_get_on(endpoint: &DockerEndpoint, path: &str) -> io::Result<Vec<u8>> {
     let req = format!(
         "GET {path} HTTP/1.1\r\nHost: localhost\r\nAccept: application/json\r\nConnection: close\r\n\r\n"
     );
-    let mut raw = Vec::with_capacity(8192);
+    let mut raw = Vec::with_capacity(crate::consts::HTTP_RESPONSE_CAPACITY);
 
     match endpoint {
         DockerEndpoint::Unix(sock_path) => {
-            let mut stream = UnixStream::connect(sock_path)?;
+            let mut stream = UnixStream::connect(sock_path.as_str())?;
             stream.set_read_timeout(Some(IO_TIMEOUT))?;
             stream.set_write_timeout(Some(IO_TIMEOUT))?;
             stream.write_all(req.as_bytes())?;
@@ -294,16 +303,20 @@ pub fn cpu_pct_between(prev: &StatSample, curr: &StatSample) -> f64 {
 
 // ---------------------------------------------------------------- collection
 
-fn fetch_sample(id: &str) -> Option<StatSample> {
-    let body = http_get(&format!(
-        "{API}/containers/{id}/stats?stream=false&one-shot=true"
-    ))
+fn fetch_sample(endpoint: &DockerEndpoint, id: &str) -> Option<StatSample> {
+    let body = http_get_on(
+        endpoint,
+        &format!("{API}/containers/{id}/stats?stream=false&one-shot=true"),
+    )
     .ok()?;
     parse_stat_sample(&String::from_utf8_lossy(&body))
 }
 
 /// Sample every container over one shared window, `MAX_WORKERS` at a time.
-fn collect_stats_via_socket(containers: &[Container]) -> HashMap<String, Stats> {
+fn collect_stats_via_socket(
+    endpoint: &DockerEndpoint,
+    containers: &[Container],
+) -> HashMap<String, Stats> {
     let ids: Vec<&str> = containers.iter().map(|c| c.id.as_str()).collect();
     if ids.is_empty() {
         return HashMap::new();
@@ -315,7 +328,12 @@ fn collect_stats_via_socket(containers: &[Container]) -> HashMap<String, Stats> 
             let handles: Vec<_> = ids
                 .chunks(chunk)
                 .map(|group| {
-                    scope.spawn(move || group.iter().map(|id| fetch_sample(id)).collect::<Vec<_>>())
+                    scope.spawn(move || {
+                        group
+                            .iter()
+                            .map(|id| fetch_sample(endpoint, id))
+                            .collect::<Vec<_>>()
+                    })
                 })
                 .collect();
             handles
@@ -377,49 +395,36 @@ pub struct Row {
     pub mem_bytes: u64,
 }
 
-/// Gather rows, preferring the socket and falling back to the CLI.
-pub fn collect() -> Vec<Row> {
-    if let Ok(body) = http_get(&format!("{API}/containers/json")) {
-        let containers = parse_container_list(&String::from_utf8_lossy(&body));
-        let stats = collect_stats_via_socket(&containers);
-        return containers
-            .into_iter()
-            .map(|c| {
-                let s = stats.get(&c.id).copied().unwrap_or_default();
-                Row {
-                    name: c.name,
-                    status: c.status,
-                    cpu: format!("{:.1}%", s.cpu_pct),
-                    cpu_pct: s.cpu_pct,
-                    mem: if s.mem_limit > 0 {
-                        s.mem_string()
-                    } else {
-                        "-".into()
-                    },
-                    mem_bytes: s.mem_used,
-                }
-            })
-            .collect();
-    }
-
-    let Some(ps) = docker_cli(&[
-        "ps",
-        "--format",
-        "{{.Names}}\t{{.Status}}\t{{.Image}}\t{{.ID}}",
-    ]) else {
-        return Vec::new();
-    };
-    let containers = parse_cli_ps(&ps);
-    let stats = docker_cli(&[
-        "stats",
-        "--no-stream",
-        "--format",
-        "{{.Name}}\t{{.CPUPerc}}\t{{.MemUsage}}",
-    ])
-    .map(|s| parse_cli_stats(&s))
-    .unwrap_or_default();
-
+/// Rows from the socket's container list and the stats sampled for it. A
+/// container the stats pass could not read shows zeroes rather than being
+/// dropped from the table.
+pub fn rows_from_stats(containers: Vec<Container>, stats: &HashMap<String, Stats>) -> Vec<Row> {
     containers
+        .into_iter()
+        .map(|c| {
+            let s = stats.get(&c.id).copied().unwrap_or_default();
+            Row {
+                name: c.name,
+                status: c.status,
+                cpu: format!("{:.1}%", s.cpu_pct),
+                cpu_pct: s.cpu_pct,
+                mem: if s.mem_limit > 0 {
+                    s.mem_string()
+                } else {
+                    "-".into()
+                },
+                mem_bytes: s.mem_used,
+            }
+        })
+        .collect()
+}
+
+/// Rows from the CLI fallback's two tables, joined on the container name.
+///
+/// The CLI reports memory as text it has already formatted, so `mem_bytes` is
+/// unknown here — sorting by memory falls back to the printed string's order.
+pub fn rows_from_cli(ps: &str, stats: &HashMap<String, (String, String)>) -> Vec<Row> {
+    parse_cli_ps(ps)
         .into_iter()
         .map(|c| {
             let (cpu, mem) = stats
@@ -436,6 +441,37 @@ pub fn collect() -> Vec<Row> {
             }
         })
         .collect()
+}
+
+/// Gather rows, preferring the socket and falling back to the CLI.
+pub fn collect() -> Vec<Row> {
+    collect_from(&DockerEndpoint::from_env())
+}
+
+pub fn collect_from(endpoint: &DockerEndpoint) -> Vec<Row> {
+    if let Ok(body) = http_get_on(endpoint, &format!("{API}/containers/json")) {
+        let containers = parse_container_list(&String::from_utf8_lossy(&body));
+        let stats = collect_stats_via_socket(endpoint, &containers);
+        return rows_from_stats(containers, &stats);
+    }
+
+    let Some(ps) = docker_cli(&[
+        "ps",
+        "--format",
+        "{{.Names}}\t{{.Status}}\t{{.Image}}\t{{.ID}}",
+    ]) else {
+        return Vec::new();
+    };
+    let stats = docker_cli(&[
+        "stats",
+        "--no-stream",
+        "--format",
+        "{{.Name}}\t{{.CPUPerc}}\t{{.MemUsage}}",
+    ])
+    .map(|s| parse_cli_stats(&s))
+    .unwrap_or_default();
+
+    rows_from_cli(&ps, &stats)
 }
 
 // ----------------------------------------------------------------- rendering

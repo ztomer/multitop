@@ -481,6 +481,6 @@ mod tests {
 
     #[test]
     fn no_flexible_cells_is_not_a_panic() {
-        assert!(share_width(10, &[], &[], 80).is_empty());
+        assert_eq!(share_width(10, &[], &[], 80), [] as [usize; 0]);
     }
 }

@@ -15,9 +15,3 @@
 # Resolve one by wiring it up, or by deleting it and repointing its tests at
 # whatever replaced it. If the caller is real but invisible to the tool, put a
 # `// reachability: <why>` note above the function instead of a line here.
-crates/agent/src/render.rs:frame_height
-crates/multitop/src/app.rs:had_upgrade
-crates/multitop/src/app.rs:vault_unlocked
-crates/multitop/src/panel.rs:set_sudo_password
-crates/vault/src/crypto.rs:from_config
-crates/vault/src/lockout.rs:uses_keychain

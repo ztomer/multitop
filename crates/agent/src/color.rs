@@ -243,9 +243,9 @@ impl Palette {
     }
 
     pub fn cpu_bar(&self, pct: f64) -> &'static str {
-        if pct >= 80.0 {
+        if pct >= crate::consts::CPU_HIGH_PCT {
             self.meter_high()
-        } else if pct >= 50.0 {
+        } else if pct >= crate::consts::CPU_MID_PCT {
             self.meter_mid()
         } else {
             self.meter_low()
@@ -253,9 +253,9 @@ impl Palette {
     }
 
     pub fn mem_bar(&self, pct: f64) -> &'static str {
-        if pct >= 85.0 {
+        if pct >= crate::consts::MEM_HIGH_PCT {
             self.meter_high()
-        } else if pct >= 50.0 {
+        } else if pct >= crate::consts::MEM_MID_PCT {
             self.meter_mid()
         } else {
             self.primary()
@@ -263,9 +263,9 @@ impl Palette {
     }
 
     pub fn disk_bar(&self, pct: f64) -> &'static str {
-        if pct >= 90.0 {
+        if pct >= crate::consts::DISK_HIGH_PCT {
             self.meter_high()
-        } else if pct >= 70.0 {
+        } else if pct >= crate::consts::DISK_MID_PCT {
             self.meter_mid()
         } else {
             self.meter_low()

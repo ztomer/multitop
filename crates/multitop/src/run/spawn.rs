@@ -58,6 +58,40 @@ async fn replace_agent(server: &Server) -> Result<String, String> {
     Ok(format!("\u{2713} agent replaced on {}", server.host))
 }
 
+/// Ask the machine to open the vault with one touch, and report the outcome.
+///
+/// Its own function rather than a closure in the `u` arm, because a closure
+/// inside a match arm is unreachable by anything but that arm: the failure path
+/// -- which is the one every machine without a bound enclave key takes, and the
+/// one that has to hand the user back to the master password -- could not be
+/// tested at all.
+///
+/// `spawn_blocking`, for the same reason the password path uses it: the enclave
+/// call holds the thread while the system prompt is on screen. On the executor
+/// that would freeze every redraw, key and message until the user touched the
+/// sensor -- including the `Esc` that gets them out of it.
+#[must_use]
+pub fn spawn_biometric_unlock(
+    vault: Arc<multitop_vault::Vault>,
+    epoch: u64,
+    tx: tokio::sync::mpsc::Sender<Msg>,
+) -> JoinHandle<()> {
+    tokio::task::spawn_blocking(move || {
+        let outcome = tokio::runtime::Handle::current().block_on(vault.unlock_biometric());
+        let msg = match outcome {
+            Ok((unlocked, _)) => Msg::VaultUnlocked {
+                epoch,
+                unlocked: Box::new(unlocked),
+            },
+            // Refused, cancelled, or no sensor: `VaultBiometricFailed` is what
+            // puts the master password prompt up. Not distinguished, because
+            // there is nothing different for the user to do about any of them.
+            Err(_) => Msg::VaultBiometricFailed { epoch },
+        };
+        let _ = tx.blocking_send(msg);
+    })
+}
+
 #[must_use]
 pub fn spawn_monitor(
     idx: usize,

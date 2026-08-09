@@ -86,6 +86,7 @@ where
 /// user to go looking for an `ssh` that was installed and working the whole
 /// time. The two spawn paths fail for different reasons and have different
 /// fixes; the message has to name the one that happened.
+#[must_use]
 pub fn spawn_failure(server: &Server, e: &std::io::Error) -> String {
     if e.kind() == std::io::ErrorKind::NotFound {
         return if ssh::is_local(server) {
@@ -99,6 +100,86 @@ pub fn spawn_failure(server: &Server, e: &std::io::Error) -> String {
     } else {
         format!("ssh: {e}")
     }
+}
+
+/// What a handshake means for the session, decided before any I/O is done
+/// about it.
+///
+/// Kept apart from [`connect`] because every branch here is a decision an
+/// operator sees the consequence of — which message they get, whether an
+/// upload is attempted, whether a retry is allowed — and reaching them through
+/// `connect` means owning a live `ssh` child that behaves on cue.
+#[derive(Debug, PartialEq, Eq)]
+pub enum Bootstrap {
+    /// Hand back a stream; the fields say how the packet reader should start.
+    Ready {
+        pending_header: Option<[u8; 4]>,
+        preamble: Option<String>,
+    },
+    /// The remote has no agent; install this build and try once more.
+    Install(Arch),
+    /// Nothing usable. The string is what to tell the operator.
+    Failed(String),
+}
+
+/// Decide what a handshake means.
+///
+/// `stderr_detail` is the last non-empty stderr line, which only a closed
+/// session has anything to say through; `attempt` is which pass of the
+/// install-and-retry loop this is.
+pub fn bootstrap(
+    handshake: Handshake,
+    host: &str,
+    attempt: usize,
+    stderr_detail: Option<String>,
+) -> Bootstrap {
+    let arch_str = match handshake {
+        // A session that produced nothing has only stderr to explain itself;
+        // without it, all that can honestly be said is that it closed.
+        Handshake::Closed => {
+            return Bootstrap::Failed(
+                stderr_detail.unwrap_or_else(|| format!("Connection to {host} closed")),
+            )
+        }
+        Handshake::Framed => {
+            return Bootstrap::Ready {
+                pending_header: Some(*multitop_agent::proto::MAGIC),
+                preamble: None,
+            }
+        }
+        // Not framing, but the packet reader is the one that should fail on
+        // it — carrying the text is what lets that failure name the cause.
+        Handshake::Text(line) => {
+            return Bootstrap::Ready {
+                pending_header: None,
+                preamble: Some(line),
+            }
+        }
+        Handshake::NeedAgent(arch) => arch,
+    };
+
+    if attempt > 0 {
+        return Bootstrap::Failed(format!("Agent did not start on {host} after install"));
+    }
+    Arch::from_uname(&arch_str).map_or_else(
+        || {
+            Bootstrap::Failed(format!(
+                "Unsupported architecture '{arch_str}' on {host} - multitop ships x86_64 and aarch64"
+            ))
+        },
+        Bootstrap::Install,
+    )
+}
+
+/// The last non-empty line the remote wrote to stderr, if any.
+async fn last_stderr_line(stderr: &mut Lines<BufReader<ChildStderr>>) -> Option<String> {
+    let mut detail = None;
+    while let Ok(Some(l)) = stderr.next_line().await {
+        if !l.trim().is_empty() {
+            detail = Some(l);
+        }
+    }
+    detail
 }
 
 /// Connect to a remote server over SSH and bootstrap the agent if needed.
@@ -128,53 +209,30 @@ pub async fn connect(
         let mut stdout = BufReader::new(stdout);
         let mut stderr = BufReader::new(stderr).lines();
 
-        let arch_str = match read_handshake(&mut stdout).await {
-            Handshake::Closed => {
-                let mut detail = String::new();
-                while let Ok(Some(l)) = stderr.next_line().await {
-                    if !l.trim().is_empty() {
-                        detail = l;
-                    }
-                }
-                return Err(if detail.is_empty() {
-                    format!("Connection to {} closed", server.host)
-                } else {
-                    detail
-                });
-            }
-            Handshake::Framed => {
-                return Ok(PacketStream {
-                    child,
-                    stdout,
-                    stderr,
-                    pending_header: Some(*multitop_agent::proto::MAGIC),
-                    preamble: None,
-                })
-            }
-            Handshake::Text(line) => {
-                return Ok(PacketStream {
-                    child,
-                    stdout,
-                    stderr,
-                    pending_header: None,
-                    preamble: Some(line),
-                })
-            }
-            Handshake::NeedAgent(arch) => arch,
+        let handshake = read_handshake(&mut stdout).await;
+        let detail = if handshake == Handshake::Closed {
+            last_stderr_line(&mut stderr).await
+        } else {
+            None
         };
 
-        if attempt > 0 {
-            return Err(format!(
-                "Agent did not start on {} after install",
-                server.host
-            ));
-        }
-        let Some(arch) = Arch::from_uname(&arch_str) else {
-            return Err(format!(
-                "Unsupported architecture '{arch_str}' on {} - multitop ships x86_64 and aarch64",
-                server.host
-            ));
+        let arch = match bootstrap(handshake, &server.host, attempt, detail) {
+            Bootstrap::Failed(msg) => return Err(msg),
+            Bootstrap::Ready {
+                pending_header,
+                preamble,
+            } => {
+                return Ok(PacketStream {
+                    child,
+                    stdout,
+                    stderr,
+                    pending_header,
+                    preamble,
+                })
+            }
+            Bootstrap::Install(arch) => arch,
         };
+
         on_status(status_line(format!(
             "\u{2192} installing agent ({})...",
             arch.label()
@@ -213,6 +271,7 @@ pub async fn next_packet(
 }
 
 /// Why the stream stopped, in a line an operator can act on.
+#[must_use]
 pub fn describe_failure(e: &std::io::Error) -> String {
     if e.kind() == std::io::ErrorKind::InvalidData {
         // Composed by `framing_lost`, which already names the cause and what to
@@ -233,7 +292,7 @@ async fn read_packet(
     use multitop_agent::proto;
     use tokio::io::AsyncReadExt;
 
-    let mut header = [0u8; 8];
+    let mut header = [0u8; crate::consts::PACKET_HEADER_LEN];
     if let Some(pending4) = stream.pending_header.take() {
         header[..4].copy_from_slice(&pending4);
         match stream.stdout.read_exact(&mut header[4..8]).await {
@@ -298,6 +357,7 @@ pub fn note(errbuf: &mut Vec<String>, reason: String) {
 ///
 /// Class H, and the fifth sibling of it this round: a failure reported as
 /// something else.
+#[must_use]
 pub fn framing_lost(header: &[u8], preamble: Option<String>) -> std::io::Error {
     let reason = preamble.map_or_else(
         || {

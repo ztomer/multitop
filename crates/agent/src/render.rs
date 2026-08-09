@@ -73,7 +73,8 @@ pub fn bar_len_for(cols: usize) -> usize {
 
 /// The NET row only appears once there is traffic worth reporting.
 pub fn shows_net(rx_rate: f64, tx_rate: f64) -> bool {
-    rx_rate > 1024.0 || tx_rate > 1024.0
+    rx_rate > crate::consts::NET_VISIBLE_BYTES_PER_SEC
+        || tx_rate > crate::consts::NET_VISIBLE_BYTES_PER_SEC
 }
 
 fn horizontal_rule(n: usize) -> &'static str {
@@ -104,6 +105,10 @@ fn horizontal_rule(n: usize) -> &'static str {
 
 pub use crate::render_layout::*;
 
+/// Rows a process table spends on its own rule and header before the first
+/// process fits.
+const TABLE_CHROME_ROWS: usize = 2;
+
 impl Chrome {
     fn two_column(&self, num_procs: usize) -> bool {
         self.cols >= TWO_COLUMN_MIN_COLS && num_procs > 1
@@ -116,7 +121,7 @@ impl Chrome {
             return 0;
         }
         let body = if self.two_column(n) { n.div_ceil(2) } else { n };
-        2 + body
+        TABLE_CHROME_ROWS + body
     }
 
     /// How many processes to sample so the table fills `lines` exactly.
@@ -132,21 +137,25 @@ impl Chrome {
         }
         let available = lines.saturating_sub(self.height());
         // Two rows go to the rule and header before any process fits.
-        let Some(body) = available.checked_sub(2).filter(|n| *n > 0) else {
+        let Some(body) = available.checked_sub(TABLE_CHROME_ROWS).filter(|n| *n > 0) else {
             return 0;
         };
-        if self.cols >= TWO_COLUMN_MIN_COLS {
+        let estimate = if self.cols >= TWO_COLUMN_MIN_COLS {
             body * 2
         } else {
             body
+        };
+        // Checked against `table_height`, which is the same relationship read
+        // the other way round. Two independent copies of one arithmetic is how
+        // a budget and the height it is supposed to produce drift apart, and
+        // the symptom of that is a clipped frame — a pane sized from a number
+        // that no longer describes what gets drawn.
+        let mut n = estimate;
+        while n > 0 && self.table_height(n) > available {
+            n -= 1;
         }
+        n
     }
-}
-
-/// Rows the rendered frame will occupy.
-pub fn frame_height(snap: &Snapshot, cols: usize, lines: usize) -> usize {
-    let chrome = Chrome::of(snap, cols, lines);
-    chrome.height() + chrome.table_height(snap.procs.len())
 }
 
 /// Name column width for the process table.
@@ -173,12 +182,12 @@ pub fn truncate_name(name: &str, width: usize) -> String {
 }
 
 fn proc_cell(p: &Proc, name_w: usize, pal: &Palette) -> String {
-    let cpu_c = if p.cpu >= 10.0 {
+    let cpu_c = if p.cpu >= crate::consts::PROC_BUSY_PCT {
         pal.meter_mid()
     } else {
         pal.text()
     };
-    let mut s = String::with_capacity(96);
+    let mut s = String::with_capacity(crate::consts::PROC_ROW_CAPACITY);
     let _ = write!(
         s,
         "{}{:>PID_W$}{}  {}{:<name_w$}{}  {}{:>CPU_W$.1}{}  {}{:>MEM_W$}{}",
@@ -228,9 +237,9 @@ fn push_core_rows(
         .map(|&(idx, cp, temp)| {
             let temp_str = match temp {
                 Some(c) => {
-                    let tc = if c >= 75.0 {
+                    let tc = if c >= crate::consts::CORE_TEMP_HIGH_C {
                         pal.meter_high()
-                    } else if c >= 55.0 {
+                    } else if c >= crate::consts::CORE_TEMP_WARM_C {
                         pal.meter_mid()
                     } else {
                         pal.meter_low()
@@ -320,7 +329,7 @@ pub fn render(
 ) -> Vec<String> {
     let chrome = Chrome::of(snap, cols, lines);
     let tier = chrome.tier;
-    let mut out: Vec<String> = Vec::with_capacity(16);
+    let mut out: Vec<String> = Vec::with_capacity(crate::consts::FRAME_LINE_CAPACITY);
 
     out.push(center_header(&snap.host, cols, pal));
 

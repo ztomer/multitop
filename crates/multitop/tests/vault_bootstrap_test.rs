@@ -97,7 +97,10 @@ user = "ztomer"
 "#,
     )
     .unwrap();
-    assert!(cfg.plaintext_passwords.is_empty());
+    assert_eq!(
+        cfg.plaintext_passwords,
+        [] as [(multitop::config::Server, std::string::String); 0]
+    );
 }
 
 #[test]
@@ -125,7 +128,10 @@ fn stripping_removes_the_secret_and_keeps_everything_else() {
     assert_eq!(cfg.servers[0].user, "ztomer");
     assert_eq!(cfg.servers[0].upgrade_cmd.as_deref(), Some("apt upgrade"));
     assert_eq!(cfg.theme.as_deref(), Some("Kare"));
-    assert!(cfg.plaintext_passwords.is_empty());
+    assert_eq!(
+        cfg.plaintext_passwords,
+        [] as [(multitop::config::Server, std::string::String); 0]
+    );
 
     let _ = std::fs::remove_dir_all(&dir);
 }

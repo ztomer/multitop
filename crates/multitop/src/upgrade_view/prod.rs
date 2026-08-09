@@ -310,7 +310,7 @@ pub fn header(status: &Status, pal: &Palette, now: u64, width: usize) -> Vec<Str
     out.push(String::new());
     out.extend(next_action(status, pal));
 
-    if width >= 20 {
+    if width >= crate::consts::UPGRADE_RULE_MIN_WIDTH {
         out.push(format!(
             "{}{}{}",
             pal.muted(),

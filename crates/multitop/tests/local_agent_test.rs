@@ -46,7 +46,7 @@ async fn local_agent_streams_binary_packets() {
 
     let payload = decode_packet(&full).expect("decode packet");
     if let Payload::Monitor(snap) = payload {
-        assert!(!snap.host.is_empty());
+        assert_ne!(snap.host, "");
     } else {
         panic!("expected Monitor payload");
     }

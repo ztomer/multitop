@@ -5,11 +5,18 @@
 
 use crate::VaultError;
 use std::time::Duration;
-
-#[cfg(target_os = "linux")]
-use std::time::Duration;
 #[cfg(target_os = "linux")]
 use zbus::{fdo::DBusProxy, Connection, Proxy};
+
+/// How long to wait on one fingerprint-daemon call.
+///
+/// The daemon talks to hardware and can simply not answer; without a bound the
+/// unlock hangs with nothing on screen saying why.
+#[cfg(target_os = "linux")]
+const FPRINTD_CALL_TIMEOUT: Duration = Duration::from_secs(30);
+/// How long to wait between polls of an in-progress verification.
+#[cfg(target_os = "linux")]
+const FPRINTD_POLL_INTERVAL: Duration = Duration::from_millis(200);
 
 /// Fingerprint verification result
 #[cfg(target_os = "linux")]
@@ -114,7 +121,7 @@ impl FingerprintVerifier {
         Ok(Self {
             device_path,
             finger: fingers[0].clone(),
-            timeout: Duration::from_secs(30),
+            timeout: FPRINTD_CALL_TIMEOUT,
             connection,
         })
     }
@@ -150,7 +157,7 @@ impl FingerprintVerifier {
         Ok(Self {
             device_path,
             finger,
-            timeout: Duration::from_secs(30),
+            timeout: FPRINTD_CALL_TIMEOUT,
             connection,
         })
     }
@@ -206,7 +213,7 @@ impl FingerprintVerifier {
             }
 
             // Small delay before polling again
-            tokio::time::sleep(Duration::from_millis(200)).await;
+            tokio::time::sleep(FPRINTD_POLL_INTERVAL).await;
         };
 
         // Always stop verification on completion (match, fail, timeout, not enrolled)

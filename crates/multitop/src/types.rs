@@ -67,6 +67,24 @@ pub enum Msg {
         gen: u64,
         line: String,
     },
+    /// A line that replaces one already in the log, rather than following it.
+    ///
+    /// A tool that repaints a block — `docker compose pull` — moves the cursor
+    /// up over it with `ESC[nA` and writes the block again. Treated as new
+    /// lines, every tick added another copy of the block and the run drowned in
+    /// its own progress display. A separate message rather than a flag on
+    /// `AuxLine`, because "this replaces what you are showing" and "here is
+    /// something new" are different events, and the reader is the only place
+    /// that still sees the control sequences that tell them apart.
+    AuxRepaint {
+        panel: usize,
+        gen: u64,
+        line: String,
+        /// Lines back from the newest, where 0 is the newest.
+        back: usize,
+        /// Rows below that one which the tool just erased.
+        erase_below: usize,
+    },
     AuxDone {
         panel: usize,
         gen: u64,

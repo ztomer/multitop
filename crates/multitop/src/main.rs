@@ -229,7 +229,7 @@ mod tests {
         assert_eq!(opts.config_path, None);
         assert!(!opts.local);
         assert!(!opts.local_only);
-        assert!(opts.remote_hosts.is_empty());
+        assert_eq!(opts.remote_hosts, [] as [std::string::String; 0]);
         Ok(())
     }
 

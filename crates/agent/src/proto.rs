@@ -51,7 +51,7 @@ const HEADER_LEN: usize = 8;
 const MAX_PAYLOAD: usize = u16::MAX as usize;
 
 pub fn encode_packet(payload: &Payload) -> Vec<u8> {
-    let mut buf = Vec::with_capacity(512);
+    let mut buf = Vec::with_capacity(crate::consts::PACKET_CAPACITY);
     // Header: magic(4) + version(1) + mode(1) + payload_len(2)
     buf.extend_from_slice(MAGIC);
     buf.push(PROTO_VERSION);
@@ -244,7 +244,7 @@ impl<'a> Cursor<'a> {
 }
 
 pub fn decode_packet(data: &[u8]) -> Option<Payload> {
-    if data.len() < 8 {
+    if data.len() < HEADER_LEN {
         return None;
     }
     if &data[..4] != MAGIC {
@@ -253,7 +253,7 @@ pub fn decode_packet(data: &[u8]) -> Option<Payload> {
     let _version = data[4];
     let mode = data[5];
     let payload_len = u16::from_le_bytes([data[6], data[7]]) as usize;
-    if data.len() < 8 + payload_len {
+    if data.len() < HEADER_LEN + payload_len {
         return None;
     }
 

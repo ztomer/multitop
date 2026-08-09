@@ -37,6 +37,8 @@ jobs:
           python3 tools/check_keychain_isolation.py
           python3 tools/check_row0_owner.py --self-test
           python3 tools/check_row0_owner.py
+          python3 tools/check_magic_numbers.py --self-test
+          python3 tools/check_magic_numbers.py
 
       - name: Formatting
         run: cargo fmt --all -- --check
@@ -80,8 +82,10 @@ jobs:
       # 95% line coverage is the floor; falling below fails CI.
       - name: Coverage (multitop, fail under 95%)
         run: |
-          cargo llvm-cov -p multitop --all-features --lcov --output-path lcov.info
-          cargo llvm-cov -p multitop --all-features --summary-only --fail-under 95
+          # The one definition of the floor and its exclusions lives in the
+          # script. CI and the pre-commit hook both call it, so a local gate
+          # cannot be weaker than the one that blocks the merge.
+          bash tools/coverage_check.sh
 
       - name: Upload coverage artifact
         uses: actions/upload-artifact@v4

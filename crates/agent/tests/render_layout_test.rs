@@ -2,6 +2,18 @@ use multitop_agent::color::{strip_ansi, ANSI};
 use multitop_agent::proc::{Proc, Usage};
 use multitop_agent::render::*;
 
+/// Rows the rendered frame will occupy, composed from the two pieces the agent
+/// itself uses to size a frame.
+///
+/// A helper here rather than in the library: nothing in the agent needs the sum
+/// — `Chrome::proc_budget` is what production sizes with — so exporting it made
+/// a public function whose only callers were these tests. What the tests are
+/// for is that the sum agrees with what `render` emits.
+fn frame_height(snap: &Snapshot, cols: usize, lines: usize) -> usize {
+    let chrome = Chrome::of(snap, cols, lines);
+    chrome.height() + chrome.table_height(snap.procs.len())
+}
+
 fn proc(pid: u32, name: &str, cpu: f64, mem: u64) -> Proc {
     Proc {
         pid,
@@ -237,6 +249,63 @@ fn predicted_frame_height_matches_render() {
                     frame_height(&s, cols, 0),
                     render(&s, cols, 0, bar_len_for(cols), &ANSI).len(),
                     "cols={cols} cores={cores} procs={procs}"
+                );
+            }
+        }
+    }
+}
+
+/// The prediction has to hold at *every* height, not just the unconstrained
+/// one — a panel sized from a prediction one row short of the frame clips its
+/// last line. The smallest tier used to report a flat one row while `render`
+/// emitted two whenever there was a second row to write the note on.
+///
+/// The contract is "a snapshot whose process list is within the budget", so
+/// the budget is what fills the list here; a longer list is clipped by
+/// `render` and the prediction does not claim to describe that.
+#[test]
+fn predicted_frame_height_matches_render_at_every_height() {
+    // From one row up: `lines == 0` means "unconstrained", where the budget
+    // is unbounded, and that case is the test above.
+    for cols in [0usize, 1, 20, 40, 72, 100, 200] {
+        for lines in 1usize..16 {
+            for cores in [1usize, 4, 32] {
+                let budget = Chrome::of(&full(cores, 0, cols), cols, lines).proc_budget(lines);
+                for procs in [0, budget / 2, budget] {
+                    let s = full(cores, procs, cols);
+                    assert_eq!(
+                        frame_height(&s, cols, lines),
+                        render(&s, cols, lines, bar_len_for(cols), &ANSI).len(),
+                        "cols={cols} lines={lines} cores={cores} procs={procs}"
+                    );
+                }
+            }
+        }
+    }
+}
+
+/// A frame the panel asked for at `lines` rows must not come back taller.
+#[test]
+fn a_budgeted_frame_never_overflows_the_rows_it_was_given() {
+    for cols in [0usize, 1, 20, 40, 72, 100, 200] {
+        for lines in 1usize..16 {
+            for cores in [1usize, 4, 32] {
+                let chrome = Chrome::of(&full(cores, 0, cols), cols, lines);
+                let budget = chrome.proc_budget(lines);
+                let drawn = render(
+                    &full(cores, budget, cols),
+                    cols,
+                    lines,
+                    bar_len_for(cols),
+                    &ANSI,
+                )
+                .len();
+                // Below the irreducible chrome height nothing can fit, so the
+                // floor is that height rather than `lines`.
+                let limit = lines.max(chrome.height());
+                assert!(
+                    drawn <= limit,
+                    "cols={cols} lines={lines} cores={cores}: {drawn} > {limit}"
                 );
             }
         }

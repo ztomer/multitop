@@ -243,7 +243,12 @@ fn app_accessors() {
     };
     let app = App::new(vec![server]);
 
-    assert!(!app.had_upgrade());
+    assert!(
+        app.panels
+            .iter()
+            .all(|p| p.upgrade_state == multitop::panel::UpgradeState::NIL),
+        "a fresh app has run nothing"
+    );
     assert!(!app.in_upgrade());
     assert!(!app.in_docker());
     assert!(!app.in_fetch());
@@ -251,8 +256,8 @@ fn app_accessors() {
     assert!(!app.quit_armed());
     assert_eq!(app.filtered_indices().len(), 1);
     assert!(app.upgrade_runnable());
-    assert!(app.upgrade_skip_hosts().is_empty());
-    assert!(app.running_upgrade_hosts().is_empty());
+    assert_eq!(app.upgrade_skip_hosts(), [] as [std::string::String; 0]);
+    assert_eq!(app.running_upgrade_hosts(), [] as [std::string::String; 0]);
     assert!(app.host_update(0).started_at.is_none());
     assert!(app.vault_unlocked().is_none());
 }

@@ -28,12 +28,12 @@ pub fn parse_pid_stat(data: &str) -> Option<RawProcStat> {
     let comm = data[open + 1..close].to_string();
 
     let mut iter = data[close + 1..].split_ascii_whitespace();
-    let utime_str = iter.nth(11)?;
+    let utime_str = iter.nth(crate::consts::PROC_STAT_UTIME_FIELD)?;
     let stime_str = iter.next()?;
     let utime: u64 = utime_str.parse().ok()?;
     let stime: u64 = stime_str.parse().ok()?;
 
-    let starttime_str = iter.nth(6)?;
+    let starttime_str = iter.nth(crate::consts::PROC_STAT_STARTTIME_FIELD)?;
     let starttime: u64 = starttime_str.parse().ok()?;
 
     let _skip20 = iter.next()?;
@@ -50,8 +50,8 @@ pub fn parse_pid_stat(data: &str) -> Option<RawProcStat> {
 }
 
 /// Format `/proc/<pid>/stat` into a stack byte buffer with ZERO heap allocation.
-pub fn fmt_proc_stat_path(pid: u32, out: &mut [u8; 48]) -> &str {
-    let mut b = [0u8; 16];
+pub fn fmt_proc_stat_path(pid: u32, out: &mut [u8; crate::consts::PROC_PATH_BUF]) -> &str {
+    let mut b = [0u8; crate::consts::PID_DIGITS_BUF];
     let mut i = b.len();
     let mut n = pid;
     if n == 0 {
@@ -74,8 +74,8 @@ pub fn fmt_proc_stat_path(pid: u32, out: &mut [u8; 48]) -> &str {
 }
 
 /// Format `/proc/<pid>/comm` into a stack byte buffer with ZERO heap allocation.
-pub fn fmt_proc_comm_path(pid: u32, out: &mut [u8; 48]) -> &str {
-    let mut b = [0u8; 16];
+pub fn fmt_proc_comm_path(pid: u32, out: &mut [u8; crate::consts::PROC_PATH_BUF]) -> &str {
+    let mut b = [0u8; crate::consts::PID_DIGITS_BUF];
     let mut i = b.len();
     let mut n = pid;
     if n == 0 {
@@ -98,9 +98,9 @@ pub fn fmt_proc_comm_path(pid: u32, out: &mut [u8; 48]) -> &str {
 }
 
 pub fn read_comm(pid: u32) -> String {
-    let mut path_buf = [0u8; 48];
+    let mut path_buf = [0u8; crate::consts::PROC_PATH_BUF];
     let path = fmt_proc_comm_path(pid, &mut path_buf);
-    let mut comm_buf = [0u8; 64];
+    let mut comm_buf = [0u8; crate::consts::PROC_COMM_BUF];
     let n = crate::proc::read_proc_bytes(path, &mut comm_buf);
     if n > 0 {
         std::str::from_utf8(&comm_buf[..n])
@@ -139,9 +139,9 @@ impl ProcSampler {
             } else {
                 4096
             },
-            scanned: Vec::with_capacity(64),
-            active_pids: HashSet::with_capacity(64),
-            temp_procs: Vec::with_capacity(64),
+            scanned: Vec::with_capacity(crate::consts::PROC_SCAN_CAPACITY),
+            active_pids: HashSet::with_capacity(crate::consts::PROC_SCAN_CAPACITY),
+            temp_procs: Vec::with_capacity(crate::consts::PROC_SCAN_CAPACITY),
         }
     }
 
@@ -155,8 +155,8 @@ impl ProcSampler {
             }
             return;
         };
-        let mut path_buf = [0u8; 48];
-        let mut file_buf = [0u8; 512];
+        let mut path_buf = [0u8; crate::consts::PROC_PATH_BUF];
+        let mut file_buf = [0u8; crate::consts::PROC_PID_STAT_BUF];
 
         for entry in entries.flatten() {
             let name = entry.file_name();

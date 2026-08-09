@@ -71,9 +71,9 @@ pub fn render(
     };
 
     for r in visible {
-        let cpu_c = if r.cpu_pct >= 80.0 {
+        let cpu_c = if r.cpu_pct >= crate::consts::DOCKER_CPU_HIGH_PCT {
             pal.meter_high()
-        } else if r.cpu_pct >= 20.0 {
+        } else if r.cpu_pct >= crate::consts::DOCKER_CPU_MID_PCT {
             pal.meter_mid()
         } else {
             pal.meter_low()

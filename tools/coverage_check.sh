@@ -1,26 +1,48 @@
 #!/usr/bin/env bash
 # Coverage gate for the workspace.
 #
-# 95% floor on LINE coverage, ignoring files that are inherently untestable
-# in CI (OS keychain, SSH transport, platform-specific code, entry point).
-# Those exclusions are structural — documented here so they don't drift.
+# 95% floor on LINE coverage, ignoring files that are inherently untestable in
+# CI: they take over the real terminal, talk to the OS credential store or the
+# Secure Enclave, spawn real SSH children, or run at build time rather than
+# under the suite. Those exclusions are structural — each one is named here
+# with its reason so the list cannot quietly grow.
+#
+# The rule for adding one: the file must be untestable *by construction*, not
+# merely untested. If a seam would make it testable, add the seam instead.
 #
 # Ignored and why:
 #   ssh.rs            — real SSH transport, needs a live host (#[ignore]d tests)
-#   password_store.rs — OS keychain, mock covers it but the OS path is CI-only
+#   password_store.rs — OS keychain; the mock covers the logic, the OS path is
+#                       CI-only and a real read puts a dialog on screen
 #   spawn.rs          — spawns real SSH/agent child processes
 #   main.rs           — entry point, exercised by the binary not the suite
+#   entry.rs          — (multitop `run/`) the same, one level down: `run()`
+#                       calls `ratatui::init` and reads the process's own stdin,
+#                       so a test running it fights the developer for the
+#                       terminal it is printing into. Everything decidable
+#                       without a terminal lives in `run/`'s other modules and
+#                       is tested there.
+#   build.rs          — build script; cargo runs it while compiling, never from
+#                       a test binary
 #   sparkline.rs      — pure rendering, no branching logic to test
 #   secure_enclave.rs — (vault crate) macOS Security framework
 #   sys.rs            — (agent crate) /proc parsing, Linux-only
 #   fprintd.rs        — (vault crate) Linux fingerprint daemon
+#   enclave.rs        — (vault `api/`) unlocking by touch and repairing the
+#                       enclave wrapper. Needs Secure Enclave hardware holding a
+#                       key bound to this machine's enrolled biometric set, so
+#                       no test can execute it. Split out of `unlock.rs` for
+#                       this reason: mixed in, it hid which of the *password*
+#                       paths were genuinely untested. The decision it feeds —
+#                       `Vault::biometric_available`, which picks the door the
+#                       user is shown — stays in `unlock.rs` and is tested.
 
 set -euo pipefail
 
 cd "$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
 
 # Single regex matching all inherently-untestable files.
-IGNORE="ssh\.rs|password_store\.rs|sparkline\.rs|main\.rs|spawn\.rs|sys\.rs|secure_enclave\.rs|fprintd\.rs"
+IGNORE="ssh\.rs|password_store\.rs|sparkline\.rs|main\.rs|entry\.rs|build\.rs|spawn\.rs|sys\.rs|secure_enclave\.rs|fprintd\.rs|enclave\.rs"
 
 # Generate lcov artifact + fail if the floor is breached.
 cargo llvm-cov --workspace --all-features \
@@ -29,4 +51,4 @@ cargo llvm-cov --workspace --all-features \
 
 cargo llvm-cov --workspace --all-features \
     --ignore-filename-regex "$IGNORE" \
-    --fail-under-lines 55
+    --fail-under-lines 95

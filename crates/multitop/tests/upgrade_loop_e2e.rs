@@ -21,6 +21,28 @@ use multitop::password_store;
 use multitop::tasks::spawn_upgrade;
 use multitop::types::Command;
 
+/// Press a key the way the app does — through the real dispatcher.
+///
+/// Several tests here used to re-implement the `u` handler's decision chain
+/// inline ("replicate the key handler decision"), and the chain they wrote had
+/// a branch the handler does not have. A test that models the code under test
+/// passes whatever the code does.
+fn press(app: &mut App, code: crossterm::event::KeyCode) {
+    use crossterm::event::{KeyEvent, KeyEventKind, KeyModifiers};
+    let (tx, _rx) = mpsc::channel::<Msg>(64);
+    let (dims_tx, dims_rx) = tokio::sync::watch::channel((80u16, 24u16));
+    std::mem::forget(dims_tx);
+    let mut tasks = multitop::run::Tasks::new(app.panels.len());
+    multitop::run::handle_key(
+        KeyEvent::new_with_kind(code, KeyModifiers::NONE, KeyEventKind::Press),
+        app,
+        (80, 24),
+        std::sync::Arc::new(dims_rx),
+        &tx,
+        &mut tasks,
+    );
+}
+
 use tokio::sync::mpsc;
 
 /// Divert credentials to the in-memory store, and hold the process-global guard.
@@ -231,7 +253,7 @@ async fn test_upgrade_state_machine_roundtrip() {
     app.config_path = Some(config_path.clone());
 
     let cmds = app.confirm_upgrade();
-    assert!(!cmds.is_empty());
+    assert_ne!(cmds, [] as [multitop::app::Command; 0]);
     let started_at = app.upgrade_started_at;
     assert!(started_at.is_some(), "upgrade_started_at should be set");
 
@@ -394,7 +416,7 @@ async fn test_upgrade_vault_password_preloaded() {
     };
 
     let cmds = app.run_upgrade();
-    assert!(!cmds.is_empty());
+    assert_ne!(cmds, [] as [multitop::app::Command; 0]);
     assert_eq!(
         app.panels[0].sudo_password,
         Some("sudo-secret-123".to_string())
@@ -620,17 +642,19 @@ fn test_ui_second_u_in_upgrade_mode_reinitiates_upgrade() {
     assert_eq!(app.panels[0].upgrade_gen, gen1);
     assert_eq!(app.panels[0].upgrade_state, UpgradeState::STARTED);
 
-    // Now we're in Upgrade mode and upgrade is "in flight"
-    // Per the key handler: upgrades_in_flight() → had_upgrade() → in_upgrade() → run_upgrade()
-    // Since upgrades_in_flight() is true (STARTED), second u should be a no-op
-    // But wait - we need to simulate the key handler logic here
-    // The key handler checks upgrades_in_flight first, which is true for STARTED state
-    // So pressing 'u' while STARTED is a no-op
-    let _cmds2 = app.run_upgrade();
-    // run_upgrade always generates a new gen - but the key handler wouldn't call it
+    // In the Upgrade view with a run in flight: a second `u` must start
+    // nothing. Pressed for real rather than reasoned about — the previous
+    // version called `run_upgrade()` directly and then noted in a comment that
+    // the handler would not have.
+    let gen_before = app.panels[0].upgrade_gen;
+    press(&mut app, crossterm::event::KeyCode::Char('u'));
+
     assert_eq!(app.panels[0].upgrade_state, UpgradeState::STARTED);
+    assert_eq!(
+        app.panels[0].upgrade_gen, gen_before,
+        "a second `u` retired the in-flight generation"
+    );
     assert!(app.upgrades_in_flight());
-    assert!(app.had_upgrade());
     assert!(app.in_upgrade());
 }
 
@@ -741,20 +765,12 @@ async fn test_ui_vault_unlocked_after_password_runs_upgrade() {
         awaiting_biometric: false,
     };
 
-    // Now press 'u' — vault is unlocked, so show_upgrade_modal = true
-    if app.upgrades_in_flight() {
-        // no-op
-    } else if app.had_upgrade() {
-        if app.in_upgrade() {
-            let _ = app.run_upgrade();
-        } else {
-            app.enter_upgrade_view();
-        }
-    } else if app.vault.is_some() && app.vault_unlocked().is_none() {
-        app.set_show_vault_password_prompt(true);
-    } else {
-        app.set_show_upgrade_modal(true);
-    }
+    // Now press `u` — the vault is unlocked, so the confirm modal is what
+    // should come up. Two presses: the first enters the view, the second is
+    // the one that decides. Pressed for real, because the chain written out
+    // here by hand had a branch the handler does not.
+    press(&mut app, crossterm::event::KeyCode::Char('u'));
+    press(&mut app, crossterm::event::KeyCode::Char('u'));
 
     assert!(
         app.show_upgrade_modal(),
@@ -782,7 +798,7 @@ fn test_ui_upgrade_modal_confirmation_flow() {
 
     // User presses Enter to confirm
     let cmds = app.confirm_upgrade();
-    assert!(!cmds.is_empty());
+    assert_ne!(cmds, [] as [multitop::app::Command; 0]);
     assert!(app.upgrade_started_at.is_some());
     assert!(!app.show_upgrade_modal(), "Modal should be dismissed");
 
@@ -933,19 +949,8 @@ fn test_ui_returning_to_completed_shows_output() {
     // Switch to monitor mode
     app.switch_stats();
 
-    // Press 'u' again — should show_upgrade_output, NOT start new upgrade
-    // Key handler: not in Upgrade mode, nothing in flight -> enter_upgrade_view()
-    if app.upgrades_in_flight() {
-        // no-op
-    } else if app.had_upgrade() {
-        if app.in_upgrade() {
-            let _ = app.run_upgrade();
-        } else {
-            app.enter_upgrade_view();
-        }
-    } else {
-        app.set_show_upgrade_modal(true);
-    }
+    // Press 'u' again — it must show the last output, not start a new run.
+    press(&mut app, crossterm::event::KeyCode::Char('u'));
 
     assert_eq!(app.panels[0].mode, Mode::Upgrade);
     assert!(
@@ -1142,15 +1147,11 @@ fn test_upgrade_skip_then_u_shows_message_not_modal() {
     app.switch_stats();
     assert!(!app.in_upgrade());
 
-    // Replicate the key handler decision for 'u'.
-    if app.upgrades_in_flight() {
-        panic!("no upgrade in flight for a skipped server");
-    } else if app.had_upgrade() {
-        assert!(!app.in_upgrade(), "not in upgrade view after switch_stats");
-        app.enter_upgrade_view();
-    } else {
-        panic!("had_upgrade must be true: the skip is the recorded outcome");
-    }
+    assert!(
+        !app.upgrades_in_flight(),
+        "no upgrade in flight for a skipped server"
+    );
+    press(&mut app, crossterm::event::KeyCode::Char('u'));
 
     assert!(
         multitop::ui::pane_lines(&app, 0, usize::MAX, 0, 0)

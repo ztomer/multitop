@@ -149,7 +149,7 @@ mod tests {
             assert_eq!(arch.label(), arch.label());
             let hash = arch.hash();
             // In test builds, hash may be "missing" - just verify it's non-empty
-            assert!(!hash.is_empty());
+            assert_ne!(hash, "");
             if hash != "missing" {
                 // hash should be valid hex
                 assert!(hash.chars().all(|c| c.is_ascii_hexdigit()));
@@ -160,7 +160,7 @@ mod tests {
     #[test]
     fn mode_word_consistency() {
         for mode in [Mode::Monitor, Mode::Docker, Mode::Fetch] {
-            assert!(!mode.word().is_empty());
+            assert_ne!(mode.word(), "");
         }
     }
 

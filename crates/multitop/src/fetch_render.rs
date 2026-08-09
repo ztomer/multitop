@@ -29,11 +29,14 @@ fn load_db() -> &'static LogoDb {
 }
 
 fn parse_db(bytes: &[u8]) -> LogoDb {
-    assert!(bytes.len() >= 8, "logo db too short");
+    assert!(
+        bytes.len() >= crate::consts::LOGO_DB_HEADER_LEN,
+        "logo db too short"
+    );
     assert_eq!(&bytes[..4], b"MTLG", "bad magic");
     let _version = u16::from_le_bytes([bytes[4], bytes[5]]);
     let count = u16::from_le_bytes([bytes[6], bytes[7]]);
-    let mut pos = 8;
+    let mut pos = crate::consts::LOGO_DB_HEADER_LEN;
 
     let mut logos = Vec::with_capacity(count as usize);
 
@@ -175,7 +178,7 @@ pub fn render_fetch(
     max_rows: usize,
     pal: &Palette,
 ) -> Vec<String> {
-    let mut out = Vec::with_capacity(12);
+    let mut out = Vec::with_capacity(crate::consts::FETCH_LINE_CAPACITY);
     out.push(center_header(&snap.user_host, cols, pal));
 
     let db = load_db();
@@ -335,7 +338,7 @@ mod tests {
             disk_str: "10GiB/20GiB".into(),
         };
         let result = render_fetch(&snap, 80, 24, &KARE);
-        assert!(!result.is_empty());
+        assert_ne!(result, [] as [std::string::String; 0]);
         assert!(result
             .iter()
             .any(|l| l.contains("user@host") || l.contains("ｕｓｅｒ＠ｈｏｓｔ")));

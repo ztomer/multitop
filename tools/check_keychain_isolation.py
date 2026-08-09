@@ -99,35 +99,85 @@ REACHES_VAULT_KEYCHAIN = re.compile(
 )
 
 # What proves a vault test cannot reach it: the flag is off.
+#
+# Both spellings of "off" count. `LockoutState` grew a `new(use_keychain)` and a
+# `load(path, use_keychain)` after this list was written, and every test that
+# used them was passing only because the body parser below used to run past the
+# end of a test and pick up a struct literal from a later one. Splitting the
+# file made the bodies exact and the whole set lit up at once -- the tests were
+# safe, the list was incomplete.
 VAULT_DIVERTS = re.compile(
     r"use_os_keychain:\s*false"
     r"|use_keychain:\s*false"
+    r"|LockoutState::new\(\s*false\s*\)"
+    r"|LockoutState::load\([^)]*,\s*false\s*\)"
     r"|fast_vault_config"
     r"|isolated"
     r"|without_keychain"
+    # An explicit, explained exception. Same shape as the `// reachability:`
+    # note in check_test_only_code.py: for a test that must construct with the
+    # policy ON and cannot reach the keychain anyway, put the note *inside* the
+    # test body -- that is the text this check reads.
+    r"|//\s*keychain-safe:"
 )
 
 
 def test_bodies(text: str):
-    """Yield (name, body) for every test fn, body ending at the next line-start brace."""
+    """Yield (name, body) for every test fn, matching braces to find its end.
+
+    Brace matching rather than "the next line-start `}`". That shortcut was
+    right only for a test at file scope: a test nested inside a `mod` closes at
+    an *indented* brace, so the scan ran past it to the end of the module and
+    the body picked up every later test's text -- including their diversion
+    markers. Whole modules of unguarded tests read as guarded, which is how a
+    process-global mock store ended up being stomped by a test the check had
+    already cleared.
+    """
     for m in TEST_FN.finditer(text):
-        start = m.end()
-        end = text.find("\n}\n", start)
-        if end == -1:
-            end = len(text)
-        yield m.group("name"), text[start:end]
+        open_brace = text.find("{", m.end())
+        if open_brace == -1:
+            continue
+        depth = 0
+        i = open_brace
+        while i < len(text):
+            c = text[i]
+            if c == "{":
+                depth += 1
+            elif c == "}":
+                depth -= 1
+                if depth == 0:
+                    break
+            elif c == '"':
+                # Skip a string literal whole; braces inside it are not code.
+                i += 1
+                while i < len(text) and text[i] != '"':
+                    i += 2 if text[i] == "\\" else 1
+            i += 1
+        yield m.group("name"), text[open_brace : min(i + 1, len(text))]
 
 
-def diverting_helpers(text: str, diverts=DIVERTS) -> set[str]:
-    """Names of functions in this file whose own body diverts the store."""
+def helpers_matching(text: str, pattern) -> set[str]:
+    """Names of functions in this file whose own body matches `pattern`.
+
+    Used for both halves of the question: which helpers divert the store, and
+    which helpers reach it. Text matching cannot follow a call graph, so one
+    hop through a locally-defined helper is as far as this goes.
+    """
     names = set()
     for m in ANY_FN.finditer(text):
         start = m.end()
         end = text.find("\n}\n", start)
         body = text[start: end if end != -1 else len(text)]
-        if diverts.search(body):
+        if pattern.search(body):
             names.add(m.group("name"))
     return names
+
+
+def calls_any(names: set[str]):
+    """A pattern matching a call to any of `names`, or None if there are none."""
+    if not names:
+        return None
+    return re.compile(r"\b(?:" + "|".join(re.escape(n) for n in names) + r")\s*\(")
 
 
 def sweep(root: Path, directory: str, reaches, diverts) -> list[tuple[Path, str]]:
@@ -140,14 +190,22 @@ def sweep(root: Path, directory: str, reaches, diverts) -> list[tuple[Path, str]
         text = path.read_text(encoding="utf-8", errors="replace")
         if not reaches.search(text):
             continue
-        helpers = diverting_helpers(text, diverts)
-        calls_helper = re.compile(
-            r"\b(?:" + "|".join(re.escape(h) for h in helpers) + r")\s*\("
-        ) if helpers else None
+        calls_diverter = calls_any(helpers_matching(text, diverts))
+        calls_reacher = calls_any(helpers_matching(text, reaches))
         for name, body in test_bodies(text):
+            # Only a test that can actually reach the store owes a diversion.
+            # This used to be decided per FILE -- one integration test made
+            # every pure unit test beside it an offender, which is exactly the
+            # crying-wolf a gate does not survive. `repaint_test.rs` lit up
+            # twelve times over `Painter` tests that touch nothing at all.
+            reaches_here = reaches.search(body) or (
+                calls_reacher and calls_reacher.search(body)
+            )
+            if not reaches_here:
+                continue
             if diverts.search(body):
                 continue
-            if calls_helper and calls_helper.search(body):
+            if calls_diverter and calls_diverter.search(body):
                 continue
             found.append((path.relative_to(root), name))
     return found
@@ -192,6 +250,18 @@ def self_test() -> int:
             "    let a = App::new(vec![]);\n}\n"
             "#[test]\nfn forgot() {\n    let a = App::new(vec![]);\n}\n"
         )
+        # A pure test sitting beside a reaching one is NOT an offender. Both
+        # lack a diversion; only the one that can reach the store needs it.
+        (d / "mixed.rs").write_text(
+            "#[test]\nfn pure() {\n    assert_eq!(1, 1);\n}\n"
+            "#[test]\nfn reaches() {\n    let a = App::new(vec![]);\n}\n"
+        )
+        # ...and reaching one hop through a local helper still counts.
+        (d / "reaching_helper.rs").write_text(
+            "fn build() -> App {\n    App::new(vec![])\n}\n"
+            "#[test]\nfn pure_beside_it() {\n    assert_eq!(1, 1);\n}\n"
+            "#[test]\nfn via_builder() {\n    let a = build();\n}\n"
+        )
         # A locally-named helper must count, or the check reports tests that
         # do divert -- one call away.
         (d / "via_helper.rs").write_text(
@@ -222,6 +292,8 @@ def self_test() -> int:
             ("indirect.rs", "dd"),
             ("partial.rs", "forgot"),
             ("api.rs", "reaches_the_real_keychain"),
+            ("mixed.rs", "reaches"),
+            ("reaching_helper.rs", "via_builder"),
         }
         if got != want:
             print(f"self-test FAILED:\n  expected {sorted(want)}\n  got      {sorted(got)}")

@@ -3,8 +3,6 @@
 use std::collections::HashMap;
 use std::process::Command;
 
-use crate::docker::Container;
-
 pub fn docker_cli(args: &[&str]) -> Option<String> {
     let out = Command::new("docker").args(args).output().ok()?;
     if !out.status.success() {
@@ -13,22 +11,9 @@ pub fn docker_cli(args: &[&str]) -> Option<String> {
     String::from_utf8(out.stdout).ok()
 }
 
-pub fn parse_cli_ps(text: &str) -> Vec<Container> {
-    text.lines()
-        .filter_map(|line| {
-            let f: Vec<&str> = line.split('\t').collect();
-            if f.len() < 4 {
-                return None;
-            }
-            Some(Container {
-                name: f[0].to_string(),
-                status: f[1].to_string(),
-                image: f[2].to_string(),
-                id: f[3].to_string(),
-            })
-        })
-        .collect()
-}
+// `parse_cli_ps` lives in `docker.rs`. A second copy here was shadowed by that
+// one through the `pub use docker_cli::*` glob and so was never called — and
+// it disagreed with the live copy about how many fields a row needs.
 
 pub fn parse_cli_stats(text: &str) -> HashMap<String, (String, String)> {
     text.lines()

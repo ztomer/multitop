@@ -138,7 +138,13 @@ async fn upgrade_output_produces_while_away_is_preserved() {
 // ===========================================================================
 
 /// Scrolling up in the upgrade view, switching away, and switching back must
-/// preserve the scroll position.
+/// preserve the scroll position — and must not hand that position to the view
+/// in between.
+///
+/// This asserted the offset was still 25 immediately after `switch_stats`,
+/// which is a statement about the Monitor pane, not about the log. It passed
+/// because one field served both views, which is the same reason the Monitor
+/// pane opened scrolled to a place the user never chose.
 #[test]
 fn scroll_position_persists_across_view_switch() {
     let _keychain = isolate_keychain_blocking();
@@ -150,10 +156,19 @@ fn scroll_position_persists_across_view_switch() {
     a.panels[0].scroll_offset = 25;
 
     a.switch_stats();
+    assert_eq!(
+        a.panels[0].scroll_offset, 0,
+        "the Monitor pane opened at the upgrade log's offset"
+    );
+    assert_eq!(
+        a.panels[0].upgrade_gen, 3,
+        "the in-flight generation was retired"
+    );
 
+    a.enter_upgrade_view();
     assert_eq!(
         a.panels[0].scroll_offset, 25,
-        "scroll must persist across view switch for mid-upgrade panels"
+        "scroll must persist across a view switch for mid-upgrade panels"
     );
 }
 
@@ -173,12 +188,19 @@ fn idle_panel_scroll_resets_on_view_switch() {
 }
 
 /// Re-entering the upgrade view must NOT reset scroll.
+///
+/// Scrolled *in that view*, which is the case the complaint was about. Setting
+/// the offset while the pane was still in Monitor mode and expecting it to
+/// carry over was asserting that the two views share one number.
 #[test]
 fn reentering_upgrade_preserves_scroll() {
     let _keychain = isolate_keychain_blocking();
     let mut a = App::new(vec![local_server("true")]);
 
+    a.enter_upgrade_view();
     a.panels[0].scroll_offset = 42;
+
+    a.switch_stats();
     a.enter_upgrade_view();
 
     assert_eq!(
@@ -287,14 +309,16 @@ async fn locked_vault_goes_straight_to_password_prompt() {
     a.vault_state = VaultState::Locked;
     a.panels[0].mode = Mode::Upgrade;
 
-    // begin_vault_unlock confirms the vault is locked and returns Some.
+    // One call: a locked vault raises the password prompt. It used to take
+    // two, and the first of them set a biometric wait the second undid.
     assert!(
-        a.begin_vault_unlock().is_some(),
+        a.begin_password_unlock(),
         "a locked vault must be unlockable"
     );
-
-    // The handler then sets the password prompt directly (skips biometric).
-    a.set_show_vault_password_prompt(true);
+    assert!(
+        !a.vault_awaiting_biometric(),
+        "no biometric wait may be entered, even for an instant"
+    );
     assert!(
         a.show_vault_password_prompt(),
         "must go straight to password prompt — no biometric step"
@@ -326,7 +350,8 @@ async fn confirm_modal_still_protects_after_vault_unlock() {
     a.panels[0].mode = Mode::Upgrade;
 
     // Simulate: begin vault unlock, then password entered and verified.
-    let (_vault, epoch) = a.begin_vault_unlock().expect("locked");
+    assert!(a.begin_password_unlock(), "locked");
+    let epoch = a.vault_epoch;
     // Unlock with the password to get a real UnlockedVault.
     let unlocked = a
         .vault
@@ -358,11 +383,12 @@ fn no_vault_goes_straight_to_upgrade_modal() {
     a.vault_state = VaultState::Locked; // default, but no vault behind it
     a.panels[0].mode = Mode::Upgrade;
 
-    // begin_vault_unlock returns None because vault is None.
+    // Nothing to unlock, so no prompt goes up.
     assert!(
-        a.begin_vault_unlock().is_none(),
+        !a.begin_password_unlock(),
         "no vault means nothing to unlock"
     );
+    assert!(!a.show_vault_password_prompt());
 
     // The handler would proceed to the upgrade modal.
     a.set_show_upgrade_modal(true);

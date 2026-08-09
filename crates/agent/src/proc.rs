@@ -25,7 +25,7 @@ pub fn read_proc_into<P: AsRef<Path>>(path: P, out: &mut String) -> bool {
         return false;
     };
     use std::io::Read;
-    let mut buf = [0u8; 1024];
+    let mut buf = [0u8; crate::consts::PROC_CHUNK_BUF];
     loop {
         match file.read(&mut buf) {
             Ok(0) => break,
@@ -43,7 +43,7 @@ pub fn read_proc_into<P: AsRef<Path>>(path: P, out: &mut String) -> bool {
 }
 
 pub fn read_proc<P: AsRef<Path>>(path: P) -> String {
-    let mut out = String::with_capacity(512);
+    let mut out = String::with_capacity(crate::consts::PROC_LINE_CAPACITY);
     read_proc_into(path, &mut out);
     out
 }
@@ -87,13 +87,13 @@ fn parse_cpu_line(fields: &str) -> Option<CpuTimes> {
     for tok in fields.split_ascii_whitespace() {
         let v: u64 = tok.parse().ok()?;
         total = total.saturating_add(v);
-        if n < 5 {
+        if n < crate::consts::PROC_STAT_MIN_FIELDS {
             vals[n] = v;
         }
         n += 1;
     }
     // idle and iowait are columns 4 and 5; without them the line is unusable.
-    if n < 5 {
+    if n < crate::consts::PROC_STAT_MIN_FIELDS {
         return None;
     }
     Some(CpuTimes {
@@ -125,18 +125,23 @@ pub fn parse_proc_stat(data: &str) -> CpuStat {
     stat
 }
 
-pub fn get_cpu_stat() -> CpuStat {
-    let mut buf = [0u8; 4096];
-    let n = read_proc_bytes("/proc/stat", &mut buf);
-    if n > 0 {
-        if let Ok(s) = std::str::from_utf8(&buf[..n]) {
-            let stat = parse_proc_stat(s);
-            if !stat.cores.is_empty() || stat.aggregate.total != 0 {
-                return stat;
-            }
-        }
+/// `/proc/stat`, or `None` when the file is absent, unreadable, or says
+/// nothing — the three cases that send the caller to the platform sampler.
+///
+/// The path is a parameter so this, the Linux path that every deployed agent
+/// actually runs, is reachable from a test on a host that has no `/proc`.
+pub fn cpu_stat_from(path: &str) -> Option<CpuStat> {
+    let mut buf = [0u8; crate::consts::PROC_STAT_BUF];
+    let n = read_proc_bytes(path, &mut buf);
+    if n == 0 {
+        return None;
     }
-    crate::sys::get_cpu_stat_macos()
+    let stat = parse_proc_stat(std::str::from_utf8(&buf[..n]).ok()?);
+    (!stat.cores.is_empty() || stat.aggregate.total != 0).then_some(stat)
+}
+
+pub fn get_cpu_stat() -> CpuStat {
+    cpu_stat_from("/proc/stat").unwrap_or_else(crate::sys::get_cpu_stat_macos)
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
@@ -207,19 +212,18 @@ pub fn statvfs_bytes(path: &str) -> Option<(u64, u64)> {
     }
 }
 
-pub fn get_disk() -> Usage {
-    let mut buf = [0u8; 4096];
-    let n = read_proc_bytes("/proc/self/mountinfo", &mut buf);
-    let root = if n > 0 {
-        if let Ok(s) = std::str::from_utf8(&buf[..n]) {
-            root_mount_point(s).map(|s| s.to_string())
-        } else {
-            None
-        }
-    } else {
-        None
-    };
+/// The mount point `statvfs` should be asked about, per `/proc/self/mountinfo`.
+pub fn root_mount_from(path: &str) -> Option<String> {
+    let mut buf = [0u8; crate::consts::PROC_MOUNTINFO_BUF];
+    let n = read_proc_bytes(path, &mut buf);
+    if n == 0 {
+        return None;
+    }
+    root_mount_point(std::str::from_utf8(&buf[..n]).ok()?).map(str::to_string)
+}
 
+pub fn get_disk() -> Usage {
+    let root = root_mount_from("/proc/self/mountinfo");
     let target = root.as_deref().unwrap_or("/");
     if let Some((total, free)) = statvfs_bytes(target) {
         Usage::new(total, total.saturating_sub(free))
@@ -228,18 +232,19 @@ pub fn get_disk() -> Usage {
     }
 }
 
-pub fn get_memory() -> Usage {
-    let mut buf = [0u8; 2048];
-    let n = read_proc_bytes("/proc/meminfo", &mut buf);
-    if n > 0 {
-        if let Ok(s) = std::str::from_utf8(&buf[..n]) {
-            let mem = parse_meminfo(s);
-            if mem.total != 0 {
-                return mem;
-            }
-        }
+/// `/proc/meminfo`, or `None` when it is absent or reports no total.
+pub fn memory_from(path: &str) -> Option<Usage> {
+    let mut buf = [0u8; crate::consts::PROC_MEMINFO_BUF];
+    let n = read_proc_bytes(path, &mut buf);
+    if n == 0 {
+        return None;
     }
-    crate::sys::get_memory_macos()
+    let mem = parse_meminfo(std::str::from_utf8(&buf[..n]).ok()?);
+    (mem.total != 0).then_some(mem)
+}
+
+pub fn get_memory() -> Usage {
+    memory_from("/proc/meminfo").unwrap_or_else(crate::sys::get_memory_macos)
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -263,7 +268,7 @@ pub fn parse_net_dev(data: &str) -> NetTotals {
             continue;
         };
         let rx_val: u64 = rx_str.parse().unwrap_or(0);
-        let Some(tx_str) = iter.nth(7) else {
+        let Some(tx_str) = iter.nth(crate::consts::NET_DEV_TX_OFFSET) else {
             continue;
         };
         let tx_val: u64 = tx_str.parse().unwrap_or(0);
@@ -273,18 +278,19 @@ pub fn parse_net_dev(data: &str) -> NetTotals {
     totals
 }
 
-pub fn get_net() -> NetTotals {
-    let mut buf = [0u8; 2048];
-    let n = read_proc_bytes("/proc/net/dev", &mut buf);
-    if n > 0 {
-        if let Ok(s) = std::str::from_utf8(&buf[..n]) {
-            let net = parse_net_dev(s);
-            if net.rx != 0 || net.tx != 0 {
-                return net;
-            }
-        }
+/// `/proc/net/dev`, or `None` when it is absent or every counter is zero.
+pub fn net_from(path: &str) -> Option<NetTotals> {
+    let mut buf = [0u8; crate::consts::PROC_NET_DEV_BUF];
+    let n = read_proc_bytes(path, &mut buf);
+    if n == 0 {
+        return None;
     }
-    crate::sys::get_net_macos()
+    let net = parse_net_dev(std::str::from_utf8(&buf[..n]).ok()?);
+    (net.rx != 0 || net.tx != 0).then_some(net)
+}
+
+pub fn get_net() -> NetTotals {
+    net_from("/proc/net/dev").unwrap_or_else(crate::sys::get_net_macos)
 }
 
 pub use crate::sys::get_core_temps;
@@ -394,7 +400,7 @@ pub fn hostname() -> String {
     if !from_proc.is_empty() {
         return from_proc;
     }
-    let mut buf = vec![0u8; 256];
+    let mut buf = vec![0u8; crate::consts::SYSCTL_BUF];
     // SAFETY: buf is a valid writable allocation of the length we pass.
     let rc = unsafe { libc::gethostname(buf.as_mut_ptr() as *mut libc::c_char, buf.len()) };
     if rc != 0 {

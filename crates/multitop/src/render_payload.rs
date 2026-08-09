@@ -27,25 +27,3 @@ pub fn render_payload(
         }
     }
 }
-
-#[cfg(test)]
-mod tests {
-    #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
-
-    #[test]
-    fn dispatch_monitor_produces_output() {
-        // We can't construct Payload::Monitor directly since types are private
-        // But we can verify the function exists and compiles
-        // Real testing happens in ui_test.rs::render_payload_handles_every_variant
-    }
-
-    #[test]
-    fn dispatch_docker_produces_output() {
-        // Same - tested in ui_test.rs
-    }
-
-    #[test]
-    fn dispatch_fetch_produces_output() {
-        // Same - tested in ui_test.rs
-    }
-}

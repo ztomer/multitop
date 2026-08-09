@@ -33,7 +33,7 @@ fn apply_sgr_params(mut style: Style, params: &[u16]) -> Style {
                 style = style.fg(Color::Rgb(r, g, b));
                 i += 4;
             }
-            38 if i + 2 < params.len() && params[i + 1] == 5 => {
+            38 if i + 2 < params.len() && params[i + 1] == crate::consts::SGR_INDEXED_COLOUR => {
                 let idx = u8::try_from(params[i + 2]).unwrap_or(0);
                 style = style.fg(Color::Indexed(idx));
                 i += 2;
@@ -54,7 +54,7 @@ fn apply_sgr_params(mut style: Style, params: &[u16]) -> Style {
                 style = style.bg(Color::Rgb(r, g, b));
                 i += 4;
             }
-            48 if i + 2 < params.len() && params[i + 1] == 5 => {
+            48 if i + 2 < params.len() && params[i + 1] == crate::consts::SGR_INDEXED_COLOUR => {
                 let idx = u8::try_from(params[i + 2]).unwrap_or(0);
                 style = style.bg(Color::Indexed(idx));
                 i += 2;
@@ -129,7 +129,7 @@ pub fn line_to_spans(input: &str) -> Line<'static> {
         chars.next();
 
         let mut final_byte = None;
-        let mut params = [0u16; 8];
+        let mut params = [0u16; crate::consts::MAX_SGR_PARAMS];
         let mut num_params = 0;
         let mut sgr_code: u16 = 0;
         let mut has_digits = false;
@@ -143,18 +143,18 @@ pub fn line_to_spans(input: &str) -> Line<'static> {
                 has_digits = true;
                 reset_bare = false;
             } else if c == ';' {
-                if has_digits && num_params < 8 {
+                if has_digits && num_params < crate::consts::MAX_SGR_PARAMS {
                     params[num_params] = sgr_code;
                     num_params += 1;
                     sgr_code = 0;
                     has_digits = false;
-                } else if num_params < 8 {
+                } else if num_params < crate::consts::MAX_SGR_PARAMS {
                     params[num_params] = 0;
                     num_params += 1;
                 }
                 reset_bare = false;
             } else if c.is_ascii_alphabetic() {
-                if has_digits && num_params < 8 {
+                if has_digits && num_params < crate::consts::MAX_SGR_PARAMS {
                     params[num_params] = sgr_code;
                     num_params += 1;
                 }
@@ -266,7 +266,10 @@ mod tests {
 
     #[test]
     fn empty_input_yields_empty_line() {
-        assert!(line_to_spans("").spans.is_empty());
+        assert_eq!(
+            line_to_spans("").spans,
+            [] as [ratatui::prelude::Span<'_>; 0]
+        );
     }
 
     #[test]

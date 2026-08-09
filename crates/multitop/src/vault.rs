@@ -2,6 +2,13 @@ use multitop_vault::{UnlockedVault, Vault, VaultConfig};
 use secrecy::ExposeSecret;
 
 use crate::panel::Panel;
+
+/// Argon2id settings for a vault a test throws away: the cheapest the crypto
+/// layer will accept, so a test vault costs milliseconds rather than a quarter
+/// of system RAM.
+const TEST_ARGON2_PASSES: u8 = 1;
+const TEST_ARGON2_MEMORY_MIB: u32 = 32;
+const TEST_ARGON2_LANES: u8 = 1;
 use crate::password_store;
 
 #[derive(Default, Clone, Copy, Debug, PartialEq, Eq)]
@@ -25,11 +32,15 @@ pub fn config_for(vault_path: std::path::PathBuf) -> VaultConfig {
     VaultConfig {
         vault_path,
         // 32 MiB is the floor the crypto layer accepts; anything lower is
-        // rejected outright rather than being quietly weakened.
-        argon2_params: mocked.then_some(multitop_vault::crypto::Argon2Params {
-            t: 1,
-            m_kib: 32768,
-            p: 1,
+        // rejected outright rather than being quietly weakened. Through
+        // `from_config` so the clamps that guard those bounds are the ones that
+        // ran, rather than a struct literal that skips them.
+        argon2_params: mocked.then(|| {
+            multitop_vault::crypto::Argon2Params::from_config(
+                TEST_ARGON2_PASSES,
+                TEST_ARGON2_MEMORY_MIB,
+                TEST_ARGON2_LANES,
+            )
         }),
         // Real runs use the OS keychain for lockout and rollback state.
         use_os_keychain: !mocked,
@@ -46,17 +57,26 @@ pub fn create_vault(config_path: &std::path::Path) -> Option<Vault> {
     Some(Vault::new(config_for(vault_path)))
 }
 
+/// Give a panel the password the vault holds for its host, if it has none of
+/// its own.
+///
+/// A session password the user just typed is left alone: it is the newer of
+/// the two and the one they expect to be used.
+///
+/// This was written once here and once inline in `App::load_known_passwords`,
+/// and the two had already drifted — only the inline copy marked the password
+/// as `external_password`, which is what the Upgrade view reads to say where a
+/// credential came from. The copy production ran was the one no test touched.
+/// One implementation now, and it is this one.
 pub fn try_load_vault_password(panel: &mut Panel, unlocked: &UnlockedVault) {
     if panel.sudo_password.is_some() {
         return;
     }
     let key = password_store::account(&panel.server);
     if let Some(pass) = unlocked.get_password(&key) {
-        panel.sudo_password = Some(pass.expose_secret().to_string());
+        // Through the setter: it is the one place that knows a vault password
+        // also has to be marked as coming from outside this session, which is
+        // what the Upgrade view reads to say where a credential came from.
+        panel.set_sudo_password(pass.expose_secret().to_string(), true);
     }
-}
-
-#[must_use]
-pub fn host_key(panel: &Panel) -> String {
-    password_store::account(&panel.server)
 }

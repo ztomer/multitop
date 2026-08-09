@@ -1,0 +1,287 @@
+//! The wire protocol, from both ends.
+//!
+//! The Docker payload already has framing tests beside the encoder; this
+//! covers the Monitor and Fetch payloads and the decoder's behaviour on
+//! packets that arrive damaged, which is what a half-read pipe looks like.
+
+#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+
+use multitop_agent::docker::Row as DockerRow;
+use multitop_agent::fetch::FetchSnapshot;
+use multitop_agent::proc::{Proc, Usage};
+use multitop_agent::proto::{
+    decode_packet, encode_packet, Payload, ProtoMode, MAGIC, MODE_DOCKER, MODE_FETCH, MODE_MONITOR,
+    PROTO_VERSION,
+};
+use multitop_agent::render::{Snapshot, TempUnit};
+
+fn snapshot() -> Snapshot {
+    Snapshot {
+        host: "web-01 (10.0.0.4)".into(),
+        agent_version: "9.9.9".into(),
+        cpu_pct: 42.5,
+        // One core with a temperature and one without: the absent case is
+        // carried as a negative sentinel on the wire and has to come back as
+        // `None`, not as -1 degrees.
+        cores: vec![(0, 10.5, Some(48.0)), (1, 90.0, None)],
+        temp_unit: TempUnit::C,
+        mem: Usage::new(16 << 30, 4 << 30),
+        disk: Usage::new(512 << 30, 100 << 30),
+        rx_rate: 1_250_000.0,
+        tx_rate: 640.0,
+        procs: vec![
+            Proc {
+                pid: 1,
+                name: "systemd".into(),
+                cpu: 0.5,
+                mem: 12_000_000,
+            },
+            Proc {
+                pid: 4242,
+                name: "an-executable-with-a-long-name".into(),
+                cpu: 88.0,
+                mem: 900_000_000,
+            },
+        ],
+    }
+}
+
+fn fetch_snapshot() -> FetchSnapshot {
+    FetchSnapshot {
+        user_host: "root@web-01".into(),
+        agent_version: "9.9.9".into(),
+        os: "Debian GNU/Linux 12 (bookworm)".into(),
+        kernel: "6.1.0-18-amd64".into(),
+        uptime: "3d 4h 5m".into(),
+        host_model: "QEMU Standard PC".into(),
+        cpu_model: "AMD EPYC (8)".into(),
+        memory_str: "4.0G/16.0G (25%)".into(),
+        disk_str: "100.0G/512.0G (20%)".into(),
+    }
+}
+
+#[test]
+fn a_monitor_snapshot_survives_the_wire_intact() {
+    let snap = snapshot();
+    let decoded = decode_packet(&encode_packet(&Payload::Monitor(snap.clone()))).unwrap();
+    let Payload::Monitor(got) = decoded else {
+        panic!("wrong payload kind");
+    };
+
+    assert_eq!(got.host, snap.host);
+    assert_eq!(got.agent_version, snap.agent_version);
+    assert!((got.cpu_pct - snap.cpu_pct).abs() < 0.01);
+    assert_eq!(got.cores.len(), 2);
+    assert_eq!(got.cores[0].0, 0);
+    assert!((got.cores[0].2.unwrap() - 48.0).abs() < 0.01);
+    assert_eq!(
+        got.cores[1].2, None,
+        "an absent temperature must stay absent"
+    );
+    assert_eq!(got.mem.total, snap.mem.total);
+    assert_eq!(got.mem.used, snap.mem.used);
+    assert_eq!(got.disk.total, snap.disk.total);
+    assert!((got.rx_rate - snap.rx_rate).abs() < 1.0);
+    assert!((got.tx_rate - snap.tx_rate).abs() < 1.0);
+    assert_eq!(got.procs.len(), 2);
+    assert_eq!(got.procs[1].pid, 4242);
+    assert_eq!(got.procs[1].name, "an-executable-with-a-long-name");
+    assert_eq!(got.procs[1].mem, 900_000_000);
+}
+
+#[test]
+fn the_temperature_unit_survives_the_wire() {
+    for unit in [TempUnit::C, TempUnit::F] {
+        let mut snap = snapshot();
+        snap.temp_unit = unit;
+        let Payload::Monitor(got) = decode_packet(&encode_packet(&Payload::Monitor(snap))).unwrap()
+        else {
+            panic!("wrong payload kind");
+        };
+        assert_eq!(got.temp_unit, unit);
+    }
+}
+
+#[test]
+fn an_empty_snapshot_still_round_trips() {
+    let Payload::Monitor(got) =
+        decode_packet(&encode_packet(&Payload::Monitor(Snapshot::default()))).unwrap()
+    else {
+        panic!("wrong payload kind");
+    };
+    assert!(got.cores.is_empty());
+    assert!(got.procs.is_empty());
+}
+
+#[test]
+fn a_fetch_snapshot_survives_the_wire_intact() {
+    let snap = fetch_snapshot();
+    let Payload::Fetch(got) = decode_packet(&encode_packet(&Payload::Fetch(snap.clone()))).unwrap()
+    else {
+        panic!("wrong payload kind");
+    };
+    assert_eq!(got, snap);
+}
+
+#[test]
+fn a_packet_is_labelled_with_the_payload_it_carries() {
+    let header_mode = |p: &Payload| encode_packet(p)[5];
+    assert_eq!(
+        header_mode(&Payload::Monitor(Snapshot::default())),
+        MODE_MONITOR
+    );
+    assert_eq!(
+        header_mode(&Payload::Docker {
+            host: "h".into(),
+            rows: vec![]
+        }),
+        MODE_DOCKER
+    );
+    assert_eq!(
+        header_mode(&Payload::Fetch(FetchSnapshot::default())),
+        MODE_FETCH
+    );
+
+    let pkt = encode_packet(&Payload::Fetch(FetchSnapshot::default()));
+    assert_eq!(&pkt[..4], MAGIC);
+    assert_eq!(pkt[4], PROTO_VERSION);
+}
+
+#[test]
+fn mode_bytes_map_to_modes_and_back() {
+    for (byte, mode) in [
+        (0u8, ProtoMode::Monitor),
+        (1, ProtoMode::Docker),
+        (2, ProtoMode::Fetch),
+    ] {
+        assert_eq!(ProtoMode::try_from(byte).unwrap(), mode);
+        assert_eq!(mode.as_u8(), byte);
+    }
+}
+
+#[test]
+fn an_unknown_mode_byte_is_rejected_rather_than_guessed() {
+    assert_eq!(ProtoMode::try_from(3), Err(3));
+    assert_eq!(ProtoMode::try_from(255), Err(255));
+
+    // And the decoder refuses the whole packet rather than returning an
+    // arbitrary payload kind.
+    let mut pkt = encode_packet(&Payload::Fetch(FetchSnapshot::default()));
+    pkt[5] = 7;
+    assert!(decode_packet(&pkt).is_none());
+}
+
+#[test]
+fn a_packet_that_is_not_ours_is_declined() {
+    let mut pkt = encode_packet(&Payload::Fetch(FetchSnapshot::default()));
+    pkt[0] = b'X';
+    assert!(decode_packet(&pkt).is_none(), "bad magic must not decode");
+    assert!(decode_packet(b"").is_none());
+    assert!(
+        decode_packet(b"MTOP").is_none(),
+        "a header alone is not a packet"
+    );
+}
+
+#[test]
+fn a_packet_cut_short_decodes_to_nothing_rather_than_to_junk() {
+    let full = encode_packet(&Payload::Monitor(snapshot()));
+    // Every prefix short of the whole packet: the header says how much body to
+    // expect, so each of these must be refused rather than half-parsed.
+    for cut in [8, 12, 20, full.len() - 1] {
+        assert!(
+            decode_packet(&full[..cut]).is_none(),
+            "a {cut}-byte prefix decoded as a whole packet"
+        );
+    }
+    assert!(
+        decode_packet(&full).is_some(),
+        "the whole packet must decode"
+    );
+}
+
+#[test]
+fn a_header_that_lies_about_its_body_is_refused() {
+    let mut pkt = encode_packet(&Payload::Fetch(fetch_snapshot()));
+    // Claim a body far longer than what follows, which is what a truncated
+    // read off the pipe looks like.
+    pkt[6] = 0xff;
+    pkt[7] = 0xff;
+    assert!(decode_packet(&pkt).is_none());
+}
+
+#[test]
+fn a_body_that_ends_mid_field_is_refused() {
+    // Well-formed header, declared length matches, but the body runs out
+    // inside the core list. The decoder must not return a partial snapshot.
+    let mut pkt = Vec::new();
+    pkt.extend_from_slice(MAGIC);
+    pkt.push(PROTO_VERSION);
+    pkt.push(MODE_MONITOR);
+    let body: Vec<u8> = {
+        let mut b = Vec::new();
+        b.extend_from_slice(&1u16.to_le_bytes());
+        b.push(b'h'); // host = "h"
+        b.extend_from_slice(&0u16.to_le_bytes()); // agent_version = ""
+        b.extend_from_slice(&0f32.to_le_bytes()); // cpu_pct
+        b.extend_from_slice(&9u16.to_le_bytes()); // claims nine cores, sends none
+        b
+    };
+    pkt.extend_from_slice(&(u16::try_from(body.len()).unwrap()).to_le_bytes());
+    pkt.extend_from_slice(&body);
+    assert!(decode_packet(&pkt).is_none());
+}
+
+#[test]
+fn a_docker_payload_with_no_rows_round_trips() {
+    let decoded = decode_packet(&encode_packet(&Payload::Docker {
+        host: "empty-host".into(),
+        rows: vec![],
+    }))
+    .unwrap();
+    let Payload::Docker { host, rows } = decoded else {
+        panic!("wrong payload kind");
+    };
+    assert_eq!(host, "empty-host");
+    assert!(rows.is_empty());
+}
+
+#[test]
+fn a_docker_row_survives_the_wire_field_for_field() {
+    let row = DockerRow {
+        name: "web".into(),
+        status: "Up 3 days".into(),
+        cpu: "12.5%".into(),
+        cpu_pct: 12.5,
+        mem: "128.0M/512.0M".into(),
+        mem_bytes: 134_217_728,
+    };
+    let decoded = decode_packet(&encode_packet(&Payload::Docker {
+        host: "h".into(),
+        rows: vec![row.clone()],
+    }))
+    .unwrap();
+    let Payload::Docker { rows, .. } = decoded else {
+        panic!("wrong payload kind");
+    };
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0].name, row.name);
+    assert_eq!(rows[0].status, row.status);
+    assert_eq!(rows[0].cpu, row.cpu);
+    assert_eq!(rows[0].mem, row.mem);
+    assert_eq!(rows[0].mem_bytes, row.mem_bytes);
+    assert!((rows[0].cpu_pct - row.cpu_pct).abs() < 0.01);
+}
+
+#[test]
+fn a_string_longer_than_the_length_field_is_truncated_not_wrapped() {
+    // The per-string length is a u16. A longer name has to be cut, because a
+    // wrapped length would desynchronise every field after it.
+    let mut snap = snapshot();
+    snap.host = "h".repeat(70_000);
+    let pkt = encode_packet(&Payload::Monitor(snap));
+    // The packet still describes itself correctly, which is the property that
+    // keeps the stream framed.
+    let declared = u16::from_le_bytes([pkt[6], pkt[7]]) as usize;
+    assert_eq!(declared, pkt.len() - 8);
+}

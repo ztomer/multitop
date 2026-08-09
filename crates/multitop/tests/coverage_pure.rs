@@ -92,7 +92,10 @@ fn layout_wrap_words_respects_width() {
 
 #[test]
 fn layout_wrap_words_empty() {
-    assert!(multitop::layout::wrap_words("", 10).is_empty());
+    assert_eq!(
+        multitop::layout::wrap_words("", 10),
+        [] as [std::string::String; 0]
+    );
 }
 
 #[test]
@@ -106,7 +109,7 @@ fn layout_fit_row_fits_within_budget() {
 #[test]
 fn layout_fit_row_empty_budget() {
     let kept = multitop::layout::fit_row(&[30, 30], 2, 0, &[1, 0]);
-    assert!(kept.is_empty());
+    assert_eq!(kept, [] as [usize; 0]);
 }
 
 // ===========================================================================
@@ -423,7 +426,7 @@ fn regions_empty() {
     use ratatui::layout::Rect;
     let area = Rect::new(0, 0, 80, 24);
     let (panels, _) = multitop::ui::regions(area, 0);
-    assert!(panels.is_empty());
+    assert_eq!(panels, [] as [ratatui::prelude::Rect; 0]);
 }
 
 #[test]
@@ -452,7 +455,7 @@ fn visible_scrolls_with_offset() {
 #[test]
 fn visible_zero_height() {
     let (out, badge) = multitop::ui::visible(&["a".into()], 0, 1, 80, 0);
-    assert!(out.is_empty());
+    assert_eq!(out, [] as [std::string::String; 0]);
     assert_eq!(badge, 0);
 }
 
@@ -463,7 +466,7 @@ fn visible_upgrade_composes() {
     body.push("output".into());
     let tail = vec!["notice".into()];
     let (out, badge) = multitop::ui::visible_upgrade(&header, 1, &body, &tail, 10, 80, 0);
-    assert!(!out.is_empty());
+    assert_ne!(out, [] as [std::string::String; 0]);
     assert_eq!(badge, 0);
 }
 

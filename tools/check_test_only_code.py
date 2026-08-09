@@ -139,7 +139,16 @@ def count_production_uses(name: str, sources: list[tuple[Path, str]]) -> int:
 
 
 def run_check() -> int:
-    src = rust_files("crates/*/src/**/*.rs", "crates/*/src/*.rs")
+    all_src = rust_files("crates/*/src/**/*.rs", "crates/*/src/*.rs")
+    # A src file named `*_tests.rs` is a test module in its entirety: the repo
+    # includes them with `#[cfg(test)] #[path = "x_tests.rs"] mod x_tests;`, so
+    # the `#[cfg(test)]` lives in the parent and `strip_test_regions` finds
+    # nothing to blank inside the file itself. Without this, every call from one
+    # of them read as a production call and the check quietly stopped finding
+    # anything -- which is how splitting the vault crate made three known
+    # baseline entries look resolved in the same commit.
+    src = [p for p in all_src if not p.name.endswith("_tests.rs")]
+    in_src_tests = [p for p in all_src if p.name.endswith("_tests.rs")]
     tests = rust_files("crates/*/tests/**/*.rs", "crates/*/tests/*.rs")
 
     decls = collect_declarations(src)
@@ -147,7 +156,9 @@ def run_check() -> int:
     # under tests/ are deliberately excluded: being called only from there is
     # exactly the condition being hunted.
     production = [(p, strip_test_regions(p.read_text(encoding="utf-8", errors="replace"))) for p in src]
-    test_sources = [(p, p.read_text(encoding="utf-8", errors="replace")) for p in tests]
+    test_sources = [
+        (p, p.read_text(encoding="utf-8", errors="replace")) for p in tests + in_src_tests
+    ]
     test_sources += [
         (p, "\n".join(
             orig_line if orig_line != prod_line else ""

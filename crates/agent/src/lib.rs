@@ -127,161 +127,222 @@ pub fn parse_args<I: IntoIterator<Item = String>>(argv: I) -> Args {
     args
 }
 
-pub fn run_agent<I: IntoIterator<Item = String>>(argv: I) {
-    use std::io::{self, IsTerminal, Read, Write};
+/// Columns sampled for the binary stream. The client re-renders locally at
+/// whatever size its panel happens to be, so the agent samples a generous
+/// fixed budget rather than guessing.
+const STREAM_COLS: usize = 120;
+/// Lines sampled for the binary stream — the process-list budget follows from
+/// this, and 50 is more rows than any panel draws.
+const STREAM_LINES: usize = 50;
+
+/// How much to sample for one frame: exactly what this terminal draws, or the
+/// stream budget when the far end does the drawing.
+fn sample_dims(args: &Args, is_tty: bool) -> (usize, usize) {
+    if is_tty {
+        (args.cols, args.lines)
+    } else {
+        (STREAM_COLS, STREAM_LINES)
+    }
+}
+
+/// Which palette the environment asks for.
+pub fn palette_for_env() -> &'static color::Palette {
+    if std::env::var_os("NO_COLOR").is_some() {
+        &color::PLAIN
+    } else {
+        &color::ANSI
+    }
+}
+
+/// One fetch frame. On a terminal this is the text-only fallback — the full
+/// rendering with distro logos lives in the monitor crate's `fetch_render`.
+pub fn emit_fetch<W: std::io::Write>(
+    snap: &fetch::FetchSnapshot,
+    cols: usize,
+    is_tty: bool,
+    pal: &color::Palette,
+    out: &mut W,
+) -> std::io::Result<()> {
+    if !is_tty {
+        out.write_all(&proto::encode_packet(&proto::Payload::Fetch(snap.clone())))?;
+        return out.flush();
+    }
+    let details = [
+        ("OS", &snap.os),
+        ("Kernel", &snap.kernel),
+        ("Uptime", &snap.uptime),
+        ("Host", &snap.host_model),
+        ("CPU", &snap.cpu_model),
+        ("Memory", &snap.memory_str),
+        ("Disk", &snap.disk_str),
+    ];
+    writeln!(
+        out,
+        "{}",
+        crate::fmt::center_header(&snap.user_host, cols, pal)
+    )?;
+    for (label, val) in &details {
+        writeln!(
+            out,
+            "  {}{:<7}{}: {}{}{}",
+            pal.bold, label, pal.reset, pal.white, val, pal.reset
+        )?;
+    }
+    out.flush()
+}
+
+/// One docker frame.
+pub fn emit_docker<W: std::io::Write>(
+    host: &str,
+    rows: Vec<docker::Row>,
+    args: &Args,
+    is_tty: bool,
+    pal: &color::Palette,
+    out: &mut W,
+) -> std::io::Result<()> {
+    if is_tty {
+        let frame = docker::render(host, args.cols, args.lines, &rows, pal, args.sort);
+        writeln!(out, "{}", frame.join("\n"))?;
+    } else {
+        let payload = proto::Payload::Docker {
+            host: host.to_string(),
+            rows,
+        };
+        out.write_all(&proto::encode_packet(&payload))?;
+    }
+    out.flush()
+}
+
+/// One monitor frame. `buf` is reused across frames so a repainting terminal
+/// costs no allocation per tick.
+pub fn emit_monitor<W: std::io::Write>(
+    snap: &render::Snapshot,
+    args: &Args,
+    is_tty: bool,
+    pal: &color::Palette,
+    buf: &mut String,
+    out: &mut W,
+) -> std::io::Result<()> {
+    if !is_tty {
+        out.write_all(&proto::encode_packet(&proto::Payload::Monitor(
+            snap.clone(),
+        )))?;
+        return out.flush();
+    }
+    buf.clear();
+    buf.push_str("\x1b[H\x1b[J");
+    render::render_to_buf(
+        snap,
+        args.cols,
+        args.lines,
+        render::bar_len_for(args.cols),
+        pal,
+        buf,
+    );
+    out.write_all(buf.as_bytes())?;
+    out.flush()
+}
+
+/// Repaint until the reader goes away.
+///
+/// `next_tick` returns the seconds since the previous frame, or `None` when
+/// the loop should stop — which is where the "stdin closed" signal and, in a
+/// test, a fixed frame count both enter. The first frame is emitted before
+/// the first wait so a client sees data the moment it connects.
+pub fn monitor_loop<W: std::io::Write>(
+    monitor: &mut monitor::Monitor,
+    args: &Args,
+    is_tty: bool,
+    pal: &color::Palette,
+    out: &mut W,
+    next_tick: &mut dyn FnMut() -> Option<f64>,
+) {
+    let (cols, lines) = sample_dims(args, is_tty);
+    let mut buf = String::with_capacity(consts::FRAME_BUF_CAPACITY);
+    let mut elapsed = 0.0;
+    loop {
+        let snap = monitor.tick(elapsed, cols, lines, args.sort);
+        if emit_monitor(&snap, args, is_tty, pal, &mut buf, out).is_err() {
+            return;
+        }
+        match next_tick() {
+            Some(secs) => elapsed = secs,
+            None => return,
+        }
+    }
+}
+
+/// Watch stdin for EOF, which is how the agent learns its reader is gone.
+///
+/// Only a pipe is watched: a terminal's stdin belongs to the user, and a
+/// closed one there means nothing.
+pub fn stdin_eof_watcher() -> std::sync::Arc<std::sync::atomic::AtomicBool> {
+    use std::io::{self, IsTerminal, Read};
     use std::sync::atomic::{AtomicBool, Ordering};
     use std::sync::Arc;
+
+    let stdin_gone = Arc::new(AtomicBool::new(false));
+    let stdin_pipe = !io::stdin().is_terminal()
+        && std::fs::metadata("/proc/self/fd/0")
+            .map(|m| m.file_type().is_fifo())
+            .unwrap_or(false);
+    if stdin_pipe {
+        let sig = stdin_gone.clone();
+        std::thread::spawn(move || {
+            let mut buf = [0u8; consts::STDIN_WATCH_BUF];
+            while let Ok(n) = io::stdin().read(&mut buf) {
+                if n == 0 {
+                    break;
+                }
+            }
+            sig.store(true, Ordering::Relaxed);
+        });
+    }
+    stdin_gone
+}
+
+pub fn run_agent<I: IntoIterator<Item = String>>(argv: I) {
+    use std::io::{self, IsTerminal, Write};
+    use std::sync::atomic::Ordering;
     use std::time::{Duration, Instant};
 
     let args = parse_args(argv);
     let is_tty = io::stdout().is_terminal();
-    let pal = if std::env::var_os("NO_COLOR").is_some() {
-        &color::PLAIN
-    } else {
-        &color::ANSI
-    };
+    let pal = palette_for_env();
     let host = proc::host_info(args.display_ip.as_deref());
+    let mut out = io::stdout().lock();
 
     match args.mode {
         Mode::Fetch => {
-            let snap = fetch::sample_fetch(&host);
-            if is_tty {
-                // Text-only fallback — the full rendering with logos lives in
-                // the monitor crate's fetch_render module.
-                let details = [
-                    ("OS", &snap.os),
-                    ("Kernel", &snap.kernel),
-                    ("Uptime", &snap.uptime),
-                    ("Host", &snap.host_model),
-                    ("CPU", &snap.cpu_model),
-                    ("Memory", &snap.memory_str),
-                    ("Disk", &snap.disk_str),
-                ];
-                let mut out = io::stdout().lock();
-                let _ = writeln!(
-                    out,
-                    "{}",
-                    crate::fmt::center_header(&snap.user_host, args.cols, pal)
-                );
-                for (label, val) in &details {
-                    let _ = writeln!(
-                        out,
-                        "  {}{:<7}{}: {}{}{}",
-                        pal.bold, label, pal.reset, pal.white, val, pal.reset
-                    );
-                }
-            } else {
-                let payload = proto::Payload::Fetch(snap);
-                let bytes = proto::encode_packet(&payload);
-                let mut out = io::stdout().lock();
-                let _ = out.write_all(&bytes);
-                let _ = out.flush();
-            }
+            let _ = emit_fetch(
+                &fetch::sample_fetch(&host),
+                args.cols,
+                is_tty,
+                pal,
+                &mut out,
+            );
         }
         Mode::Docker => {
-            let rows = docker::collect();
-            if is_tty {
-                let frame = docker::render(&host, args.cols, args.lines, &rows, pal, args.sort);
-                let mut out = io::stdout().lock();
-                let _ = writeln!(out, "{}", frame.join("\n"));
-            } else {
-                let payload = proto::Payload::Docker { host, rows };
-                let bytes = proto::encode_packet(&payload);
-                let mut out = io::stdout().lock();
-                let _ = out.write_all(&bytes);
-                let _ = out.flush();
-            }
+            let _ = emit_docker(&host, docker::collect(), &args, is_tty, pal, &mut out);
         }
         Mode::Monitor => {
-            let stdin_gone = Arc::new(AtomicBool::new(false));
-            let stdin_pipe = !io::stdin().is_terminal()
-                && std::fs::metadata("/proc/self/fd/0")
-                    .map(|m| m.file_type().is_fifo())
-                    .unwrap_or(false);
-            if stdin_pipe {
-                let sig = stdin_gone.clone();
-                std::thread::spawn(move || {
-                    let mut buf = [0u8; 64];
-                    while let Ok(n) = io::stdin().read(&mut buf) {
-                        if n == 0 {
-                            break;
-                        }
-                    }
-                    sig.store(true, Ordering::Relaxed);
-                });
-            }
+            let stdin_gone = stdin_eof_watcher();
             if is_tty {
-                let _ = io::stdout().write_all(b"\x1b[?25l");
+                let _ = out.write_all(b"\x1b[?25l");
             }
             let interval = Duration::from_secs_f64(DEFAULT_INTERVAL);
             let mut monitor = monitor::Monitor::new(host);
-
-            let mut buf = String::with_capacity(8192);
             let mut last = Instant::now();
-
-            // Emit initial frame immediately so client connection is instant (<10ms)
-            let snap = monitor.tick(0.0, 120, 50, args.sort);
-            if is_tty {
-                buf.push_str("\x1b[H\x1b[J");
-                render::render_to_buf(
-                    &snap,
-                    args.cols,
-                    args.lines,
-                    render::bar_len_for(args.cols),
-                    pal,
-                    &mut buf,
-                );
-                let mut out = io::stdout().lock();
-                let _ = out.write_all(buf.as_bytes());
-                let _ = out.flush();
-            } else {
-                let payload = proto::Payload::Monitor(snap);
-                let bytes = proto::encode_packet(&payload);
-                let mut out = io::stdout().lock();
-                if out.write_all(&bytes).is_err() || out.flush().is_err() {
-                    return;
-                }
-            }
-
-            std::thread::sleep(interval);
-
-            loop {
+            let mut next_tick = move || {
+                std::thread::sleep(interval);
                 if stdin_gone.load(Ordering::Relaxed) {
-                    return;
+                    return None;
                 }
                 let elapsed = last.elapsed().as_secs_f64();
                 last = Instant::now();
-
-                if is_tty {
-                    let snap = monitor.tick(elapsed, args.cols, args.lines, args.sort);
-                    buf.clear();
-                    buf.push_str("\x1b[H\x1b[J");
-                    render::render_to_buf(
-                        &snap,
-                        args.cols,
-                        args.lines,
-                        render::bar_len_for(args.cols),
-                        pal,
-                        &mut buf,
-                    );
-                    let mut out = io::stdout().lock();
-                    if out.write_all(buf.as_bytes()).is_err() || out.flush().is_err() {
-                        return;
-                    }
-                } else {
-                    // In binary stream mode (over SSH), sample up to 50 top procs.
-                    // The client dashboard will filter/render as many as fit locally.
-                    let snap = monitor.tick(elapsed, 120, 50, args.sort);
-                    let payload = proto::Payload::Monitor(snap);
-                    let bytes = proto::encode_packet(&payload);
-                    let mut out = io::stdout().lock();
-                    if out.write_all(&bytes).is_err() || out.flush().is_err() {
-                        return;
-                    }
-                }
-
-                std::thread::sleep(interval);
-            }
+                Some(elapsed)
+            };
+            monitor_loop(&mut monitor, &args, is_tty, pal, &mut out, &mut next_tick);
         }
     }
 }

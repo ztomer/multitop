@@ -251,7 +251,8 @@ async fn vault_unlocked_sets_upgrade_modal() {
     a.vault = Some(std::sync::Arc::new(vault));
     a.vault_state = VaultState::Locked;
 
-    let (_vault, epoch) = a.begin_vault_unlock().expect("locked");
+    assert!(a.begin_password_unlock(), "locked");
+    let epoch = a.vault_epoch;
     let unlocked = a
         .vault
         .as_ref()
@@ -675,7 +676,7 @@ fn visible_upgrade_composes_header_body_tail() {
     let tail = vec!["notice: done".into()];
 
     let (out, badge) = visible_upgrade(&header, 2, &body, &tail, 10, 80, 0);
-    assert!(!out.is_empty());
+    assert_ne!(out, [] as [std::string::String; 0]);
     assert_eq!(badge, 0);
 }
 
@@ -685,7 +686,7 @@ fn visible_handles_zero_height() {
 
     let lines = vec!["a".into(), "b".into()];
     let (out, badge) = visible(&lines, 0, 1, 80, 0);
-    assert!(out.is_empty());
+    assert_eq!(out, [] as [std::string::String; 0]);
     assert_eq!(badge, 0);
 }
 
@@ -708,7 +709,7 @@ fn visible_upgrade_with_empty_body() {
     let body = RingLines::new(100);
     let tail: Vec<String> = vec![];
     let (out, badge) = visible_upgrade(&header, 1, &body, &tail, 5, 80, 0);
-    assert!(!out.is_empty());
+    assert_ne!(out, [] as [std::string::String; 0]);
     assert_eq!(badge, 0);
 }
 
@@ -944,7 +945,7 @@ fn handle_key_filter_esc_clears() {
         &tx,
         &mut tasks,
     );
-    assert!(a.filter_query.is_empty());
+    assert_eq!(a.filter_query, "");
 }
 
 #[test]
@@ -1204,7 +1205,7 @@ fn rerender_all_renders_at_new_dims() {
 
     a.rerender_all((120, 40));
     // After rerender, view is updated (render_payload produces output).
-    assert!(!a.panels[0].view.is_empty());
+    assert_ne!(a.panels[0].view, [] as [std::string::String; 0]);
 }
 
 #[test]
@@ -1775,7 +1776,7 @@ fn keybar_badges_shed_whole() {
     // Each badge has (width, spans).
     for (w, spans) in &badges {
         assert!(*w > 0);
-        assert!(!spans.is_empty());
+        assert_ne!(spans.as_slice(), []);
     }
 }
 
@@ -1958,7 +1959,7 @@ async fn event_loop_processes_key_events() {
     let backend = terminal.backend();
     let buffer = backend.buffer();
     // Just verify the buffer has content (was drawn).
-    assert!(!buffer.content.is_empty());
+    assert_ne!(buffer.content, [] as [ratatui::buffer::Cell; 0]);
 }
 
 #[tokio::test]
@@ -2014,7 +2015,7 @@ async fn event_loop_filter_and_quit() {
     .await;
 
     let backend = terminal.backend();
-    assert!(!backend.buffer().content.is_empty());
+    assert_ne!(backend.buffer().content, [] as [ratatui::buffer::Cell; 0]);
 }
 
 // ===========================================================================
@@ -2064,7 +2065,7 @@ async fn ui_draw_upgrade_view() {
         .expect("draw ok");
 
     let buffer = terminal.backend().buffer();
-    assert!(!buffer.content.is_empty());
+    assert_ne!(buffer.content, [] as [ratatui::buffer::Cell; 0]);
 }
 
 #[tokio::test]
@@ -2083,7 +2084,7 @@ async fn ui_draw_filter_no_matches() {
         .expect("draw ok");
 
     let buffer = terminal.backend().buffer();
-    assert!(!buffer.content.is_empty());
+    assert_ne!(buffer.content, [] as [ratatui::buffer::Cell; 0]);
 }
 
 #[tokio::test]
@@ -2102,7 +2103,7 @@ async fn ui_draw_with_modal() {
         .expect("draw ok");
 
     let buffer = terminal.backend().buffer();
-    assert!(!buffer.content.is_empty());
+    assert_ne!(buffer.content, [] as [ratatui::buffer::Cell; 0]);
 }
 
 // ===========================================================================

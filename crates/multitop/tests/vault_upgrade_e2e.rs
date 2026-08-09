@@ -129,6 +129,10 @@ mod vault_upgrade_e2e_tests {
 
     #[tokio::test]
     async fn test_vault_unlock_loads_passwords_before_upgrade() {
+        // The mock store is process-global: without the lock this races the
+        // guarded tests in this same binary, and the loser sees a store some
+        // other test has just cleared.
+        let _keychain = isolate_keychain_async().await;
         let master_pw = "test-master-password";
         let mut vault_passwords = HashMap::new();
         vault_passwords.insert(
@@ -153,7 +157,7 @@ mod vault_upgrade_e2e_tests {
         assert_eq!(app.panels[1].sudo_password, Some("sudo-pass-2".to_string()));
 
         // Verify upgrade commands were generated
-        assert!(!cmds.is_empty());
+        assert_ne!(cmds, [] as [multitop::app::Command; 0]);
         for cmd in &cmds {
             match cmd {
                 Command::RunUpgrade { panel, .. } => {
@@ -166,6 +170,10 @@ mod vault_upgrade_e2e_tests {
 
     #[tokio::test]
     async fn test_upgrade_without_vault_works() {
+        // The mock store is process-global: without the lock this races the
+        // guarded tests in this same binary, and the loser sees a store some
+        // other test has just cleared.
+        let _keychain = isolate_keychain_async().await;
         let (mut app, _temp_dir) = app_with_vault(test_servers(), "unused", HashMap::new()).await;
 
         // Remove vault
@@ -175,7 +183,7 @@ mod vault_upgrade_e2e_tests {
         let cmds = app.run_upgrade();
 
         // Should still generate upgrade commands
-        assert!(!cmds.is_empty());
+        assert_ne!(cmds, [] as [multitop::app::Command; 0]);
     }
 
     #[tokio::test]
@@ -205,6 +213,10 @@ mod vault_upgrade_e2e_tests {
 
     #[tokio::test]
     async fn test_vault_priority_over_keychain() {
+        // The mock store is process-global: without the lock this races the
+        // guarded tests in this same binary, and the loser sees a store some
+        // other test has just cleared.
+        let _keychain = isolate_keychain_async().await;
         let master_pw = "test-master";
         let mut vault_passwords = HashMap::new();
         vault_passwords.insert(
@@ -227,6 +239,10 @@ mod vault_upgrade_e2e_tests {
 
     #[tokio::test]
     async fn test_upgrade_modal_flow_with_vault() {
+        // The mock store is process-global: without the lock this races the
+        // guarded tests in this same binary, and the loser sees a store some
+        // other test has just cleared.
+        let _keychain = isolate_keychain_async().await;
         let master_pw = "test-master";
         let mut vault_passwords = HashMap::new();
         vault_passwords.insert(
@@ -246,7 +262,7 @@ mod vault_upgrade_e2e_tests {
         assert_eq!(app.panels[0].sudo_password, Some("sudo-pass-1".to_string()));
 
         // Commands should be generated
-        assert!(!cmds.is_empty());
+        assert_ne!(cmds, [] as [multitop::app::Command; 0]);
     }
 }
 
@@ -341,31 +357,35 @@ async fn test_vault_failed_unlock_shows_error() {
 
 /// Bug b: with a locked vault, pressing `u` must start a biometric attempt,
 /// NOT jump straight to the password prompt. Exercises the real
-/// `begin_vault_unlock()` path used by the `u` key handler.
+/// `begin_password_unlock()`, the path the `u` key takes on a locked vault.
+///
+/// This test used to assert the opposite — that the handler awaited a biometric
+/// before prompting — and it stayed green after the fix that removed that step,
+/// because `begin_vault_unlock` still set the biometric state for the one line
+/// before its caller overwrote it. A test pinning behaviour the product no
+/// longer has is worse than no test: it reports that the old path still works.
 #[tokio::test]
-async fn test_vault_locked_u_key_tries_biometric_first() {
+async fn test_vault_locked_u_key_asks_for_the_password_directly() {
     let _keychain = isolate_keychain_async().await;
     let (mut app, _temp_dir) = app_with_vault(test_servers(), "test-master", HashMap::new()).await;
     // Lock the vault again to simulate a fresh app start.
     app.vault_state = VaultState::Locked;
 
-    let vault_handle = app.begin_vault_unlock();
-
     assert!(
-        vault_handle.is_some(),
-        "a locked vault must hand the caller a handle for the biometric attempt"
+        app.begin_password_unlock(),
+        "a locked vault must raise the password prompt"
     );
     assert!(
-        app.vault_awaiting_biometric(),
-        "must await biometric before prompting for a password"
+        app.show_vault_password_prompt(),
+        "the user wants one password entry, not a biometric step before it"
     );
     assert!(
-        !app.show_vault_password_prompt(),
-        "password prompt must not appear while biometrics are being attempted"
+        !app.vault_awaiting_biometric(),
+        "no biometric wait may be entered, even for the length of one call"
     );
 
-    // An already-unlocked vault (or no vault) must NOT re-enter the awaiting
-    // state and must return None so the handler proceeds to the upgrade modal.
+    // An already-unlocked vault raises nothing, so the handler proceeds to the
+    // upgrade modal instead.
     let unlocked = app
         .vault
         .as_ref()
@@ -376,7 +396,7 @@ async fn test_vault_locked_u_key_tries_biometric_first() {
         vault: Box::new(unlocked),
         awaiting_biometric: false,
     };
-    assert!(app.begin_vault_unlock().is_none());
+    assert!(!app.begin_password_unlock());
     assert!(!app.vault_awaiting_biometric());
 }
 

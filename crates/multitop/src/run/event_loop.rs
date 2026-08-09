@@ -128,7 +128,11 @@ where
     let mut tasks = Tasks::new(servers.len());
 
     let dims_rx = Arc::new(dims_tx.subscribe());
-    let mut dims = AgentDims::new(dims_tx, terminal.size(), servers.len());
+    // `visible_panes`, not `servers.len()`, even though no filter can be in
+    // force yet: every other site that feeds this number now reads it from the
+    // one place, and a seed that reads it from somewhere else is how the two
+    // drift apart again.
+    let mut dims = AgentDims::new(dims_tx, terminal.size(), app.visible_panes());
     for (i, server) in servers.iter().enumerate() {
         tasks.monitors[i] = Some(spawn_monitor(
             i,
@@ -174,7 +178,9 @@ where
                 if action == SignalAction::Resumed {
                     super::terminal::reclaim_terminal();
                     let _ = terminal.clear();
-                    if let Some(d) = dims::size_change(terminal.size(), &mut dims, app.panels.len()) {
+                    if let Some(d) =
+                        dims::size_change(terminal.size(), &mut dims, app.visible_panes())
+                    {
                         app.rerender_all(d);
                     }
                     dirty = true;
@@ -185,16 +191,32 @@ where
                 match maybe {
                     Some(Ok(Event::Key(key))) => {
                         handle_key(key, &mut app, dims.current(), dims_rx.clone(), &tx, &mut tasks);
-                        if app.panels_epoch != known_epoch {
+                        let epoch_changed = app.panels_epoch != known_epoch;
+                        if epoch_changed {
                             known_epoch = app.panels_epoch;
                             servers = app.panels.iter().map(|p| p.server.clone()).collect();
                             tasks.fit_to(servers.len());
-                            if let Some(d) = dims::size_change(terminal.size(), &mut dims, servers.len())
-                            {
-                                app.rerender_all(d);
-                            }
+                        }
+                        // Any key can change how many panes are on screen --
+                        // typing a filter is the common one, and it re-splits
+                        // the grid on every keystroke. This is where the render
+                        // size follows it.
+                        //
+                        // No timer to debounce it: `refresh` diffs the whole
+                        // input signature and returns `None` unless the size it
+                        // computes actually changed, so the keystrokes that
+                        // change nothing cost one comparison. A timer would be
+                        // a second, fuzzier answer to a question this already
+                        // answers exactly.
+                        if let Some(d) =
+                            dims::size_change(terminal.size(), &mut dims, app.visible_panes())
+                        {
+                            app.rerender_all(d);
+                        }
+                        // After the size, so the restarted agents read the new
+                        // one rather than the size the old panel list implied.
+                        if epoch_changed {
                             restart_all_agents(&app, dims_rx.clone(), &tx, &mut tasks);
-
                         }
                         dirty = true;
                     }
@@ -278,12 +300,13 @@ where
                 // the UI would read keys but not act on them. Cap the work per
                 // select poll so key events get their turn; the next poll drains
                 // the rest.
+                // Counted up rather than down: `budget -= 1` underflows and
+                // panics the moment the constant is ever set to zero, which is
+                // a trap left for whoever tunes it.
                 let mut change = app.apply(msg);
-                let mut budget = 32;
-                while let Ok(msg) = rx.try_recv() {
+                for _ in 0..crate::consts::MSG_DRAIN_BUDGET {
+                    let Ok(msg) = rx.try_recv() else { break };
                     change |= app.apply(msg);
-                    budget -= 1;
-                    if budget == 0 { break; }
                 }
                 dirty |= change;
                 // Watchdog: a task that dies without sending AuxDone leaves its
@@ -308,7 +331,9 @@ where
                 // Re-render panels at the new size so logos and stats adapt. A
                 // failed size query keeps the last one -- see `size_change`; this
                 // arm used to make it fatal, which killed every running upgrade.
-                if let Some(d) = dims::size_change(terminal.size(), &mut dims, app.panels.len()) {
+                if let Some(d) =
+                    dims::size_change(terminal.size(), &mut dims, app.visible_panes())
+                {
                     app.rerender_all(d);
                 }
                 dirty = true;
