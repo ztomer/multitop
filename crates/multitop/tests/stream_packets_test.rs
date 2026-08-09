@@ -39,10 +39,36 @@ fn packet(host: &str) -> Vec<u8> {
 /// A `PacketStream` fed by a shell that writes `stdout_script` to stdout and
 /// `stderr_script` to stderr. Both are `printf` format strings, so `\\xNN`
 /// escapes put arbitrary bytes on the wire.
-fn stream_from(stdout_script: &str, stderr_script: &str) -> PacketStream {
+/// A stream over exact bytes on stdout and stderr.
+///
+/// The bytes go through files and `cat`, with no shell escaping anywhere,
+/// because there is no portable way to write a byte in a `printf` format
+/// string. These used to be `printf '\x4d\x54...'` -- a hex escape bash and
+/// macOS `printf` accept and dash, which is `/bin/sh` on most Linux, does not.
+/// On the runner the reader was handed the literal text `\x4d\x54` and
+/// reported the agent's framing as lost, which is exactly what it should say
+/// about a stream carrying that. Six tests, only ever red on Linux, and nothing
+/// local could see it.
+fn stream_from_bytes(stdout: &[u8], stderr: &[u8]) -> PacketStream {
+    // Leaked on purpose: the child reads them after this returns, and the
+    // handful of small files a test run makes are cleaned up by the OS. A
+    // `TempDir` would have to outlive the `PacketStream`, which the callers
+    // have no way to hold.
+    let dir = Box::leak(Box::new(tempfile::tempdir().expect("tempdir")));
+    let out = dir.path().join("out");
+    let err = dir.path().join("err");
+    std::fs::write(&out, stdout).expect("write stdout");
+    std::fs::write(&err, stderr).expect("write stderr");
     stream_from_script(&format!(
-        "printf '{stdout_script}'; printf '{stderr_script}' >&2"
+        "cat {o}; cat {e} >&2",
+        o = out.display(),
+        e = err.display()
     ))
+}
+
+/// The same, for the cases whose payload is plain text.
+fn stream_from(stdout: &str, stderr: &str) -> PacketStream {
+    stream_from_bytes(stdout.as_bytes(), stderr.as_bytes())
 }
 
 /// A stream over a shell script written out in full, for the cases that need to
@@ -70,20 +96,11 @@ fn stream_from_script(script: &str) -> PacketStream {
     }
 }
 
-/// `printf` escapes for a byte string.
-fn escaped(bytes: &[u8]) -> String {
-    use std::fmt::Write as _;
-    bytes.iter().fold(String::new(), |mut out, b| {
-        let _ = write!(out, "\\x{b:02x}");
-        out
-    })
-}
-
 // ------------------------------------------------------------ packet reading
 
 #[tokio::test]
 async fn a_framed_packet_is_read_and_decoded() {
-    let mut stream = stream_from(&escaped(&packet("web-01")), "");
+    let mut stream = stream_from_bytes(&packet("web-01"), b"");
     let mut errbuf = Vec::new();
 
     let payload = next_packet(&mut stream, &mut errbuf)
@@ -104,7 +121,7 @@ async fn a_framed_packet_is_read_and_decoded() {
 async fn packets_are_read_back_to_back_until_the_stream_ends() {
     let mut bytes = packet("a");
     bytes.extend_from_slice(&packet("b"));
-    let mut stream = stream_from(&escaped(&bytes), "");
+    let mut stream = stream_from_bytes(&bytes, b"");
     let mut errbuf = Vec::new();
 
     for expected in ["a", "b"] {
@@ -127,7 +144,7 @@ async fn a_header_the_handshake_already_consumed_is_not_read_twice() {
     // `connect` reads four bytes to recognise the framing and hands them back
     // through `pending_header`; reading eight more here would take the first
     // half of the payload as the rest of the header.
-    let mut stream = stream_from(&escaped(&packet("web-01")[4..]), "");
+    let mut stream = stream_from_bytes(&packet("web-01")[4..], b"");
     stream.pending_header = Some(*multitop_agent::proto::MAGIC);
     let mut errbuf = Vec::new();
 
@@ -139,7 +156,7 @@ async fn a_header_the_handshake_already_consumed_is_not_read_twice() {
 
 #[tokio::test]
 async fn a_stream_that_ends_inside_a_pending_header_is_a_close_not_an_error() {
-    let mut stream = stream_from("\\x00\\x01", "");
+    let mut stream = stream_from_bytes(&[0x00, 0x01], b"");
     stream.pending_header = Some(*multitop_agent::proto::MAGIC);
     let mut errbuf = Vec::new();
     assert!(next_packet(&mut stream, &mut errbuf)
@@ -163,7 +180,7 @@ async fn a_stream_that_produces_nothing_at_all_is_a_close() {
 async fn text_where_the_framing_should_be_is_reported_as_that() {
     // The message has to say the agent never started, not that the connection
     // closed: the host is up and talking.
-    let mut stream = stream_from("Welcome to Ubuntu 22.04\\n", "");
+    let mut stream = stream_from("Welcome to Ubuntu 22.04\n", "");
     stream.preamble = Some("Welcome to Ubuntu 22.04".to_string());
     let mut errbuf = Vec::new();
 
@@ -185,7 +202,7 @@ async fn framing_lost_mid_stream_is_reported_as_that() {
     // this is the "was working, then desynchronised" wording.
     let mut bytes = packet("web-01");
     bytes.extend_from_slice(b"NOTMAGIC");
-    let mut stream = stream_from(&escaped(&bytes), "");
+    let mut stream = stream_from_bytes(&bytes, b"");
     let mut errbuf = Vec::new();
 
     assert!(next_packet(&mut stream, &mut errbuf)
@@ -208,7 +225,7 @@ async fn framing_lost_mid_stream_is_reported_as_that() {
 async fn a_payload_cut_short_is_an_error_the_panel_can_report() {
     // Header promises a payload; the stream stops halfway through it.
     let full = packet("web-01");
-    let mut stream = stream_from(&escaped(&full[..full.len() - 4]), "");
+    let mut stream = stream_from_bytes(&full[..full.len() - 4], b"");
     let mut errbuf = Vec::new();
 
     let err = next_packet(&mut stream, &mut errbuf).await.unwrap_err();
@@ -225,7 +242,7 @@ async fn a_payload_cut_short_is_an_error_the_panel_can_report() {
 async fn stderr_that_arrives_while_waiting_for_a_header_is_kept() {
     // The remote writes a warning and then nothing else. The reader must
     // collect the warning rather than blocking on stdout with it unread.
-    let mut stream = stream_from("", "Warning: Permanently added a host\\n");
+    let mut stream = stream_from("", "Warning: Permanently added a host\n");
     let mut errbuf = Vec::new();
 
     assert!(next_packet(&mut stream, &mut errbuf)
