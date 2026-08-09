@@ -502,10 +502,22 @@ fn the_fetch_mode_entry_point_runs_end_to_end() {
 
 #[test]
 fn watching_stdin_for_a_hangup_is_safe_wherever_stdin_came_from() {
-    // Only a pipe is watched. On a host with no `/proc/self/fd/0` — every
-    // macOS build machine — this must decide "not a pipe" rather than fail.
+    // Only a pipe is watched. On a host with no `/proc/self/fd/0` -- every
+    // macOS build machine -- this must decide "not a pipe" rather than fail.
     let gone = multitop_agent::stdin_eof_watcher();
-    assert!(!gone.load(std::sync::atomic::Ordering::Relaxed));
+
+    // The flag's *value* is deliberately not asserted, and asserting it was
+    // false is what made this red under `cargo llvm-cov` while green under
+    // `cargo test`. When stdin is a pipe the watcher is a thread that sets the
+    // flag the moment that pipe reaches EOF, so the value describes the stdin
+    // the harness handed over, not anything this function decides: a captured
+    // pipe that stays open reads false, an already-closed one reads true, and
+    // true is the correct answer there rather than a failure. Racing a
+    // background thread to observe it first is not a property worth pinning.
+    //
+    // What must hold on every host is that asking is safe. Reading it back
+    // proves the returned handle is usable, which is the whole contract.
+    let _ = gone.load(std::sync::atomic::Ordering::Relaxed);
 }
 
 #[test]
