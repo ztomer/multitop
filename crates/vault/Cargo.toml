@@ -48,3 +48,7 @@ zbus = { version = "4", features = ["tokio"] }
 [dev-dependencies]
 tempfile = "3.10"
 hex = "0.4"
+# Sealing the vault key to this machine's TPM. Linux only: there is no
+# tpm2-tss on macOS, which has the Secure Enclave instead.
+[target.'cfg(target_os = "linux")'.dependencies]
+tss-esapi = "7.7"

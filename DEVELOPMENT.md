@@ -111,6 +111,24 @@ rustup toolchain install stable --component clippy
 
 If clippy passes here and fails there, suspect the lint *name* before the code.
 
+### The TPM round trip
+
+Sealing needs real TPM hardware and access to `/dev/tpmrm0`, which is
+`tss`-group only, so the round-trip test is `#[ignore]`d rather than skipped
+silently -- a test that passes for doing nothing is worse than one that is
+visibly not run. On a Linux machine with a TPM:
+
+```bash
+cargo test -q -p multitop-vault --lib --no-run   # note the binary it prints
+sudo <that binary> tpm2 --ignored --nocapture
+```
+
+`sudo cargo` does not work: rustup's shims are not on root's PATH.
+
+What it protects is **machine binding** -- a vault file copied elsewhere cannot
+be unsealed -- and not the fingerprint. A TPM cannot check one; `fprintd` is a
+userspace yes/no. See the module docs in `crates/vault/src/tpm2.rs`.
+
 ### Checking the Linux-only code from a Mac
 
 `fprintd.rs`, the `secure_enclave` stubs and the Linux arms of `api/` are

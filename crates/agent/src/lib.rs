@@ -49,10 +49,28 @@ impl SortBy {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Args {
     pub mode: Mode,
+    /// What the user asked for that is not a mode: usage, or the version.
+    ///
+    /// Its own field rather than a mode, because these do not sample anything
+    /// and must not reach the render loop.
+    pub tell: Option<Tell>,
     pub display_ip: Option<String>,
     pub cols: usize,
     pub lines: usize,
     pub sort: SortBy,
+}
+
+/// Something to print and exit, rather than a thing to run.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Tell {
+    Usage,
+    Version,
+    /// A flag this build does not know. Reported rather than ignored: the first
+    /// positional argument is the host label, so an unrecognised `--flag` used
+    /// to become the *name of the host* -- `multitop-agent --help` printed a
+    /// binary monitor packet naming a host called `beelink (--help)`, on a
+    /// binary that is uploaded to every machine being monitored.
+    Unknown(&'static str),
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -76,6 +94,7 @@ impl Default for Args {
     fn default() -> Self {
         Args {
             mode: Mode::Monitor,
+            tell: None,
             display_ip: None,
             cols: 80,
             lines: 24,
@@ -107,6 +126,20 @@ pub fn parse_args<I: IntoIterator<Item = String>>(argv: I) -> Args {
                 rest.remove(0);
             }
             _ => {}
+        }
+    }
+
+    // Flags before positionals, because a positional is a host label and would
+    // otherwise swallow them.
+    if let Some(first) = rest.first() {
+        args.tell = match first.as_str() {
+            "--help" | "-h" | "help" => Some(Tell::Usage),
+            "--version" | "-V" => Some(Tell::Version),
+            f if f.starts_with('-') => Some(Tell::Unknown("unrecognised option")),
+            _ => None,
+        };
+        if args.tell.is_some() {
+            return args;
         }
     }
 
@@ -302,12 +335,55 @@ pub fn stdin_eof_watcher() -> std::sync::Arc<std::sync::atomic::AtomicBool> {
     stdin_gone
 }
 
+/// What the agent prints when asked what it is.
+///
+/// Plain text on stdout. This binary is uploaded to every monitored host, so
+/// the person most likely to run it by hand is an operator who found it in
+/// `/usr/local/bin` and wants to know what it is -- and what they used to get
+/// was a monitor packet.
+#[must_use]
+pub fn usage() -> String {
+    let v = crate::consts::AGENT_VERSION;
+    format!(
+        "multitop-agent {v}\n\
+         \n\
+         Sampled by multitop over SSH. Prints one frame, or streams them.\n\
+         \n\
+         Usage:\n    \
+           multitop-agent [monitor|docker|fetch] [host] [cols] [lines] [cpu|mem]\n\
+         \n\
+         Modes:\n    \
+           monitor   CPU, memory, network and the process table (the default)\n    \
+           docker    the container table\n    \
+           fetch     a one-shot host summary\n\
+         \n\
+         Options:\n    \
+           -h, --help       this text\n    \
+           -V, --version    the version alone\n\
+         \n\
+         With stdout on a terminal it draws; piped, it writes packets for the\n\
+         client to decode.\n"
+    )
+}
+
 pub fn run_agent<I: IntoIterator<Item = String>>(argv: I) {
     use std::io::{self, IsTerminal, Write};
     use std::sync::atomic::Ordering;
     use std::time::{Duration, Instant};
 
     let args = parse_args(argv);
+    if let Some(tell) = args.tell {
+        let mut out = io::stdout().lock();
+        let _ = match tell {
+            Tell::Usage => write!(out, "{}", usage()),
+            Tell::Version => writeln!(out, "multitop-agent {}", crate::consts::AGENT_VERSION),
+            Tell::Unknown(what) => {
+                let _ = writeln!(io::stderr(), "multitop-agent: {what}\n");
+                write!(out, "{}", usage())
+            }
+        };
+        return;
+    }
     let is_tty = io::stdout().is_terminal();
     let pal = palette_for_env();
     let host = proc::host_info(args.display_ip.as_deref());

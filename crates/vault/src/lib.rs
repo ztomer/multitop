@@ -14,6 +14,7 @@ pub mod lockout;
 pub mod mlock;
 pub mod rollback;
 pub mod secure_enclave;
+pub mod tpm2;
 
 // Re-export public API
 pub use api::{UnlockResult, UnlockedVault, Vault};
@@ -166,6 +167,9 @@ pub enum VaultError {
 
     #[error("fprintd error: {0}")]
     FprintdError(String),
+
+    #[error("TPM2 error: {0}")]
+    Tpm2Error(String),
 
     #[error("Secure Enclave error: {0}")]
     SecureEnclaveError(String),

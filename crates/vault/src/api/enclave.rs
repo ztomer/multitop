@@ -141,35 +141,50 @@ impl Vault {
             }
         }
 
-        // Try fprintd (Linux).
+        // Try fprintd, then the TPM (Linux).
         //
         // Only ask for a fingerprint if there is a wrapper a fingerprint can
-        // actually release. Unlike the Secure Enclave, fprintd does not hold key
-        // material -- it returns a yes or a no, and the key would have to come
-        // from the TPM2 wrapper. Nothing in this codebase creates a TPM2
-        // wrapper, so `has_wrapper(Tpm2)` is always false.
+        // actually release. Unlike the Secure Enclave, `fprintd` holds no key
+        // material -- it answers yes or no, and the key comes from the TPM2
+        // wrapper. Asking without one is the ceremony this used to perform: a
+        // prompt, the verifier's own timeout, and then a refusal no matter what
+        // the user did.
         //
-        // Previously the verifier ran in the `else` arm, which is the arm that
-        // is always taken: a Linux user was prompted to present a fingerprint,
-        // waited for the verifier's own timeout, and then reached the
-        // `Err(BiometricFailed)` below no matter what happened -- succeeding,
-        // failing, and timing out were indistinguishable. That failed closed,
-        // which is the right direction, but the prompt was pure ceremony and it
-        // delayed the password fallback by half a minute.
+        // The order matters, and not for security. The TPM will unseal whether
+        // or not a finger was presented -- it cannot know, which is the whole
+        // caveat in `tpm2` -- so the fingerprint is asked first because it is
+        // what the *user* was promised, and a refusal must stop the unlock even
+        // though nothing cryptographic enforces it.
         #[cfg(target_os = "linux")]
-        if vault_file.header.has_wrapper(WrapperType::Tpm2) {
+        if let Some(tpm_wrapper) = vault_file.header.get_wrapper(WrapperType::Tpm2) {
             if let Ok(fv) = fprintd::FingerprintVerifier::new().await {
-                // Only the refusals are acted on. `Verified` falls through
-                // with everything else: TPM2 unwrapping would go here once it
-                // exists, and until then a verified fingerprint still releases
-                // no key, so claiming an unlock here would be claiming one this
-                // build cannot perform.
-                if let Ok(
-                    crate::fprintd::FingerprintResult::Failed
-                    | crate::fprintd::FingerprintResult::Timeout,
-                ) = fv.verify().await
-                {
-                    return Err(VaultError::BiometricFailed);
+                match fv.verify().await {
+                    Ok(crate::fprintd::FingerprintResult::Verified) => {
+                        // The finger was accepted, so release the key.
+                        let vault_key = crate::tpm2::unseal(&tpm_wrapper.data)?;
+                        let unlocked = self.decrypt_and_load(vault_key, &vault_file)?;
+                        // Rollback detection belongs on every path that opens a
+                        // vault, not only the password one -- restoring an old
+                        // file is how a deleted credential comes back.
+                        crate::rollback::check_counter(
+                            &self.config.vault_path,
+                            unlocked.header.counter,
+                            unlocked.header.created_timestamp_ms,
+                            self.config.use_os_keychain,
+                        )?;
+                        return Ok(unlocked);
+                    }
+                    Ok(
+                        crate::fprintd::FingerprintResult::Failed
+                        | crate::fprintd::FingerprintResult::Timeout,
+                    ) => {
+                        return Err(VaultError::BiometricFailed);
+                    }
+                    // No reader, no enrolled finger, or the daemon went away:
+                    // fall through to the caller's password prompt rather than
+                    // unsealing, which would open the vault with no check at
+                    // all in front of it.
+                    _ => {}
                 }
             }
         }

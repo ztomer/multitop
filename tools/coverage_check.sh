@@ -28,6 +28,13 @@
 #   secure_enclave.rs — (vault crate) macOS Security framework
 #   sys.rs            — (agent crate) /proc parsing, Linux-only
 #   fprintd.rs        — (vault crate) Linux fingerprint daemon
+#   tpm2.rs           — (vault crate) sealing the vault key to a TPM. Needs TPM
+#                       hardware and `tss` group access to /dev/tpmrm0, so CI
+#                       can execute none of it. The round trip is an
+#                       `#[ignore]`d test run by hand on a machine that has one
+#                       -- visibly not run, rather than a gate reporting success
+#                       for doing nothing. The framing around the sealed blob is
+#                       pure and IS tested.
 #   enclave.rs        — (vault `api/`) unlocking by touch and repairing the
 #                       enclave wrapper. Needs Secure Enclave hardware holding a
 #                       key bound to this machine's enrolled biometric set, so
@@ -42,7 +49,7 @@ set -euo pipefail
 cd "$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
 
 # Single regex matching all inherently-untestable files.
-IGNORE="ssh\.rs|password_store\.rs|sparkline\.rs|main\.rs|entry\.rs|build\.rs|spawn\.rs|sys\.rs|secure_enclave\.rs|fprintd\.rs|enclave\.rs"
+IGNORE="ssh\.rs|password_store\.rs|sparkline\.rs|main\.rs|entry\.rs|build\.rs|spawn\.rs|sys\.rs|secure_enclave\.rs|fprintd\.rs|enclave\.rs|tpm2\.rs"
 
 # Generate lcov artifact + fail if the floor is breached.
 cargo llvm-cov --workspace --all-features \

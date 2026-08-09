@@ -13,7 +13,6 @@ shipped. Add the next one above this line and delete this paragraph.
 
 | Item | Why |
 |------|-----|
-| TPM2 wrapper | Would make Linux fingerprint unlock actually release a key. Until it exists, `fprintd` cannot unlock anything. |
 | Post-quantum KEM | Not warranted for a device-local file threat model. |
 
 ---
@@ -45,6 +44,10 @@ line of detection.
 | A filtered grid re-split the screen but every agent kept rendering for the old pane size | roadmap | `agent_dims` measured from `regions`, fed `App::visible_panes()` |
 | Touch ID unlock was unreachable: the fix for the double prompt left nothing able to start it | `check_test_only_code.py` | `Vault::biometric_available` decides which door to offer *before* a prompt goes up; `App::begin_vault_unlock` routes to it or to the master password |
 | A session's reason for ending was kept or lost at random -- `select!` raced stderr against stdout's EOF | coverage run | Drain stderr before reporting the close |
+| `multitop-agent --help` printed a binary monitor packet naming a host called `beelink (--help)`, and on older builds streamed forever. Any unrecognised flag became the *host label* | user (a hung test run) | `--help`, `--version` and unknown flags answered before the positional arguments are read |
+| A test asserting "the spawn found the agent" passed on the one machine where it had not: it accepted `stdout.contains("multitop-agent")`, and the shell's own `command not found: multitop-agent` contains that | user | It skips with a stated reason when the binary is absent, and asserts a clean exit and real output when it is present |
+| A test read a child's stdout to EOF with no bound, so an agent that streamed took the whole suite with it -- no failure, no cause, forever | user | Bounded, and pointed at a one-shot mode every agent version terminates on |
+| Linux fingerprint unlock was ceremony: `fprintd` answered yes and no key was released, because nothing created a TPM2 wrapper | roadmap | `tpm2::seal` at create, `unseal` behind the verified finger. Machine binding, not biometric protection -- a TPM cannot check a fingerprint, and the module says so |
 | The graph view's CPU heading was invisible, drawn onto the row the banner overwrites | user | A placeholder first line, like every other renderer emits |
 | CI had been red on every run for days -- an Ubuntu runner with no `libdbus-1-dev`, so every cargo step died in a build script before compiling any of this project | user | The system library installed by a composite action every job uses; `check_gate_parity.py` so the three gate lists cannot drift again |
 | `/` could only find a host by a process near the top of its table, because the agent truncates that table to what fits the pane -- and filtering makes panes bigger, so the same query answered differently a second later | user | The snapshot carries every distinct process name; the table stays capped |

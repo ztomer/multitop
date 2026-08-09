@@ -25,7 +25,32 @@ impl Vault {
         // Argon2id at a quarter of system RAM; on a platform with no enclave to
         // rebind to, that is seconds of work spent to reach a refusal that was
         // certain from the first line.
-        #[cfg(not(target_os = "macos"))]
+        #[cfg(target_os = "linux")]
+        {
+            // A vault made before this machine had a TPM, or before this
+            // feature existed, has only the password wrapper. Without this the
+            // only way to gain one is to recreate the vault, which means
+            // re-entering every credential in it.
+            if !self.config.use_os_keychain || !crate::tpm2::is_available() {
+                return Err(VaultError::PlatformNotSupported(
+                    "No TPM available to seal to".into(),
+                ));
+            }
+            let mut vault = self.unlock_with_password(password)?;
+            let sealed = crate::tpm2::seal(&vault.vault_key)?;
+            // `add_wrapper`, not `replace`: an existing TPM2 wrapper on this
+            // vault was sealed by this same TPM and still opens it, and
+            // replacing it would be a write with nothing gained.
+            if vault.header.get_wrapper(WrapperType::Tpm2).is_none() {
+                vault
+                    .header
+                    .add_wrapper(crypto::Wrapper::new(WrapperType::Tpm2, sealed)?)?;
+                vault.save()?;
+            }
+            Ok(())
+        }
+
+        #[cfg(not(any(target_os = "macos", target_os = "linux")))]
         {
             let _ = password;
             Err(VaultError::PlatformNotSupported(

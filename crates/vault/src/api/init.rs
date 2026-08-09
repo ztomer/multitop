@@ -66,7 +66,7 @@ impl Vault {
 
         // Try to create Secure Enclave wrapper (macOS)
         // `mut` only on the platform that pushes a second wrapper below.
-        #[cfg_attr(not(target_os = "macos"), allow(unused_mut))]
+        #[cfg_attr(not(any(target_os = "macos", target_os = "linux")), allow(unused_mut))]
         let mut wrappers = vec![crypto::Wrapper::new(
             WrapperType::Argon2id,
             argon2id_wrapper,
@@ -84,6 +84,25 @@ impl Vault {
             if let Ok(se) = secure_enclave::get_secure_enclave() {
                 if let Ok(se_wrapper) = se.wrap_key(&vault_key) {
                     wrappers.insert(0, se_wrapper); // Biometric first
+                }
+            }
+        }
+
+        // Seal to this machine's TPM (Linux).
+        //
+        // Gated on `use_os_keychain` for the same reason the Secure Enclave is:
+        // that flag means "this vault may touch real platform credential
+        // storage", and a test vault must not. Best-effort -- a machine with no
+        // TPM, or one whose resource manager is not reachable, simply gets a
+        // vault with only the password wrapper, which is exactly what it had
+        // before.
+        //
+        // This is machine binding, not biometric protection. See `tpm2`.
+        #[cfg(target_os = "linux")]
+        if self.config.use_os_keychain && crate::tpm2::is_available() {
+            if let Ok(sealed) = crate::tpm2::seal(&vault_key) {
+                if let Ok(w) = crypto::Wrapper::new(WrapperType::Tpm2, sealed) {
+                    wrappers.insert(0, w);
                 }
             }
         }
