@@ -12,7 +12,17 @@ pub struct PidSample {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct RawProcStat {
     pub pid: u32,
+    /// The authoritative name, when the scanner has one. Empty on Linux, where
+    /// it is read lazily per drawn row -- see `stat_comm`.
     pub comm: String,
+    /// The name as `/proc/[pid]/stat` spells it: free, because that file was
+    /// read anyway, and truncated to fifteen characters by the kernel.
+    ///
+    /// Good enough for the filter, which does substring matching, and not good
+    /// enough for the table, which shows the name. The table therefore still
+    /// pays `/proc/[pid]/comm` for the handful of rows it draws, and the filter
+    /// pays nothing for the hundreds it does not.
+    pub stat_comm: String,
     pub ticks: u64,
     pub starttime: u64,
     pub rss_pages: u64,
@@ -42,6 +52,7 @@ pub fn parse_pid_stat(data: &str) -> Option<RawProcStat> {
 
     Some(RawProcStat {
         pid,
+        stat_comm: String::new(),
         comm,
         ticks: utime.saturating_add(stime),
         starttime,
@@ -172,7 +183,12 @@ impl ProcSampler {
             if n > 0 {
                 if let Ok(data) = std::str::from_utf8(&file_buf[..n]) {
                     if let Some(mut st) = parse_pid_stat(data) {
-                        st.comm = String::new();
+                        // Moved, not dropped. `comm` stays empty so `top` knows
+                        // to read the untruncated name for the rows it draws;
+                        // the truncated one is kept for the filter, which would
+                        // otherwise need a `/proc/[pid]/comm` read per process
+                        // per tick to learn names nobody is looking at.
+                        st.stat_comm = std::mem::take(&mut st.comm);
                         self.scanned.push(st);
                     }
                 }

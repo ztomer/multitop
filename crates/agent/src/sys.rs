@@ -247,6 +247,7 @@ pub fn scan_macos() -> Vec<RawProcStat> {
 
         out.push(RawProcStat {
             pid: pid as u32,
+            stat_comm: String::new(),
             comm,
             ticks,
             starttime: 0,

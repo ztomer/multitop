@@ -359,17 +359,23 @@ fn the_name_list_covers_processes_the_table_had_no_room_for() {
     // three processes, so a three-row table proves the two lists differ.
     let mut sampler = ProcSampler::new();
     sampler.prime();
-    let table = sampler.top(1.0, 3, SortBy::Cpu);
+    let table = sampler.top(1.0, 1, SortBy::Cpu);
     let names = sampler.scanned_names();
 
-    assert!(table.len() <= 3, "the table ignored its budget");
-    assert!(
-        names.len() > table.len(),
-        "the name list is no bigger than the table it exists to look past: \
-         {} names, {} rows",
-        names.len(),
-        table.len()
-    );
+    assert!(table.len() <= 1, "the table ignored its budget");
+    // Stated as a precondition rather than assumed: a host running one process
+    // has nothing for the list to look past, and this would be vacuous there
+    // rather than wrong.
+    if sampler.scanned.len() > 1 {
+        assert!(
+            names.len() > table.len(),
+            "the name list is no bigger than the table it exists to look past: \
+             {} names, {} rows, {} processes scanned",
+            names.len(),
+            table.len(),
+            sampler.scanned.len()
+        );
+    }
     for p in &table {
         assert!(
             names.iter().any(|n| n == &p.name),

@@ -408,8 +408,16 @@ impl ProcSampler {
     pub fn scanned_names(&self) -> Vec<String> {
         let mut names: Vec<String> = Vec::with_capacity(self.scanned.len());
         for s in &self.scanned {
-            if !s.comm.is_empty() {
-                names.push(s.comm.clone());
+            // Whichever the platform filled. On Linux that is the truncated
+            // one, and truncated is what a substring filter can live with; on
+            // macOS the scanner has the full name already.
+            let name = if s.comm.is_empty() {
+                &s.stat_comm
+            } else {
+                &s.comm
+            };
+            if !name.is_empty() {
+                names.push(name.clone());
             }
         }
         // Sorted so an unchanged host produces the same bytes each tick -- and
