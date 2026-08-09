@@ -209,8 +209,8 @@ fn test_lockout_guard_records_failure() {
         // Guard drops without marking success
     }
 
-    let state = state.lock().unwrap();
-    assert_eq!(state.failed_attempts, 1);
+    let attempts = state.lock().unwrap().failed_attempts;
+    assert_eq!(attempts, 1);
 }
 
 /// The backoff must start when the attempt FAILS, not when it began.
@@ -283,9 +283,12 @@ fn test_lockout_guard_records_success() {
         guard.mark_success();
     }
 
-    let state = state.lock().unwrap();
-    assert_eq!(state.failed_attempts, 0);
-    assert_eq!(state.lockout_until_epoch_ms, 0);
+    let (attempts, deadline) = {
+        let after = state.lock().unwrap();
+        (after.failed_attempts, after.lockout_until_epoch_ms)
+    };
+    assert_eq!(attempts, 0);
+    assert_eq!(deadline, 0);
 }
 
 /// The trap itself, pinned so nobody reintroduces `default()` here.

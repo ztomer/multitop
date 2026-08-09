@@ -157,8 +157,48 @@ def rust_gates() -> bool:
                 "warnings",
             ],
         )
+        and clippy_on_ci_toolchain()
         and run("tests", ["cargo", "test", "--workspace", "--all-features"])
         and run("coverage (95% floor)", ["bash", "tools/coverage_check.sh"])
+    )
+
+
+def clippy_on_ci_toolchain() -> bool:
+    """Clippy again, under the toolchain CI uses.
+
+    Local development runs nightly and CI runs stable, and their lint sets
+    differ in *both* directions -- a lint nightly has and stable does not makes
+    the name in an `#[allow]` an error there, and a lint stable has and nightly
+    does not is a failure that only ever appears on the runner. Both had
+    happened, and each one cost a push and a CI round trip to find.
+
+    Skipped with a warning if stable is not installed: an absent toolchain is
+    not a failing gate, but it must not be silently reported as a passing one.
+    """
+    probe = subprocess.run(
+        ["cargo", "+stable", "--version"],
+        cwd=REPO,
+        capture_output=True,
+        text=True,
+        errors="replace",
+    )
+    if probe.returncode != 0:
+        warn("stable toolchain not installed -- skipping CI's clippy pass")
+        note("rustup toolchain install stable --component clippy")
+        return True
+    return run(
+        "clippy (stable, as CI runs it)",
+        [
+            "cargo",
+            "+stable",
+            "clippy",
+            "--workspace",
+            "--all-targets",
+            "--all-features",
+            "--",
+            "-D",
+            "warnings",
+        ],
     )
 
 

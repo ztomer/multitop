@@ -176,12 +176,15 @@ fn the_limiter_uses_the_real_clock_unless_a_test_supplies_one() {
         let mut guard = LockoutGuard::new(&state, &path);
         guard.mark_success();
     }
-    let after = state.lock().unwrap();
-    assert_eq!(after.failed_attempts, 0, "a success left attempts counted");
-    assert_eq!(
-        after.lockout_until_epoch_ms, 0,
-        "a success left a deadline standing"
-    );
+    // Read out and release, rather than asserting under the lock: a guard held
+    // across a failing assertion is a poisoned mutex, and the panic message
+    // then competes with the poisoning for the reader's attention.
+    let (attempts, deadline) = {
+        let after = state.lock().unwrap();
+        (after.failed_attempts, after.lockout_until_epoch_ms)
+    };
+    assert_eq!(attempts, 0, "a success left attempts counted");
+    assert_eq!(deadline, 0, "a success left a deadline standing");
 }
 
 // --------------------------------------------------------------- parameters

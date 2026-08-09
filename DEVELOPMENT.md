@@ -101,6 +101,14 @@ needed until it reaches stable:
 #[allow(clippy::unused_async, clippy::unused_async_trait_impl)]
 ```
 
+`local-ci.py` runs clippy twice for this reason -- once on the default toolchain
+and once on `+stable`, which is what CI uses. Install it once and the round
+trips stop:
+
+```bash
+rustup toolchain install stable --component clippy
+```
+
 If clippy passes here and fails there, suspect the lint *name* before the code.
 
 ### Checking the Linux-only code from a Mac
