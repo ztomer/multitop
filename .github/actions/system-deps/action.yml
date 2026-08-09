@@ -6,12 +6,19 @@ description: >
 runs:
   using: composite
   steps:
-    # `keyring` reaches the Linux credential store through
-    # `dbus-secret-service`, whose `libdbus-sys` build script shells out to
-    # pkg-config for `dbus-1`. Missing, it panics in the build script, so the
-    # failure arrives before any of this project is compiled and reads as
-    # nothing to do with the change that triggered it.
+    # Both of these are needed by a *build script*, so without them the failure
+    # arrives before any of this project is compiled and reads as nothing to do
+    # with the change that triggered it.
+    #
+    #   libdbus-1-dev  `keyring` reaches the Linux credential store through
+    #                  `dbus-secret-service`, whose `libdbus-sys` shells out to
+    #                  pkg-config for `dbus-1`.
+    #   libtss2-dev    `tss-esapi` seals the vault key to the TPM and links
+    #                  tpm2-tss. Adding the crate without this is what made
+    #                  v0.34.0 red: the dependency is declared in Cargo.toml
+    #                  and the system library it needs is declared here, and
+    #                  the two have to be added together.
     - shell: bash
       run: |
         sudo apt-get update
-        sudo apt-get install -y libdbus-1-dev pkg-config
+        sudo apt-get install -y libdbus-1-dev libtss2-dev pkg-config
