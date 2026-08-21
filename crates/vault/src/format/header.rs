@@ -5,7 +5,7 @@
 //! rather than as a panic or an over-large allocation.
 
 use crate::now_ms;
-use rand::RngCore;
+use rand::Rng;
 use serde::{Deserialize, Serialize};
 use std::io::{Cursor, Read};
 
@@ -43,7 +43,7 @@ impl VaultHeader {
     #[must_use]
     pub fn generate_canary() -> String {
         let mut canary_bytes = [0u8; CANARY_LEN];
-        rand::rngs::OsRng.fill_bytes(&mut canary_bytes);
+        rand::rng().fill_bytes(&mut canary_bytes);
         format!("multitop-vault-canary-{}", hex::encode(&canary_bytes[..16]))
     }
 

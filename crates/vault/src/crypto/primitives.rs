@@ -1,12 +1,9 @@
 //! The primitives themselves: encryption, signing, and password wrapping.
 
-use aes_gcm::aead::generic_array::GenericArray;
-use aes_gcm::{
-    aead::{Aead, AeadCore, KeyInit, OsRng},
-    Aes256Gcm,
-};
+use aes_gcm::aead::Aead;
+use aes_gcm::{Aes256Gcm, KeyInit};
 use ed25519_dalek::{Signature, Signer, Verifier, VerifyingKey};
-use rand::{thread_rng, RngCore};
+use rand::{rng, Rng};
 use zeroize::Zeroize;
 
 use super::{Argon2Params, Ed25519PublicKey, Ed25519Signature, VaultKey, KEY_LEN, NONCE_LEN};
@@ -18,7 +15,7 @@ const GCM_TAG_LEN: usize = 16;
 #[must_use]
 pub fn generate_salt() -> [u8; 32] {
     let mut salt = [0u8; KEY_LEN];
-    thread_rng().fill_bytes(&mut salt);
+    rng().fill_bytes(&mut salt);
     salt
 }
 
@@ -48,14 +45,14 @@ pub fn encrypt_vault(
     plaintext: &[u8],
 ) -> Result<(Vec<u8>, [u8; 12]), crate::VaultError> {
     let mut enc_key = key.encryption_key();
-    let key_arr = GenericArray::clone_from_slice(&enc_key);
-    let cipher = Aes256Gcm::new(&key_arr);
-    let nonce = Aes256Gcm::generate_nonce(&mut OsRng);
+    let cipher = Aes256Gcm::new((&enc_key).into());
+    let mut nonce = [0u8; NONCE_LEN];
+    rng().fill_bytes(&mut nonce);
     let ciphertext = cipher
-        .encrypt(&nonce, plaintext)
+        .encrypt(&nonce.into(), plaintext)
         .map_err(|_| crate::VaultError::EncryptionFailed)?;
     enc_key.zeroize();
-    Ok((ciphertext, nonce.into()))
+    Ok((ciphertext, nonce))
 }
 
 /// Decrypt vault contents with AES-256-GCM (uses HKDF-derived encryption sub-key).
@@ -68,11 +65,9 @@ pub fn decrypt_vault(
     ciphertext: &[u8],
 ) -> Result<Vec<u8>, crate::VaultError> {
     let mut enc_key = key.encryption_key();
-    let key_arr = GenericArray::clone_from_slice(&enc_key);
-    let cipher = Aes256Gcm::new(&key_arr);
-    let nonce_arr = GenericArray::clone_from_slice(nonce);
+    let cipher = Aes256Gcm::new((&enc_key).into());
     let plaintext = cipher
-        .decrypt(&nonce_arr, ciphertext)
+        .decrypt(nonce.into(), ciphertext)
         .map_err(|_| crate::VaultError::DecryptionFailed)?;
     enc_key.zeroize();
     Ok(plaintext)
@@ -124,11 +119,11 @@ pub fn wrap_argon2id(
         .map_err(|e| crate::VaultError::Argon2Error(e.to_string()))?;
 
     // Encrypt the RAW vault key (not the derived sub-key) with wrapping_key using AES-256-GCM
-    let key_arr = GenericArray::clone_from_slice(&wrapping_key);
-    let cipher = Aes256Gcm::new(&key_arr);
-    let nonce = Aes256Gcm::generate_nonce(&mut OsRng);
+    let cipher = Aes256Gcm::new((&wrapping_key).into());
+    let mut nonce = [0u8; NONCE_LEN];
+    rng().fill_bytes(&mut nonce);
     let ciphertext = cipher
-        .encrypt(&nonce, key.as_bytes() as &[u8])
+        .encrypt(&nonce.into(), key.as_bytes() as &[u8])
         .map_err(|_| crate::VaultError::EncryptionFailed)?;
 
     // Zeroize the wrapping key
@@ -165,12 +160,14 @@ pub fn unwrap_argon2id(
         .hash_password_into(password.as_bytes(), salt, &mut wrapping_key)
         .map_err(|e| crate::VaultError::Argon2Error(e.to_string()))?;
 
-    let nonce_arr = GenericArray::clone_from_slice(&wrapped[..NONCE_LEN]);
-    let ciphertext = &wrapped[NONCE_LEN..];
-    let key_arr = GenericArray::clone_from_slice(&wrapping_key);
-    let cipher = Aes256Gcm::new(&key_arr);
+    let cipher = Aes256Gcm::new((&wrapping_key).into());
     let mut plaintext = cipher
-        .decrypt(&nonce_arr, ciphertext)
+        .decrypt(
+            (&wrapped[..NONCE_LEN])
+                .try_into()
+                .map_err(|_| crate::VaultError::InvalidWrapperData("bad nonce length".into()))?,
+            &wrapped[NONCE_LEN..],
+        )
         .map_err(|_| crate::VaultError::DecryptionFailed)?;
 
     // Zeroize the wrapping key

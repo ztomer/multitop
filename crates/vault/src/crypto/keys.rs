@@ -5,7 +5,7 @@
 
 use ed25519_dalek::{SigningKey, VerifyingKey};
 use hkdf::Hkdf;
-use rand::{thread_rng, RngCore};
+use rand::{rng, Rng};
 use sha2::Sha256;
 use zeroize::{Zeroize, ZeroizeOnDrop};
 
@@ -26,7 +26,7 @@ impl VaultKey {
     #[must_use]
     pub fn new() -> Self {
         let mut key = [0u8; KEY_LEN];
-        thread_rng().fill_bytes(&mut key);
+        rng().fill_bytes(&mut key);
         Self(key)
     }
 

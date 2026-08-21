@@ -10,11 +10,11 @@ workspace = true
 
 [dependencies]
 # Crypto
-aes-gcm = "0.10"
+aes-gcm = "0.11"
 argon2 = "0.5"
-ed25519-dalek = { version = "2.1", features = ["zeroize"] }
+ed25519-dalek = { version = "3.0", features = ["zeroize"] }
 hkdf = "0.12"
-rand = { version = "0.8", features = ["std"] }
+rand = { version = "0.10", features = ["std"] }
 secrecy = "0.10"
 sha2 = "0.10"
 zeroize = { version = "1.8", features = ["derive"] }
@@ -26,7 +26,7 @@ serde_bytes = "0.11"
 
 # System
 dirs = "5.0"
-thiserror = "1.0"
+thiserror = "2.0"
 tokio = { version = "1", features = ["macros", "rt-multi-thread", "time"] }
 rpassword = "7.0"
 hex = "0.4"
