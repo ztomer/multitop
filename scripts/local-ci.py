@@ -285,6 +285,23 @@ def check_fuzz() -> bool:
     `cargo fuzz` needs a nightly toolchain and the subcommand installed. Absent,
     this says so and is skipped: an unavailable tool is not a failing gate, but
     it must not be silently reported as a passing one either.
+
+    Invoked as `cargo +nightly fuzz` ON PURPOSE, and the sanitizer stays ON.
+
+    rust-toolchain.toml pins the workspace to stable, because nightly ICEs on
+    multitop-vault under clippy. Fuzzing is the one thing here that genuinely
+    needs nightly: `-Zsanitizer=address` is a nightly-only flag, so under stable
+    `cargo fuzz` dies with "1 nightly option were parsed". Stable for the
+    workspace, nightly named explicitly at the single call site that requires
+    it, rather than left to whatever `rustup default` happens to be.
+
+    DO NOT "simplify" this to `cargo fuzz -s none` on stable. That does build
+    (verified 2026-08-23, 48s, exit 0) and it is the wrong trade. Without
+    AddressSanitizer a fuzz run only catches panics and hangs; the memory errors
+    -- use-after-free, buffer overrun, uninitialised reads -- go undetected. The
+    crate being fuzzed is the VAULT: aes-gcm, argon2, ed25519-dalek, keychain
+    material. ASan is most of the reason to fuzz it at all, so a green fuzz gate
+    without it would be worth close to nothing while looking identical.
     """
     section("fuzz targets")
     targets = fuzz_targets()
@@ -292,7 +309,7 @@ def check_fuzz() -> bool:
         err("no fuzz targets found -- fuzz/fuzz_targets is empty")
         return False
     probe = subprocess.run(
-        ["cargo", "fuzz", "--version"],
+        ["cargo", "+nightly", "fuzz", "--version"],
         cwd=REPO,
         capture_output=True,
         text=True,
@@ -302,7 +319,7 @@ def check_fuzz() -> bool:
         warn("cargo-fuzz is not installed -- skipping (cargo install cargo-fuzz)")
         return True
     for target in targets:
-        if not run(f"build {target}", ["cargo", "fuzz", "build", target]):
+        if not run(f"build {target}", ["cargo", "+nightly", "fuzz", "build", target]):
             return False
     return True
 
