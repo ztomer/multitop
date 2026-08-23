@@ -1,0 +1,8 @@
+#!/usr/bin/env bash
+# Full local gate before anything leaves this machine.
+# GitHub Actions is unavailable on this account (ci.yml is renamed .disabled),
+# so scripts/local-ci.py IS the standard. pre-commit runs the fast subset; this
+# runs the whole thing, including the fuzz and benchmark gates CI covered.
+set -euo pipefail
+root="$(git rev-parse --show-toplevel)"
+exec python3 "$root/scripts/local-ci.py"

@@ -30,7 +30,24 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parent.parent
 
 HOOK = REPO / ".githooks" / "pre-commit"
-WORKFLOW = REPO / ".github" / "workflows" / "ci.yml"
+# ci.yml is renamed ci.yml.disabled when GitHub Actions is unavailable (no
+# credits on this account). The parity requirement does not go away when the
+# workflow stops running -- it is how the local gate keeps its shape, and it is
+# what tells you what to re-enable. Resolve either name; fail loudly if neither
+# is present, because a parity check that silently finds nothing to compare is
+# worse than no parity check.
+def _workflow() -> Path:
+    workflows = REPO / ".github" / "workflows"
+    for name in ("ci.yml", "ci.yml.disabled"):
+        candidate = workflows / name
+        if candidate.is_file():
+            return candidate
+    raise SystemExit(
+        f"check_gate_parity: no ci.yml or ci.yml.disabled under {workflows}"
+    )
+
+
+WORKFLOW = _workflow()
 LOCAL_CI = REPO / "scripts" / "local-ci.py"
 
 # This checker cannot sensibly require itself to be listed the same way by the

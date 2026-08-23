@@ -14,3 +14,6 @@ __pycache__/
 # require it, and CI has no sccache, so `cargo test` died before compiling
 # anything. See DEVELOPMENT.md.
 .cargo/config.toml
+
+# rustc internal-compiler-error dumps (crash reports, not source)
+rustc-ice-*.txt

@@ -1,0 +1,16 @@
+# Pin the toolchain so the local gate and CI compile the same code with the same
+# compiler.
+#
+# There was no pin here, so cargo used whatever `rustup default` happened to be.
+# On this machine that is nightly, and nightly (c656540d6, 2026-08-21) ICEs on
+# this workspace: "internal compiler error: unexpected rigid alias in layout_of
+# after normalization" on the async fns in multitop-vault (api::enclave,
+# api::init, fprintd). Clippy could not complete at all, so the gate was red for
+# a reason that had nothing to do with the code and would not reproduce on CI.
+#
+# ci.yml pinned stable in all three jobs (dtolnay/rust-toolchain@stable) and the
+# workspace is clean on stable. Nothing here needs nightly — there is not a
+# single #![feature(...)] in the tree.
+[toolchain]
+channel = "stable"
+components = ["rustfmt", "clippy", "llvm-tools-preview"]
