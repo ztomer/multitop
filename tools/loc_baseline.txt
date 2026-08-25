@@ -1,10 +1,15 @@
 # Production files already over the 500-line limit when the ratchet was
-# written. Shrink-only: `scripts/local-ci.py` fails if one of these grows,
-# and says so when one shrinks so the number here can come down. A file not
-# listed may not cross 500 at all.
+# written. Shrink-only: scripts/local-ci.py fails if one of these grows, and
+# the house ratchet says so when one vanishes below the cap so the number here
+# can come down. A file not listed may not cross 500 at all.
 #
 # Tests are held to the same 500-line cap by the gates_of_heck structural
 # gate (.gatesrc: GOH_MAX_LINES); every test file that was over the cap has
 # been split into a directory target.
 #
-# path lines
+# Consumed by gates_of_heck's checks/check_baseline_ratchet.py (via
+# scripts/local-ci.py). Format: "<lines> <path>" — VALUE FIRST; current values
+# are produced by local-ci.py as every crates/*/src file over the cap.
+#
+# lines path
+0 __under_cap_sentinel__

@@ -1,11 +1,16 @@
 #!/usr/bin/env bash
-# Coverage gate for the workspace.
+# Coverage gate for the workspace — delegating shim.
+#
+# The gate itself lives in gates_of_heck (gates/coverage_gate.sh --lang rust),
+# which every caller here already reaches through this one path: the pre-commit
+# hook, tools/repo_gates.sh, CI and scripts/local-ci.py. One definition of the
+# floor and its exclusions; none of them can drift weaker than another.
 #
 # 95% floor on LINE coverage, ignoring files that are inherently untestable in
 # CI: they take over the real terminal, talk to the OS credential store or the
 # Secure Enclave, spawn real SSH children, or run at build time rather than
-# under the suite. Those exclusions are structural — each one is named here
-# with its reason so the list cannot quietly grow.
+# under the suite. Those exclusions are structural — each one is named in the
+# regex below with its reason so the list cannot quietly grow.
 #
 # The rule for adding one: the file must be untestable *by construction*, not
 # merely untested. If a seam would make it testable, add the seam instead.
@@ -48,14 +53,19 @@ set -euo pipefail
 
 cd "$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
 
-# Single regex matching all inherently-untestable files.
-IGNORE="ssh\.rs|password_store\.rs|sparkline\.rs|main\.rs|entry\.rs|build\.rs|spawn\.rs|sys\.rs|secure_enclave\.rs|fprintd\.rs|enclave\.rs|tpm2\.rs"
+GOH="${GOH_DIR:-$HOME/Projects/gates_of_heck}"
 
-# Generate lcov artifact + fail if the floor is breached.
-cargo llvm-cov --workspace --all-features \
-    --ignore-filename-regex "$IGNORE" \
-    --lcov --output-path target/lcov.info
+"$GOH/gates/coverage_gate.sh" --lang rust --floor 95 \
+    --ignore 'ssh\.rs|password_store\.rs|sparkline\.rs|main\.rs|entry\.rs|build\.rs|spawn\.rs|sys\.rs|secure_enclave\.rs|fprintd\.rs|enclave\.rs|tpm2\.rs'
 
-cargo llvm-cov --workspace --all-features \
-    --ignore-filename-regex "$IGNORE" \
-    --fail-under-lines 95
+# CI uploads target/lcov.info as a workflow artifact (if-no-files-found:
+# error). The central gate writes per-target exports under
+# target/llvm-cov/lcov-parts/; concatenate them so that contract keeps
+# holding without re-running anything.
+parts=(target/llvm-cov/lcov-parts/part-*.info)
+if [ -e "${parts[0]}" ]; then
+    : >target/lcov.info
+    for p in "${parts[@]}"; do
+        cat "$p" >>target/lcov.info
+    done
+fi
