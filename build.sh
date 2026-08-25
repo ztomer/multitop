@@ -44,6 +44,12 @@ TARGETS="x86_64-unknown-linux-musl aarch64-unknown-linux-musl"
 [ -d "$HOME/.cargo/bin" ] && PATH="$HOME/.cargo/bin:$PATH"
 export PATH
 
+# Resolve cargo's target directory instead of hardcoding "target": a shared
+# CARGO_TARGET_DIR in ~/.cargo/config.toml (machine-wide sccache setup) puts
+# artifacts elsewhere, and any hardcoded path silently misses them.
+TARGET_DIR="$(cargo metadata --format-version 1 2>/dev/null | jq -r .target_directory)"
+[ -n "$TARGET_DIR" ] && [ "$TARGET_DIR" != null ] || TARGET_DIR="$PWD/target"
+
 detect_backend() {
     if command -v cargo-zigbuild >/dev/null 2>&1 && command -v rustup >/dev/null 2>&1; then
         echo zigbuild
@@ -98,9 +104,12 @@ build_agent_docker() {
 }
 
 agent_path() {
-    local target="$1" root="target"
-    [ "$BACKEND" = docker ] && root="target/docker"
-    echo "$PWD/$root/$target/$PROFILE/multitop-agent"
+    local target="$1" root="$TARGET_DIR"
+    # The docker backend sets its own CARGO_TARGET_DIR inside the container,
+    # so its artifacts land under the project-local target/docker regardless
+    # of the host's shared target dir.
+    [ "$BACKEND" = docker ] && root="$PWD/target/docker"
+    echo "$root/$target/$PROFILE/multitop-agent"
 }
 
 for target in $TARGETS; do
@@ -118,6 +127,9 @@ export MULTITOP_AGENT_AARCH64="$(agent_path aarch64-unknown-linux-musl)"
 info "building multitop for the host"
 cargo build -p multitop $CARGO_PROFILE_FLAG
 
-BIN="target/$PROFILE/multitop"
+BIN="$TARGET_DIR/$PROFILE/multitop"
 ok "built $BIN ($(($(wc -c < "$BIN" | tr -d ' ') / 1024)) KiB)"
-printf '\n%sRun it:%s  %s\n' "$BOLD" "$RST" "./$BIN"
+# Print a path that actually runs from the repo: relative when the binary is
+# inside it, bare absolute otherwise ("./$abs" would point at ./Users/...).
+if [ "$BIN" = "${BIN#"$PWD"/}" ]; then RUN_BIN="$BIN"; else RUN_BIN="./${BIN#"$PWD"/}"; fi
+printf '\n%sRun it:%s  %s\n' "$BOLD" "$RST" "$RUN_BIN"
