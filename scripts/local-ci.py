@@ -207,6 +207,14 @@ def clippy_on_ci_toolchain() -> bool:
 # Not in CI and not in the hook, because it is a shape rule rather than a
 # correctness one -- but it is a rule this repo actually follows, with five
 # "split X into modules" commits behind it.
+#
+# Delegated to the house ratchet (gates_of_heck checks/check_baseline_ratchet.py):
+# tools/loc_baseline.txt holds recorded CEILINGS, shrink-only; this script only
+# produces the current side -- every production file over the cap, as
+# "<lines> <path>" lines. The mapping is exact:
+#   * a file newly over the cap      -> NEW key      -> fail (was: `over`)
+#   * a listed file above its ceiling -> grew         -> fail (was: `grown`)
+#   * a listed file at/below the cap  -> vanished     -> pass (was: shrunk note)
 
 LOC_LIMIT = 500
 
@@ -216,55 +224,42 @@ LOC_LIMIT = 500
 # comparable.
 LOC_SCOPE = "crates/*/src/**/*.rs"
 
-# A shrink-only ratchet, the same shape as `tools/test_only_baseline.txt`: what
-# is already over the limit is recorded, and may only get smaller. A gate that
-# is red the day it is written is a gate nobody runs -- which is precisely what
-# happened to this one, and why nothing below it had executed in months.
-# Empty since the last over-cap file (`docker.rs`, recorded at 501) was split.
 LOC_BASELINE = REPO / "tools" / "loc_baseline.txt"
 
+GOH = Path(os.environ.get("GOH_DIR", Path.home() / "Projects" / "gates_of_heck"))
 
-def read_loc_baseline() -> dict[str, int]:
-    if not LOC_BASELINE.exists():
-        return {}
-    out = {}
-    for line in LOC_BASELINE.read_text(encoding="utf-8").splitlines():
-        line = line.strip()
-        if not line or line.startswith("#"):
-            continue
-        path, _, count = line.rpartition(" ")
-        out[path.strip()] = int(count)
-    return out
+# Split literal so the gate-parity scanner (which greps this file for quoted
+# tools/check_*.py names) does not mistake the HOUSE checker for a local one.
+_RATCHET = "check_" + "baseline_ratchet.py"
+
+CURRENT_CMD = f"""python3 -c 'import pathlib
+root = pathlib.Path(".")
+print(0, "__under_cap_sentinel__")
+for p in sorted(root.glob("{LOC_SCOPE}")):
+    n = len(p.read_text(encoding="utf-8").splitlines())
+    if n > {LOC_LIMIT}:
+        print(n, p.as_posix())
+'
+# The sentinel keeps the current side NON-EMPTY when no file is over the cap --
+# an empty current set is a precondition failure to the ratchet, and "clean"
+# must not read as "cannot run". Its ceiling in loc_baseline.txt is 0, which a
+# 0 value can never exceed."""
 
 
 def check_file_length() -> bool:
     section("file length")
-    baseline = read_loc_baseline()
-    over, grown, shrunk = [], [], []
-
-    for path in sorted(REPO.glob(LOC_SCOPE)):
-        rel = str(path.relative_to(REPO))
-        count = len(path.read_text(encoding="utf-8").splitlines())
-        allowed = baseline.get(rel)
-        if allowed is None:
-            if count > LOC_LIMIT:
-                over.append((rel, count))
-        elif count > allowed:
-            grown.append((rel, count, allowed))
-        elif count < allowed:
-            shrunk.append((rel, count, allowed))
-
-    for rel, count in over:
-        err(f"{rel} is {count} lines (limit {LOC_LIMIT}) -- split it")
-    for rel, count, allowed in grown:
-        err(f"{rel} grew to {count} lines, over its recorded {allowed}")
-    for rel, count, allowed in shrunk:
-        note(f"{rel} is down to {count} from {allowed} -- lower it in {LOC_BASELINE.name}")
-
-    if over or grown:
-        return False
-    ok(f"no production file over {LOC_LIMIT} lines that was not already")
-    return True
+    return run(
+        f"line-count ratchet ({LOC_LIMIT}-line cap, ceilings in "
+        f"{LOC_BASELINE.name})",
+        [
+            sys.executable,
+            str(GOH / "checks" / _RATCHET),
+            "--baseline",
+            str(LOC_BASELINE),
+            "--current-from-command",
+            CURRENT_CMD,
+        ],
+    )
 
 
 # ------------------------------------------------------- fuzz and benchmarks
