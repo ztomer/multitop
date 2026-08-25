@@ -210,16 +210,17 @@ def clippy_on_ci_toolchain() -> bool:
 
 LOC_LIMIT = 500
 
-# Production source only. A test file is a list of independent cases, and
-# splitting one because it crossed a line count moves cases between files
-# without making any of them clearer; `coverage_e2e.rs` is 2332 lines on
-# purpose.
+# Production source only. Test files are held to the same cap by the
+# gates_of_heck structural gate (.gatesrc: GOH_MAX_LINES), which runs whole-tree
+# on every push; this sweep stays src-scoped so its ratchet and CI's stay
+# comparable.
 LOC_SCOPE = "crates/*/src/**/*.rs"
 
 # A shrink-only ratchet, the same shape as `tools/test_only_baseline.txt`: what
 # is already over the limit is recorded, and may only get smaller. A gate that
 # is red the day it is written is a gate nobody runs -- which is precisely what
 # happened to this one, and why nothing below it had executed in months.
+# Empty since the last over-cap file (`docker.rs`, recorded at 501) was split.
 LOC_BASELINE = REPO / "tools" / "loc_baseline.txt"
 
 
