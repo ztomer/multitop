@@ -13,6 +13,7 @@ pub mod cpufreq;
 pub mod docker;
 pub mod docker_cli;
 pub mod docker_render;
+pub mod docker_transport;
 pub mod fetch;
 pub mod fmt;
 pub mod monitor;
