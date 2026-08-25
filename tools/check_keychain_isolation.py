@@ -181,17 +181,49 @@ def calls_any(names: set[str]):
 
 
 def sweep(root: Path, directory: str, reaches, diverts) -> list[tuple[Path, str]]:
-    """Every test in `directory` that reaches the store without diverting it."""
+    """Every test in `directory` that reaches the store without diverting it.
+
+    Helpers are resolved across the whole cargo TEST TARGET, not the single
+    file. A directory-style target (`tests/foo/main.rs` plus submodule files)
+    defines its shared diversion helpers once in `main.rs`, while the tests
+    calling them live in the sibling modules -- scoping this per file made the
+    checker blind to exactly the layout cargo recommends for large suites, and
+    it lit up on every test of such a target even though each one diverts.
+
+    The grouping is one cargo test binary: `tests/foo.rs` stands alone (a
+    helper defined there cannot protect a test in `tests/bar.rs`, any more
+    than it did before), and everything under `tests/foo/` groups together.
+    The per-test rule is unchanged -- each reaching test body must itself
+    call a diverter, directly or one hop through a helper.
+    """
     found = []
     base = root / directory
     if not base.is_dir():
         return found
-    for path in sorted(base.rglob("*.rs")):
-        text = path.read_text(encoding="utf-8", errors="replace")
+
+    def target_key(path: Path) -> str:
+        return path.relative_to(base).parts[0].removesuffix(".rs")
+
+    paths = sorted(base.rglob("*.rs"))
+    texts = {p: p.read_text(encoding="utf-8", errors="replace") for p in paths}
+
+    diverter_helpers: dict[str, set[str]] = {}
+    reacher_helpers: dict[str, set[str]] = {}
+    for path, text in texts.items():
+        key = target_key(path)
+        diverter_helpers.setdefault(key, set()).update(
+            helpers_matching(text, diverts)
+        )
+        reacher_helpers.setdefault(key, set()).update(
+            helpers_matching(text, reaches)
+        )
+
+    for path, text in texts.items():
         if not reaches.search(text):
             continue
-        calls_diverter = calls_any(helpers_matching(text, diverts))
-        calls_reacher = calls_any(helpers_matching(text, reaches))
+        key = target_key(path)
+        calls_diverter = calls_any(diverter_helpers.get(key, set()))
+        calls_reacher = calls_any(reacher_helpers.get(key, set()))
         for name, body in test_bodies(text):
             # Only a test that can actually reach the store owes a diversion.
             # This used to be decided per FILE -- one integration test made
@@ -270,6 +302,27 @@ def self_test() -> int:
             "    let a = App::new(vec![]);\n}\n"
         )
 
+        # A directory-style target: helpers live in main.rs, tests in sibling
+        # modules. A test calling a helper defined in its own target's
+        # main.rs is diverted; one that forgets is still an offender.
+        s = d / "split"
+        s.mkdir()
+        (s / "main.rs").write_text(
+            "mod m;\n"
+            "fn setup() {\n    password_store::enable_mock_store();\n}\n"
+        )
+        (s / "m.rs").write_text(
+            "use super::*;\n"
+            "#[test]\nfn via_main_helper() {\n    let _g = setup();\n"
+            "    let a = App::new(vec![]);\n}\n"
+            "#[test]\nfn forgot_in_split() {\n    let a = App::new(vec![]);\n}\n"
+        )
+        # ...and a helper from ANOTHER target protects nobody outside it.
+        (d / "other_target.rs").write_text(
+            "#[test]\nfn cannot_borrow_anothers_helper() {\n    let _g = setup();\n"
+            "    let a = App::new(vec![]);\n}\n"
+        )
+
         # The src sweep, which this check shipped without: a unit test inside
         # `crates/vault/src` that builds a vault with the keychain flag left on
         # reaches the real OS keychain, and nothing was looking there.
@@ -294,6 +347,8 @@ def self_test() -> int:
             ("api.rs", "reaches_the_real_keychain"),
             ("mixed.rs", "reaches"),
             ("reaching_helper.rs", "via_builder"),
+            ("m.rs", "forgot_in_split"),
+            ("other_target.rs", "cannot_borrow_anothers_helper"),
         }
         if got != want:
             print(f"self-test FAILED:\n  expected {sorted(want)}\n  got      {sorted(got)}")
