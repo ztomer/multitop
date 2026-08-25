@@ -1,4 +1,24 @@
 #!/usr/bin/env bash
+# Pre-commit hook — two halves, both mandatory:
+#
+#   1. gates_of_heck structural gate (staged scope): emoji, conflict markers,
+#      file-length cap. Delegates to the shared checkout, vendors nothing.
+#   2. this repo's own commit gates: the six tools/check_*.py checkers (each
+#      behind its self-test), cargo fmt, clippy -D warnings on all targets and
+#      features, and the 95% coverage floor.
+#
+# The second half is byte-for-byte what this repo ran before the house wiring
+# was installed; check_gate_parity.py requires its checker list to stay here.
+
+set -euo pipefail
+
+repo_root="$(git rev-parse --show-toplevel)"
+cd "$repo_root"
+
+GOH="${GOH_DIR:-${GOH:-$HOME/Projects/gates_of_heck}}"
+"$GOH/gates/structural.sh" --staged
+
+#!/usr/bin/env bash
 # Structural commit gates — these run on every commit, so nobody has to
 # "remember to run the check". CI enforces the same three, so bypassing with
 # --no-verify only defers the failure.

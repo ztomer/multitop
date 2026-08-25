@@ -3,9 +3,8 @@
 # and says so when one shrinks so the number here can come down. A file not
 # listed may not cross 500 at all.
 #
-# Tests are out of scope on purpose -- a test file is a list of independent
-# cases, and splitting one because it crossed a line count moves cases
-# between files without making any of them clearer.
+# Tests are held to the same 500-line cap by the gates_of_heck structural
+# gate (.gatesrc: GOH_MAX_LINES); every test file that was over the cap has
+# been split into a directory target.
 #
 # path lines
-crates/agent/src/docker.rs 501

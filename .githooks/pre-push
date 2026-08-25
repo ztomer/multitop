@@ -1,8 +1,15 @@
 #!/usr/bin/env bash
 # Full local gate before anything leaves this machine.
-# GitHub Actions is unavailable on this account (ci.yml is renamed .disabled),
-# so scripts/local-ci.py IS the standard. pre-commit runs the fast subset; this
-# runs the whole thing, including the fuzz and benchmark gates CI covered.
+#
+#   1. tools/gate.sh --full — the house layers: whole-tree structural checks,
+#      the Rust fmt/clippy gates, this repo's own checkers and coverage floor.
+#   2. scripts/local-ci.py — everything above it plus what only it covers:
+#      the fuzz targets (nightly, with the sanitizer) and the benchmark
+#      thresholds.
 set -euo pipefail
 root="$(git rev-parse --show-toplevel)"
+
+GOH="${GOH_DIR:-${GOH:-$HOME/Projects/gates_of_heck}}"
+"$root/tools/gate.sh" --full
+
 exec python3 "$root/scripts/local-ci.py"
