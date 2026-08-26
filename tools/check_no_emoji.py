@@ -80,18 +80,20 @@ def is_forbidden(ch: str) -> bool:
 
 
 def tracked_files() -> list[str]:
+    # `-z` + NUL splitting: without it git QUOTES paths holding non-ASCII
+    # ("caf\303\251.md"), names no consumer can resolve -- silently unpoliced.
     out = subprocess.run(
-        ["git", "ls-files"], capture_output=True, text=True, check=True
+        ["git", "ls-files", "-z"], capture_output=True, check=True
     ).stdout
-    return [p for p in out.splitlines() if p]
+    return [p.decode("utf-8", "replace") for p in out.split(b"\0") if p]
 
 
 def staged_files() -> list[str]:
     out = subprocess.run(
-        ["git", "diff", "--cached", "--name-only", "--diff-filter=ACMR"],
-        capture_output=True, text=True, check=True,
+        ["git", "diff", "--cached", "--name-only", "-z", "--diff-filter=ACMR"],
+        capture_output=True, check=True,
     ).stdout
-    return [p for p in out.splitlines() if p]
+    return [p.decode("utf-8", "replace") for p in out.split(b"\0") if p]
 
 
 def should_skip(path: str) -> bool:
