@@ -270,6 +270,72 @@ fn handle_key_slash_starts_filter() {
     assert!(a.is_filtering());
 }
 
+#[test]
+fn handle_key_esc_from_secondary_views_returns_to_stats() {
+    let _g = isolate_keychain();
+    let mut a = App::new(vec![test_server("h1")]);
+    let (tx, _rx) = tokio::sync::mpsc::channel(8);
+    let (_dims_tx, dims_rx) = watch::channel((80u16, 24u16));
+    let mut tasks = Tasks::new(1);
+
+    // Enter Upgrade view
+    a.enter_upgrade_view();
+    assert!(a.in_upgrade());
+
+    // Esc returns to Monitor/Stats view instead of quitting
+    handle_key(
+        KeyEvent::new_with_kind(KeyCode::Esc, KeyModifiers::NONE, KeyEventKind::Press),
+        &mut a,
+        (80, 24),
+        Arc::new(dims_rx.clone()),
+        &tx,
+        &mut tasks,
+    );
+    assert!(!a.in_upgrade());
+    assert!(!a.should_quit());
+    assert_eq!(a.panels[0].mode, Mode::Monitor);
+
+    // Enter Fetch view
+    a.toggle_fetch((80, 24));
+    assert!(a.in_fetch());
+
+    // Esc returns to Monitor
+    handle_key(
+        KeyEvent::new_with_kind(KeyCode::Esc, KeyModifiers::NONE, KeyEventKind::Press),
+        &mut a,
+        (80, 24),
+        Arc::new(dims_rx),
+        &tx,
+        &mut tasks,
+    );
+    assert!(!a.in_fetch());
+    assert_eq!(a.panels[0].mode, Mode::Monitor);
+}
+
+#[test]
+fn handle_key_enter_from_completed_upgrade_returns_to_stats() {
+    let _g = isolate_keychain();
+    let mut a = App::new(vec![test_server("h1")]);
+    let (tx, _rx) = tokio::sync::mpsc::channel(8);
+    let (_dims_tx, dims_rx) = watch::channel((80u16, 24u16));
+    let mut tasks = Tasks::new(1);
+
+    a.enter_upgrade_view();
+    assert!(a.in_upgrade());
+    assert!(!a.upgrades_in_flight());
+
+    handle_key(
+        KeyEvent::new_with_kind(KeyCode::Enter, KeyModifiers::NONE, KeyEventKind::Press),
+        &mut a,
+        (80, 24),
+        Arc::new(dims_rx),
+        &tx,
+        &mut tasks,
+    );
+    assert!(!a.in_upgrade());
+    assert_eq!(a.panels[0].mode, Mode::Monitor);
+}
+
 // ===========================================================================
 // run.rs — panel_at_pos, size_change, rerender_all, replace_panels
 // ===========================================================================

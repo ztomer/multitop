@@ -109,7 +109,6 @@ impl App {
             let gen = self.bump(i);
             let p = &mut self.panels[i];
             p.mode = Mode::Upgrade;
-            p.ensure_sudo_password();
             if p.server.upgrade_cmd.is_some() {
                 p.upgrade_state = crate::panel::UpgradeState::STARTED;
                 p.upgrade_gen = gen;

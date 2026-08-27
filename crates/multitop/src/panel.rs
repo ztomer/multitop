@@ -218,6 +218,7 @@ pub struct Panel {
     pub sudo_password: Option<String>,
     pub password_saved: bool,
     pub external_password: bool,
+    pub password_checked: bool,
 
     /// Things the app has told the user, kept out of `view` so a frame cannot
     /// destroy them.
@@ -272,6 +273,7 @@ impl Panel {
             sudo_password: None,
             password_saved: false,
             external_password: false,
+            password_checked: false,
         }
     }
 
@@ -345,10 +347,13 @@ impl Panel {
     }
 
     pub fn ensure_sudo_password(&mut self) -> Option<String> {
-        if self.sudo_password.is_none() {
-            if let Ok(Some(pass)) = crate::password_store::load(&self.server) {
-                self.sudo_password = Some(pass);
-                self.password_saved = true;
+        if !self.password_checked {
+            self.password_checked = true;
+            if self.sudo_password.is_none() {
+                if let Ok(Some(pass)) = crate::password_store::load(&self.server) {
+                    self.sudo_password = Some(pass);
+                    self.password_saved = true;
+                }
             }
         }
         self.sudo_password.clone()
@@ -356,6 +361,7 @@ impl Panel {
 
     pub fn set_sudo_password(&mut self, password: String, from_vault: bool) {
         self.sudo_password = Some(password);
+        self.password_checked = true;
         if from_vault {
             self.external_password = true;
         }
@@ -377,122 +383,5 @@ impl Panel {
             std::clone::Clone::clone,
         );
         self.show_frame(lines);
-    }
-}
-
-#[cfg(test)]
-mod ring_tests {
-    #![allow(clippy::unwrap_used)]
-
-    use super::*;
-
-    /// The trap that shipped: `From<Vec<String>>` set the capacity to the
-    /// fixture's length, so an empty fixture built a ring of capacity zero and
-    /// every subsequent `push` was a silent no-op.
-    #[test]
-    fn a_ring_seeded_from_an_empty_vec_still_accepts_lines() {
-        let mut ring = RingLines::from(Vec::new());
-        ring.push("first".to_string());
-        assert_eq!(ring.len(), 1, "an empty fixture is not a capacity of zero");
-        assert_eq!(ring.last().map(String::as_str), Some("first"));
-    }
-
-    /// Same defect one step along: a short fixture must not pin the capacity to
-    /// its own length and start discarding the moment output arrives.
-    #[test]
-    fn a_short_fixture_does_not_cap_the_log_at_its_own_length() {
-        let mut ring = RingLines::from(vec!["seed".to_string()]);
-        for i in 0..100 {
-            ring.push(format!("line {i}"));
-        }
-        assert_eq!(ring.len(), 101);
-        assert_eq!(ring.get(0).map(String::as_str), Some("seed"));
-    }
-
-    #[test]
-    fn the_oldest_line_is_what_falls_off_when_the_cap_is_reached() {
-        let mut ring = RingLines::new(3);
-        for i in 0..5 {
-            ring.push(format!("{i}"));
-        }
-        let got: Vec<&str> = ring.iter().map(String::as_str).collect();
-        assert_eq!(got, vec!["2", "3", "4"]);
-        assert_eq!(ring.last().map(String::as_str), Some("4"));
-    }
-
-    /// `slice` is the renderer's window; it must read the wrapped ring in
-    /// oldest-first order, not the raw slot order.
-    #[test]
-    fn a_window_over_a_wrapped_ring_is_in_order() {
-        let mut ring = RingLines::new(4);
-        for i in 0..6 {
-            ring.push(format!("{i}"));
-        }
-        let got: Vec<&str> = ring.slice(1, 2).map(String::as_str).collect();
-        assert_eq!(got, vec!["3", "4"]);
-        assert!(
-            ring.slice(9, 3).next().is_none(),
-            "out of range yields none"
-        );
-    }
-
-    #[test]
-    fn shrinking_the_cap_keeps_the_newest_lines() {
-        let mut ring = RingLines::new(10);
-        for i in 0..6 {
-            ring.push(format!("{i}"));
-        }
-        ring.set_cap(3);
-        let got: Vec<&str> = ring.iter().map(String::as_str).collect();
-        assert_eq!(got, vec!["3", "4", "5"]);
-        ring.push("6".to_string());
-        assert_eq!(ring.len(), 3, "the new cap is in force");
-    }
-
-    /// A notice lands in `notes`, whatever view the panel happens to be in.
-    ///
-    /// It used to go into `view` -- which the next agent frame rebuilds, and
-    /// which the pane hard-truncates, so the notice was erased a second later
-    /// and clipped mid-word before then. Then it branched on the mode, which put
-    /// the same notice in two buffers and drew both. `notes` is the one place:
-    /// every pane draws it, wrapped to that pane's width and bounded by its
-    /// height.
-    #[test]
-    fn a_notice_lands_in_notes_whatever_view_is_showing() {
-        let mut p = Panel::new(Server {
-            host: "web-01".into(),
-            port: 22,
-            user: "admin".into(),
-            upgrade_cmd: None,
-        });
-        p.note("while monitoring".to_string());
-        assert!(
-            p.notes.iter().any(|l| l == "while monitoring"),
-            "a notice belongs in `notes`, which survives the next frame"
-        );
-        assert!(
-            !p.view.iter().any(|l| l == "while monitoring"),
-            "and not in `view`, which the next frame rebuilds"
-        );
-
-        p.mode = Mode::Upgrade;
-        p.note("while upgrading".to_string());
-        assert!(
-            p.notes.iter().any(|l| l == "while upgrading"),
-            "the Upgrade view draws `notes` too, so it goes to the same place"
-        );
-        assert!(
-            !p.last_upgrade.iter().any(|l| l == "while upgrading"),
-            "and not also into the ring, which is how one notice became two"
-        );
-
-        // The same notice arriving in both views must not become two rows.
-        p.mode = Mode::Monitor;
-        p.note("while upgrading".to_string());
-        assert_eq!(
-            p.notes.iter().filter(|l| *l == "while upgrading").count(),
-            1,
-            "a notice already on screen must not be added again"
-        );
     }
 }

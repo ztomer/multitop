@@ -349,4 +349,20 @@ mod passwords_tests {
         assert_eq!(manager.pending_delete, None, "nothing to confirm");
         assert!(manager.notice.as_ref().unwrap().contains("Cannot remove"));
     }
+
+    #[test]
+    fn ensure_sudo_password_caches_and_does_not_repeat_lookups() {
+        let mut panel = crate::panel::Panel::new(test_server("host1"));
+        assert!(!panel.password_checked);
+
+        // First call checks store and marks password_checked = true
+        let pass1 = panel.ensure_sudo_password();
+        assert_eq!(pass1, None);
+        assert!(panel.password_checked);
+
+        // Subsequent calls return immediately from cache
+        let pass2 = panel.ensure_sudo_password();
+        assert_eq!(pass2, None);
+        assert!(panel.password_checked);
+    }
 }

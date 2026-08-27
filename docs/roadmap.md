@@ -52,6 +52,7 @@ line of detection.
 | The graph view's CPU heading was invisible, drawn onto the row the banner overwrites | user | A placeholder first line, like every other renderer emits |
 | CI had been red on every run for days -- an Ubuntu runner with no `libdbus-1-dev`, so every cargo step died in a build script before compiling any of this project | user | The system library installed by a composite action every job uses; `check_gate_parity.py` so the three gate lists cannot drift again |
 | `/` could only find a host by a process near the top of its table, because the agent truncates that table to what fits the pane -- and filtering makes panes bigger, so the same query answered differently a second later | user | The snapshot carries every distinct process name; the table stays capped |
+| Esc/Enter in completed upgrade or secondary views quit rather than returning to monitor | user | `KeyCode::Esc` from views and `Enter` from completed upgrade route to `switch_stats` |
 | Four defects in one five-change round (below) | adversarial review | see the table under "The streak is broken" |
 
 ### The streak is broken, and that is the point

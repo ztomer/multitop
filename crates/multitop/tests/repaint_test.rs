@@ -150,6 +150,43 @@ fn a_sequence_this_model_does_not_know_is_left_in_the_text() {
     assert_eq!(paint.back, 0);
 }
 
+#[test]
+fn cursor_previous_line_moves_cursor_up() {
+    let mut p = Painter::new();
+    p.feed("line 1").unwrap();
+    p.feed("line 2").unwrap();
+
+    let first = p.feed("\u{1b}[2Fline 1 updated").unwrap();
+    assert_eq!(first.text, "line 1 updated");
+    assert_eq!(first.back, 2);
+
+    let second = p.feed("line 2 updated").unwrap();
+    assert_eq!(second.text, "line 2 updated");
+    assert_eq!(second.back, 1);
+}
+
+#[test]
+fn sgr_and_cr_preceding_cursor_up_does_not_block_parsing() {
+    let mut p = Painter::new();
+    p.feed("pulling layer 1").unwrap();
+    p.feed("pulling layer 2").unwrap();
+
+    let paint = p
+        .feed("\r\u{1b}[0m\u{1b}[2A\u{1b}[2Kextracting layer 1")
+        .unwrap();
+    assert_eq!(paint.text, "\u{1b}[0mextracting layer 1");
+    assert_eq!(paint.back, 2);
+}
+
+#[test]
+fn private_modes_like_cursor_hide_are_consumed() {
+    let mut p = Painter::new();
+    p.feed("line 1").unwrap();
+    let paint = p.feed("\u{1b}[?25l\u{1b}[1Aline 1 overwritten").unwrap();
+    assert_eq!(paint.text, "line 1 overwritten");
+    assert_eq!(paint.back, 1);
+}
+
 // ------------------------------------------------------------------- the ring
 
 #[test]

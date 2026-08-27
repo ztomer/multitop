@@ -66,6 +66,7 @@ impl App {
                 panel.sudo_password.clone_from(&old.sudo_password);
                 panel.password_saved = old.password_saved;
                 panel.external_password = old.external_password;
+                panel.password_checked = old.password_checked;
             }
         }
         let count = panels.len();

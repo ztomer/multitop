@@ -118,7 +118,7 @@ impl Painter {
 
         // The last state a carriage return left the line in, as before: the
         // two mechanisms compose, because a tool may do both.
-        let text = painted_states(rest).next_back().unwrap_or("");
+        let text = painted_states(&rest).next_back().unwrap_or("");
         let back = self.up;
 
         // Nothing to draw. The movement has already been recorded, so the next
@@ -149,29 +149,65 @@ impl Painter {
     ///
     /// Returns how far the cursor moved up, how far down, how many rows below
     /// were erased, and the text that is left.
-    fn consume_controls(raw: &str) -> (usize, usize, usize, &str) {
+    fn consume_controls(raw: &str) -> (usize, usize, usize, String) {
         let (mut up, mut down, mut erase) = (0usize, 0usize, 0usize);
         let mut rest = raw;
-        while let Some(after_esc) = rest.strip_prefix("\u{1b}[") {
-            let digits: String = after_esc.chars().take_while(char::is_ascii_digit).collect();
-            let Some(final_byte) = after_esc[digits.len()..].chars().next() else {
-                break;
-            };
-            // A missing count means one, which is what every terminal does and
-            // what `ESC[A` from a shell prompt relies on.
-            let n = digits.parse::<usize>().unwrap_or(1).max(1);
-            match final_byte {
-                'A' => up = up.saturating_add(n),
-                'B' => down = down.saturating_add(n),
-                // Erasing a line is a no-op here: the write that follows
-                // replaces the whole row anyway.
-                'K' => {}
-                // `ESC[J` with no count erases from the cursor down.
-                'J' if digits.is_empty() || digits == "0" => erase = erase.max(1),
-                _ => break,
+        let mut text_prefix = String::new();
+
+        while !rest.is_empty() {
+            if let Some(after_cr) = rest.strip_prefix('\r') {
+                rest = after_cr;
+                continue;
             }
-            rest = &after_esc[digits.len() + final_byte.len_utf8()..];
+            if let Some(after_esc) = rest.strip_prefix("\u{1b}[") {
+                // Parse CSI parameter bytes (0x30..=0x3F: digits, ';', '?', etc.)
+                let param_len = after_esc
+                    .chars()
+                    .take_while(|c| ('\x30'..='\x3F').contains(c))
+                    .map(char::len_utf8)
+                    .sum();
+                let param = &after_esc[..param_len];
+                let after_param = &after_esc[param_len..];
+
+                // Parse intermediate bytes (0x20..=0x2F: space, '$', ''', etc.)
+                let inter_len = after_param
+                    .chars()
+                    .take_while(|c| ('\x20'..='\x2F').contains(c))
+                    .map(char::len_utf8)
+                    .sum();
+                let after_inter = &after_param[inter_len..];
+
+                let Some(final_byte) = after_inter.chars().next() else {
+                    // Truncated ESC sequence at end of string
+                    break;
+                };
+
+                let total_len = 2 + param_len + inter_len + final_byte.len_utf8();
+                let csi_full = &rest[..total_len];
+                rest = &after_inter[final_byte.len_utf8()..];
+
+                let digits: String = param.chars().filter(char::is_ascii_digit).collect();
+                let n = digits.parse::<usize>().unwrap_or(1).max(1);
+
+                match final_byte {
+                    'A' | 'F' => up = up.saturating_add(n),
+                    'B' | 'E' => down = down.saturating_add(n),
+                    'J' if param.is_empty() || param == "0" => erase = erase.max(1),
+                    'K' | 'h' | 'l' | 'G' | 'd' | 'H' | 'f' => {}
+                    'm' => {
+                        // Preserve SGR color/style codes in the text
+                        text_prefix.push_str(csi_full);
+                    }
+                    _ => {
+                        text_prefix.push_str(csi_full);
+                    }
+                }
+            } else {
+                break;
+            }
         }
-        (up, down, erase, rest)
+
+        text_prefix.push_str(rest);
+        (up, down, erase, text_prefix)
     }
 }

@@ -170,6 +170,7 @@ pub fn apply(action: PasswordAction, app: &mut App, tx: &Sender<Msg>, tasks: &mu
             app.panels[panel].sudo_password = None;
             app.panels[panel].password_saved = false;
             app.panels[panel].external_password = false;
+            app.panels[panel].password_checked = true;
             if let Some(manager) = app.password_manager.as_mut() {
                 manager.notice = Some(match (&result, &vault_error) {
                     (Ok(()), None) => "Saved password removed; this host now has none.".to_string(),
@@ -399,6 +400,7 @@ pub fn port_plaintext_passwords(
                     if p.server.host == server.host && p.server.port == server.port {
                         p.sudo_password = Some(secret.clone());
                         p.password_saved = true;
+                        p.password_checked = true;
                     }
                 }
             }
