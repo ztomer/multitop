@@ -89,6 +89,14 @@ pub fn handle_key(
                 // Extra *cancel* keys below are not the same thing and stay: a stray
                 // key that cancels can only ever be the safe answer.
                 KeyCode::Char('u' | 'U') => {
+                    if app.any_password_checking() {
+                        // A credential-store lookup is still in flight (it can
+                        // block on a system dialog). Starting now would run on
+                        // passwords the app has not actually read; the header
+                        // says `Checking` and this press is deferred until the
+                        // last answer lands.
+                        return;
+                    }
                     let cmds = app.confirm_upgrade();
                     execute_cmds(cmds, app, dims, tx, tasks);
                 }
@@ -257,7 +265,8 @@ pub fn handle_key(
             return;
         }
         KeyCode::Char('e' | 'E') => {
-            crate::passwords::open(app, app.selected_panel, false);
+            let load = crate::passwords::open(app, app.selected_panel, false);
+            app.dispatch_credential_loads(load, tx);
             return;
         }
         // The number keys count panes on screen, not entries in the config.
@@ -345,7 +354,8 @@ pub fn handle_key(
             // able to. Only starting a new run is blocked while one is in
             // flight.
             if !app.in_upgrade() {
-                app.enter_upgrade_view();
+                let loads = app.enter_upgrade_view();
+                app.dispatch_credential_loads(loads, tx);
             } else if app.upgrades_in_flight() {
                 // Already running — don't start another.
             } else if !app.upgrade_runnable() {

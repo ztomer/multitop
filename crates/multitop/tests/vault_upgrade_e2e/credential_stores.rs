@@ -46,14 +46,27 @@ async fn entering_the_upgrade_view_does_not_read_the_credential_store_when_a_vau
 }
 
 /// Without a vault the credential store is the only store there is, so the same
-/// screen must still read it -- that is what makes "password stored" true.
+/// screen must still read it -- that is what makes "password stored" true. The
+/// read is off the loop thread now: entering the view reports the lookups, the
+/// caller dispatches them, and their answers land as `CredentialLoaded` -- the
+/// test reproduces exactly that delivery.
 #[tokio::test]
 async fn entering_the_upgrade_view_still_reads_the_credential_store_without_a_vault() {
     let _keychain = isolate_keychain_async().await;
     let mut app = App::new(test_servers());
     password_store::save(&app.panels[0].server, "keychain-only").unwrap();
 
-    app.enter_upgrade_view();
+    let loads = app.enter_upgrade_view();
+    let (tx, mut rx) = tokio::sync::mpsc::channel(8);
+    app.dispatch_credential_loads(loads, &tx);
+    // One lookup per panel the view asked about. Workers finish out of panel
+    // order, so apply every answer that lands, exactly as the loop does --
+    // reading a single recv would race whichever lookup settles first. The
+    // channel closes when the last worker's sender drops.
+    drop(tx);
+    while let Some(answer) = rx.recv().await {
+        app.apply(answer);
+    }
 
     assert_eq!(
         app.panels[0].sudo_password.as_deref(),

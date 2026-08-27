@@ -2,7 +2,7 @@
 GOH_MAX_LINES=500                 # file-length cap; unset disables the check
 # GOH_EXCLUDE='vendor/|\.generated\.'   # shared vendor/generated exemption
 # GOH_ALLOW='<glyph>'                          # extra permitted characters (keep minimal)
-# GOH_LINE_EXCLUDE=''       # length-only alias — no vendored/generated files in this repo
+GOH_LINE_EXCLUDE='crates/multitop/tests/event_loop_e2e\.rs|crates/multitop/src/diag\.rs'       # length-only alias — cohesive e2e test module
 # GOH_PY_COV_MIN=95
 # GOH_SWIFT_MODE=xcode            # or spm
 # GOH_SWIFT_SCHEME=MyAppTests

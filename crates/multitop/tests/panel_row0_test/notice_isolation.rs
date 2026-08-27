@@ -27,7 +27,9 @@ fn a_notice_survives_every_view_switch() {
     // because the bug was about which pane is drawn, not about truncation.
     for view in ["monitor", "upgrade", "fetch", "docker", "back to monitor"] {
         match view {
-            "upgrade" => app.enter_upgrade_view(),
+            "upgrade" => {
+                let _ = app.enter_upgrade_view();
+            }
             "fetch" => drop(app.toggle_fetch((80, 24))),
             "docker" => drop(app.toggle_docker((80, 24))),
             "back to monitor" => drop(app.switch_stats()),

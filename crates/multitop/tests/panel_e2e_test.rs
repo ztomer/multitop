@@ -64,39 +64,39 @@ fn test_panel_new_initializes_state() {
 }
 
 #[test]
-fn test_ensure_sudo_password_loads_keychain() {
+fn test_dispatch_credential_load_then_answer_lands_keychain_password() {
     let _store_guard = enable_mock_store();
     let server = test_server("127.0.0.10");
     password_store::save(&server, "keychain_pass").unwrap();
 
-    let mut panel = multitop::app::Panel::new(server);
-    panel.ensure_sudo_password();
+    let mut panel = multitop::app::Panel::new(server.clone());
+    assert!(panel.needs_credential_load(), "no password held yet");
+    panel.mark_credential_load_dispatched();
+    assert!(panel.password_checking, "in flight until the answer lands");
+    panel.answer_credential_load(password_store::load(&server));
 
     assert_eq!(panel.sudo_password.as_deref(), Some("keychain_pass"));
     assert!(panel.password_saved);
+    assert!(!panel.password_checking);
 }
 
 #[test]
-fn test_ensure_sudo_password_loads_vault() {
-    let _keychain = isolate_keychain();
-    // Vault integration is tested in vault_upgrade_e2e.rs
-    // This test just verifies the function exists and compiles
-    let server = test_server("127.0.0.11");
-    let panel = multitop::app::Panel::new(server);
-    // try_load_vault_password requires an unlocked vault, skip actual test here
-    assert_eq!(panel.sudo_password, None);
-}
-
-#[test]
-fn test_ensure_sudo_password_none() {
+fn test_dispatch_credential_load_then_answer_without_store_entry_yields_none() {
     let _store_guard = enable_mock_store();
     let server = test_server("127.0.0.12");
     // No password in keychain or vault
-    let mut panel = multitop::app::Panel::new(server);
-    panel.ensure_sudo_password();
+    let mut panel = multitop::app::Panel::new(server.clone());
+    assert!(panel.needs_credential_load());
+    panel.mark_credential_load_dispatched();
+    panel.answer_credential_load(password_store::load(&server));
 
     assert_eq!(panel.sudo_password, None);
     assert!(!panel.password_saved);
+    assert!(!panel.password_checking);
+    assert!(
+        !panel.needs_credential_load(),
+        "answered once is answered forever"
+    );
 }
 
 #[test]

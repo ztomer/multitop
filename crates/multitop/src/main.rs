@@ -204,13 +204,20 @@ fn main() -> ExitCode {
         }
     };
 
-    match runtime.block_on(run::run(servers, config_path, initial_theme)) {
+    let code = match runtime.block_on(run::run(servers, config_path, initial_theme)) {
         Ok(()) => ExitCode::SUCCESS,
         Err(e) => {
             eprintln!("[Error] {e}");
             ExitCode::FAILURE
         }
-    }
+    };
+
+    // Detached blocking workers (keychain lookups, biometric prompts) are
+    // joined when the runtime drops, and a worker parked on a system dialog
+    // would otherwise hold the process on quit. Bound that drain so quit is
+    // quit; this call consumes the runtime and drops it with the bound in force.
+    runtime.shutdown_timeout(std::time::Duration::from_secs(2));
+    code
 }
 
 #[cfg(test)]

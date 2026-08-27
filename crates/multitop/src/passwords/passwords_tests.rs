@@ -351,18 +351,30 @@ mod passwords_tests {
     }
 
     #[test]
-    fn ensure_sudo_password_caches_and_does_not_repeat_lookups() {
+    fn credential_lookup_is_dispatched_once_and_cached_afterwards() {
         let mut panel = crate::panel::Panel::new(test_server("host1"));
+        assert!(panel.needs_credential_load());
         assert!(!panel.password_checked);
 
-        // First call checks store and marks password_checked = true
-        let pass1 = panel.ensure_sudo_password();
-        assert_eq!(pass1, None);
+        // Dispatching marks the host as answered-so it can never be dispatched
+        // twice while the lookup is in flight.
+        panel.mark_credential_load_dispatched();
         assert!(panel.password_checked);
+        assert!(panel.password_checking);
+        assert!(!panel.needs_credential_load());
 
-        // Subsequent calls return immediately from cache
-        let pass2 = panel.ensure_sudo_password();
-        assert_eq!(pass2, None);
+        // Nothing stored: the answer lands as "no password", still an answer.
+        panel.answer_credential_load(Ok(None));
+        assert!(!panel.password_checking);
         assert!(panel.password_checked);
+        assert_eq!(panel.sudo_password, None);
+
+        // A stored answer is kept and shown as saved.
+        let mut panel2 = crate::panel::Panel::new(test_server("host1"));
+        panel2.mark_credential_load_dispatched();
+        panel2.answer_credential_load(Ok(Some("secret".to_string())));
+        assert_eq!(panel2.sudo_password.as_deref(), Some("secret"));
+        assert!(panel2.password_saved);
+        assert!(!panel2.password_checking);
     }
 }

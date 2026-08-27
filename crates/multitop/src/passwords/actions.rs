@@ -4,12 +4,22 @@ use crate::passwords::types::{PasswordAction, PasswordEdit, PasswordManager, Ser
 use crossterm::event::KeyCode;
 use secrecy::{ExposeSecret, SecretString};
 
-pub fn open(app: &mut App, selected: usize, resume_upgrade: bool) {
+pub fn open(app: &mut App, selected: usize, resume_upgrade: bool) -> Vec<(usize, Server)> {
     if !app.panels.is_empty() {
         let idx = selected.min(app.panels.len() - 1);
-        app.panels[idx].ensure_sudo_password();
         app.password_manager = Some(PasswordManager::new(idx, resume_upgrade));
+        // The selected host's credential-state row reads from the store; the
+        // lookup is dispatched off the loop thread like every other store read,
+        // and the manager paints whatever the panel knows until it lands.
+        return app
+            .panels
+            .get(idx)
+            .filter(|p| p.needs_credential_load())
+            .map(|p| (idx, p.server.clone()))
+            .into_iter()
+            .collect();
     }
+    Vec::new()
 }
 
 /// One list, one set of keys.

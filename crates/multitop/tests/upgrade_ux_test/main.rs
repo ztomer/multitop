@@ -62,6 +62,9 @@ struct Harness {
     /// Messages the key handler emitted, so a test can assert that a press
     /// which should be inert really did not queue any work.
     rx: mpsc::Receiver<Msg>,
+    /// Messages a settle saw from a producer it does not own; kept for
+    /// `emitted()` so a press never eats another producer's report.
+    pending: std::collections::VecDeque<Msg>,
     dims_rx: Arc<watch::Receiver<(u16, u16)>>,
 }
 
@@ -78,6 +81,7 @@ impl Harness {
             servers,
             tx,
             rx,
+            pending: std::collections::VecDeque::new(),
             dims_rx: Arc::new(drx),
         }
     }
@@ -100,15 +104,36 @@ impl Harness {
             &self.tx,
             &mut self.tasks,
         );
+        // The real loop applies a worker's answer before the next key is read;
+        // this harness hands keys straight to `handle_key`, so it reproduces
+        // that step itself for the store lookups the enter/open keys dispatch.
+        // Without it the confirm stays deferred on a lookup that has already
+        // answered, and the first press would race a message it can see but
+        // never act on.
+        for _ in 0..25 {
+            if self.app.panels.iter().all(|p| !p.password_checking) {
+                return;
+            }
+            if let Ok(m) = self.rx.try_recv() {
+                if matches!(m, Msg::CredentialLoaded { .. }) {
+                    self.app.apply(m);
+                    return;
+                }
+                // Not a credential answer: keep it for `emitted`.
+                self.pending.push_back(m);
+            } else {
+                std::thread::sleep(std::time::Duration::from_millis(2));
+            }
+        }
     }
 
     /// Messages emitted so far, without blocking.
     fn emitted(&mut self) -> Vec<Msg> {
-        let mut out = Vec::new();
+        let mut out = std::mem::take(&mut self.pending);
         while let Ok(m) = self.rx.try_recv() {
-            out.push(m);
+            out.push_back(m);
         }
-        out
+        out.into()
     }
 
     fn pane_text(&self, panel: usize) -> String {

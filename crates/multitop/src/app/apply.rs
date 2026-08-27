@@ -368,6 +368,20 @@ impl App {
                 self.prompt_for_master_password();
                 true
             }
+            Msg::CredentialLoaded {
+                panel,
+                epoch,
+                result,
+            } => {
+                if epoch != self.panels_epoch {
+                    return false;
+                }
+                let Some(p) = self.panels.get_mut(panel) else {
+                    return false;
+                };
+                p.answer_credential_load(result);
+                true
+            }
         }
     }
 }

@@ -21,6 +21,12 @@ pub enum Credential {
     Stored,
     /// Held for this session only.
     Session,
+    /// The OS credential store is being asked right now, off the loop thread.
+    /// The upgrade pane must not start this host until the answer lands -- the
+    /// lookup can block on a system dialog, and starting on an unread password
+    /// would be guessing. Shown instead of `Missing` so an empty answer reads
+    /// as "pending" rather than "absent".
+    Checking,
     /// Nothing available; the upgrade will prompt for this host.
     Missing,
     /// A vault exists but is locked, so what it holds for this host is not
@@ -285,6 +291,13 @@ pub fn header(status: &Status, pal: &Palette, now: u64, width: usize) -> Vec<Str
             Credential::Stored => format!("{}password stored{}", pal.meter_low(), pal.reset),
             // "password" is the `Sudo` row: saying it again cost the ending.
             Credential::Session => format!("{}set for this session{}", pal.reset, pal.reset),
+            Credential::Checking => {
+                format!(
+                    "{}checking keychain \u{b7} not started{}",
+                    pal.muted(),
+                    pal.reset
+                )
+            }
             Credential::Missing => {
                 format!(
                     "{}will prompt \u{b7} {} to save{}",

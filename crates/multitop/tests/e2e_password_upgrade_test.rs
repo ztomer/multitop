@@ -115,8 +115,9 @@ async fn test_e2e_app_initialization_auto_loads_stored_password() {
     let mut app = App::new(vec![server.clone()]);
     assert_eq!(app.panels[0].sudo_password, None);
 
-    // Call ensure_sudo_password on demand
-    app.panels[0].ensure_sudo_password();
+    // Dispatch the store lookup and deliver its answer on demand
+    app.panels[0].mark_credential_load_dispatched();
+    app.panels[0].answer_credential_load(multitop::password_store::load(&server));
     assert_eq!(
         app.panels[0].sudo_password.as_deref(),
         Some("preseeded_password")

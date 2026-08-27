@@ -18,6 +18,7 @@ use tokio_stream::StreamExt as _;
 
 use crate::app::{App, Msg};
 use crate::config::Server;
+use crate::diag::Phase;
 
 use super::dims::{self, AgentDims};
 use super::handle_key::handle_key;
@@ -58,6 +59,15 @@ where
     // `SIGCONT` handler to repair the terminal afterwards. A failure to install
     // is not worth refusing to start over -- it only costs the terminal repair,
     // which is exactly the state the app was in before they existed.
+    //
+    // Out-of-band diagnostics sit next to it: SIGUSR1/SIGUSR2 dump the loop's
+    // phase and a snapshot from a thread that does not touch this loop, so a
+    // wedge stays diagnosable from outside it. Installed as early as the config
+    // read -- that read touches the OS keychain, which is one of the reasons a
+    // loop can stop answering.
+    let diag = crate::diag::Diag::new(crate::diag::Diag::default_dir());
+    crate::diag::install(&diag);
+
     #[cfg(unix)]
     let mut signals = TerminalSignals::install().ok();
     #[cfg(not(unix))]
@@ -154,6 +164,7 @@ where
 
     loop {
         if dirty {
+            diag.set_phase(Phase::Drawing);
             match terminal.draw(|f| crate::ui::draw(f, &mut app)) {
                 Ok(_) => dirty = false,
                 Err(e) => {
@@ -188,8 +199,10 @@ where
             }
 
             maybe = events.next() => {
+                diag.set_phase(Phase::HandlingKey);
                 match maybe {
                     Some(Ok(Event::Key(key))) => {
+                        diag.bump_key();
                         handle_key(key, &mut app, dims.current(), dims_rx.clone(), &tx, &mut tasks);
                         let epoch_changed = app.panels_epoch != known_epoch;
                         if epoch_changed {
@@ -276,6 +289,7 @@ where
                         }
                     }
                     Some(Ok(Event::Resize(..))) => {
+                        diag.set_phase(Phase::Resizing);
                         resize_at = Some(Instant::now() + RESIZE_DEBOUNCE);
                         dirty = true;
                     }
@@ -287,6 +301,7 @@ where
             }
 
             Some(msg) = rx.recv() => {
+                diag.set_phase(Phase::Applying);
                 // A burst of frames should cost one draw, not one each — and a
                 // message that changes nothing on screen should cost none. The
                 // agent streams one Packet per panel per tick even when every
@@ -304,10 +319,15 @@ where
                 // panics the moment the constant is ever set to zero, which is
                 // a trap left for whoever tunes it.
                 let mut change = app.apply(msg);
+                diag.bump_applied();
+                let mut drained = 1;
                 for _ in 0..crate::consts::MSG_DRAIN_BUDGET {
                     let Ok(msg) = rx.try_recv() else { break };
                     change |= app.apply(msg);
+                    diag.bump_applied();
+                    drained += 1;
                 }
+                diag.bump_drained(drained);
                 dirty |= change;
                 // Watchdog: a task that dies without sending AuxDone leaves its
                 // panel stuck in STARTED forever. Detect a finished handle and
@@ -327,6 +347,7 @@ where
                 }
             }
             () = resize_wait, if resize_at.is_some() => {
+                diag.set_phase(Phase::Resizing);
                 resize_at = None;
                 // Re-render panels at the new size so logos and stats adapt. A
                 // failed size query keeps the last one -- see `size_change`; this
@@ -339,6 +360,20 @@ where
                 dirty = true;
             }
         }
+
+        diag.bump_iter();
+        // A dump was asked for. The signal thread has already written the
+        // signal-tier file; this is the richer tier only the loop can produce,
+        // because only it may touch `App`. State tier present => the loop is
+        // alive; absent while the signal tier exists => the loop is wedged.
+        if let Some((seq, sig)) = diag.take_request() {
+            let snap = crate::diag::snapshot_app(&app, &tasks);
+            diag.store_snapshot(snap.clone());
+            if let Some(path) = diag.write_state_tier(seq, sig, &snap) {
+                eprintln!("diag: {sig}: wrote {}", path.display());
+            }
+        }
+        diag.set_phase(Phase::Idle);
 
         if app.should_quit() {
             break;

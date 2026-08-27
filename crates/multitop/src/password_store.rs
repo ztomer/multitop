@@ -12,6 +12,24 @@ const SERVICE: &str = "multitop";
 
 static MOCK_STORE: RwLock<Option<HashMap<String, String>>> = RwLock::new(None);
 
+/// Optional artificial delay for mock-store lookups, so tests can hold a load
+/// in flight long enough to prove the loop stays live meanwhile (the OS
+/// keychain can block on a system dialog for exactly that long).
+static MOCK_LOAD_DELAY: RwLock<Option<std::time::Duration>> = RwLock::new(None);
+
+/// Set the artificial lookup delay for the mock store.
+///
+/// `None` (the default) keeps lookups instant. Only mock-store loads honor it,
+/// and only when the mock is enabled.
+// reachability: test-only helper; lives here because it needs this
+// module's private state, and is called from tests only by design.
+pub fn set_mock_load_delay(delay: Option<std::time::Duration>) {
+    let mut slot = MOCK_LOAD_DELAY
+        .write()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    *slot = delay;
+}
+
 /// Enable in-memory mock store explicitly.
 pub fn enable_mock_store() {
     let mut store = MOCK_STORE
@@ -149,6 +167,13 @@ fn entry(server: &Server) -> Result<Entry, String> {
 pub fn load(server: &Server) -> Result<Option<String>, String> {
     if is_mock_enabled() {
         enable_mock_store();
+        if let Some(delay) = MOCK_LOAD_DELAY
+            .read()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .as_ref()
+        {
+            std::thread::sleep(*delay);
+        }
         let store = MOCK_STORE
             .read()
             .unwrap_or_else(std::sync::PoisonError::into_inner);

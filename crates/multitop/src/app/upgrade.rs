@@ -1,7 +1,10 @@
 use crate::app::App;
 use crate::app::{AppMode, VaultState};
+use crate::config::Server;
 use crate::panel::Mode;
 use crate::types::Command;
+use crate::types::Msg;
+use tokio::sync::mpsc::Sender;
 impl App {
     #[must_use]
     pub fn upgrade_pane_header(&self, panel: usize) -> Vec<String> {
@@ -11,7 +14,9 @@ impl App {
         };
         let running = p.upgrade_state == crate::panel::UpgradeState::STARTED;
 
-        let credential = if p.external_password || p.password_saved {
+        let credential = if p.password_checking {
+            crate::upgrade_view::Credential::Checking
+        } else if p.external_password || p.password_saved {
             crate::upgrade_view::Credential::Stored
         } else if p.sudo_password.is_some() {
             crate::upgrade_view::Credential::Session
@@ -53,7 +58,15 @@ impl App {
         }
     }
 
-    fn load_known_passwords(&mut self) {
+    /// Load the passwords that can be read without touching the OS store, and
+    /// report which hosts still need an asynchronous store lookup.
+    ///
+    /// The vault is in memory, so its copy is applied here where `&mut self`
+    /// is already on the loop thread. The OS credential store is the one that
+    /// can block on a system dialog; its lookup is handed back for the caller
+    /// to dispatch on a blocking worker (`dispatch_credential_loads`) rather
+    /// than read mid-keystroke.
+    fn load_known_passwords(&mut self) -> Vec<(usize, Server)> {
         // `vault_unlocked()` rather than matching the state here: one place
         // decides what "unlocked" means, and a second copy of that match is a
         // second thing to keep in step with the state machine. The panels are
@@ -68,14 +81,67 @@ impl App {
             }
             self.panels = panels;
         }
-        if self.vault.is_none() {
-            for p in &mut self.panels {
-                p.ensure_sudo_password();
+        self.panels
+            .iter()
+            .enumerate()
+            .filter(|(_, p)| self.vault.is_none() && p.needs_credential_load())
+            .map(|(i, p)| (i, p.server.clone()))
+            .collect()
+    }
+
+    /// Dispatch the store lookups `load_known_passwords` reported, running each
+    /// on a blocking worker so a slow or dialog-blocked keychain cannot freeze
+    /// the loop the keystroke runs on. The panel is marked in-flight the moment
+    /// before the worker starts, so a fast store racing the mark cannot double-
+    /// dispatch.
+    pub fn dispatch_credential_loads(&mut self, loads: Vec<(usize, Server)>, tx: &Sender<Msg>) {
+        if loads.is_empty() {
+            return;
+        }
+        let epoch = self.panels_epoch;
+        if tokio::runtime::Handle::try_current().is_err() {
+            // No runtime: the worker spawn is unavailable, so answer in place.
+            // `handle_key` is only ever driven without a runtime by the direct
+            // unit tests around it -- the real loop always runs the press
+            // inside the runtime, where the worker branch below is the only
+            // one that can fire. The load is still one-shot: `mark` happens
+            // exactly as the worker would do it, so a re-dispatch cannot race
+            // a second lookup.
+            for (panel, server) in loads {
+                let Some(p) = self.panels.get_mut(panel) else {
+                    continue;
+                };
+                p.mark_credential_load_dispatched();
+                p.answer_credential_load(crate::password_store::load(&server));
             }
+            return;
+        }
+        for (panel, server) in loads {
+            let Some(p) = self.panels.get_mut(panel) else {
+                continue;
+            };
+            p.mark_credential_load_dispatched();
+            let tx = tx.clone();
+            tokio::task::spawn_blocking(move || {
+                let result = crate::password_store::load(&server);
+                let _ = tx.blocking_send(Msg::CredentialLoaded {
+                    panel,
+                    epoch,
+                    result,
+                });
+            });
         }
     }
 
-    pub fn enter_upgrade_view(&mut self) {
+    /// Whether any panel's credential-store lookup is still in flight. A
+    /// confirm while that is true would start a run on passwords the app has
+    /// not read, so it is deferred until the last answer lands.
+    #[must_use]
+    pub fn any_password_checking(&self) -> bool {
+        self.panels.iter().any(|p| p.password_checking)
+    }
+
+    pub fn enter_upgrade_view(&mut self) -> Vec<(usize, Server)> {
         // Do NOT reset_scroll — the user is returning to a log they may have
         // scrolled. The content is the same ring; the offset is still valid.
         // Report on credentials from what can be read silently. Passwords are
@@ -83,8 +149,10 @@ impl App {
         // session holds nothing in memory -- and the pane read that emptiness
         // as "will prompt" for hosts whose password was saved long ago. Opening
         // this view is a deliberate user action, and telling them whether they
-        // are about to be asked for a password is the point of it.
-        self.load_known_passwords();
+        // are about to be asked for a password is the point of it. The store
+        // lookups this needs are dispatched by the caller; the header shows
+        // `Checking` until they land.
+        let loads = self.load_known_passwords();
         for p in &mut self.panels {
             // Back to where this log was left. The ring is the same one; the
             // offset into it is still meaningful, and losing it on every switch
@@ -97,13 +165,19 @@ impl App {
             // be a stale copy of a number that moves.
             p.mode = Mode::Upgrade;
         }
+        loads
     }
 
     pub fn run_upgrade(&mut self) -> Vec<Command> {
         self.reset_scroll();
         let pal = self.current_theme();
-        // Vault first, same as the view does.
-        self.load_known_passwords();
+        // Vault first, same as the view does. The store half of this loads is
+        // empty in the real flow: the confirm that reaches here is gated on no
+        // lookup being in flight, and enter_upgrade_view already dispatched
+        // every lookup the hosts needed. A host that still needs one (a direct
+        // caller that did not prime the panel) starts with none and prompts on
+        // the pty, which is the fallback the store path always offered.
+        let _loads = self.load_known_passwords();
         let mut cmds = Vec::new();
         for i in self.filtered_indices() {
             let gen = self.bump(i);

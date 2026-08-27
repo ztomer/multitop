@@ -141,6 +141,11 @@ impl Harness {
     /// Deliver every message the spawned work has produced, exactly as the
     /// event loop does, and return how many there were.
     ///
+    /// `CredentialLoaded` messages do not count: they are the background answer
+    /// to the store lookup the password manager dispatches on open, not a user
+    /// action or decision, and the parity assertions built on this count mean
+    /// "no duplicate vault attempt", never "exactly one message total".
+    ///
     /// The wait is bounded: one attempt that produces nothing is the answer to
     /// "did a second attempt start?", so it must not hang waiting for one.
     async fn pump(&mut self, patience: std::time::Duration) -> usize {
@@ -155,8 +160,10 @@ impl Harness {
             let Ok(Some(msg)) = tokio::time::timeout(wait, self.rx.recv()).await else {
                 break;
             };
+            if !matches!(&msg, Msg::CredentialLoaded { .. }) {
+                delivered += 1;
+            }
             self.app.apply(msg);
-            delivered += 1;
         }
         self.draw();
         delivered

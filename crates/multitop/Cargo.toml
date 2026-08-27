@@ -11,6 +11,9 @@ workspace = true
 
 [dependencies]
 crossterm = { version = "0.29", features = ["event-stream"] }
+# Already in the tree as a dependency of crossterm's event-stream; a direct
+# dependency is what lets the SIGUSR1/SIGUSR2 diagnostic dump use it.
+signal-hook = "0.3"
 keyring = { version = "4", default-features = true }
 ratatui = { version = "0.30", default-features = false, features = ["crossterm"] }
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "process", "io-util", "sync", "time", "signal"] }
@@ -36,3 +39,4 @@ harness = false
 
 [dev-dependencies]
 tempfile = "3.27.0"
+toml = { version = "1", default-features = false, features = ["parse", "serde", "display"] }

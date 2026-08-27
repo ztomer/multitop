@@ -9,6 +9,7 @@ pub mod app;
 pub mod config;
 pub mod config_ui;
 pub mod consts;
+pub mod diag;
 pub mod fetch_render;
 pub mod filter;
 pub mod fmt;

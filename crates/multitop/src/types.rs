@@ -116,4 +116,17 @@ pub enum Msg {
     /// Biometric unlock was unavailable or cancelled; the TUI falls back to
     /// the vault password prompt.
     VaultBiometricFailed { epoch: u64 },
+    /// A credential-store lookup finished off the loop thread. The OS keychain
+    /// can block on a system dialog, which used to freeze the whole loop mid-
+    /// keystroke; the read now runs on a blocking worker and the outcome comes
+    /// home through this channel instead.
+    ///
+    /// Like every other message whose producer is bound to a panel list, it
+    /// carries the epoch of the list it was dispatched for. A result that lands
+    /// after a server edit is stale and is discarded whole.
+    CredentialLoaded {
+        panel: usize,
+        epoch: u64,
+        result: Result<Option<String>, String>,
+    },
 }

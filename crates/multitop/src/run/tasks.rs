@@ -76,6 +76,29 @@ impl Tasks {
         }
     }
 
+    /// Who is still running and who has finished silently, for a diagnostic
+    /// snapshot. A finished handle with the panel still `STARTED` is the
+    /// watchdog's shape of a task that died without saying so.
+    pub(crate) fn diag_liveness(&self) -> crate::diag::Liveness {
+        crate::diag::Liveness {
+            monitors_alive: self
+                .monitors
+                .iter()
+                .filter(|h| h.as_ref().is_some_and(|h| !h.is_finished()))
+                .count(),
+            upgrades_alive: self
+                .upgrades
+                .iter()
+                .filter(|h| h.as_ref().is_some_and(|h| !h.is_finished()))
+                .count(),
+            upgrades_done: self
+                .upgrades
+                .iter()
+                .filter(|h| h.as_ref().is_some_and(JoinHandle::is_finished))
+                .count(),
+        }
+    }
+
     /// Grow or shrink to match a new panel count, aborting anything dropped.
     ///
     /// Without this an added server had no slot to spawn a monitor into, and a
