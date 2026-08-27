@@ -3,9 +3,33 @@
 set -euo pipefail
 cd "$(dirname "$0")"
 
-BIN="target/release/multitop"
+resolve_target_dir() {
+    if [ -n "${CARGO_TARGET_DIR:-}" ]; then
+        echo "$CARGO_TARGET_DIR"
+        return
+    fi
+    local meta
+    if command -v cargo >/dev/null 2>&1; then
+        meta="$(cargo metadata --format-version 1 2>/dev/null | grep -o '"target_directory":"[^"]*"' | head -n1 | cut -d'"' -f4 || true)"
+        if [ -n "$meta" ] && [ "$meta" != "null" ]; then
+            echo "$meta"
+            return
+        fi
+    fi
+    if [ -d "$HOME/.cache/cargo-target" ]; then
+        echo "$HOME/.cache/cargo-target"
+        return
+    fi
+    echo "$PWD/target"
+}
+
+TARGET_DIR="$(resolve_target_dir)"
+BIN="$TARGET_DIR/release/multitop"
 if [ ! -x "$BIN" ]; then
-    printf 'x %s not built yet - run ./build.sh first.\n' "$BIN" >&2
+    BIN="$TARGET_DIR/debug/multitop"
+fi
+if [ ! -x "$BIN" ]; then
+    printf 'x multitop not built yet - run ./build.sh or cargo build first.\n' >&2
     exit 1
 fi
-exec "./$BIN" "$@"
+exec "$BIN" "$@"
