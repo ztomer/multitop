@@ -16,7 +16,7 @@ exit = "warn"
 unsafe_code = "deny"
 
 [workspace.package]
-version = "0.38.0"
+version = "0.39.0"
 edition = "2021"
 rust-version = "1.85"
 license = "MIT"
