@@ -248,23 +248,6 @@ pub fn handle_key(
             app.filter_query.clear();
             return;
         }
-        // Esc from a secondary view (Upgrade, Docker, Fetch, Graphs) returns
-        // to the default Monitor/Stats dashboard when no upgrades are in flight.
-        // If an upgrade is running, Esc arms the quit confirmation.
-        KeyCode::Esc
-            if !app.upgrades_in_flight()
-                && (app.in_upgrade() || app.in_docker() || app.in_fetch() || app.in_graphs()) =>
-        {
-            let cmds = app.switch_stats();
-            execute_cmds(cmds, app, dims, tx, tasks);
-            return;
-        }
-        // Enter in the Upgrade view (when no upgrade is running) returns to Stats.
-        KeyCode::Enter if app.in_upgrade() && !app.upgrades_in_flight() => {
-            let cmds = app.switch_stats();
-            execute_cmds(cmds, app, dims, tx, tasks);
-            return;
-        }
         KeyCode::Esc | KeyCode::Char('q' | 'Q') => {
             app.request_quit();
             return;

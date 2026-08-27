@@ -230,7 +230,7 @@ fn next_action(status: &Status, pal: &Palette) -> Vec<String> {
         ));
     }
     out.push(format!(
-        "{}\u{2192} u to run \u{b7} Esc/s to go back{}",
+        "{}\u{2192} u to run \u{b7} s to go back{}",
         pal.meter_mid(),
         pal.reset
     ));
