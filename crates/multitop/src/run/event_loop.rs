@@ -146,6 +146,7 @@ where
     for (i, server) in servers.iter().enumerate() {
         tasks.monitors[i] = Some(spawn_monitor(
             i,
+            app.panels[i].gen,
             app.panels_epoch,
             server.clone(),
             dims_rx.clone(),
@@ -432,6 +433,7 @@ pub(super) fn restart_all_agents(
         }
         tasks.monitors[i] = Some(spawn_monitor(
             i,
+            panel.gen,
             app.panels_epoch,
             server.clone(),
             dims_rx.clone(),

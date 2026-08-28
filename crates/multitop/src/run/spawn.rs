@@ -95,6 +95,7 @@ pub fn spawn_biometric_unlock(
 #[must_use]
 pub fn spawn_monitor(
     idx: usize,
+    gen: u64,
     epoch: u64,
     server: Server,
     dims_rx: Arc<watch::Receiver<(u16, u16)>>,
@@ -150,7 +151,7 @@ pub fn spawn_monitor(
                         if tx
                             .send(Msg::Packet {
                                 panel: idx,
-                                gen: 0,
+                                gen,
                                 epoch,
                                 payload,
                                 dims,
