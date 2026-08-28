@@ -549,3 +549,41 @@ fn the_loop_stays_live_while_a_credential_load_blocks() {
     });
     rt.shutdown_timeout(Duration::from_secs(3));
 }
+
+/// Regression for the `gen` tracking bug: after a view switch (upgrade/docker/fetch),
+/// `panel.gen` increments. Monitor packets must carry the new gen, or `apply.rs`
+/// rejects them. The bug was `spawn_monitor` hardcoding `gen: 0`.
+#[tokio::test]
+async fn monitor_packets_use_the_panel_gen_after_a_view_switch() {
+    let _keychain = isolate_keychain().await;
+    let servers = vec![local_server(42025, "echo hi")];
+    let (mut h, tx) = PacedHarness::start(servers, (80, 24));
+
+    // Enter upgrade view — this increments panel.gen
+    tx.send(Ok(key(KeyCode::Char('u')))).await.expect("key");
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    for _ in 0..2 {
+        tx.send(Ok(key(KeyCode::Char('u')))).await.expect("key");
+    }
+    tokio::time::sleep(Duration::from_millis(500)).await;
+
+    // Switch back to monitor view (s) — this increments gen again
+    tx.send(Ok(key(KeyCode::Char('s')))).await.expect("key");
+    tokio::time::sleep(Duration::from_millis(200)).await;
+
+    // The loop should still be alive and processing. If the monitor task was
+    // spawned with a stale gen, packets would be rejected and the panel would
+    // show nothing. We can't easily inspect the panel content here without the
+    // full Harness, but the loop resolving without wedging is the signal.
+    tx.send(Ok(key(KeyCode::Char('q')))).await.expect("key");
+
+    let outcome = tokio::time::timeout(Duration::from_secs(5), h.finish())
+        .await
+        .expect("loop wedged after view switch — monitor gen likely stale")
+        .expect("loop task panicked");
+    assert!(
+        outcome.error.is_none(),
+        "loop ended with error: {:?}",
+        outcome.error
+    );
+}

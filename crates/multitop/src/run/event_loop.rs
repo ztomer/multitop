@@ -138,17 +138,16 @@ where
     let mut tasks = Tasks::new(servers.len());
 
     let dims_rx = Arc::new(dims_tx.subscribe());
-    // `visible_panes`, not `servers.len()`, even though no filter can be in
-    // force yet: every other site that feeds this number now reads it from the
-    // one place, and a seed that reads it from somewhere else is how the two
-    // drift apart again.
+    // Iterate panels, not servers, so `panel.gen` is always available and
+    // the task list stays aligned with the panel list — the one place that
+    // decides how many monitors exist.
     let mut dims = AgentDims::new(dims_tx, terminal.size(), app.visible_panes());
-    for (i, server) in servers.iter().enumerate() {
+    for (i, panel) in app.panels.iter().enumerate() {
         tasks.monitors[i] = Some(spawn_monitor(
             i,
-            app.panels[i].gen,
+            panel.gen,
             app.panels_epoch,
-            server.clone(),
+            panel.server.clone(),
             dims_rx.clone(),
             app.sort,
             tx.clone(),
