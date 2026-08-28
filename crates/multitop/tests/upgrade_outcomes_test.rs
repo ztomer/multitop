@@ -61,6 +61,12 @@ async fn run_upgrade(cmd: Option<&str>, pass: Option<&str>) -> Run {
         while let Some(msg) = rx.recv().await {
             match msg {
                 Msg::AuxLine { line, .. } => lines.push(line),
+                Msg::AuxRepaint { line, back, .. } => {
+                    if back > 0 && lines.len() >= back {
+                        lines.truncate(lines.len() - back);
+                    }
+                    lines.push(line);
+                }
                 Msg::AuxBegin {
                     header: Some(h), ..
                 } => lines.push(h),

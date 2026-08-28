@@ -99,12 +99,16 @@ pub struct Paint {
 pub struct Painter {
     /// Rows above the newest line that the next write lands on.
     up: usize,
+    cr_pending: bool,
 }
 
 impl Painter {
     #[must_use]
     pub const fn new() -> Self {
-        Self { up: 0 }
+        Self {
+            up: 0,
+            cr_pending: false,
+        }
     }
 
     /// Consume one line of output and say where it belongs.
@@ -112,19 +116,27 @@ impl Painter {
     /// `None` when the line carried nothing but cursor movement — the movement
     /// is still recorded, so the next line that does carry text lands where the
     /// tool meant it to.
-    pub fn feed(&mut self, raw: &str) -> Option<Paint> {
+    pub fn feed(&mut self, raw: &str, newline: bool) -> Option<Paint> {
         let (moved_up, moved_down, erase_below, rest) = Self::consume_controls(raw);
         self.up = self.up.saturating_add(moved_up).saturating_sub(moved_down);
 
         // The last state a carriage return left the line in, as before: the
         // two mechanisms compose, because a tool may do both.
         let text = painted_states(&rest).next_back().unwrap_or("");
-        let back = self.up;
+        let back = if self.cr_pending && self.up == 0 {
+            1
+        } else {
+            self.up
+        };
 
         // Nothing to draw. The movement has already been recorded, so the next
         // line that does carry text lands where the tool meant it to — tools
         // routinely split the movement and the text across two writes.
         if text.is_empty() {
+            if newline {
+                self.up = self.up.saturating_sub(1);
+                self.cr_pending = false;
+            }
             // Nothing below the append point to erase, and nothing to draw.
             if erase_below == 0 || back == 0 {
                 return None;
@@ -137,7 +149,12 @@ impl Painter {
         }
 
         // A line written at a row means the cursor has moved past it.
-        self.up = self.up.saturating_sub(1);
+        if newline {
+            self.up = self.up.saturating_sub(1);
+            self.cr_pending = false;
+        } else {
+            self.cr_pending = true;
+        }
         Some(Paint {
             text: text.to_string(),
             back,

@@ -59,7 +59,7 @@ async fn test_upgrade_multi_server_concurrent_output() {
     let mut seen_3 = false;
 
     for msg in &msgs {
-        if let Msg::AuxLine { line, .. } = msg {
+        if let Msg::AuxLine { line, .. } | Msg::AuxRepaint { line, .. } = msg {
             if line.contains("UPGRADE_1") {
                 seen_1 = true;
             }
@@ -212,7 +212,7 @@ async fn test_upgrade_carriage_return_cleaned() {
     let progress_lines: Vec<String> = msgs
         .iter()
         .filter_map(|msg| {
-            if let Msg::AuxLine { line, .. } = msg {
+            if let Msg::AuxLine { line, .. } | Msg::AuxRepaint { line, .. } = msg {
                 if line.contains("step") {
                     return Some(line.clone());
                 }

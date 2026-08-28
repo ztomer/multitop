@@ -152,11 +152,7 @@ async fn test_e2e_spawn_upgrade_streams_output_with_stored_password() {
                 begin_received = true;
                 assert!(header.unwrap_or_default().contains("Upgrade on 127.0.0.1"));
             }
-            Msg::AuxLine {
-                panel: 0,
-                gen: 1,
-                line,
-            } => {
+            Msg::AuxLine { line, .. } | Msg::AuxRepaint { line, .. } => {
                 if line.contains("E2E_UPGRADE_STREAM_OK") {
                     stream_line_received = true;
                 }
@@ -201,11 +197,10 @@ async fn test_e2e_spawn_upgrade_emits_in_stream_tip_on_sudo_failure() {
 
     while let Ok(msg) = tokio::time::timeout(std::time::Duration::from_secs(5), rx.recv()).await {
         let Some(msg) = msg else { break };
-        if let Msg::AuxLine { line, .. } = msg {
-            if line.contains("Set password in settings ('e')") {
-                tip_received = true;
-                break;
-            }
+        if matches!(msg, Msg::AuxLine { ref line, .. } | Msg::AuxRepaint { ref line, .. } if line.contains("Set password in settings ('e')"))
+        {
+            tip_received = true;
+            break;
         }
     }
 
@@ -240,7 +235,9 @@ async fn test_e2e_carriage_return_progress_logs_one_line() {
         tokio::time::timeout(std::time::Duration::from_secs(10), rx.recv()).await
     {
         match msg {
-            Msg::AuxLine { line, .. } if line.contains("Fetch") => progress.push(line),
+            Msg::AuxLine { line, .. } | Msg::AuxRepaint { line, .. } if line.contains("Fetch") => {
+                progress.push(line);
+            }
             Msg::AuxDone { .. } => break,
             _ => {}
         }

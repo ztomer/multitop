@@ -14,4 +14,4 @@ quote-style = "double"
 indent-style = "space"
 
 [tool.pytest.ini_options]
-testpaths = ["checks/tests", "scripts/music/tests", "scripts/maintenance/tests", "lidarr/extended/tests", "sonarr/extended/tests", "radarr/extended/tests"]
+testpaths = ["tests", "checks/tests", "scripts/music/tests", "scripts/maintenance/tests", "lidarr/extended/tests", "sonarr/extended/tests", "radarr/extended/tests"]

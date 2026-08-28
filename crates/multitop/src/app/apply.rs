@@ -261,6 +261,9 @@ impl App {
                         self.last_update = Some(now);
                         self.upgrade_started_at = None;
                     }
+                    if !self.upgrades_in_flight() {
+                        self.quit_armed = false;
+                    }
                     self.persist_state();
                 }
                 if let Some(note) = note {

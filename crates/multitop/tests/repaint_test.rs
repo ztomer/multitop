@@ -39,7 +39,7 @@ async fn isolate() -> tokio::sync::MutexGuard<'static, ()> {
 fn ordinary_lines_simply_follow_one_another() {
     let mut p = Painter::new();
     for text in ["first", "second", "third"] {
-        let paint = p.feed(text).expect("a line with text is shown");
+        let paint = p.feed(text, true).expect("a line with text is shown");
         assert_eq!(paint.text, text);
         assert_eq!(paint.back, 0, "{text} was placed as a repaint");
         assert_eq!(paint.erase_below, 0);
@@ -49,21 +49,21 @@ fn ordinary_lines_simply_follow_one_another() {
 #[test]
 fn a_cursor_up_places_the_next_line_over_one_already_shown() {
     let mut p = Painter::new();
-    p.feed("layer one: pulling").unwrap();
-    p.feed("layer two: pulling").unwrap();
+    p.feed("layer one: pulling", true).unwrap();
+    p.feed("layer two: pulling", true).unwrap();
 
     // Up two, then the block again — which is what a repainting tool does.
-    let first = p.feed("\u{1b}[2Alayer one: extracting").unwrap();
+    let first = p.feed("\u{1b}[2Alayer one: extracting", true).unwrap();
     assert_eq!(first.text, "layer one: extracting");
     assert_eq!(first.back, 2, "the repaint did not land on the first line");
 
-    let second = p.feed("layer two: extracting").unwrap();
+    let second = p.feed("layer two: extracting", true).unwrap();
     assert_eq!(second.text, "layer two: extracting");
     assert_eq!(second.back, 1, "the block was not walked down in order");
 
     // And the tick after that lands in the same two places.
-    assert_eq!(p.feed("\u{1b}[2Alayer one: done").unwrap().back, 2);
-    assert_eq!(p.feed("layer two: done").unwrap().back, 1);
+    assert_eq!(p.feed("\u{1b}[2Alayer one: done", true).unwrap().back, 2);
+    assert_eq!(p.feed("layer two: done", true).unwrap().back, 1);
 }
 
 #[test]
@@ -71,33 +71,33 @@ fn a_bare_cursor_up_carries_to_the_next_line_that_has_text() {
     // Tools split the movement and the text across writes; the reader hands
     // them over as separate lines and the movement must not be lost.
     let mut p = Painter::new();
-    p.feed("one").unwrap();
-    p.feed("two").unwrap();
+    p.feed("one", true).unwrap();
+    p.feed("two", true).unwrap();
 
     assert!(
-        p.feed("\u{1b}[2A").is_none(),
+        p.feed("\u{1b}[2A", false).is_none(),
         "movement alone shows nothing"
     );
-    assert_eq!(p.feed("rewritten").unwrap().back, 2);
+    assert_eq!(p.feed("rewritten", true).unwrap().back, 2);
 }
 
 #[test]
 fn a_missing_count_means_one_row() {
     let mut p = Painter::new();
-    p.feed("one").unwrap();
-    assert_eq!(p.feed("\u{1b}[Aover it").unwrap().back, 1);
+    p.feed("one", true).unwrap();
+    assert_eq!(p.feed("\u{1b}[Aover it", true).unwrap().back, 1);
 }
 
 #[test]
 fn moving_back_down_returns_to_the_end() {
     let mut p = Painter::new();
-    p.feed("one").unwrap();
-    p.feed("two").unwrap();
-    p.feed("three").unwrap();
+    p.feed("one", true).unwrap();
+    p.feed("two", true).unwrap();
+    p.feed("three", true).unwrap();
 
-    assert!(p.feed("\u{1b}[3A").is_none());
+    assert!(p.feed("\u{1b}[3A", false).is_none());
     // Straight back down: the next line appends rather than overwriting.
-    assert_eq!(p.feed("\u{1b}[3Bappended").unwrap().back, 0);
+    assert_eq!(p.feed("\u{1b}[3Bappended", true).unwrap().back, 0);
 }
 
 #[test]
@@ -105,17 +105,17 @@ fn moving_up_past_the_top_stops_at_the_top() {
     // A tool that has been running longer than the log is a real case once the
     // ring has rolled; the count must not wrap.
     let mut p = Painter::new();
-    p.feed("one").unwrap();
-    let paint = p.feed("\u{1b}[99Aover the top").unwrap();
+    p.feed("one", true).unwrap();
+    let paint = p.feed("\u{1b}[99Aover the top", true).unwrap();
     assert_eq!(paint.back, 99, "the count was mangled on the way through");
 }
 
 #[test]
 fn erasing_downward_is_reported_so_the_stale_rows_can_be_blanked() {
     let mut p = Painter::new();
-    p.feed("one").unwrap();
-    p.feed("two").unwrap();
-    let paint = p.feed("\u{1b}[2A\u{1b}[Jshorter block").unwrap();
+    p.feed("one", true).unwrap();
+    p.feed("two", true).unwrap();
+    let paint = p.feed("\u{1b}[2A\u{1b}[Jshorter block", true).unwrap();
     assert_eq!(paint.back, 2);
     assert_eq!(paint.erase_below, 1, "the erase was dropped");
 }
@@ -123,8 +123,8 @@ fn erasing_downward_is_reported_so_the_stale_rows_can_be_blanked() {
 #[test]
 fn erasing_a_line_needs_no_reporting_because_the_write_replaces_it() {
     let mut p = Painter::new();
-    p.feed("one").unwrap();
-    let paint = p.feed("\u{1b}[A\u{1b}[2Kfresh").unwrap();
+    p.feed("one", true).unwrap();
+    let paint = p.feed("\u{1b}[A\u{1b}[2Kfresh", true).unwrap();
     assert_eq!(paint.text, "fresh");
     assert_eq!(paint.back, 1);
     assert_eq!(paint.erase_below, 0);
@@ -135,8 +135,8 @@ fn carriage_returns_still_collapse_within_the_line_being_painted() {
     // The two mechanisms compose: a tool may move the cursor up *and* rewrite
     // the line it lands on with carriage returns.
     let mut p = Painter::new();
-    p.feed("one").unwrap();
-    let paint = p.feed("\u{1b}[A10%\r55%\r100%").unwrap();
+    p.feed("one", true).unwrap();
+    let paint = p.feed("\u{1b}[A10%\r55%\r100%", true).unwrap();
     assert_eq!(paint.text, "100%", "only the state it ended on is shown");
     assert_eq!(paint.back, 1);
 }
@@ -145,7 +145,7 @@ fn carriage_returns_still_collapse_within_the_line_being_painted() {
 fn a_sequence_this_model_does_not_know_is_left_in_the_text() {
     // Colour is not cursor movement: `ansi.rs` renders it, so it must survive.
     let mut p = Painter::new();
-    let paint = p.feed("\u{1b}[31mred text").unwrap();
+    let paint = p.feed("\u{1b}[31mred text", true).unwrap();
     assert_eq!(paint.text, "\u{1b}[31mred text");
     assert_eq!(paint.back, 0);
 }
@@ -153,14 +153,14 @@ fn a_sequence_this_model_does_not_know_is_left_in_the_text() {
 #[test]
 fn cursor_previous_line_moves_cursor_up() {
     let mut p = Painter::new();
-    p.feed("line 1").unwrap();
-    p.feed("line 2").unwrap();
+    p.feed("line 1", true).unwrap();
+    p.feed("line 2", true).unwrap();
 
-    let first = p.feed("\u{1b}[2Fline 1 updated").unwrap();
+    let first = p.feed("\u{1b}[2Fline 1 updated", true).unwrap();
     assert_eq!(first.text, "line 1 updated");
     assert_eq!(first.back, 2);
 
-    let second = p.feed("line 2 updated").unwrap();
+    let second = p.feed("line 2 updated", true).unwrap();
     assert_eq!(second.text, "line 2 updated");
     assert_eq!(second.back, 1);
 }
@@ -168,11 +168,11 @@ fn cursor_previous_line_moves_cursor_up() {
 #[test]
 fn sgr_and_cr_preceding_cursor_up_does_not_block_parsing() {
     let mut p = Painter::new();
-    p.feed("pulling layer 1").unwrap();
-    p.feed("pulling layer 2").unwrap();
+    p.feed("pulling layer 1", true).unwrap();
+    p.feed("pulling layer 2", true).unwrap();
 
     let paint = p
-        .feed("\r\u{1b}[0m\u{1b}[2A\u{1b}[2Kextracting layer 1")
+        .feed("\r\u{1b}[0m\u{1b}[2A\u{1b}[2Kextracting layer 1", true)
         .unwrap();
     assert_eq!(paint.text, "\u{1b}[0mextracting layer 1");
     assert_eq!(paint.back, 2);
@@ -181,8 +181,10 @@ fn sgr_and_cr_preceding_cursor_up_does_not_block_parsing() {
 #[test]
 fn private_modes_like_cursor_hide_are_consumed() {
     let mut p = Painter::new();
-    p.feed("line 1").unwrap();
-    let paint = p.feed("\u{1b}[?25l\u{1b}[1Aline 1 overwritten").unwrap();
+    p.feed("line 1", true).unwrap();
+    let paint = p
+        .feed("\u{1b}[?25l\u{1b}[1Aline 1 overwritten", true)
+        .unwrap();
     assert_eq!(paint.text, "line 1 overwritten");
     assert_eq!(paint.back, 1);
 }

@@ -103,6 +103,26 @@ pub fn handle_key(
                 KeyCode::Esc | KeyCode::Char('q' | 'Q' | 'n' | 'N') => {
                     app.set_show_upgrade_modal(false);
                 }
+                KeyCode::Char('s' | 'S') => {
+                    app.set_show_upgrade_modal(false);
+                    let cmds = app.switch_stats();
+                    execute_cmds(cmds, app, dims, tx, tasks);
+                }
+                KeyCode::Char('d' | 'D') => {
+                    app.set_show_upgrade_modal(false);
+                    let cmds = app.toggle_docker(dims);
+                    execute_cmds(cmds, app, dims, tx, tasks);
+                }
+                KeyCode::Char('f' | 'F') => {
+                    app.set_show_upgrade_modal(false);
+                    let cmds = app.toggle_fetch(dims);
+                    execute_cmds(cmds, app, dims, tx, tasks);
+                }
+                KeyCode::Char('g' | 'G') => {
+                    app.set_show_upgrade_modal(false);
+                    let cmds = app.toggle_graphs(dims);
+                    execute_cmds(cmds, app, dims, tx, tasks);
+                }
                 _ => {}
             }
             return;

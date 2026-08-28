@@ -4,6 +4,7 @@
     clippy::missing_panics_doc
 )]
 use tokio::io::AsyncBufReadExt;
+use tokio::io::AsyncReadExt;
 use tokio::io::BufReader;
 
 use crate::app::Msg;
@@ -15,6 +16,9 @@ use crate::tasks::spawn::deliver_sudo_password;
 use crate::tasks::spawn::SENTINEL_TIMEOUT;
 use tokio::sync::mpsc::Sender;
 use tokio::task::JoinHandle;
+
+const CHUNK_READ_BUFFER_SIZE: usize = 4096;
+const PROMPT_FLUSH_TIMEOUT_MS: u64 = 100;
 
 #[allow(clippy::too_many_lines)]
 pub fn spawn_upgrade(
@@ -70,7 +74,7 @@ pub fn spawn_upgrade(
         let stdout = child.stdout.take().expect("stdout piped");
         let stderr = child.stderr.take().expect("stderr piped");
         let mut stdout_lines = BufReader::new(stdout).lines();
-        let mut stderr_lines = BufReader::new(stderr).lines();
+        let stderr_lines = BufReader::new(stderr).lines();
 
         // Hand the sudo password over on stdin, once the remote says it has
         // turned echo off. It is deliberately absent from the command line: argv
@@ -135,55 +139,71 @@ pub fn spawn_upgrade(
         // reported "exited 1" about half the time.
         let mut stdout_open = true;
         let mut stderr_open = true;
+        let mut stdout_reader = stdout_lines.into_inner();
+        let mut stderr_reader = stderr_lines.into_inner();
+        let mut stdout_buf = [0u8; CHUNK_READ_BUFFER_SIZE];
+        let mut stderr_buf = [0u8; CHUNK_READ_BUFFER_SIZE];
+        let mut stdout_str = String::new();
+        let mut stderr_str = String::new();
+
         while stdout_open || stderr_open {
             tokio::select! {
-                line = stdout_lines.next_line(), if stdout_open => {
-                    match line {
-                        Ok(Some(line)) => {
-                            // Scan every state this line passed through: a
-                            // marker or a sudo hint can appear in any of them,
-                            // not only the one the line ended on.
-                            let mut is_marker = false;
-                            for state in painted_states(&line) {
-                                let trimmed = state.trim();
-                                match marker(trimmed) {
-                                    Some(Marker::SudoFailed) => {
-                                        sudo_rejected = true;
-                                        is_marker = true;
-                                        continue;
-                                    }
-                                    // Reachable here, not only on stderr: a
-                                    // remote runs under `ssh -tt` and a pty has
-                                    // one stream.
-                                    Some(Marker::LockHeld) => {
-                                        lock_held = true;
-                                        is_marker = true;
-                                        continue;
-                                    }
-                                    None => {}
-                                }
-                                if trimmed.is_empty() {
-                                    continue;
-                                }
-                                if is_sudo_help(&trimmed.to_lowercase()) {
-                                    sudo_help = true;
-                                }
-                            }
-                            // Then through the screen model, which decides
-                            // whether this is a new line or a repaint of one
-                            // already shown.
-                            if !is_marker {
-                                if let Some(paint) = painter.feed(&line) {
+                res = tokio::time::timeout(std::time::Duration::from_millis(PROMPT_FLUSH_TIMEOUT_MS), stdout_reader.read(&mut stdout_buf)), if stdout_open => {
+                    match res {
+                        Ok(Ok(0) | Err(_)) => {
+                            stdout_open = false;
+                            if !stdout_str.is_empty() {
+                                if let Some(paint) = painter.feed(&stdout_str, true) {
                                     let msg = if paint.back == 0 && paint.erase_below == 0 {
                                         Msg::AuxLine { panel: idx, gen, line: paint.text }
                                     } else {
-                                        Msg::AuxRepaint {
-                                            panel: idx,
-                                            gen,
-                                            line: paint.text,
-                                            back: paint.back,
-                                            erase_below: paint.erase_below,
+                                        Msg::AuxRepaint { panel: idx, gen, line: paint.text, back: paint.back, erase_below: paint.erase_below }
+                                    };
+                                    let _ = tx.send(msg).await;
+                                }
+                                stdout_str.clear();
+                            }
+                        }
+                        Ok(Ok(n)) => {
+                            let chunk = String::from_utf8_lossy(&stdout_buf[..n]);
+                            for c in chunk.chars() {
+                                stdout_str.push(c);
+                                if c == '\n' || c == '\r' {
+                                    let mut is_marker = false;
+                                    for state in painted_states(&stdout_str) {
+                                        let trimmed = state.trim();
+                                        match marker(trimmed) {
+                                            Some(Marker::SudoFailed) => { sudo_rejected = true; is_marker = true; continue; }
+                                            Some(Marker::LockHeld) => { lock_held = true; is_marker = true; continue; }
+                                            None => {}
                                         }
+                                        if !trimmed.is_empty() && is_sudo_help(&trimmed.to_lowercase()) {
+                                            sudo_help = true;
+                                        }
+                                    }
+                                    if !is_marker {
+                                        if let Some(paint) = painter.feed(&stdout_str, c == '\n') {
+                                            let msg = if paint.back == 0 && paint.erase_below == 0 {
+                                                Msg::AuxLine { panel: idx, gen, line: paint.text }
+                                            } else {
+                                                Msg::AuxRepaint { panel: idx, gen, line: paint.text, back: paint.back, erase_below: paint.erase_below }
+                                            };
+                                            if tx.send(msg).await.is_err() {
+                                                return;
+                                            }
+                                        }
+                                    }
+                                    stdout_str.clear();
+                                }
+                            }
+                        }
+                        Err(_) => { // Timeout
+                            if !stdout_str.is_empty() {
+                                if let Some(paint) = painter.feed(&stdout_str, false) {
+                                    let msg = if paint.back == 0 && paint.erase_below == 0 {
+                                        Msg::AuxLine { panel: idx, gen, line: paint.text }
+                                    } else {
+                                        Msg::AuxRepaint { panel: idx, gen, line: paint.text, back: paint.back, erase_below: paint.erase_below }
                                     };
                                     if tx.send(msg).await.is_err() {
                                         return;
@@ -191,50 +211,63 @@ pub fn spawn_upgrade(
                                 }
                             }
                         }
-                        _ => stdout_open = false,
                     }
                 }
-                line = stderr_lines.next_line(), if stderr_open => {
-                    // Same rule as stdout: apt writes its progress display here
-                    // too, and a hundred rewrites of one bar would evict the
-                    // actual error message from the buffer below.
-                    let Ok(Some(line)) = line else {
-                        stderr_open = false;
-                        continue;
+                res = tokio::time::timeout(std::time::Duration::from_millis(PROMPT_FLUSH_TIMEOUT_MS), stderr_reader.read(&mut stderr_buf)), if stderr_open => {
+                    let process_stderr_line = |line: &str, errbuf: &mut Vec<String>, sudo_rejected: &mut bool, lock_held: &mut bool, sudo_help: &mut bool| {
+                        let mut visible = None;
+                        for state in painted_states(line) {
+                            let trimmed = state.trim();
+                            match marker(trimmed) {
+                                Some(Marker::SudoFailed) => {
+                                    *sudo_rejected = true;
+                                    continue;
+                                }
+                                Some(Marker::LockHeld) => {
+                                    *lock_held = true;
+                                    continue;
+                                }
+                                None => {}
+                            }
+                            if trimmed.is_empty() {
+                                continue;
+                            }
+                            let lower = trimmed.to_lowercase();
+                            if is_sudo_help(&lower) {
+                                *sudo_help = true;
+                            }
+                            if lower.contains("shared connection to") || (lower.contains("connection to") && lower.contains("closed")) {
+                                continue;
+                            }
+                            visible = Some(state);
+                        }
+                        if let Some(state) = visible {
+                            if errbuf.len() >= crate::consts::MAX_UPGRADE_ERR_LINES {
+                                errbuf.remove(0);
+                            }
+                            errbuf.push(state.to_string());
+                        }
                     };
-                    let mut visible = None;
-                    for state in painted_states(&line) {
-                        let trimmed = state.trim();
-                        // Both markers, on this stream too: the local path keeps
-                        // its pipes separate, so either can arrive here.
-                        match marker(trimmed) {
-                            Some(Marker::SudoFailed) => {
-                                sudo_rejected = true;
-                                continue;
+
+                    match res {
+                        Ok(Ok(0) | Err(_)) => {
+                            stderr_open = false;
+                            if !stderr_str.is_empty() {
+                                process_stderr_line(&stderr_str, &mut errbuf, &mut sudo_rejected, &mut lock_held, &mut sudo_help);
+                                stderr_str.clear();
                             }
-                            Some(Marker::LockHeld) => {
-                                lock_held = true;
-                                continue;
+                        }
+                        Ok(Ok(n)) => {
+                            let chunk = String::from_utf8_lossy(&stderr_buf[..n]);
+                            for c in chunk.chars() {
+                                stderr_str.push(c);
+                                if c == '\n' || c == '\r' {
+                                    process_stderr_line(&stderr_str, &mut errbuf, &mut sudo_rejected, &mut lock_held, &mut sudo_help);
+                                    stderr_str.clear();
+                                }
                             }
-                            None => {}
                         }
-                        if trimmed.is_empty() {
-                            continue;
-                        }
-                        let lower = trimmed.to_lowercase();
-                        if is_sudo_help(&lower) {
-                            sudo_help = true;
-                        }
-                        if lower.contains("shared connection to") || (lower.contains("connection to") && lower.contains("closed")) {
-                            continue;
-                        }
-                        visible = Some(state);
-                    }
-                    if let Some(state) = visible {
-                        if errbuf.len() >= crate::consts::MAX_UPGRADE_ERR_LINES {
-                            errbuf.remove(0);
-                        }
-                        errbuf.push(state.to_string());
+                        Err(_) => {}
                     }
                 }
             }

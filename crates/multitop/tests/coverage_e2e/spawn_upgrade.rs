@@ -23,7 +23,7 @@ async fn spawn_upgrade_streams_output_for_local_command() {
     // Verify we got output.
     let has_output = msgs
         .iter()
-        .any(|m| matches!(m, Msg::AuxLine { line, .. } if line.contains("hello-from-upgrade")));
+        .any(|m| matches!(m, Msg::AuxLine { line, .. } | Msg::AuxRepaint { line, .. } if line.contains("hello-from-upgrade")));
     assert!(has_output, "upgrade streamed output");
 
     // Verify we got completion.
@@ -55,7 +55,7 @@ async fn spawn_upgrade_no_password_succeeds() {
 
     let has_output = msgs
         .iter()
-        .any(|m| matches!(m, Msg::AuxLine { line, .. } if line.contains("no-pw-needed")));
+        .any(|m| matches!(m, Msg::AuxLine { line, .. } | Msg::AuxRepaint { line, .. } if line.contains("no-pw-needed")));
     assert!(has_output, "upgrade streamed output");
 
     handle.abort();
@@ -82,11 +82,18 @@ async fn spawn_upgrade_collapses_carriage_returns() {
     let progress_lines: Vec<&str> = msgs
         .iter()
         .filter_map(|m| match m {
-            Msg::AuxLine { line, .. } if line.contains('%') => Some(line.as_str()),
+            Msg::AuxLine { line, .. } | Msg::AuxRepaint { line, .. } if line.contains('%') => {
+                Some(line.as_str())
+            }
             _ => None,
         })
         .collect();
-    assert_eq!(progress_lines, vec!["30%"], "carriage returns collapsed");
+    // Since AuxRepaint overwrites previous lines, the last message is the final collapsed state.
+    assert_eq!(
+        progress_lines.last().copied(),
+        Some("30%"),
+        "carriage returns collapsed"
+    );
 
     handle.abort();
 }
