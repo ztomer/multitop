@@ -65,6 +65,14 @@ CHECKER = re.compile(r"tools/(check_[a-z0-9_]+\.py)")
 # `("label", "check_x.py")` -- how `local-ci.py` names them.
 LOCAL_CI_CHECKER = re.compile(r'"(check_[a-z0-9_]+\.py)"')
 
+# The end-to-end suites are matched as a *directory*, not as a list of files.
+#
+# A per-file list is one more thing to drift: someone adds `tests/test_new.py`,
+# names it in two of the three places, and the third quietly stops covering it.
+# Requiring `pytest tests/` instead means a suite is covered the moment the file
+# exists, and there is nothing to keep in step.
+PYTEST_DIR = re.compile(r"pytest[^\n]*[\"' ]tests/")
+
 
 def named_in(text: str, pattern: re.Pattern[str]) -> set[str]:
     return {m for m in pattern.findall(text)} - EXEMPT
@@ -81,6 +89,38 @@ def gates() -> dict[str, set[str]]:
 def on_disk() -> set[str]:
     """Every checker that exists, whether or not anything runs it."""
     return {p.name for p in REPO.glob("tools/check_*.py")} - EXEMPT
+
+
+def suites_on_disk() -> set[str]:
+    """Every python end-to-end suite that exists."""
+    return {p.name for p in REPO.glob("tests/test_*.py")}
+
+
+def runs_pytest(text: str) -> bool:
+    return PYTEST_DIR.search(text) is not None
+
+
+def suite_problems() -> list[str]:
+    """Whether all three run the python suites at all.
+
+    These are the layer that drives the built binary rather than a function --
+    the live exec channel against real hosts, and the app itself in a real
+    terminal. Nothing ran them when they were written: `cargo test` does not,
+    and neither did the hook, CI or this script. A suite nothing runs is a suite
+    that rots, and this repo has the receipts for what that costs.
+    """
+    if not suites_on_disk():
+        return []
+    missing = [
+        name
+        for name, path in (
+            ("pre-commit hook", HOOK),
+            ("CI workflow", WORKFLOW),
+            ("local-ci.py", LOCAL_CI),
+        )
+        if not runs_pytest(path.read_text(encoding="utf-8"))
+    ]
+    return [f"{name} does not run the python suites under tests/" for name in missing]
 
 
 def differences(found: dict[str, set[str]], existing: set[str]) -> list[str]:
@@ -125,6 +165,17 @@ def self_test() -> int:
             print("gate-parity self-test: the hook parser stopped finding checkers", file=sys.stderr)
             return 1
 
+    # And that the pytest requirement detects both ways.
+    if not runs_pytest('python3 -m pytest tests/ -q'):
+        print("gate-parity self-test: a real pytest invocation was NOT recognised", file=sys.stderr)
+        return 1
+    if not runs_pytest('run("e2e", ["python3", "-m", "pytest", "tests/", "-q"])'):
+        print("gate-parity self-test: the local-ci form was NOT recognised", file=sys.stderr)
+        return 1
+    if runs_pytest("cargo test --workspace"):
+        print("gate-parity self-test: a cargo run was mistaken for pytest", file=sys.stderr)
+        return 1
+
     print("gate-parity self-test: passed")
     return 0
 
@@ -134,9 +185,12 @@ def main() -> int:
         return self_test()
 
     existing = on_disk()
-    problems = differences(gates(), existing)
+    problems = differences(gates(), existing) + suite_problems()
     if not problems:
-        print(f"gate-parity: clean ({len(existing)} checkers, run everywhere)")
+        print(
+            f"gate-parity: clean ({len(existing)} checkers and "
+            f"{len(suites_on_disk())} e2e suites, run everywhere)"
+        )
         return 0
 
     print("gate-parity: the three lists of gates disagree\n")
@@ -147,7 +201,9 @@ def main() -> int:
         "  .githooks/pre-commit      -- so it blocks the commit\n"
         "  .github/workflows/ci.yml  -- so it blocks the merge\n"
         "  scripts/local-ci.py       -- so it can be run before pushing\n"
-        "\nA gate that only one of them runs is a gate that only sometimes runs."
+        "\nA gate that only one of them runs is a gate that only sometimes runs.\n"
+        "The python suites under tests/ are required the same way, as a\n"
+        "directory rather than a list, so a new one cannot be forgotten."
     )
     return 1
 

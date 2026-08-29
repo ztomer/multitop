@@ -89,7 +89,7 @@ def err(text: str) -> None:
 # --------------------------------------------------------------------- running
 
 
-def run(label: str, cmd: list[str]) -> bool:
+def run(label: str, cmd: list[str], env: dict[str, str] | None = None) -> bool:
     """Run a command, printing its output only when it fails."""
     info(label)
     # `errors="replace"`: the suite prints raw terminal escapes on purpose --
@@ -97,7 +97,7 @@ def run(label: str, cmd: list[str]) -> bool:
     # is not valid UTF-8 and decoding it strictly crashed the runner rather than
     # reporting on the tests it had just run.
     proc = subprocess.run(
-        cmd, cwd=REPO, capture_output=True, text=True, errors="replace"
+        cmd, cwd=REPO, capture_output=True, text=True, errors="replace", env=env
     )
     if proc.returncode != 0:
         err(f"{label} failed")
@@ -159,7 +159,32 @@ def rust_gates() -> bool:
         )
         and clippy_on_ci_toolchain()
         and run("tests", ["cargo", "test", "--workspace", "--all-features"])
+        and end_to_end_suites()
         and run("coverage (95% floor)", ["bash", "tools/coverage_check.sh"])
+    )
+
+
+def end_to_end_suites() -> bool:
+    """`tests/test_exec_live.py` and `tests/test_tmux_e2e.py`.
+
+    They drive the built binary rather than a function, so the binary is built
+    first -- and the tmux harness refuses to run against one older than the
+    source, because an e2e suite against a stale binary tests code nobody wrote.
+
+    `MULTITOP_LIVE` is set here and nowhere else. The live suite talks to real
+    machines and takes about three and a half minutes; on a pre-commit hook that
+    is a gate people learn to `--no-verify` past, and a bypassed gate protects
+    nothing. Before a push, where someone is deliberately waiting, it is worth
+    the wait.
+
+    Both skip with a stated reason when what they need is absent: the live suite
+    without hosts or without the opt-in, the tmux suite without tmux. Neither is
+    allowed to pass silently, which is the whole reason they are named here
+    rather than left to whoever remembers to run them.
+    """
+    env = dict(os.environ, MULTITOP_LIVE="1")
+    return run("build for e2e", ["cargo", "build", "-p", "multitop"]) and run(
+        "end-to-end suites", ["python3", "-m", "pytest", "tests/", "-q"], env=env
     )
 
 

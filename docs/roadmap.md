@@ -95,6 +95,11 @@ line of detection.
 | CI had been red on every run for days -- an Ubuntu runner with no `libdbus-1-dev`, so every cargo step died in a build script before compiling any of this project | user | The system library installed by a composite action every job uses; `check_gate_parity.py` so the three gate lists cannot drift again |
 | `/` could only find a host by a process near the top of its table, because the agent truncates that table to what fits the pane -- and filtering makes panes bigger, so the same query answered differently a second later | user | The snapshot carries every distinct process name; the table stays capped |
 | Four defects in one five-change round (below) | adversarial review | see the table under "The streak is broken" |
+| The upgrade channel was the one SSH channel that was not framed: raw text over `ssh -tt`, whose shape `ssh` decided. Probed against one host with one command, it produced three different byte streams -- multiplexed (`\n`), unmultiplexed (`\r\n`, which a stale *file* at the `ControlPath` silently selects), and local (two pipes, no pty). Seven of the rows above are defects in that one channel; none are in the three framed ones | user (output logged twice; upgrades leaving the app stuck) | `ProtoMode::Exec`: the agent runs the command on a pty it owns and reports it as framed packets. `ssh -tt` deleted |
+| `painted_states("a\r")` is `["a", ""]`, whose last element is empty -- and a pty ends every line `\r\n`. On the unmultiplexed transport the whole upgrade log collapsed to blank lines. The line reader before it was safe by accident: `tokio`'s `Lines` strips the `\r` for you | rewriting the reader onto bytes | The CR of a CRLF is treated as part of the terminator, with a named regression test |
+| `ControlMaster=auto` was documented as degrading to an unmultiplexed connection when its `ControlPath` cannot be bound. It does not: `ssh` prints `unix_listener: cannot bind` and **the command never runs**, on every channel. An account with no `~/.ssh` would have found multitop unable to reach anything | probing the comment as a claim | The directory is created 0700, the path is passed absolute, and the sharing options are dropped when it cannot be placed |
+| The diagnostic dump announced itself with `eprintln!` -- onto the terminal the TUI holds in raw mode inside the alternate screen. Every signal scribbled a wrapped path across the operator's panel: a tool for reading a display that has stopped making sense was making it stop making sense. **Five sites; fixing one left four** | the tmux e2e harness, which signals repeatedly | One `diag::report`, which writes only when stderr is not a terminal |
+| Nothing ran the python end-to-end suites. `cargo test` does not, and neither did the hook, CI or `local-ci.py` -- so the only layers that drive the built *binary* would have rotted quietly, while the suite reported all-green | writing them and looking for what ran them | All three run `pytest tests/`, required by `check_gate_parity.py` as a **directory** so a new suite cannot be forgotten |
 
 ### The streak is broken, and that is the point
 
@@ -127,6 +132,31 @@ The last two are one defect. A test that pins behaviour the product no longer
 has is worse than no test: it reports that the old path still works. The
 generalisation, worth asking whenever a fix removes a step -- **what was testing
 the step you just deleted, and is it still green?** If it is, it is now lying.
+
+### Instruments that were measuring the wrong thing
+
+Four times in one session a probe reported no defect because it could not have
+seen one. Worth its own heading, because each looked like a finished answer:
+
+* an `ls` oracle compared `ssh host ls` against the same command run through a
+  login shell on a pty -- two different commands, found to differ. The channel
+  was right and the oracle was wrong;
+* a fake `HOME` was set to test a missing `~/.ssh`, and the connection succeeded.
+  `ssh` expands `~` in `ControlPath` from the passwd entry, not `$HOME`: the path
+  under test had never changed;
+* `ps` on this machine's `PATH` is a replacement that rejects `-p`. Its usage
+  error read as "the process is dead" and sent an afternoon after a signal
+  handler that was working perfectly;
+* the tmux harness resolved its pid by scanning the process table for the string
+  "multitop" and found the operator's own, running for 41 hours. It read that
+  process's dumps and reported them as the test's.
+
+And twice a test passed while asserting nothing: `not in_flight` is true of a
+panel that never ran, and a duplication ceiling set "safely" at 8 was exactly
+what an exactly-doubled log of four lines produces.
+
+The rule earned: **a probe that shows no defect has to be shown capable of
+showing one.** Both directions, before the answer is believed.
 
 ### The pattern that closes them
 

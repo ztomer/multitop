@@ -144,6 +144,23 @@ ok "clippy clean"
 # its own `--fail-under-lines 55` under a label that said 95, against one crate
 # and without the documented exclusions -- a local gate weaker than CI is a gate
 # that lets you push red.
+info "running the end-to-end suites (tests/test_exec_live.py, tests/test_tmux_e2e.py)"
+# These drive the built binary, so the gate builds it. An e2e suite run against
+# a stale binary tests code nobody wrote -- the harness refuses to, and would
+# fail here rather than quietly passing.
+#
+# Both skip with a stated reason when what they need is absent: the live suite
+# without reachable hosts, the tmux suite without tmux. Neither passes silently.
+if ! cargo build -p multitop >"$log" 2>&1; then
+    tail -20 "$log" >&2
+    die "cannot build multitop, so the end-to-end suites cannot run"
+fi
+if ! python3 -m pytest tests/ -q >"$log" 2>&1; then
+    tail -40 "$log" >&2
+    die "an end-to-end suite failed"
+fi
+ok "end-to-end suites"
+
 info "checking coverage (workspace, 95% floor)"
 if ! bash tools/coverage_check.sh >"$log" 2>&1; then
     tail -20 "$log" >&2

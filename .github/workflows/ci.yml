@@ -75,6 +75,15 @@ jobs:
       - name: Test
         run: cargo test --workspace --all-features
 
+      - name: End-to-end suites (tests/test_exec_live.py, tests/test_tmux_e2e.py)
+        # They drive the built binary, so build it first. Both skip with a
+        # stated reason when what they need is absent -- the live suite without
+        # reachable hosts, the tmux suite without tmux -- so neither turns a
+        # runner's missing tool into a silent pass or a red build.
+        run: |
+          cargo build -p multitop
+          python3 -m pytest tests/ -q
+
       - name: Benches build
         run: cargo bench --no-run
 
