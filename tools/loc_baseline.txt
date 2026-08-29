@@ -13,4 +13,4 @@
 #
 # lines path
 0 __under_cap_sentinel__
-692 crates/multitop/src/diag.rs
+714 crates/multitop/src/diag.rs

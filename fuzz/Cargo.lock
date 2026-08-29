@@ -1334,7 +1334,7 @@ dependencies = [
 
 [[package]]
 name = "multitop"
-version = "0.39.1"
+version = "0.42.1"
 dependencies = [
  "crossterm",
  "keyring 4.1.6",
@@ -1343,6 +1343,7 @@ dependencies = [
  "multitop-vault",
  "ratatui",
  "secrecy",
+ "signal-hook",
  "tokio",
  "tokio-stream",
  "toml",
@@ -1352,7 +1353,7 @@ dependencies = [
 
 [[package]]
 name = "multitop-agent"
-version = "0.39.1"
+version = "0.42.1"
 dependencies = [
  "libc",
  "serde_json",
