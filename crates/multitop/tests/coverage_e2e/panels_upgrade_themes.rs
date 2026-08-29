@@ -300,16 +300,19 @@ fn sudo_sentinels_are_exported() {
     let _g = isolate_keychain();
     // The sentinels themselves are public and used by the upgrade handshake.
     assert_eq!(
-        multitop::ssh::SUDO_FAILED_SENTINEL,
+        multitop_agent::exec::SUDO_FAILED_SENTINEL,
         "__multitop_sudo_failed__"
     );
-    assert_eq!(multitop::ssh::LOCK_HELD_SENTINEL, "__multitop_lock_held__");
+    assert_eq!(
+        multitop_agent::exec::LOCK_HELD_SENTINEL,
+        "__multitop_lock_held__"
+    );
 }
 
 #[test]
 fn upgrade_lock_code_is_exported() {
     let _g = isolate_keychain();
     // Exit codes that the upgrade wrapper can return.
-    assert_eq!(multitop::ssh::SUDO_FAILED_CODE, 111);
-    assert_eq!(multitop::ssh::LOCK_HELD_CODE, 125);
+    assert_eq!(multitop_agent::exec::SUDO_FAILED_CODE, 111);
+    assert_eq!(multitop_agent::exec::LOCK_HELD_CODE, 125);
 }

@@ -1,26 +1,49 @@
-#![allow(
-    clippy::expect_used,
-    clippy::must_use_candidate,
-    clippy::missing_panics_doc
-)]
-use tokio::io::AsyncBufReadExt;
-use tokio::io::AsyncReadExt;
-use tokio::io::BufReader;
+//! Reading one upgrade, now that its output arrives framed.
+//!
+//! This used to be a byte reader with a 100 ms timer, a partial-line buffer and
+//! a `\r`-splitting loop, because the stream it read had no record boundaries
+//! in it and they had to be guessed. They are on the wire now, so almost all of
+//! that is gone: what is left reads frames, hands the bytes to the screen
+//! model, and reports the exit the agent actually observed.
+//!
+//! Two obligations survive from the old version and are the reason this file is
+//! shaped the way it is.
+//!
+//! **Every exit reports `AuxDone`.** Returning without one leaves the panel in
+//! `UpgradeState::STARTED` for the rest of the session: it says "running"
+//! forever, `upgrades_in_flight()` never clears so quitting asks for a
+//! confirmation about a run that ended long ago, and no further upgrade can
+//! start on any host -- all while the stats stream to the same host keeps
+//! working, which makes it look as though the host went away. The old code had
+//! two `return`s that skipped it. Here there is one exit, in [`spawn_upgrade`],
+//! and [`run_upgrade`] cannot leave without passing through it.
+//!
+//! **Silence is bounded.** The agent sends a heartbeat about once a second, so
+//! a gap longer than [`STALL_AFTER`] means the far end is gone rather than
+//! busy. Before, a run that stopped producing output simply never ended.
+
+use tokio::io::{AsyncBufReadExt, AsyncReadExt, BufReader};
+use tokio::sync::mpsc::Sender;
+use tokio::task::JoinHandle;
+
+use multitop_agent::exec::{ExecFrame, MarkerKind, Stream};
+use multitop_agent::proto::{decode_packet, Payload, HEADER_LEN, MAGIC};
 
 use crate::app::Msg;
 use crate::config::Server;
 use crate::fmt::{error_line, header_line, status_line};
 use crate::ssh;
-use crate::tasks::painted::{is_sudo_help, marker, painted_states, Marker, Painter};
-use crate::tasks::spawn::deliver_sudo_password;
-use crate::tasks::spawn::SENTINEL_TIMEOUT;
-use tokio::sync::mpsc::Sender;
-use tokio::task::JoinHandle;
+use crate::tasks::painted::{is_sudo_help, Paint, Painter};
+use crate::tasks::verdict::{sudo_tips, verdict, Outcome, Report};
 
-const CHUNK_READ_BUFFER_SIZE: usize = 4096;
-const PROMPT_FLUSH_TIMEOUT_MS: u64 = 100;
+/// How long the client waits with no frame at all before calling it lost.
+///
+/// The agent heartbeats every second while its child lives, so this is thirty
+/// missed heartbeats, not thirty seconds of a slow command. A long `apt` is
+/// noisy in exactly the way this deadline needs.
+const STALL_AFTER: std::time::Duration = std::time::Duration::from_secs(30);
 
-#[allow(clippy::too_many_lines)]
+#[must_use]
 pub fn spawn_upgrade(
     idx: usize,
     gen: u64,
@@ -29,335 +52,345 @@ pub fn spawn_upgrade(
     tx: Sender<Msg>,
 ) -> JoinHandle<()> {
     tokio::spawn(async move {
-        // Every exit from here must report AuxDone. Returning without it leaves
-        // the panel in UpgradeState::STARTED for the rest of the session: it
-        // says "running" forever, blocks any further upgrade because
-        // `upgrades_in_flight()` never clears, and is recorded as an
-        // interrupted run -- all while the stats stream to the same host keeps
-        // working, which makes it look like the host went away.
-        let Some(command) = server.upgrade_cmd.clone() else {
-            let _ = tx
-                .send(Msg::AuxDone {
-                    panel: idx,
-                    gen,
-                    note: Some(status_line("\u{26A0} no upgrade_cmd configured")),
-                    success: false,
-                })
-                .await;
-            return;
-        };
-
-        let ssh::Spawned {
-            mut child,
-            awaits_password,
-        } = match ssh::spawn_command(&server, &command, pass.as_deref()) {
-            Ok(c) => c,
-            Err(e) => {
-                let _ = tx
-                    .send(Msg::AuxLine {
-                        panel: idx,
-                        gen,
-                        line: error_line(e),
-                    })
-                    .await;
-                let _ = tx
-                    .send(Msg::AuxDone {
-                        panel: idx,
-                        gen,
-                        note: Some(status_line("\u{26A0} could not start the upgrade over SSH")),
-                        success: false,
-                    })
-                    .await;
-                return;
-            }
-        };
-        let stdout = child.stdout.take().expect("stdout piped");
-        let stderr = child.stderr.take().expect("stderr piped");
-        let mut stdout_lines = BufReader::new(stdout).lines();
-        let stderr_lines = BufReader::new(stderr).lines();
-
-        // Hand the sudo password over on stdin, once the remote says it has
-        // turned echo off. It is deliberately absent from the command line: argv
-        // is not secret, and `/proc/<pid>/cmdline` is world-readable on Linux, so
-        // embedding it exposed the password to every user on the monitored host
-        // for the length of the run.
-        //
-        // Waiting for the sentinel is what makes it safe rather than merely
-        // moved: `-tt` allocates a pty, and anything arriving before `stty
-        // -echo` completes is echoed straight back into this stdout. The
-        // sentinel line is consumed here, so it never reaches the panel.
-        if let Some(secret) = pass.as_deref().filter(|_| awaits_password) {
-            let handed = deliver_sudo_password(
-                &mut stdout_lines,
-                child.stdin.take(),
-                secret,
-                SENTINEL_TIMEOUT,
-            )
-            .await;
-            if !handed {
-                // Say so rather than letting it surface as a network error.
-                // Silence here is what made a sudo-handshake failure
-                // indistinguishable from an unreachable host.
-                let _ = tx
-                    .send(Msg::AuxLine {
-                        panel: idx,
-                        gen,
-                        line: error_line(
-                            "sudo handshake did not complete: the remote never signalled that it \
-                             was ready for the password. The host is reachable; the upgrade \
-                             continued without sudo pre-authorisation.",
-                        ),
-                    })
-                    .await;
-            }
-        }
-
-        let header = header_line(format!("Upgrade on {}", server.host));
-        let _ = tx
-            .send(Msg::AuxBegin {
-                panel: idx,
-                gen,
-                header: Some(header),
-            })
-            .await;
-
-        // The screen the remote thinks it is drawing on, for tools that repaint
-        // several lines rather than one.
-        let mut painter = Painter::new();
-        let mut sudo_help = false;
-        // Set when the remote says sudo refused the password we handed it.
-        let mut sudo_rejected = false;
-        // Set when the remote says another run already holds the upgrade lock.
-        let mut lock_held = false;
-        let mut errbuf = Vec::new();
-        // Both streams are read to their own end, rather than stopping the
-        // moment stdout finishes. They close together when the child exits, so
-        // whichever `select!` happened to poll first decided whether the
-        // contents of the stderr pipe were read or thrown away -- and stderr is
-        // where the reason lives: apt's actual complaint, the sudo-help shapes,
-        // the held-lock sentinel. A run that failed for a nameable reason
-        // reported "exited 1" about half the time.
-        let mut stdout_open = true;
-        let mut stderr_open = true;
-        let mut stdout_reader = stdout_lines.into_inner();
-        let mut stderr_reader = stderr_lines.into_inner();
-        let mut stdout_buf = [0u8; CHUNK_READ_BUFFER_SIZE];
-        let mut stderr_buf = [0u8; CHUNK_READ_BUFFER_SIZE];
-        let mut stdout_str = String::new();
-        let mut stderr_str = String::new();
-
-        while stdout_open || stderr_open {
-            tokio::select! {
-                res = tokio::time::timeout(std::time::Duration::from_millis(PROMPT_FLUSH_TIMEOUT_MS), stdout_reader.read(&mut stdout_buf)), if stdout_open => {
-                    match res {
-                        Ok(Ok(0) | Err(_)) => {
-                            stdout_open = false;
-                            if !stdout_str.is_empty() {
-                                if let Some(paint) = painter.feed(&stdout_str, true) {
-                                    let msg = if paint.back == 0 && paint.erase_below == 0 {
-                                        Msg::AuxLine { panel: idx, gen, line: paint.text }
-                                    } else {
-                                        Msg::AuxRepaint { panel: idx, gen, line: paint.text, back: paint.back, erase_below: paint.erase_below }
-                                    };
-                                    let _ = tx.send(msg).await;
-                                }
-                                stdout_str.clear();
-                            }
-                        }
-                        Ok(Ok(n)) => {
-                            let chunk = String::from_utf8_lossy(&stdout_buf[..n]);
-                            for c in chunk.chars() {
-                                stdout_str.push(c);
-                                if c == '\n' || c == '\r' {
-                                    let mut is_marker = false;
-                                    for state in painted_states(&stdout_str) {
-                                        let trimmed = state.trim();
-                                        match marker(trimmed) {
-                                            Some(Marker::SudoFailed) => { sudo_rejected = true; is_marker = true; continue; }
-                                            Some(Marker::LockHeld) => { lock_held = true; is_marker = true; continue; }
-                                            None => {}
-                                        }
-                                        if !trimmed.is_empty() && is_sudo_help(&trimmed.to_lowercase()) {
-                                            sudo_help = true;
-                                        }
-                                    }
-                                    if !is_marker {
-                                        if let Some(paint) = painter.feed(&stdout_str, c == '\n') {
-                                            let msg = if paint.back == 0 && paint.erase_below == 0 {
-                                                Msg::AuxLine { panel: idx, gen, line: paint.text }
-                                            } else {
-                                                Msg::AuxRepaint { panel: idx, gen, line: paint.text, back: paint.back, erase_below: paint.erase_below }
-                                            };
-                                            if tx.send(msg).await.is_err() {
-                                                return;
-                                            }
-                                        }
-                                    }
-                                    stdout_str.clear();
-                                }
-                            }
-                        }
-                        Err(_) => { // Timeout
-                            if !stdout_str.is_empty() {
-                                if let Some(paint) = painter.feed(&stdout_str, false) {
-                                    let msg = if paint.back == 0 && paint.erase_below == 0 {
-                                        Msg::AuxLine { panel: idx, gen, line: paint.text }
-                                    } else {
-                                        Msg::AuxRepaint { panel: idx, gen, line: paint.text, back: paint.back, erase_below: paint.erase_below }
-                                    };
-                                    if tx.send(msg).await.is_err() {
-                                        return;
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-                res = tokio::time::timeout(std::time::Duration::from_millis(PROMPT_FLUSH_TIMEOUT_MS), stderr_reader.read(&mut stderr_buf)), if stderr_open => {
-                    let process_stderr_line = |line: &str, errbuf: &mut Vec<String>, sudo_rejected: &mut bool, lock_held: &mut bool, sudo_help: &mut bool| {
-                        let mut visible = None;
-                        for state in painted_states(line) {
-                            let trimmed = state.trim();
-                            match marker(trimmed) {
-                                Some(Marker::SudoFailed) => {
-                                    *sudo_rejected = true;
-                                    continue;
-                                }
-                                Some(Marker::LockHeld) => {
-                                    *lock_held = true;
-                                    continue;
-                                }
-                                None => {}
-                            }
-                            if trimmed.is_empty() {
-                                continue;
-                            }
-                            let lower = trimmed.to_lowercase();
-                            if is_sudo_help(&lower) {
-                                *sudo_help = true;
-                            }
-                            if lower.contains("shared connection to") || (lower.contains("connection to") && lower.contains("closed")) {
-                                continue;
-                            }
-                            visible = Some(state);
-                        }
-                        if let Some(state) = visible {
-                            if errbuf.len() >= crate::consts::MAX_UPGRADE_ERR_LINES {
-                                errbuf.remove(0);
-                            }
-                            errbuf.push(state.to_string());
-                        }
-                    };
-
-                    match res {
-                        Ok(Ok(0) | Err(_)) => {
-                            stderr_open = false;
-                            if !stderr_str.is_empty() {
-                                process_stderr_line(&stderr_str, &mut errbuf, &mut sudo_rejected, &mut lock_held, &mut sudo_help);
-                                stderr_str.clear();
-                            }
-                        }
-                        Ok(Ok(n)) => {
-                            let chunk = String::from_utf8_lossy(&stderr_buf[..n]);
-                            for c in chunk.chars() {
-                                stderr_str.push(c);
-                                if c == '\n' || c == '\r' {
-                                    process_stderr_line(&stderr_str, &mut errbuf, &mut sudo_rejected, &mut lock_held, &mut sudo_help);
-                                    stderr_str.clear();
-                                }
-                            }
-                        }
-                        Err(_) => {}
-                    }
-                }
-            }
-        }
-
-        for line in errbuf {
-            let _ = tx
-                .send(Msg::AuxLine {
-                    panel: idx,
-                    gen,
-                    line: error_line(line),
-                })
-                .await;
-        }
-        if sudo_help {
-            if pass.is_none() {
-                let _ = tx
-                    .send(Msg::AuxLine {
-                        panel: idx,
-                        gen,
-                        line: "\x1b[33m\u{2192} Tip: Set password in settings ('e') to allow upgrades\x1b[0m".to_string(),
-                    })
-                    .await;
-            } else {
-                let _ = tx
-                    .send(Msg::AuxLine {
-                        panel: idx,
-                        gen,
-                        line: "\x1b[33m\u{2192} Tip: Check password in settings ('e') or sudoer permissions\x1b[0m".to_string(),
-                    })
-                    .await;
-            }
-            let _ = tx
-                .send(Msg::AuxLine {
-                    panel: idx,
-                    gen,
-                    line: "\x1b[33m\u{2192} Tip: Add '<user> ALL=(ALL) NOPASSWD: ALL' to /etc/sudoers for passwordless sudo\x1b[0m".to_string(),
-                })
-                .await;
-        }
-        let exit_status = child.wait().await;
-        let success = exit_status
-            .as_ref()
-            .is_ok_and(std::process::ExitStatus::success);
-        // Say what actually happened. Reporting every failure as "disconnected"
-        // blamed the network for a command that merely exited non-zero, on a
-        // host the stats view was talking to perfectly well at the time.
-        let note = match exit_status {
-            Ok(s) if s.success() => status_line("\u{2500} done"),
-            // A rejected sudo password is not a failing upgrade command, and
-            // saying so sent the user to read their upgrade script when the
-            // problem was the password. The command never ran at all.
-            Ok(s) if sudo_rejected || s.code() == Some(ssh::SUDO_FAILED_CODE) => status_line(
-                format!(
-                    "\u{26A0} sudo refused the stored password on {} \u{2014} the upgrade did not run. \
-                     Set this host's password with {} in Settings.",
-                    server.host,
-                    crate::consts::SETTINGS_KEY
-                ),
-            ),
-            // A held lock is not a failing command either: the command never ran.
-            // The lock lives at `~/.cache/multitop/upgrade.lock` and is only
-            // broken automatically after six hours, so naming it is the whole
-            // fix -- a leftover from a killed run needs removing by hand.
-            Ok(s) if lock_held || s.code() == Some(ssh::LOCK_HELD_CODE) => status_line(
-                format!(
-                    "\u{26A0} another upgrade holds the lock on {} \u{2014} this one never ran. \
-                     If no other run is active, remove ~/.cache/multitop/upgrade.lock.",
-                    server.host
-                ),
-            ),
-            Ok(s) => s.code().map_or_else(
-                || status_line("\u{26A0} upgrade command was killed by a signal"),
-                |code| {
-                    status_line(format!(
-                        "\u{26A0} upgrade command exited {code} \u{2014} host reachable, command failed"
-                    ))
-                },
-            ),
-            Err(e) => status_line(format!(
-                "\u{26A0} lost the SSH session ({e}) \u{2014} upgrade may be incomplete"
-            )),
-        };
+        let outcome = run_upgrade(idx, gen, &server, pass.as_deref(), &tx).await;
+        // The one exit. Everything above returns an `Outcome`; nothing above
+        // returns from this task.
         let _ = tx
             .send(Msg::AuxDone {
                 panel: idx,
                 gen,
-                note: Some(note),
-                success,
+                note: Some(outcome.note),
+                success: outcome.success,
             })
             .await;
     })
+}
+
+async fn run_upgrade(
+    idx: usize,
+    gen: u64,
+    server: &Server,
+    pass: Option<&str>,
+    tx: &Sender<Msg>,
+) -> Outcome {
+    let Some(command) = server.upgrade_cmd.clone() else {
+        return Outcome {
+            note: status_line("\u{26A0} no upgrade_cmd configured"),
+            success: false,
+        };
+    };
+
+    // Under the mock password store the credential is a fixture, not a
+    // password. Handing it to `sudo -v` would fail every time and turn every
+    // streaming test into a sudo-refusal test. This is the seam the old
+    // `spawn_command` had as `awaits_password: password.is_some() &&
+    // !is_mock_enabled()`, kept in the one place that now decides it.
+    let credential = pass.filter(|_| !crate::password_store::is_mock_enabled());
+    let request = ExecFrame::Request {
+        command,
+        password: credential.map(str::to_string),
+        // The mock password store means a test, and two tests contending on one
+        // host-wide lock would block each other for reasons that have nothing
+        // to do with what they are testing.
+        use_lock: !crate::password_store::is_mock_enabled(),
+        cols: 0,
+        rows: 0,
+    };
+
+    let _ = tx
+        .send(Msg::AuxBegin {
+            panel: idx,
+            gen,
+            header: Some(header_line(format!("Upgrade on {}", server.host))),
+        })
+        .await;
+
+    // Two attempts at most: a host with no agent gets one installed and is
+    // asked again. A second miss is a real failure, not a race.
+    let mut report = Report::default();
+    for attempt in 0..2 {
+        report = attempt_once(idx, gen, server, &request, tx).await;
+        let Some(arch) = report.need_agent.clone() else {
+            break;
+        };
+        if attempt > 0 {
+            break;
+        }
+        match install_agent(idx, gen, server, &arch, tx).await {
+            Ok(()) => {}
+            Err(note) => {
+                return Outcome {
+                    note,
+                    success: false,
+                }
+            }
+        }
+    }
+
+    for line in std::mem::take(&mut report.errbuf) {
+        let _ = tx
+            .send(Msg::AuxLine {
+                panel: idx,
+                gen,
+                line: error_line(line),
+            })
+            .await;
+    }
+
+    // The tips go into the log, not into the closing status line. They are
+    // three lines of instruction and the note is one line the panel truncates;
+    // more to the point, an operator reads them where the failure is.
+    if report.sudo_help {
+        for tip in sudo_tips(pass) {
+            let _ = tx
+                .send(Msg::AuxLine {
+                    panel: idx,
+                    gen,
+                    line: tip,
+                })
+                .await;
+        }
+    }
+
+    verdict(server, &report)
+}
+
+/// Put this build's agent on a host that had none, saying so as it goes.
+async fn install_agent(
+    idx: usize,
+    gen: u64,
+    server: &Server,
+    arch_str: &str,
+    tx: &Sender<Msg>,
+) -> Result<(), String> {
+    let Some(arch) = ssh::Arch::from_uname(arch_str) else {
+        return Err(status_line(format!(
+            "\u{26A0} unsupported architecture '{arch_str}' on {} \u{2014} multitop ships x86_64 \
+             and aarch64",
+            server.host
+        )));
+    };
+    let _ = tx
+        .send(Msg::AuxLine {
+            panel: idx,
+            gen,
+            line: status_line(format!("\u{2192} installing the agent on {}", server.host)),
+        })
+        .await;
+    let token = format!("{}-{gen}", std::process::id());
+    ssh::upload_agent(server, arch, &token)
+        .await
+        .map_err(|e| status_line(format!("\u{26A0} {e}")))
+}
+
+/// Run once and read it to the end.
+async fn attempt_once(
+    idx: usize,
+    gen: u64,
+    server: &Server,
+    request: &ExecFrame,
+    tx: &Sender<Msg>,
+) -> Report {
+    let mut report = Report::default();
+    let mut child = match ssh::spawn_exec(server, request).await {
+        Ok(c) => c,
+        Err(e) => {
+            let _ = tx
+                .send(Msg::AuxLine {
+                    panel: idx,
+                    gen,
+                    line: error_line(crate::stream::spawn_failure(server, &e)),
+                })
+                .await;
+            return report;
+        }
+    };
+
+    let stdout = child.stdout.take();
+    let stderr = child.stderr.take();
+    if let Some(stdout) = stdout {
+        read_frames(idx, gen, BufReader::new(stdout), tx, &mut report).await;
+    }
+    // Read after, not concurrently: this pipe carries only what `ssh` and the
+    // bootstrap say -- `Permission denied`, `===NEEDAGENT===` -- and the agent's
+    // own stderr arrives as frames on the other one. There is nothing here to
+    // race with.
+    if let Some(stderr) = stderr {
+        let mut lines = BufReader::new(stderr).lines();
+        while let Ok(Some(line)) = lines.next_line().await {
+            if let Some(arch) = ssh::parse_need_agent(&line) {
+                report.need_agent = Some(arch.to_string());
+                continue;
+            }
+            let trimmed = line.trim();
+            if trimmed.is_empty() || is_connection_noise(&trimmed.to_lowercase()) {
+                continue;
+            }
+            report.preamble = Some(trimmed.to_string());
+        }
+    }
+    if report.exit.is_none() && report.need_agent.is_none() && !report.stalled {
+        // The stream ended without an Exit frame. That is the agent dying or
+        // the connection dropping, and it has to be named -- reporting it as a
+        // clean finish is exactly the lie this channel was built to stop.
+        if let Some(text) = report.preamble.clone() {
+            let _ = tx
+                .send(Msg::AuxLine {
+                    panel: idx,
+                    gen,
+                    line: error_line(text),
+                })
+                .await;
+        }
+    }
+    let _ = child.wait().await;
+    report
+}
+
+/// Whether a stderr line is `ssh` describing its own teardown.
+fn is_connection_noise(lower: &str) -> bool {
+    lower.contains("shared connection to")
+        || (lower.contains("connection to") && lower.contains("closed"))
+}
+
+/// Read the framed stream, painting as it goes.
+async fn read_frames<R>(idx: usize, gen: u64, mut stdout: R, tx: &Sender<Msg>, report: &mut Report)
+where
+    R: tokio::io::AsyncRead + Unpin,
+{
+    let mut painter = Painter::new();
+    let mut header = [0u8; HEADER_LEN];
+    loop {
+        let read = tokio::time::timeout(STALL_AFTER, stdout.read_exact(&mut header)).await;
+        let Ok(read) = read else {
+            report.stalled = true;
+            let _ = tx
+                .send(Msg::AuxLine {
+                    panel: idx,
+                    gen,
+                    line: error_line(format!(
+                        "no word from the agent for {}s \u{2014} the connection is gone",
+                        STALL_AFTER.as_secs()
+                    )),
+                })
+                .await;
+            return;
+        };
+        if read.is_err() {
+            break;
+        }
+        if &header[..4] != MAGIC {
+            // Not framing. Something else got to stdout first -- a login
+            // banner, a profile that prints. Kept so the failure can name it.
+            report.preamble = Some(String::from_utf8_lossy(&header).trim_end().to_string());
+            break;
+        }
+        let len = u16::from_le_bytes([header[HEADER_LEN - 2], header[HEADER_LEN - 1]]) as usize;
+        let mut body = vec![0u8; len];
+        if stdout.read_exact(&mut body).await.is_err() {
+            break;
+        }
+        let mut packet = header.to_vec();
+        packet.append(&mut body);
+        let Some(Payload::Exec(frame)) = decode_packet(&packet) else {
+            continue;
+        };
+        if apply_frame(idx, gen, &frame, &mut painter, tx, report).await {
+            break;
+        }
+    }
+    if let Some(paint) = painter.finish() {
+        send_paint(idx, gen, &paint, tx).await;
+    }
+}
+
+/// Act on one frame. Returns whether the run has ended.
+async fn apply_frame(
+    idx: usize,
+    gen: u64,
+    frame: &ExecFrame,
+    painter: &mut Painter,
+    tx: &Sender<Msg>,
+    report: &mut Report,
+) -> bool {
+    match frame {
+        ExecFrame::Out {
+            stream: Stream::Stdout,
+            bytes,
+            ..
+        } => {
+            // One scanner over both streams, for the reason the marker scanner
+            // was given one: two streams disagreeing about what counts is how
+            // one of them stops recognising it.
+            if is_sudo_help(&String::from_utf8_lossy(bytes).to_lowercase()) {
+                report.sudo_help = true;
+            }
+            for paint in painter.feed_bytes(bytes) {
+                send_paint(idx, gen, &paint, tx).await;
+            }
+        }
+        ExecFrame::Out {
+            stream: Stream::Stderr,
+            bytes,
+            ..
+        } => keep_stderr(&String::from_utf8_lossy(bytes), report),
+        ExecFrame::Marker(MarkerKind::SudoFailed) => report.sudo_rejected = true,
+        ExecFrame::Marker(MarkerKind::LockHeld) => report.lock_held = true,
+        ExecFrame::Exit { code, signalled } => {
+            report.exit = Some((*code, *signalled));
+            return true;
+        }
+        // A heartbeat is the absence of news; the `Started`/`Done`/`PwReady`
+        // markers are the agent's own bookkeeping; `Begin` says a run started,
+        // which the panel already knows. And only a client sends a `Request`,
+        // and this is the client. Nothing to draw for any of them.
+        ExecFrame::Marker(_)
+        | ExecFrame::Alive { .. }
+        | ExecFrame::Begin { .. }
+        | ExecFrame::Request { .. } => {}
+    }
+    false
+}
+
+/// Remember the last few stderr lines, minus the parts that are not the
+/// operator's business.
+fn keep_stderr(chunk: &str, report: &mut Report) {
+    for line in chunk.split('\n') {
+        let trimmed = line.trim_end_matches('\r').trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+        let lower = trimmed.to_lowercase();
+        if is_sudo_help(&lower) {
+            report.sudo_help = true;
+        }
+        // `ssh` narrating its own teardown. It is not the command's output and
+        // it is not the reason anything failed.
+        if is_connection_noise(&lower) {
+            continue;
+        }
+        if report.errbuf.len() >= crate::consts::MAX_UPGRADE_ERR_LINES {
+            report.errbuf.remove(0);
+        }
+        report.errbuf.push(trimmed.to_string());
+    }
+}
+
+async fn send_paint(idx: usize, gen: u64, paint: &Paint, tx: &Sender<Msg>) {
+    let msg = if paint.back == 0 && paint.erase_below == 0 {
+        Msg::AuxLine {
+            panel: idx,
+            gen,
+            line: paint.text.clone(),
+        }
+    } else {
+        Msg::AuxRepaint {
+            panel: idx,
+            gen,
+            line: paint.text.clone(),
+            back: paint.back,
+            erase_below: paint.erase_below,
+        }
+    };
+    let _ = tx.send(msg).await;
 }

@@ -87,6 +87,17 @@ impl App {
                         }
                         shown
                     }
+                    // An Exec frame does not belong on a stats stream. It
+                    // arrives on the upgrade channel, is read by the upgrade
+                    // task, and never reaches here.
+                    //
+                    // Ignored rather than rendered, and deliberately not
+                    // `unreachable!()`: the packet on the far end of that pipe
+                    // is written by a *remote* binary this build does not
+                    // control the version of, so "cannot happen" is a claim
+                    // about someone else's host. Nothing on screen changes, and
+                    // the panel keeps streaming.
+                    multitop_agent::proto::Payload::Exec(_) => false,
                 }
             }
             Msg::Frame {

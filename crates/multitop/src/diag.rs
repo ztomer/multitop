@@ -332,7 +332,7 @@ pub fn install(diag: &Arc<Diag>) {
             .name("multitop-diag".into())
             .spawn(move || signal_thread(inner));
         if let Err(e) = spawned {
-            eprintln!("diag: could not start the diagnostic thread: {e}");
+            report(&format!("diag: could not start the diagnostic thread: {e}"));
         }
     });
 }
@@ -343,7 +343,9 @@ fn signal_thread(diag: Arc<Diag>) {
     let mut sigs = match signal_hook::iterator::Signals::new([SIGUSR1, SIGUSR2]) {
         Ok(s) => s,
         Err(e) => {
-            eprintln!("diag: could not subscribe to SIGUSR1/SIGUSR2: {e}");
+            report(&format!(
+                "diag: could not subscribe to SIGUSR1/SIGUSR2: {e}"
+            ));
             return;
         }
     };
@@ -353,10 +355,39 @@ fn signal_thread(diag: Arc<Diag>) {
         diag.note_signal(sig);
         let seq = diag.requested_seq.load(Ordering::Relaxed);
         match diag.write_signal_tier(seq, name) {
-            Some(path) => eprintln!("diag: {name}: wrote {}", path.display()),
-            None => eprintln!("diag: {name}: dump requested but could not be written"),
+            Some(path) => report(&format!("diag: {name}: wrote {}", path.display())),
+            None => report(&format!(
+                "diag: {name}: dump requested but could not be written"
+            )),
         }
     }
+}
+
+/// Say something about a dump, but never onto a terminal this program is
+/// drawing on.
+///
+/// **Every** site that has something to say about a dump goes through here.
+/// There were five, and fixing one left the others writing over the frame --
+/// including the loudest, which is the state tier the loop itself writes on
+/// every signal.
+///
+/// This used to be a plain `eprintln!`, and stderr is the same terminal the TUI
+/// holds in raw mode inside the alternate screen. Every signal therefore
+/// scribbled a path across the operator's frame -- one line per dump, wrapped,
+/// over the top of whatever was there. A tool whose whole purpose is to help
+/// when the display has stopped being readable was making the display
+/// unreadable, and a run driven by the e2e harness (which signals repeatedly)
+/// buried the panel entirely.
+///
+/// The dump is a file; the file is the output. When stderr has been redirected
+/// somewhere that is not a terminal -- a log, a pipe, CI -- there is no frame to
+/// damage and the line is worth having, so it is written there and only there.
+pub fn report(message: &str) {
+    use std::io::IsTerminal as _;
+    if std::io::stderr().is_terminal() {
+        return;
+    }
+    eprintln!("{message}");
 }
 
 #[cfg(unix)]
@@ -371,16 +402,16 @@ fn write_file(path: &Path, body: &str) -> bool {
     {
         Ok(f) => f,
         Err(e) => {
-            eprintln!("diag: cannot open {}: {e}", path.display());
+            report(&format!("diag: cannot open {}: {e}", path.display()));
             return false;
         }
     };
     if let Err(e) = f.write_all(body.as_bytes()).and_then(|()| f.sync_all()) {
-        eprintln!("diag: cannot write {}: {e}", path.display());
+        report(&format!("diag: cannot write {}: {e}", path.display()));
         return false;
     }
     if let Err(e) = std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600)) {
-        eprintln!("diag: cannot chmod {}: {e}", path.display());
+        report(&format!("diag: cannot chmod {}: {e}", path.display()));
     }
     true
 }

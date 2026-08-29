@@ -370,7 +370,11 @@ where
             let snap = crate::diag::snapshot_app(&app, &tasks);
             diag.store_snapshot(snap.clone());
             if let Some(path) = diag.write_state_tier(seq, sig, &snap) {
-                eprintln!("diag: {sig}: wrote {}", path.display());
+                // Through `diag::report`, never `eprintln!`: stderr is the
+                // terminal this loop is drawing on, and this is the noisiest of
+                // the five sites -- one wrapped path across the frame for every
+                // signal.
+                crate::diag::report(&format!("diag: {sig}: wrote {}", path.display()));
             }
         }
         diag.set_phase(Phase::Idle);

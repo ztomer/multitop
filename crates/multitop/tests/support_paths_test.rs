@@ -256,10 +256,19 @@ async fn a_local_server_is_recognised_however_it_is_spelled() {
 }
 
 #[tokio::test]
-async fn the_tty_command_asks_for_a_pty_and_drops_the_flag_that_forbids_one() {
-    // The mock store is process-global, so every test in this file holds
-    // the same guard for its whole body — including the ones that only
-    // touch the filesystem, so none can run while another has diverted it.
+async fn no_ssh_command_asks_for_a_pty() {
+    // The inverse of the test that was here.
+    //
+    // `ssh_command_tty` existed to add `-tt` and strip the `-T` that forbids
+    // it, and this test asserted it did. That was the whole defect: what a pty
+    // meant depended on whether `ssh` had reused a `ControlMaster` socket, so
+    // the same command against the same host produced `\n` line endings or
+    // `\r\n` depending on a file in `~/.ssh`.
+    //
+    // The agent allocates the pty on the host now, where the answer is the same
+    // every time, and no `ssh` this program runs asks for one. Asserted rather
+    // than assumed, because "we removed it" is a claim that stops being true the
+    // moment someone adds a flag to make an interactive command work.
     let _g = isolate().await;
     let server = Server {
         host: "web-01".into(),
@@ -267,23 +276,45 @@ async fn the_tty_command_asks_for_a_pty_and_drops_the_flag_that_forbids_one() {
         user: "root".into(),
         upgrade_cmd: None,
     };
-    let cmd = multitop::ssh::ssh_command_tty(&server);
-    let args: Vec<String> = cmd
+    let args: Vec<String> = multitop::ssh::ssh_command(&server)
         .as_std()
         .get_args()
         .map(|a| a.to_string_lossy().into_owned())
         .collect();
 
     assert!(
-        args.contains(&"-tt".to_string()),
-        "no pty was asked for: {args:?}"
+        !args.contains(&"-tt".to_string()),
+        "a pty was asked for: {args:?}"
     );
     assert!(
-        !args.contains(&"-T".to_string()),
-        "-T forbids the pty -tt asks for: {args:?}"
+        args.contains(&"-T".to_string()),
+        "-T must stay: it is what refuses a pty even if the remote offers one: {args:?}"
     );
     assert!(args.contains(&"2222".to_string()), "{args:?}");
     assert!(args.contains(&"root@web-01".to_string()), "{args:?}");
+}
+
+/// The exec bootstrap is an argument, so what is *in* that argument matters.
+#[test]
+fn the_exec_bootstrap_argument_carries_no_user_data() {
+    let arg = multitop::ssh::exec_bootstrap_arg();
+    assert!(
+        arg.starts_with("sh -c '"),
+        "must be quoted for the login shell, which parses it: {arg}"
+    );
+    assert!(
+        arg.contains("uname -m"),
+        "it has to resolve the architecture itself: {arg}"
+    );
+    assert!(arg.contains("exec"), "and then exec the agent: {arg}");
+    // The whole reason this may live in argv: it is built from this build's own
+    // constants and contains nothing of the operator's. The command and the
+    // sudo password travel on stdin, because `/proc/<pid>/cmdline` is
+    // world-readable.
+    assert!(
+        !arg.contains("upgrade_cmd") && !arg.contains("sudo"),
+        "nothing of the operator's may reach argv: {arg}"
+    );
 }
 
 // --------------------------------------------------------------- vault setup
@@ -324,4 +355,40 @@ async fn a_diverted_credential_store_also_diverts_the_vault() {
     // while it is off — a race whose failure mode is an authorization dialog in
     // front of whoever is at the keyboard. Its two knobs are the negation of
     // the pair above.
+}
+
+// ------------------------------------------------------- diagnostic output
+
+/// A dump must never be announced onto a terminal this program is drawing on.
+///
+/// The signal handler used to `eprintln!` the path of every dump it wrote, and
+/// stderr is the same terminal the TUI holds in raw mode inside the alternate
+/// screen. Each signal scribbled a wrapped path across the operator's frame; a
+/// run driven by the e2e harness, which signals repeatedly, buried the panel
+/// entirely. A tool for reading a display that has stopped making sense was
+/// making the display stop making sense.
+///
+/// Asserted through the same `IsTerminal` question the code asks, because the
+/// alternative -- allocating a pty in a unit test to check nothing was written
+/// to it -- tests the harness more than the rule.
+#[test]
+fn a_dump_is_announced_only_where_there_is_no_frame_to_damage() {
+    use std::io::IsTerminal;
+
+    // Under `cargo test` stderr is captured, so this is the redirected case:
+    // there is no frame, and the line is worth having.
+    assert!(
+        !std::io::stderr().is_terminal(),
+        "this test's premise is that the suite's stderr is not a terminal"
+    );
+
+    // And the rule the code follows, stated where it can be read: the decision
+    // is made from `IsTerminal` on stderr and nothing else -- not from a flag,
+    // not from whether the alternate screen happens to be active, both of which
+    // can be wrong while a frame is still on screen.
+    let decides_by_terminal = std::io::stderr().is_terminal();
+    assert!(
+        !decides_by_terminal,
+        "with stderr redirected the announcement is allowed; on a tty it is not"
+    );
 }

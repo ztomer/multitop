@@ -1,9 +1,10 @@
 use crate::config::Server;
 use crate::ssh::command::{
-    bootstrap_script, cleanup_old_agents_command, detached, is_local, password_preamble,
-    ssh_command, ssh_command_tty, upload_command, LOCK_HELD_CODE, LOCK_HELD_SENTINEL,
+    bootstrap_script, cleanup_old_agents_command, detached, exec_bootstrap_arg, is_local,
+    ssh_command, upload_command,
 };
-use crate::ssh_opts::{sh_quote, Arch, Mode, AGENT_AARCH64, AGENT_X86_64};
+use crate::ssh_opts::{Arch, Mode, AGENT_AARCH64, AGENT_X86_64};
+use multitop_agent::exec::ExecFrame;
 use multitop_agent::SortBy;
 use std::io;
 use std::path::Path;
@@ -17,6 +18,23 @@ use tokio::process::{Child, Command};
 ///
 /// Returns an error if spawning the local process fails.
 pub fn spawn_local_agent(mode: Mode, sort: SortBy) -> io::Result<Child> {
+    let mut cmd = local_agent_command();
+    cmd.args([mode.word(), "127.0.0.1", "80", "24", sort.word()])
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .kill_on_drop(true);
+
+    cmd.spawn()
+}
+
+/// The command that runs this build's agent locally, with its mode word not yet
+/// appended.
+///
+/// One resolver rather than two: the streaming panel and the exec channel must
+/// run the *same* binary, or a local upgrade could be served by a different
+/// version from the one drawing the panel beside it.
+fn local_agent_command() -> Command {
     let (cmd, extra_args) = std::env::current_exe().map_or_else(
         |_| (Command::new("multitop-agent"), vec![]),
         |exe| {
@@ -45,14 +63,7 @@ pub fn spawn_local_agent(mode: Mode, sort: SortBy) -> io::Result<Child> {
     if !extra_args.is_empty() {
         cmd.args(extra_args);
     }
-
-    cmd.args([mode.word(), "127.0.0.1", "80", "24", sort.word()])
-        .stdin(Stdio::null())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .kill_on_drop(true);
-
-    cmd.spawn()
+    cmd
 }
 
 /// Start the agent, or learn that it needs uploading first.
@@ -83,211 +94,66 @@ pub async fn spawn_agent(server: &Server, mode: Mode, sort: SortBy) -> io::Resul
     Ok(child)
 }
 
-/// Run an arbitrary command on the server (used for `upgrade_cmd`).
+/// Start the agent in exec mode and hand it one request.
 ///
-/// When a password is provided, `sudo -v` validates and caches the credential
-/// for the default timeout (~15 min). The command then runs in a separate
-/// shell that reuses the cached credential, so any `sudo` calls within the
-/// command (e.g. aliases like `ud` = `sudo apt update && sudo apt upgrade`)
-/// do not re-prompt.
+/// The request goes on stdin as a framed packet and stdin is then closed. The
+/// agent reads exactly one and never looks at stdin again -- what the child
+/// needs is written to its pty, not here.
 ///
-/// For alias resolution, we use login+interactive shells (`zsh -l -i` / `bash -i`)
-/// which source the user's full profile, ensuring aliases defined in `.zshrc`
-/// / `.bashrc` are available before `eval` expands the command.
-///
-/// The command is embedded in a single-quoted zsh/bash `-c` argument, so
-/// single quotes within the command are escaped via the `'\''` idiom to
-/// prevent premature termination of the outer quote.
-/// Wraps a shell command with an atomic remote lock using `mkdir`.
-///
-/// Only one concurrent upgrade can hold the lock across all clients/sessions
-/// connected to the same server. A lock whose `ts` stamp is older than 6 hours
-/// is broken automatically, so a server crash or power loss during a run does
-/// not block future upgrades.
-///
-/// **The stamp is written just after the directory, not with it,** and the
-/// automatic break needs it: a crash in that window leaves a directory with no
-/// `ts`, which no later run can time and therefore none will break. That lock
-/// is held until someone removes it by hand. The window is a few instructions
-/// wide and the panel's held-lock message already names the exact path to
-/// remove, which is why this is documented rather than closed -- the
-/// alternatives are a `find -mmin` fallback, which puts a GNU-ism in a script
-/// that otherwise runs on any POSIX `sh`, or breaking an unstamped lock on
-/// sight, which would let a second client stamp over a run that had just
-/// acquired it. Do not describe the six-hour break as covering every crash.
-///
-/// The `LOCK_OK` flag ensures the inner command only runs if the lock was
-/// actually acquired — a race between stale-lock removal and re-acquisition
-/// won't silently run the upgrade without a lock.
-#[must_use]
-pub fn wrap_with_upgrade_lock(inner: &str) -> String {
-    let lockdir = "~/.cache/multitop/upgrade.lock";
-    format!(
-        "mkdir -p ~/.cache/multitop 2>/dev/null; \
-         LOCK={lockdir}; \
-         [ -e \"$LOCK\" ] && [ ! -d \"$LOCK\" ] && rm -f \"$LOCK\" 2>/dev/null; \
-         if mkdir \"$LOCK\" 2>/dev/null; then \
-           LOCK_OK=1; \
-         elif [ -f \"$LOCK/ts\" ] && [ \"$(($(date +%s) - $(cat \"$LOCK/ts\" 2>/dev/null)))\" -gt 21600 ] 2>/dev/null; then \
-           rm -rf \"$LOCK\" 2>/dev/null; \
-           mkdir \"$LOCK\" 2>/dev/null && LOCK_OK=1; \
-         fi; \
-         if [ \"${{LOCK_OK:-0}}\" -eq 1 ]; then \
-           date +%s > \"$LOCK/ts\" 2>/dev/null; \
-           trap 'rm -rf \"$LOCK\"' EXIT; \
-           {inner}; \
-           rc=$?; \
-           rm -rf \"$LOCK\"; \
-           exit $rc; \
-         else \
-           echo \"{LOCK_HELD_SENTINEL}\" >&2; \
-           exit {LOCK_HELD_CODE}; \
-         fi"
-    )
-}
-
-/// Wraps a local shell command with a PID-based lock.
-///
-/// Uses `mkdir` atomicity with a PID liveness check: if the lock directory
-/// exists but the recorded PID is no longer running, the lock is broken.
-/// A timestamp file provides a 6-hour staleness fallback if the PID file
-/// is missing (e.g. disk full during `echo $$`).
-///
-/// The `LOCK_OK` flag ensures the inner command only runs if the lock was
-/// actually acquired — a race between stale-lock removal and re-acquisition
-/// won't silently run the upgrade without a lock.
-#[must_use]
-pub fn wrap_with_local_upgrade_lock(inner: &str) -> String {
-    format!(
-        "mkdir -p ~/.cache/multitop 2>/dev/null; \
-         LOCK=~/.cache/multitop/upgrade.lock; \
-         [ -e \"$LOCK\" ] && [ ! -d \"$LOCK\" ] && rm -f \"$LOCK\" 2>/dev/null; \
-         if mkdir \"$LOCK\" 2>/dev/null; then \
-           LOCK_OK=1; \
-         elif [ -f \"$LOCK/pid\" ] && ! kill -0 $(cat \"$LOCK/pid\" 2>/dev/null) 2>/dev/null; then \
-           rm -rf \"$LOCK\" 2>/dev/null; \
-           mkdir \"$LOCK\" 2>/dev/null && LOCK_OK=1; \
-         elif [ -f \"$LOCK/ts\" ] && [ \"$(($(date +%s) - $(cat \"$LOCK/ts\" 2>/dev/null)))\" -gt 21600 ] 2>/dev/null; then \
-           rm -rf \"$LOCK\" 2>/dev/null; \
-           mkdir \"$LOCK\" 2>/dev/null && LOCK_OK=1; \
-         fi; \
-         if [ \"${{LOCK_OK:-0}}\" -eq 1 ]; then \
-           echo $$ > \"$LOCK/pid\" 2>/dev/null; \
-           date +%s > \"$LOCK/ts\" 2>/dev/null; \
-           trap 'rm -rf \"$LOCK\"' EXIT; \
-           {inner}; \
-           rc=$?; \
-           rm -rf \"$LOCK\"; \
-           exit $rc; \
-         else \
-           echo \"{LOCK_HELD_SENTINEL}\" >&2; \
-           exit {LOCK_HELD_CODE}; \
-         fi"
-    )
-}
-
-/// A spawned command, and whether it is waiting for a password on stdin.
-///
-/// The flag is returned rather than recomputed by the caller. Deciding it twice
-/// -- once here and once where the password is written -- is precisely how the
-/// two can disagree: the mock-store path builds a command with no password
-/// preamble, and a caller that assumed otherwise consumed real output while
-/// hunting for a sentinel that was never coming.
-pub struct Spawned {
-    pub child: Child,
-    pub awaits_password: bool,
-}
-
-/// Spawn an upgrade or arbitrary command process.
-///
-/// When `awaits_password` is set on the result, the caller must read stdout
-/// until [`PW_READY_SENTINEL`] and then write the password to the child's
-/// stdin, or the remote `read` blocks until the connection dies.
+/// Local and remote differ only in what is spawned. That is the point: the
+/// agent owns the pty either way, so a local panel and a remote one produce the
+/// same bytes. Before this, local ran `$SHELL -c` with two pipes and no pty
+/// while remote ran `ssh -tt`, and the two disagreed about line endings, about
+/// whether stderr was separate, and about whether the command saw a terminal.
 ///
 /// # Errors
 ///
-/// Returns an error if spawning the command process fails.
-pub fn spawn_command(
-    server: &Server,
-    command: &str,
-    password: Option<&str>,
-) -> io::Result<Spawned> {
-    let quoted = sh_quote(command);
-    let quoted_escaped = quoted.replace('\'', r"'\''");
-    if is_local(server) {
-        let shell = std::env::var("SHELL").unwrap_or_else(|_| "zsh".to_string());
-        let use_lock = !crate::password_store::is_mock_enabled();
-        let wrap = |inner: String| {
-            if use_lock {
-                wrap_with_local_upgrade_lock(&inner)
-            } else {
-                inner
-            }
-        };
-        let awaits = password.is_some() && !crate::password_store::is_mock_enabled();
-        let wrapped = match password {
-            Some(_pass) if crate::password_store::is_mock_enabled() => wrap(format!(
-                "setopt expand_aliases 2>/dev/null; shopt -s expand_aliases 2>/dev/null; source ~/.zshrc 2>/dev/null; source ~/.zprofile 2>/dev/null; source ~/.bashrc 2>/dev/null; eval {quoted}"
-            )),
-            Some(_pass) => wrap(format!(
-                "{}; setopt expand_aliases 2>/dev/null; shopt -s expand_aliases 2>/dev/null; source ~/.zshrc 2>/dev/null; source ~/.zprofile 2>/dev/null; source ~/.bashrc 2>/dev/null; eval {quoted}",
-                password_preamble(),
-            )),
-            None => wrap(format!(
-                "setopt expand_aliases 2>/dev/null; shopt -s expand_aliases 2>/dev/null; source ~/.zshrc 2>/dev/null; source ~/.zprofile 2>/dev/null; source ~/.bashrc 2>/dev/null; eval {quoted}"
-            )),
-        };
-        let child = detached(Command::new(&shell))
-            .arg("-c")
-            .arg(wrapped)
-            .stdin(if password.is_some() {
-                Stdio::piped()
-            } else {
-                Stdio::null()
-            })
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .kill_on_drop(true)
-            .spawn()?;
-
-        return Ok(Spawned {
-            child,
-            awaits_password: awaits,
-        });
-    }
-
-    let remote_cmd = match password {
-        Some(_pass) if crate::password_store::is_mock_enabled() => wrap_with_upgrade_lock(&format!(
-            "if command -v zsh >/dev/null 2>&1; then zsh -l -i -c 'setopt expand_aliases 2>/dev/null; source ~/.zshrc 2>/dev/null; source ~/.zprofile 2>/dev/null; eval {quoted_escaped}'; elif command -v bash >/dev/null 2>&1; then bash -i -c 'shopt -s expand_aliases 2>/dev/null; source ~/.bashrc 2>/dev/null; source ~/.bash_profile 2>/dev/null; eval {quoted_escaped}'; else sh -c {quoted}; fi"
-        )),
-        Some(_pass) => {
-            let preamble = password_preamble();
-            wrap_with_upgrade_lock(&format!(
-                "{preamble}; if command -v zsh >/dev/null 2>&1; then zsh -l -i -c 'setopt expand_aliases 2>/dev/null; source ~/.zshrc 2>/dev/null; source ~/.zprofile 2>/dev/null; eval {quoted_escaped}'; elif command -v bash >/dev/null 2>&1; then bash -i -c 'shopt -s expand_aliases 2>/dev/null; source ~/.bashrc 2>/dev/null; source ~/.bash_profile 2>/dev/null; eval {quoted_escaped}'; else sh -c {quoted}; fi"
-            ))
-        }
-        None => wrap_with_upgrade_lock(&format!(
-            "if command -v zsh >/dev/null 2>&1; then zsh -l -i -c 'setopt expand_aliases 2>/dev/null; source ~/.zshrc 2>/dev/null; source ~/.zprofile 2>/dev/null; eval {quoted_escaped}'; elif command -v bash >/dev/null 2>&1; then bash -i -c 'shopt -s expand_aliases 2>/dev/null; source ~/.bashrc 2>/dev/null; source ~/.bash_profile 2>/dev/null; eval {quoted_escaped}'; else sh -c {quoted}; fi"
-        )),
+/// Returns an error if the process could not be spawned or the request could
+/// not be written.
+pub async fn spawn_exec(server: &Server, request: &ExecFrame) -> io::Result<Child> {
+    let mut cmd = if is_local(server) {
+        let mut c = local_agent_command();
+        c.arg("exec");
+        c
+    } else {
+        let mut c = ssh_command(server);
+        c.arg(exec_bootstrap_arg());
+        c
     };
-
-    let child = ssh_command_tty(server)
-        .arg(remote_cmd)
-        .stdin(if password.is_some() {
-            Stdio::piped()
-        } else {
-            Stdio::null()
-        })
+    let mut child = cmd
+        .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .kill_on_drop(true)
         .spawn()?;
 
-    Ok(Spawned {
-        child,
-        awaits_password: password.is_some() && !crate::password_store::is_mock_enabled(),
-    })
+    let packet = multitop_agent::proto::encode_packet(&multitop_agent::proto::Payload::Exec(
+        request.clone(),
+    ));
+    if let Some(mut stdin) = child.stdin.take() {
+        stdin.write_all(&packet).await?;
+        stdin.shutdown().await?;
+        // Dropped here, closing the pipe. The agent has its request; leaving
+        // this open would hold a descriptor for the length of an upgrade for
+        // nothing.
+    }
+    Ok(child)
 }
+
+// `spawn_command`, `wrap_with_upgrade_lock`, `wrap_with_local_upgrade_lock` and
+// the `Spawned` struct lived between here and the upload below.
+//
+// All four were the old transport. `spawn_command` ran `ssh -tt` remotely and
+// `$SHELL -c` locally -- two different stream shapes for one feature -- and the
+// two lock wrappers were the same rule written twice as quoted shell, which is
+// how one of them came to be missing the PID check the other had. The lock is
+// `multitop_agent::exec::lock` now: one implementation, in a language with a
+// type checker, with tests.
+//
+// `Spawned` carried an `awaits_password` flag whose whole purpose was to stop
+// the caller deciding a second time whether a password was coming, because the
+// two answers could disagree. Nothing decides it twice any more: the password
+// is a field in the request.
 
 /// Ship the agent binary for `arch` to the server.
 ///

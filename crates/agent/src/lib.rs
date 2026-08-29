@@ -14,6 +14,7 @@ pub mod docker;
 pub mod docker_cli;
 pub mod docker_render;
 pub mod docker_transport;
+pub mod exec;
 pub mod fetch;
 pub mod fmt;
 pub mod monitor;
@@ -79,6 +80,10 @@ pub enum Mode {
     Monitor,
     Docker,
     Fetch,
+    /// Run one command and report it as frames. What it runs arrives on stdin,
+    /// never in argv: `/proc/<pid>/cmdline` is world-readable, and the request
+    /// carries a sudo password.
+    Exec,
 }
 
 impl Mode {
@@ -87,6 +92,7 @@ impl Mode {
             Mode::Monitor => "monitor",
             Mode::Docker => "docker",
             Mode::Fetch => "fetch",
+            Mode::Exec => "exec",
         }
     }
 }
@@ -124,6 +130,10 @@ pub fn parse_args<I: IntoIterator<Item = String>>(argv: I) -> Args {
             }
             "fetch" => {
                 args.mode = Mode::Fetch;
+                rest.remove(0);
+            }
+            "exec" => {
+                args.mode = Mode::Exec;
                 rest.remove(0);
             }
             _ => {}
@@ -351,12 +361,13 @@ pub fn usage() -> String {
          Sampled by multitop over SSH. Prints one frame, or streams them.\n\
          \n\
          Usage:\n    \
-           multitop-agent [monitor|docker|fetch] [host] [cols] [lines] [cpu|mem]\n\
+           multitop-agent [monitor|docker|fetch|exec] [host] [cols] [lines] [cpu|mem]\n\
          \n\
          Modes:\n    \
            monitor   CPU, memory, network and the process table (the default)\n    \
            docker    the container table\n    \
-           fetch     a one-shot host summary\n\
+           fetch     a one-shot host summary\n    \
+           exec      run one command, reading the request from stdin\n\
          \n\
          Options:\n    \
            -h, --help       this text\n    \
@@ -403,6 +414,7 @@ pub fn run_agent<I: IntoIterator<Item = String>>(argv: I) {
         Mode::Docker => {
             let _ = emit_docker(&host, docker::collect(), &args, is_tty, pal, &mut out);
         }
+        Mode::Exec => exec::serve::serve(&host, args.cols, args.lines, &mut out),
         Mode::Monitor => {
             let stdin_gone = stdin_eof_watcher();
             if is_tty {

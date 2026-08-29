@@ -20,7 +20,8 @@
 
 use multitop::config::Server;
 use multitop::ssh;
-use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+use multitop_agent::exec::ExecFrame;
+use multitop_agent::proto::{decode_packet, Payload, HEADER_LEN, MAGIC};
 
 /// Not a real credential, and long enough to be unambiguous in a `ps` dump.
 const DUMMY_PW: &str = "multitop-live-probe-not-a-real-password-8f3a1c";
@@ -105,47 +106,43 @@ fn args_of(pid: u32) -> String {
         .unwrap_or_default()
 }
 
-/// Drive the readiness handshake and collect everything the remote said after
-/// it: the same sequence the upgrade task performs.
-async fn handshake_and_collect(child: &mut tokio::process::Child, secret: &str) -> Vec<String> {
-    let stdout = child.stdout.take().expect("stdout piped");
-    let mut lines = BufReader::new(stdout).lines();
-
-    let mut ready = false;
-    let mut preamble = Vec::new();
-    for _ in 0..50 {
-        match lines.next_line().await {
-            Ok(Some(line)) if line.trim() == ssh::PW_READY_SENTINEL => {
-                ready = true;
-                break;
-            }
-            Ok(Some(l)) => preamble.push(l),
-            _ => break,
-        }
-    }
-    assert!(
-        ready,
-        "no readiness sentinel from the remote; saw: {preamble:?}"
-    );
-    println!(
-        "sentinel received after {} preamble line(s)",
-        preamble.len()
-    );
-
-    let mut stdin = child.stdin.take().expect("stdin piped");
-    stdin
-        .write_all(format!("{secret}\n").as_bytes())
-        .await
-        .unwrap();
-    stdin.flush().await.unwrap();
-    drop(stdin);
-
-    let mut body = Vec::new();
-    while let Ok(Some(line)) = lines.next_line().await {
-        body.push(line);
-    }
+/// Read the exec channel to its end and return what the operator would see.
+///
+/// There is no handshake here any more. The readiness sentinel and the write
+/// that answered it were the client's job when the client had to find a line in
+/// a stream whose shape it did not control; the password is a field in the
+/// request now, and the agent -- which owns the pty -- writes it when the far
+/// side says echo is off.
+async fn collect_output(child: &mut tokio::process::Child) -> (String, Option<i32>) {
+    use tokio::io::AsyncReadExt;
+    let mut stdout = child.stdout.take().expect("stdout piped");
+    let mut raw = Vec::new();
+    let _ = stdout.read_to_end(&mut raw).await;
     let _ = child.wait().await;
-    body
+
+    let mut text = Vec::new();
+    let mut exit = None;
+    let mut pos = 0;
+    while pos + HEADER_LEN <= raw.len() {
+        if &raw[pos..pos + 4] != MAGIC {
+            break;
+        }
+        let len =
+            u16::from_le_bytes([raw[pos + HEADER_LEN - 2], raw[pos + HEADER_LEN - 1]]) as usize;
+        let end = pos + HEADER_LEN + len;
+        if end > raw.len() {
+            break;
+        }
+        if let Some(Payload::Exec(frame)) = decode_packet(&raw[pos..end]) {
+            match frame {
+                ExecFrame::Out { bytes, .. } => text.extend_from_slice(&bytes),
+                ExecFrame::Exit { code, .. } => exit = Some(code),
+                _ => {}
+            }
+        }
+        pos = end;
+    }
+    (String::from_utf8_lossy(&text).into_owned(), exit)
 }
 
 #[tokio::test]
@@ -165,21 +162,22 @@ async fn the_password_is_never_in_argv_or_the_output() {
             "a deliberately wrong"
         }
     );
-    let spawned = ssh::spawn_command(&server, "ls -l; ls -l", Some(secret.as_str()))
+
+    let command = server.upgrade_cmd.clone().expect("a command to run");
+    let request = ExecFrame::Request {
+        command: command.clone(),
+        password: Some(secret.clone()),
+        use_lock: false,
+        cols: 80,
+        rows: 24,
+    };
+    let mut child = ssh::spawn_exec(&server, &request)
+        .await
         .expect("spawn over ssh should succeed with key auth");
-    let ssh::Spawned {
-        mut child,
-        awaits_password,
-    } = spawned;
 
-    assert!(
-        awaits_password,
-        "a real (non-mock) password path must ask for a stdin handshake"
-    );
-
-    // Sample the process table while ssh is alive. This is the property the
-    // change exists for: the command used to carry `echo '<password>' | sudo -S`
-    // as an argument, and process arguments are readable by anyone.
+    // The property this test exists for, sampled while ssh is alive. The
+    // password used to be `echo '<password>' | sudo -S` inside an argument, and
+    // `/proc/<pid>/cmdline` is world-readable.
     let pid = child
         .id()
         .expect("the ssh child should have a pid while running");
@@ -198,29 +196,43 @@ async fn the_password_is_never_in_argv_or_the_output() {
         "the password appeared in the ssh command line: {}",
         redact(&argv, &secret)
     );
-    println!("ssh argv inspected (pid {pid}); the password is not in it");
+    // And now the command is not there either. It was, under the old transport:
+    // the whole `upgrade_cmd` was interpolated into the remote argument, so a
+    // host's package mirrors and internal names were readable by every account
+    // on this machine for the length of a run.
+    assert!(
+        !argv.contains(&command),
+        "the upgrade command appeared in the ssh command line: {}",
+        redact(&argv, &secret)
+    );
+    println!("ssh argv inspected (pid {pid}); neither the password nor the command is in it");
 
-    let body = handshake_and_collect(&mut child, &secret).await;
+    let (output, exit) = collect_output(&mut child).await;
 
-    let output = body.join("\n");
-    // The pty would echo anything written before `stty -echo` ran; this is why
-    // the writer waits for the sentinel rather than writing immediately.
+    // The pty would echo anything written before `stty -echo` ran, which is why
+    // the agent waits for the marker rather than writing immediately.
     assert!(
         !output.contains(secret.as_str()),
         "the password was echoed back into the panel output:\n{}",
         redact(&output, &secret)
     );
-    assert!(
-        !output.contains(ssh::PW_READY_SENTINEL),
-        "the sentinel leaked into panel output:\n{}",
-        redact(&output, &secret)
-    );
-    println!("output clean, {} line(s) after the handshake", body.len());
+    for sentinel in [
+        multitop_agent::exec::PW_READY_SENTINEL,
+        multitop_agent::exec::SUDO_FAILED_SENTINEL,
+        multitop_agent::exec::STARTED_SENTINEL,
+        multitop_agent::exec::DONE_SENTINEL,
+    ] {
+        assert!(
+            !output.contains(sentinel),
+            "{sentinel} leaked into panel output:\n{}",
+            redact(&output, &secret)
+        );
+    }
+    println!("output clean, {} byte(s) of it", output.len());
 
-    // With a real password sudo elevates and the `&&` runs the command, so the
-    // listing has to be there. Without one, sudo refuses and nothing runs --
-    // and asserting that is what stops a wrong password looking like success.
-    // A long listing always shows permission bits, whichever `ls` is in use.
+    // With a real password sudo elevates and the command runs, so the listing
+    // has to be there. Without one, sudo refuses and nothing runs -- and
+    // asserting that is what stops a wrong password looking like success.
     let plain = strip_ansi(&output);
     let ran = plain.contains("rwx") || plain.contains("total ");
     if is_real {
@@ -229,6 +241,7 @@ async fn the_password_is_never_in_argv_or_the_output() {
             "sudo accepted the password but the command did not run:\n{}",
             redact(&output, &secret)
         );
+        assert_eq!(exit, Some(0), "a successful run must report exit 0");
         println!("success path confirmed: sudo elevated and the command ran");
     } else {
         assert!(
@@ -236,6 +249,11 @@ async fn the_password_is_never_in_argv_or_the_output() {
             "a wrong password must not reach the command:\n{}",
             redact(&output, &secret)
         );
-        println!("wrong password correctly stopped before the command");
+        assert_eq!(
+            exit,
+            Some(multitop_agent::exec::SUDO_FAILED_CODE),
+            "a refused password must be reported as its own outcome, not as a failing command"
+        );
+        println!("wrong password correctly stopped before the command, and said so");
     }
 }

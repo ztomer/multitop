@@ -25,5 +25,13 @@ pub fn render_payload(
         Payload::Fetch(snap) => {
             crate::fetch_render::render_fetch(snap, cols as usize, height as usize, pal)
         }
+        // Not a frame that draws a panel. Exec frames carry one run's output to
+        // the upgrade log, which has its own path through `Msg::AuxLine` and
+        // `Msg::AuxRepaint`; there is nothing here to render them into.
+        //
+        // An empty frame rather than a panic, for the reason the arm in
+        // `app/apply.rs` gives: the sender is a binary on another host whose
+        // version this build does not decide.
+        Payload::Exec(_) => Vec::new(),
     }
 }

@@ -13,8 +13,12 @@ use std::time::Duration;
 use multitop::app::Msg;
 use multitop::config::Server;
 use multitop::password_store;
-use multitop::ssh::{LOCK_HELD_SENTINEL, SUDO_FAILED_SENTINEL};
+// The sentinels are the agent's now: both ends need one definition and the end
+// that owns the pty is the one that can tell what a line is. What these tests
+// assert is unchanged and is the point -- a command that *prints* a sentinel
+// must not have it show up in the operator's log.
 use multitop::tasks::spawn_upgrade;
+use multitop_agent::exec::{LOCK_HELD_SENTINEL, SUDO_FAILED_SENTINEL};
 use tokio::sync::mpsc;
 
 /// Port 0 makes the server local, so `spawn_command` runs the script here
@@ -139,12 +143,32 @@ async fn a_command_that_merely_fails_is_not_blamed_on_the_network() {
     );
 }
 
+/// A command stopped by a signal must not be announced as a success, and the
+/// operator must be told which signal.
+///
+/// `SIGKILL` in a nested `sh`, not `kill -TERM $$` as this test used to do.
+/// Two reasons, both learned by watching it fail:
+///
+/// * an **interactive** shell ignores `SIGTERM`, and the command now runs under
+///   `zsh -l -i` -- which is what makes an alias like `ud` resolve, and is what
+///   the remote path always did. `kill -TERM $$` there kills nothing and the
+///   run succeeds, which is correct and is not what this test is about.
+/// * the agent's own child is `/bin/sh`, and a signal that kills something
+///   nested inside it reaches this side as an ordinary exit status of 128+N.
+///   `signalled` stays honest -- it means *our* child was signalled -- and the
+///   128+N convention is decoded separately, because "exited 137" alone sends
+///   an operator hunting a bug in a command the OOM killer stopped.
 #[tokio::test]
-async fn a_command_killed_by_a_signal_says_that_rather_than_naming_a_code() {
+async fn a_command_killed_by_a_signal_says_which_signal() {
     let _g = isolate().await;
-    let run = run_upgrade(Some("kill -TERM $$"), None).await;
-    assert!(!run.success);
-    assert!(run.note.contains("killed by a signal"), "{}", run.note);
+    let run = run_upgrade(Some("sh -c 'kill -9 $$'"), None).await;
+    assert!(!run.success, "a killed command is not a successful upgrade");
+    assert!(
+        run.note.contains("killed by signal 9"),
+        "the signal has to be named: {}",
+        run.note
+    );
+    assert!(run.note.contains("137"), "{}", run.note);
 }
 
 // ------------------------------------------------------------------ sentinels

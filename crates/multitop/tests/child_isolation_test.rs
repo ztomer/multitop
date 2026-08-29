@@ -32,6 +32,12 @@ fn local_server() -> Server {
 
 /// The upgrade command is the child most likely to want a terminal: a local
 /// `upgrade_cmd` containing `sudo` opens `/dev/tty` for its password prompt.
+///
+/// It has one of its own now -- the agent allocates a pty and makes it the
+/// child's controlling terminal -- which makes this *more* important rather
+/// than less. A child that both wants a terminal and could reach multitop's own
+/// is exactly the shape that wrecked the display before; the process group is
+/// what the kernel uses to refuse it.
 #[tokio::test]
 async fn a_locally_spawned_upgrade_gets_its_own_process_group() {
     let _guard = password_store::lock_for_test_async().await;
@@ -39,8 +45,16 @@ async fn a_locally_spawned_upgrade_gets_its_own_process_group() {
     password_store::enable_mock_store();
     password_store::clear_mock_store();
 
-    let spawned = ssh::spawn_command(&local_server(), "sleep 5", None).expect("spawn");
-    let mut child = spawned.child;
+    let request = multitop_agent::exec::ExecFrame::Request {
+        command: "sleep 5".to_string(),
+        password: None,
+        use_lock: false,
+        cols: 80,
+        rows: 24,
+    };
+    let mut child = ssh::spawn_exec(&local_server(), &request)
+        .await
+        .expect("spawn");
     let pid = child.id().expect("the child must still be running");
 
     let theirs = process_group_of(pid);

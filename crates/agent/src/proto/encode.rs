@@ -22,6 +22,7 @@ pub fn encode_packet(payload: &Payload) -> Vec<u8> {
         Payload::Monitor(_) => ProtoMode::Monitor,
         Payload::Docker { .. } => ProtoMode::Docker,
         Payload::Fetch(_) => ProtoMode::Fetch,
+        Payload::Exec(_) => ProtoMode::Exec,
     };
     buf.push(mode.as_u8());
     buf.push(0); // payload_len placeholder byte 1
@@ -33,6 +34,7 @@ pub fn encode_packet(payload: &Payload) -> Vec<u8> {
         Payload::Monitor(snap) => encode_snapshot(snap, &mut buf),
         Payload::Docker { host, rows } => encode_docker(host, rows, &mut buf),
         Payload::Fetch(snap) => encode_fetch(snap, &mut buf),
+        Payload::Exec(frame) => super::exec_codec::encode_exec(frame, &mut buf),
     }
 
     // Truncate rather than lie. `as u16` wrapped here, so a payload over 64 KiB

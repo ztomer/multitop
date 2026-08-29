@@ -95,6 +95,10 @@ fn packet_size(payload: &Payload) -> usize {
                 + snap.disk_str.len()
                 + 32
         }
+        // The exec channel is not part of the stats stream this bench measures,
+        // and its Out frames are chunked to a fixed ceiling rather than sized by
+        // the payload, so an estimate here would describe nothing.
+        Payload::Exec(_) => 0,
     }
 }
 

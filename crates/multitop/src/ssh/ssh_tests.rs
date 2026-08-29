@@ -1,79 +1,30 @@
 #[cfg(test)]
-mod sudo_preamble_tests {
-    #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
-
-    use crate::ssh::password_preamble;
-    use crate::ssh::wrap_with_upgrade_lock;
-    use crate::ssh::{LOCK_HELD_CODE, LOCK_HELD_SENTINEL, SUDO_FAILED_CODE, SUDO_FAILED_SENTINEL};
-
-    /// A held lock must be distinguishable from a failing command. The wrapper
-    /// used to print "Upgrade already in progress" and exit 1, which the panel
-    /// reported as "upgrade command exited 1 -- command failed" for a command
-    /// that never ran, for the six hours the stale lock lasts.
-    #[test]
-    fn a_held_lock_reports_itself() {
-        let w = wrap_with_upgrade_lock("true");
-        assert!(
-            w.contains(LOCK_HELD_SENTINEL),
-            "the remote must name the held lock on stderr: {w}"
-        );
-        assert!(
-            w.contains(&format!("exit {LOCK_HELD_CODE}")),
-            "and carry a distinct exit status, in case the line is lost: {w}"
-        );
-    }
-
-    /// A rejected password must be distinguishable from a failing command.
-    ///
-    /// The preamble used to end in `[ $rc -eq 0 ]` and be joined to the upgrade
-    /// with `&&`, so both cases exited 1 and the panel reported "upgrade
-    /// command exited 1 -- host reachable, command failed" for a command that
-    /// never ran. That sent the user to read their upgrade script when the
-    /// problem was the password.
-    #[test]
-    fn a_refused_password_reports_itself() {
-        let p = password_preamble();
-        assert!(
-            p.contains(SUDO_FAILED_SENTINEL),
-            "the remote must name the failure on stdout: {p}"
-        );
-        assert!(
-            p.contains(&format!("exit {SUDO_FAILED_CODE}")),
-            "and carry a distinct exit status, in case the line is lost in \
-             login-shell noise: {p}"
-        );
-        assert!(
-            !p.trim_end().ends_with("[ $__mt_rc -eq 0 ]"),
-            "the old shape: indistinguishable from any other failure"
-        );
-    }
-
-    /// Echo has to be off before the password is read, or the pty prints it.
-    #[test]
-    fn echo_is_disabled_before_the_password_is_read() {
-        let p = password_preamble();
-        let stty = p.find("stty -echo").expect("echo must be turned off");
-        let read = p.find("read -r __mt_pw").expect("the password is read");
-        assert!(stty < read, "echo must be off first: {p}");
-    }
-
-    /// The password must never appear in an argument.
-    #[test]
-    fn the_password_is_never_an_argument() {
-        let p = password_preamble();
-        assert!(p.contains("sudo -S"), "sudo must read it from stdin: {p}");
-        assert!(
-            !p.contains("echo '") && !p.contains("--password"),
-            "argv is world-readable through /proc on Linux: {p}"
-        );
-    }
-}
-
-#[cfg(test)]
 mod upload_failure_tests {
     #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
     use crate::ssh::upload_failure;
+
+    // `sudo_preamble_tests` opened this file and is gone with the code it
+    // covered -- `wrap_with_upgrade_lock` and `password_preamble`, which were
+    // the old transport written as quoted shell.
+    //
+    // Every property they asserted still holds and is still tested, on the side
+    // that now owns it:
+    //
+    // * a held lock is distinguishable from a failing command --
+    //   `a_held_lock_stops_the_second_run_and_says_so` (agent, against a real
+    //   lock rather than against a string that mentions one);
+    // * a refused password is distinguishable from a failing command --
+    //   `a_marker_after_a_carriage_return_is_still_a_marker` (agent);
+    // * echo is off before the password is written -- the agent writes it only
+    //   on the `PwReady` marker, which the preamble prints after `stty -echo`;
+    // * the password is never an argument -- `password_argv_live_e2e`,
+    //   repointed at the exec channel, which reads the real `/proc` of the real
+    //   process tree.
+    //
+    // The old versions asserted those properties by grepping a *generated shell
+    // string* for a sentinel. That checks the script was written as intended and
+    // nothing about whether it behaves that way; the replacements run it.
 
     /// The remote's complaint wins over the local symptom.
     ///

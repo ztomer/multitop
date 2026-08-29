@@ -5,7 +5,9 @@
 //! connection, because a host that is up and talking must not be described as
 //! unreachable.
 
-use super::{HEADER_LEN, MAGIC, MODE_DOCKER, MODE_FETCH, MODE_MONITOR};
+use super::{
+    EXEC_MIN_VERSION, HEADER_LEN, MAGIC, MODE_DOCKER, MODE_EXEC, MODE_FETCH, MODE_MONITOR,
+};
 use crate::docker::Row as DockerRow;
 use crate::fetch::FetchSnapshot;
 use crate::proc::{Proc, Usage};
@@ -43,6 +45,13 @@ pub fn decode_packet(data: &[u8]) -> Option<Payload> {
         MODE_DOCKER if version < 2 => None,
         MODE_DOCKER => decode_docker(&mut cur),
         MODE_FETCH => decode_fetch(&mut cur).map(Payload::Fetch),
+        // Refused below the version that introduced it, for the reason Docker
+        // is: an Exec frame read with an older layout does not fail, it comes
+        // out as plausible nonsense one field along -- and here that nonsense
+        // would be an exit code, which decides whether the operator is told the
+        // upgrade worked.
+        MODE_EXEC if version < EXEC_MIN_VERSION => None,
+        MODE_EXEC => super::exec_codec::decode_exec(&mut cur).map(Payload::Exec),
         _ => None,
     }
 }
@@ -204,17 +213,17 @@ impl<'a> Cursor<'a> {
         }
     }
 
-    fn read_u8(&mut self) -> Option<u8> {
+    pub(crate) fn read_u8(&mut self) -> Option<u8> {
         let b = self.read_bytes(1)?;
         Some(b[0])
     }
 
-    fn read_u16(&mut self) -> Option<u16> {
+    pub(crate) fn read_u16(&mut self) -> Option<u16> {
         let b = self.read_bytes(2)?;
         Some(u16::from_le_bytes([b[0], b[1]]))
     }
 
-    fn read_u32(&mut self) -> Option<u32> {
+    pub(crate) fn read_u32(&mut self) -> Option<u32> {
         let b = self.read_bytes(4)?;
         Some(u32::from_le_bytes([b[0], b[1], b[2], b[3]]))
     }
@@ -231,7 +240,24 @@ impl<'a> Cursor<'a> {
         Some(f32::from_le_bytes([b[0], b[1], b[2], b[3]]))
     }
 
-    fn read_str(&mut self) -> Option<String> {
+    /// A signed count, for an exit status. Separate from `read_u32` because
+    /// reinterpreting one as the other is silent and turns 255 into -1.
+    pub(crate) fn read_i32(&mut self) -> Option<i32> {
+        let b = self.read_bytes(4)?;
+        Some(i32::from_le_bytes([b[0], b[1], b[2], b[3]]))
+    }
+
+    /// Length-prefixed raw bytes.
+    ///
+    /// Distinct from `read_str`: terminal output is not guaranteed to be UTF-8
+    /// and `from_utf8_lossy` would rewrite it. What the child wrote is what the
+    /// operator has to be shown.
+    pub(crate) fn read_blob(&mut self) -> Option<Vec<u8>> {
+        let len = self.read_u16()? as usize;
+        Some(self.read_bytes(len)?.to_vec())
+    }
+
+    pub(crate) fn read_str(&mut self) -> Option<String> {
         let len = self.read_u16()? as usize;
         let bytes = self.read_bytes(len)?;
         Some(String::from_utf8_lossy(bytes).into_owned())

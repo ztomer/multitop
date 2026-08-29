@@ -1,9 +1,19 @@
-//! Local SSH command execution tests (using 127.0.0.1 for local path).
+//! The local exec path, end to end, with no `ssh` involved.
+//!
+//! `127.0.0.1` with port 0 is `is_local`, so these run this build's own agent
+//! directly -- which is the point. Local and remote used to be two different
+//! transports for one feature: `$SHELL -c` with two pipes and no pty here,
+//! `ssh -tt` with a pty and merged streams there. They disagreed about line
+//! endings, about whether stderr was separable, and about whether the command
+//! could see a terminal. They are one path now, and these tests assert the
+//! properties that path is supposed to have.
 
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 use multitop::config::Server;
 use multitop::password_store;
-use multitop::ssh::spawn_command;
+use multitop::ssh;
+use multitop_agent::exec::{ExecFrame, Stream};
+use multitop_agent::proto::{decode_packet, Payload, HEADER_LEN, MAGIC};
 use tokio::io::AsyncReadExt;
 
 fn local_server(upgrade_cmd: &str) -> Server {
@@ -20,151 +30,128 @@ fn enable_mock_store() {
     password_store::clear_mock_store();
 }
 
-#[tokio::test]
-async fn test_local_spawn_command_no_password() {
-    enable_mock_store();
-    let server = local_server("echo hello");
-    let mut child = spawn_command(&server, "echo hello", None).unwrap().child;
+fn request(command: &str) -> ExecFrame {
+    ExecFrame::Request {
+        command: command.to_string(),
+        password: None,
+        // Off deliberately. The lock is the agent's, it is tested against a
+        // temporary directory in `crates/agent/tests/exec_run_test.rs`
+        // (`a_held_lock_stops_the_second_run_and_says_so` and
+        // `the_lock_is_released_when_the_run_ends`), and a test that took the
+        // real one would contend with whatever else is running on this machine.
+        use_lock: false,
+        cols: 80,
+        rows: 24,
+    }
+}
 
-    let mut stdout = String::new();
+/// What one run produced: its two streams and its outcome.
+struct Ran {
+    stdout: String,
+    stderr: String,
+    exit: Option<i32>,
+}
+
+/// Run a command through the exec channel and decode everything it said.
+///
+/// Length-driven, like the client's own reader. A frame that does not decode
+/// stops the loop rather than being skipped: the frames are not self-delimiting
+/// inside a payload, so a reader that carries on is reading from the wrong
+/// offset and inventing output.
+async fn run(command: &str) -> Ran {
+    let server = local_server(command);
+    let mut child = ssh::spawn_exec(&server, &request(command))
+        .await
+        .expect("the local agent should spawn");
+    let mut raw = Vec::new();
     child
         .stdout
         .as_mut()
         .unwrap()
-        .read_to_string(&mut stdout)
+        .read_to_end(&mut raw)
         .await
         .unwrap();
-    let status = child.wait().await.unwrap();
+    let _ = child.wait().await;
 
-    assert!(status.success());
-    assert!(stdout.contains("hello"));
+    let (mut out, mut err, mut exit) = (Vec::new(), Vec::new(), None);
+    let mut pos = 0;
+    while pos + HEADER_LEN <= raw.len() {
+        assert_eq!(&raw[pos..pos + 4], MAGIC, "the stream stopped being frames");
+        let len =
+            u16::from_le_bytes([raw[pos + HEADER_LEN - 2], raw[pos + HEADER_LEN - 1]]) as usize;
+        let end = pos + HEADER_LEN + len;
+        assert!(end <= raw.len(), "a frame ran past the end of the stream");
+        match decode_packet(&raw[pos..end]) {
+            Some(Payload::Exec(ExecFrame::Out { stream, bytes, .. })) => match stream {
+                Stream::Stdout => out.extend_from_slice(&bytes),
+                Stream::Stderr => err.extend_from_slice(&bytes),
+            },
+            Some(Payload::Exec(ExecFrame::Exit { code, .. })) => exit = Some(code),
+            _ => {}
+        }
+        pos = end;
+    }
+    Ran {
+        stdout: String::from_utf8_lossy(&out).into_owned(),
+        stderr: String::from_utf8_lossy(&err).into_owned(),
+        exit,
+    }
 }
 
 #[tokio::test]
-async fn test_local_spawn_command_with_mock_password() {
+async fn a_local_command_runs_and_its_output_comes_back() {
     enable_mock_store();
-    let server = local_server("echo test");
-    let password = "mock_password";
-    let mut child = spawn_command(&server, "echo test", Some(password))
-        .unwrap()
-        .child;
+    let ran = run("echo hello").await;
+    assert!(ran.stdout.contains("hello"), "got {:?}", ran.stdout);
+    assert_eq!(ran.exit, Some(0));
+}
 
-    let mut stdout = String::new();
-    child
-        .stdout
-        .as_mut()
-        .unwrap()
-        .read_to_string(&mut stdout)
-        .await
-        .unwrap();
-    let status = child.wait().await.unwrap();
+/// A local panel gets a terminal too. It did not before -- `$SHELL -c` with a
+/// pipe on stdout meant `isatty(1)` was false, so `apt` and `docker` printed
+/// something duller here than they did on a remote host running the same
+/// command.
+#[tokio::test]
+async fn a_local_command_sees_a_terminal() {
+    enable_mock_store();
+    let ran = run("test -t 1 && echo TTY_YES || echo TTY_NO").await;
+    assert!(ran.stdout.contains("TTY_YES"), "got {:?}", ran.stdout);
+}
 
-    assert!(status.success());
-    assert!(stdout.contains("test"));
+/// And its lines are terminated the way a terminal terminates them -- the same
+/// bytes a remote host now sends for the same command.
+#[tokio::test]
+async fn a_local_command_produces_the_same_bytes_a_remote_one_would() {
+    enable_mock_store();
+    let ran = run("printf 'a\\nb\\n'").await;
+    assert_eq!(ran.stdout, "a\r\nb\r\n");
+}
+
+/// stderr stays its own stream, which is what lets the panel colour a failure
+/// differently from a thousand lines of ordinary output.
+#[tokio::test]
+async fn stderr_stays_separable_on_the_local_path() {
+    enable_mock_store();
+    let ran = run("echo out; echo problem >&2").await;
+    assert!(ran.stdout.contains("out"));
+    assert!(!ran.stdout.contains("problem"));
+    assert!(ran.stderr.contains("problem"));
 }
 
 #[tokio::test]
-async fn test_local_spawn_command_upgrade_lock_prevents_concurrent() {
+async fn a_failing_local_command_reports_its_own_code() {
     enable_mock_store();
-    let server = local_server("sleep 2");
-
-    // First command acquires lock
-    let mut child1 = spawn_command(&server, "sleep 2", None).unwrap().child;
-
-    // Second command should block or fail
-    let mut child2 = spawn_command(&server, "echo should_not_run", None)
-        .unwrap()
-        .child;
-
-    // Wait for first to complete
-    let _ = child1.wait().await.unwrap();
-
-    // Second should now be able to run (lock released)
-    let mut stdout = String::new();
-    child2
-        .stdout
-        .as_mut()
-        .unwrap()
-        .read_to_string(&mut stdout)
-        .await
-        .unwrap();
-    let status = child2.wait().await.unwrap();
-
-    // In test mode with mock store, lock is disabled
-    assert!(status.success());
+    assert_eq!(run("exit 9").await.exit, Some(9));
 }
 
+/// The obligation the panel's state machine rests on: a run always says it
+/// finished. Without it the panel sits in `STARTED` for the session.
 #[tokio::test]
-async fn test_local_spawn_agent_finds_binary() {
+async fn every_local_run_reports_an_exit() {
     enable_mock_store();
-    // `fetch`, not `--help`. What this test is about is the spawn finding a
-    // binary on PATH, and `fetch` is a one-shot every version of the agent has
-    // ever terminated on. `--help` was only handled from 0.34 -- before that an
-    // unrecognised flag became the *host label* and the agent streamed monitor
-    // packets, so on any machine with an older one installed this test never
-    // finished. The suite it was part of hung rather than failed.
-    let server = local_server("multitop-agent fetch 2>&1 || true");
-
-    let mut child = spawn_command(&server, "multitop-agent fetch 2>&1 || true", None)
-        .unwrap()
-        .child;
-
-    // Still bounded. Whatever is on PATH is outside this repo's control, and a
-    // test that cannot finish is worse than one that fails: it takes the whole
-    // run with it and reports nothing.
-    // Bytes, not a string. Piped, the agent writes a binary packet -- so
-    // `read_to_string` failed on "stream did not contain valid UTF-8", which
-    // says nothing about whether the binary was found.
-    let mut stdout = Vec::new();
-    let read = child.stdout.as_mut().unwrap().read_to_end(&mut stdout);
-    let outcome = tokio::time::timeout(std::time::Duration::from_secs(20), read).await;
-    if outcome.is_err() {
-        let _ = child.kill().await;
-        panic!(
-            "`multitop-agent fetch` on PATH never finished; it is a one-shot and \
-             must exit. Installed binary: {:?}",
-            std::process::Command::new("sh")
-                .args([
-                    "-c",
-                    "command -v multitop-agent && multitop-agent --version"
-                ])
-                .output()
-                .ok()
-                .map(|o| String::from_utf8_lossy(&o.stdout)
-                    .chars()
-                    .take(60)
-                    .collect::<String>())
+    for command in ["true", "exit 4", "no-such-command-anywhere-at-all"] {
+        assert!(
+            run(command).await.exit.is_some(),
+            "{command:?} never reported finishing"
         );
     }
-    outcome.unwrap().unwrap();
-    let status = child.wait().await.unwrap();
-
-    let text = String::from_utf8_lossy(&stdout);
-
-    // The binary being installed is a property of the machine, not of this
-    // repo, so its absence is reported and the test stops rather than passing.
-    //
-    // It used to pass either way, and passed *because* of the failure: the
-    // assertion accepted `stdout.contains("multitop-agent")`, and the shell's
-    // own `command not found: multitop-agent` contains that. A test for "the
-    // spawn found the binary" returned green on the one machine where it had
-    // not -- for eleven months, on the developer's own laptop.
-    if text.contains("command not found") {
-        eprintln!(
-            "SKIPPED: multitop-agent is not on PATH here, so this cannot say \
-             whether the spawn would find it. Install it with `cargo install \
-             --path crates/agent` to run this for real."
-        );
-        return;
-    }
-
-    // Present, so it must have produced a frame and exited cleanly.
-    assert!(
-        status.success(),
-        "the agent was found but exited {status:?}: {text}"
-    );
-    assert!(
-        !stdout.is_empty(),
-        "the agent was found, exited cleanly, and wrote nothing"
-    );
 }

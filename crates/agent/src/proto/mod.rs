@@ -1,6 +1,7 @@
 //! Compact binary telemetry protocol (b"MTOP") for streaming metrics over SSH.
 
 use crate::docker::Row as DockerRow;
+use crate::exec::ExecFrame;
 use crate::fetch::FetchSnapshot;
 use crate::render::Snapshot;
 
@@ -14,7 +15,16 @@ pub const MAGIC: &[u8; 4] = b"MTOP";
 ///
 /// 4 added the full list of process names, so `/` can find a host by something
 /// it is running rather than only by something its table had room to show.
-pub const PROTO_VERSION: u8 = 4;
+///
+/// 5 added the Exec mode, which moved the upgrade off raw text over `ssh -tt`
+/// and onto this framing. It is the only mode that travels in both directions.
+pub const PROTO_VERSION: u8 = 5;
+
+/// The version that introduced [`ProtoMode::Exec`]. An Exec frame from an older
+/// agent is refused rather than misread: read with the wrong layout it would
+/// come out one field along, and here that nonsense is an exit code -- the one
+/// number that decides whether an operator is told their upgrade worked.
+pub const EXEC_MIN_VERSION: u8 = 5;
 
 #[repr(u8)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -22,6 +32,7 @@ pub enum ProtoMode {
     Monitor = 0,
     Docker = 1,
     Fetch = 2,
+    Exec = 3,
 }
 
 impl ProtoMode {
@@ -37,6 +48,7 @@ impl TryFrom<u8> for ProtoMode {
             0 => Ok(ProtoMode::Monitor),
             1 => Ok(ProtoMode::Docker),
             2 => Ok(ProtoMode::Fetch),
+            3 => Ok(ProtoMode::Exec),
             other => Err(other),
         }
     }
@@ -45,24 +57,31 @@ impl TryFrom<u8> for ProtoMode {
 pub const MODE_MONITOR: u8 = ProtoMode::Monitor.as_u8();
 pub const MODE_DOCKER: u8 = ProtoMode::Docker.as_u8();
 pub const MODE_FETCH: u8 = ProtoMode::Fetch.as_u8();
+pub const MODE_EXEC: u8 = ProtoMode::Exec.as_u8();
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum Payload {
     Monitor(Snapshot),
     Docker { host: String, rows: Vec<DockerRow> },
     Fetch(FetchSnapshot),
+    Exec(ExecFrame),
 }
 
 /// Bytes of fixed header before the payload: magic(4) + version(1) + mode(1) + len(2).
-const HEADER_LEN: usize = 8;
+///
+/// Public because a reader on the other end of a pipe has to know how many
+/// bytes to `read_exact` before it can learn the payload's length.
+pub const HEADER_LEN: usize = 8;
 /// The payload length field is a u16, so this is the hard ceiling.
 const MAX_PAYLOAD: usize = u16::MAX as usize;
 
 mod decode;
 mod encode;
+mod exec_codec;
 
 pub use decode::{decode_packet, Cursor};
 pub use encode::encode_packet;
+pub use exec_codec::{decode_exec, encode_exec};
 
 #[cfg(test)]
 mod framing_tests {
