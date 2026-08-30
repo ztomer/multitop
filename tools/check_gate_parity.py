@@ -73,6 +73,32 @@ LOCAL_CI_CHECKER = re.compile(r'"(check_[a-z0-9_]+\.py)"')
 # exists, and there is nothing to keep in step.
 PYTEST_DIR = re.compile(r"pytest[^\n]*[\"' ]tests/")
 
+# The two gates that used to live only in `scripts/local-ci.py`, each with a
+# stated reason, and each outlived by an event: the ratchet went red on a commit
+# the hook passed, and `fuzz_proto` stopped compiling and reached a release.
+#
+# Matched by the thing that does the work rather than by a word, so a mention in
+# a comment cannot satisfy them. The fuzz pattern accepts either form on
+# purpose: the hook runs a plain `cargo check` of the crate (seconds) and CI
+# runs the full sanitizer build (minutes), which is a deliberate difference, not
+# drift -- what matters is that each of the three compiles the fuzz crate
+# somehow.
+RATCHET_RUN = re.compile(r"ratchet_check\.py")
+# A *command*, not a path. The first version of this also accepted the bare
+# string `fuzz_targets`, which the CI workflow contains in the glob it loops
+# over -- so deleting the build command left the rule satisfied by the loop that
+# no longer built anything. A matcher loose enough to be safe is loose enough to
+# see nothing; this one was proven to fail before it was trusted to pass.
+# Three spellings, because the three places genuinely invoke it three ways:
+# a shell line in CI, a shell line in the hook, and a python argument list in
+# local-ci where the words are separate quoted strings. Matching only the shell
+# form reported local-ci as not running a gate it has always run.
+FUZZ_RUN = re.compile(
+    r"cargo\s+(?:\+\S+\s+)?fuzz\s+build"          # shell: full sanitizer build
+    r"|cargo\s+check[^\n]*fuzz/Cargo\.toml"          # shell: cheap compile check
+    r"|\"fuzz\",\s*\"build\""                        # python argv list
+)
+
 
 def named_in(text: str, pattern: re.Pattern[str]) -> set[str]:
     return {m for m in pattern.findall(text)} - EXEMPT
@@ -98,6 +124,27 @@ def suites_on_disk() -> set[str]:
 
 def runs_pytest(text: str) -> bool:
     return PYTEST_DIR.search(text) is not None
+
+
+def always_run_problems() -> list[str]:
+    """Gates that must be in all three, matched by their command.
+
+    A gate in one list and not the others is the thing this checker exists for.
+    These two were exceptions with reasons; the reasons expired, and an
+    expired exception that nothing re-checks is just a hole.
+    """
+    problems = []
+    places = (
+        ("pre-commit hook", HOOK),
+        ("CI workflow", WORKFLOW),
+        ("local-ci.py", LOCAL_CI),
+    )
+    for label, pattern in (("the line-count ratchet", RATCHET_RUN),
+                           ("the fuzz targets", FUZZ_RUN)):
+        for name, path in places:
+            if not pattern.search(path.read_text(encoding="utf-8")):
+                problems.append(f"{name} does not run {label}")
+    return problems
 
 
 def suite_problems() -> list[str]:
@@ -185,7 +232,7 @@ def main() -> int:
         return self_test()
 
     existing = on_disk()
-    problems = differences(gates(), existing) + suite_problems()
+    problems = differences(gates(), existing) + suite_problems() + always_run_problems()
     if not problems:
         print(
             f"gate-parity: clean ({len(existing)} checkers and "

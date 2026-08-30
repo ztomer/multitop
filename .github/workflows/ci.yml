@@ -75,6 +75,29 @@ jobs:
       - name: Test
         run: cargo test --workspace --all-features
 
+      # The shared gate harness. `tools/coverage_check.sh` delegates its floor
+      # and its exclusions to `$GOH/gates/coverage_gate.sh`, so without this the
+      # coverage job dies with `No such file or directory` and exit 127 -- which
+      # it had been doing on every push since the delegation landed. A merge
+      # gate that cannot run is not a merge gate.
+      - name: Check out the shared gate harness
+        uses: actions/checkout@v4
+        with:
+          repository: ztomer/gates_of_heck
+          path: .gates_of_heck
+
+      - name: Line-count ratchet (tools/loc_baseline.txt)
+        env:
+          GOH_DIR: ${{ github.workspace }}/.gates_of_heck
+        run: |
+          python3 tools/ratchet_check.py --self-test
+          python3 tools/ratchet_check.py
+
+      - name: Install pytest
+        # Without it the e2e step dies on `No module named pytest`, which is
+        # what it did the first time it ran here.
+        run: python3 -m pip install --quiet pytest
+
       - name: End-to-end suites (tests/test_exec_live.py, tests/test_tmux_e2e.py)
         # They drive the built binary, so build it first. Both skip with a
         # stated reason when what they need is absent -- the live suite without
@@ -98,10 +121,23 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - uses: ./.github/actions/system-deps
 
+      # The shared gate harness. `tools/coverage_check.sh` delegates its floor
+      # and its exclusions to `$GOH/gates/coverage_gate.sh`, so without this the
+      # coverage job dies with `No such file or directory` and exit 127 -- which
+      # it had been doing on every push since the delegation landed. A merge
+      # gate that cannot run is not a merge gate.
+      - name: Check out the shared gate harness
+        uses: actions/checkout@v4
+        with:
+          repository: ztomer/gates_of_heck
+          path: .gates_of_heck
+
       - name: Install cargo-llvm-cov
         run: cargo install cargo-llvm-cov
 
       - name: Coverage (workspace, fail under 95%)
+        env:
+          GOH_DIR: ${{ github.workspace }}/.gates_of_heck
         run: |
           # The one definition of the floor and its exclusions lives in the
           # script. CI and the pre-commit hook both call it, so a local gate
@@ -117,3 +153,33 @@ jobs:
           name: lcov-workspace
           path: target/lcov.info
           if-no-files-found: error
+
+  fuzz:
+    name: fuzz targets build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # Nightly on purpose, and only here. rust-toolchain.toml pins the
+      # workspace to stable because nightly ICEs on multitop-vault under
+      # clippy; `cargo fuzz` is the one thing that genuinely needs nightly, and
+      # it builds the fuzz crate rather than the workspace.
+      - uses: dtolnay/rust-toolchain@nightly
+
+      - uses: Swatinem/rust-cache@v2
+
+      - uses: ./.github/actions/system-deps
+
+      - name: Install cargo-fuzz
+        run: cargo install cargo-fuzz
+
+      # Building, not running: a fuzz run has no natural end. This catches the
+      # failure that actually happens -- a target that stopped compiling
+      # because what it fuzzes changed shape. `fuzz_proto` went non-exhaustive
+      # when the protocol gained a variant and nothing caught it until a
+      # release, because this gate lived only in scripts/local-ci.py.
+      - name: Build every fuzz target (sanitizer on)
+        run: |
+          for t in fuzz/fuzz_targets/*.rs; do
+            cargo +nightly fuzz build "$(basename "$t" .rs)"
+          done

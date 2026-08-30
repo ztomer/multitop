@@ -1,15 +1,43 @@
 #!/usr/bin/env bash
 # Full local gate before anything leaves this machine.
 #
-#   1. tools/gate.sh --full — the house layers: whole-tree structural checks,
-#      the Rust fmt/clippy gates, this repo's own checkers and coverage floor.
-#   2. scripts/local-ci.py — everything above it plus what only it covers:
-#      the fuzz targets (nightly, with the sanitizer) and the benchmark
-#      thresholds.
+#   scripts/local-ci.py -- the whole suite. It delegates: the gates live in
+#   tools/ and .githooks/pre-commit, and it runs those plus the two things
+#   neither covers, the fuzz targets and the benchmark thresholds.
+#
+# It used to run `tools/gate.sh --full` first and then local-ci.py. That is
+# almost entirely the same work twice -- `gate.sh --full` ends in
+# tools/repo_gates.sh, whose last step is the 95% coverage floor, and local-ci
+# runs the coverage floor again through the same tools/coverage_check.sh. A
+# push therefore paid for the coverage build twice, and it is the slowest thing
+# in the suite. Once is the whole point of local-ci delegating rather than
+# redefining.
 set -euo pipefail
 root="$(git rev-parse --show-toplevel)"
 
-GOH="${GOH_DIR:-${GOH:-$HOME/Projects/gates_of_heck}}"
-"$root/tools/gate.sh" --full
+# ---------------------------------------------------------------- tag pushes
+#
+# A tag names a commit that is already on the remote and was already gated to
+# get there. Re-running the suite against it cannot learn anything: the tree it
+# would check is the tree it checked when the commit was pushed.
+#
+# This is not a micro-optimisation. Cutting v0.43.0 ran the full suite four
+# times -- the pre-flight, the version-bump commit, the branch push, and then
+# the tag push -- and the tag one is the one that got killed by a timeout,
+# leaving the release half-done.
+#
+# git feeds pre-push one line per ref on stdin:
+#     <local ref> <local sha> <remote ref> <remote sha>
+# so "every ref in this push is a tag" is a question the hook can answer.
+# Anything else -- a branch, or a mix -- runs the full suite.
+# Blank lines are dropped before the test. Left in, a trailing newline is a
+# line that is not a tag, and the skip never fires -- which fails safe, and also
+# never works, which is the kind of "working" gate that gets noticed a year
+# later.
+non_tag_refs="$(cat | awk 'NF { print $1 }' | grep -cv '^refs/tags/' || true)"
+if [ "$non_tag_refs" = "0" ]; then
+    printf '  · pre-push: tags only, and the commits they name are already gated\n'
+    exit 0
+fi
 
 exec python3 "$root/scripts/local-ci.py"

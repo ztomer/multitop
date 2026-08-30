@@ -116,6 +116,12 @@ def step_cut(tag: str):
 
     # Refresh Cargo.lock so it does not drift from the manifest. A stale lock
     # breaks any --locked build (CI, Homebrew) with a confusing error.
+    #
+    # Both locks. `fuzz/` is excluded from the workspace and carries its own,
+    # which records the workspace crates by version -- so a bump left it naming
+    # the *previous* release until something happened to build a fuzz target,
+    # and then it turned up as an unexplained dirty file mid-release. That is
+    # what happened cutting v0.43.0.
     info("refreshing Cargo.lock")
     r = check("cargo", "metadata", "--format-version", "1", "--offline", cwd=str(root))
     if r.returncode != 0:
@@ -123,9 +129,28 @@ def step_cut(tag: str):
     if r.returncode != 0:
         die("cargo metadata failed — cannot refresh Cargo.lock")
 
+    fuzz_manifest = root / "fuzz" / "Cargo.toml"
+    if fuzz_manifest.is_file():
+        info("refreshing fuzz/Cargo.lock")
+        rf = check(
+            "cargo", "metadata", "--format-version", "1", "--offline",
+            "--manifest-path", str(fuzz_manifest), cwd=str(root),
+        )
+        if rf.returncode != 0:
+            rf = check(
+                "cargo", "metadata", "--format-version", "1",
+                "--manifest-path", str(fuzz_manifest), cwd=str(root),
+            )
+        if rf.returncode != 0:
+            # Not fatal. The fuzz crate is not shipped and not built by users;
+            # a stale lock there costs a dirty file, not a broken install.
+            warn("could not refresh fuzz/Cargo.lock -- it may lag this release")
+
     r = check("git", "status", "--porcelain")
     if r.stdout.strip():
         check("git", "add", "Cargo.toml", "Cargo.lock", check=True)
+        if fuzz_manifest.is_file():
+            check("git", "add", "fuzz/Cargo.lock")
         r = check("git", "commit", "-m", f"chore: release {tag}")
         if r.returncode != 0:
             die(f"commit failed (pre-commit gates?): {r.stdout}{r.stderr}")

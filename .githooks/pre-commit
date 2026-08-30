@@ -161,6 +161,31 @@ if ! python3 -m pytest tests/ -q >"$log" 2>&1; then
 fi
 ok "end-to-end suites"
 
+info "checking the line-count ratchet"
+# Was local-ci-only, under a comment saying it is "a shape rule rather than a
+# correctness one". True, and it still went red on a commit this hook passed --
+# so the shape rule was enforced only by whoever remembered to run the pre-push
+# script. It costs a glob and a line count.
+if ! python3 tools/ratchet_check.py >"$log" 2>&1; then
+    cat "$log" >&2
+    die "a file grew past its recorded ceiling -- shrink it, or re-record in this commit"
+fi
+ok "line-count ratchet"
+
+info "checking the fuzz targets still compile"
+# `cargo check`, not `cargo fuzz build`: the full build is six sanitizer release
+# binaries on a nightly toolchain, which is minutes, and a hook that costs
+# minutes is a hook people learn to --no-verify past. The failure this actually
+# catches is a target that stopped compiling because what it fuzzes changed
+# shape -- `fuzz_proto` went non-exhaustive when the protocol gained a variant,
+# and nothing said so until a release. That is a compile error, and this finds
+# it in seconds. CI keeps the full sanitizer build.
+if ! cargo check --manifest-path fuzz/Cargo.toml --all-targets >"$log" 2>&1; then
+    tail -30 "$log" >&2
+    die "a fuzz target no longer compiles against the code it fuzzes"
+fi
+ok "fuzz targets compile"
+
 info "checking coverage (workspace, 95% floor)"
 if ! bash tools/coverage_check.sh >"$log" 2>&1; then
     tail -20 "$log" >&2

@@ -20,9 +20,13 @@ and each drift made the script *weaker* than the thing it was standing in for:
     that gate had run at all.
 
 So it now *delegates*. The gates live in `tools/` and in `.githooks/pre-commit`;
-this runs those, and adds only the two things neither of them covers -- the fuzz
-targets and the benchmark thresholds. There is no second definition of clean to
-keep in step by hand.
+this runs those. It used to be the only home of three gates -- the ratchet, the
+fuzz targets and the benchmark thresholds -- and two of those turned out to be
+things a commit and a merge needed too: the ratchet went red on a commit the
+hook passed, and a fuzz target stopped compiling and reached a release. Both are
+in the hook and in CI now. What is still only here is the benchmark thresholds,
+which need a quiet machine to mean anything. There is no second definition of
+clean to keep in step by hand.
 
 Usage:
     python3 scripts/local-ci.py [--fast]
@@ -229,61 +233,22 @@ def clippy_on_ci_toolchain() -> bool:
 
 # --------------------------------------------------------------- file length
 #
-# Not in CI and not in the hook, because it is a shape rule rather than a
-# correctness one -- but it is a rule this repo actually follows, with five
-# "split X into modules" commits behind it.
+# The line-count ratchet, through the one wrapper the hook and CI also call.
 #
-# Delegated to the house ratchet (gates_of_heck checks/check_baseline_ratchet.py):
-# tools/loc_baseline.txt holds recorded CEILINGS, shrink-only; this script only
-# produces the current side -- every production file over the cap, as
-# "<lines> <path>" lines. The mapping is exact:
-#   * a file newly over the cap      -> NEW key      -> fail (was: `over`)
-#   * a listed file above its ceiling -> grew         -> fail (was: `grown`)
-#   * a listed file at/below the cap  -> vanished     -> pass (was: shrunk note)
-
-LOC_LIMIT = 500
-
-# Production source only. Test files are held to the same cap by the
-# gates_of_heck structural gate (.gatesrc: GOH_MAX_LINES), which runs whole-tree
-# on every push; this sweep stays src-scoped so its ratchet and CI's stay
-# comparable.
-LOC_SCOPE = "crates/*/src/**/*.rs"
-
-LOC_BASELINE = REPO / "tools" / "loc_baseline.txt"
-
-GOH = Path(os.environ.get("GOH_DIR", Path.home() / "Projects" / "gates_of_heck"))
-
-# Split literal so the gate-parity scanner (which greps this file for quoted
-# tools/check_*.py names) does not mistake the HOUSE checker for a local one.
-_RATCHET = "check_" + "baseline_ratchet.py"
-
-CURRENT_CMD = f"""python3 -c 'import pathlib
-root = pathlib.Path(".")
-print(0, "__under_cap_sentinel__")
-for p in sorted(root.glob("{LOC_SCOPE}")):
-    n = len(p.read_text(encoding="utf-8").splitlines())
-    if n > {LOC_LIMIT}:
-        print(n, p.as_posix())
-'
-# The sentinel keeps the current side NON-EMPTY when no file is over the cap --
-# an empty current set is a precondition failure to the ratchet, and "clean"
-# must not read as "cannot run". Its ceiling in loc_baseline.txt is 0, which a
-# 0 value can never exceed."""
+# The invocation used to live here and only here, under a comment saying the
+# ratchet is "not in CI and not in the hook, because it is a shape rule rather
+# than a correctness one". That was coherent until `diag.rs` grew past its
+# ceiling in a commit the pre-commit hook passed, and nothing said so until this
+# script was run by hand before a release. It lives in tools/ratchet_check.py
+# now so there is one definition rather than three to keep in step.
 
 
 def check_file_length() -> bool:
     section("file length")
-    return run(
-        f"line-count ratchet ({LOC_LIMIT}-line cap, ceilings in "
-        f"{LOC_BASELINE.name})",
-        [
-            sys.executable,
-            str(GOH / "checks" / _RATCHET),
-            "--baseline",
-            str(LOC_BASELINE),
-            "--current-from-command",
-            CURRENT_CMD,
-        ],
+    return run("line-count ratchet (self-test)",
+               [sys.executable, "tools/ratchet_check.py", "--self-test"]) and run(
+        "line-count ratchet (500-line cap, ceilings in loc_baseline.txt)",
+        [sys.executable, "tools/ratchet_check.py"],
     )
 
 
