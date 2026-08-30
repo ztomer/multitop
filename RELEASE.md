@@ -73,6 +73,22 @@ curl -sL https://github.com/ztomer/multitop/archive/refs/tags/v0.32.0.tar.gz | s
 
 ## Notes
 
+- **Check for tags that were never released.** `gh release list` against
+  `git tag` is worth a glance before cutting: v0.37.0, v0.40.0, v0.41.0 and
+  v0.42.x were all tagged and pushed without ever being released, so Homebrew
+  served v0.39.1 while the repo claimed 0.42.1. This is the failure the
+  procedure above already warns about, and it happened four more times. The
+  notes are built from the last **published** release for exactly this reason,
+  so one good release absorbs the gap.
+- **Pushing the tag does not re-run the gates.** The commit it names is already
+  on the remote and was gated to get there. Before that, cutting a release ran
+  the full suite four times -- pre-flight, version-bump commit, branch push, tag
+  push -- and the tag one is the one that hit a timeout and left v0.43.0
+  half-released.
+- **Both lockfiles are refreshed.** `fuzz/` is outside the workspace and carries
+  its own `Cargo.lock` recording the workspace crates by version, so a bump left
+  it naming the previous release until something happened to build a fuzz
+  target. It then turns up as an unexplained dirty file mid-release.
 - Script is **idempotent** — safe to re-run
 - Requires `GITHUB_TOKEN` with push access to `ztomer/homebrew-tap`
 - Homebrew formula lives in separate repo: `~/Projects/homebrew-tap` (or `gh repo clone ztomer/homebrew-tap`)

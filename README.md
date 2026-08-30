@@ -157,17 +157,6 @@ has its own, kept inside.
 - **Created on demand**: the first time you save a sudo password, multitop offers to create the vault and asks for a master password. There is nothing to set up in advance.
 - **Priority**: Vault passwords take precedence over OS keychain entries
 
-## The agent
-
-`multitop-agent` is uploaded to each monitored host on first use and cached at
-`$HOME/.cache/multitop/agent-<hash>`, keyed by a hash of the binary. A new
-release has a new hash, so it is uploaded once and the old one is swept -- a
-stale agent is never executed. Run it by hand for what it is:
-
-```bash
-multitop-agent --help
-```
-
 ## Configuration and passwords
 
 Press **e** for the full-screen Settings screen: one list of servers with

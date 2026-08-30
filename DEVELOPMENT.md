@@ -63,6 +63,9 @@ red, which is how ten deprecations once shipped green.
 | Magic numbers | `python3 tools/check_magic_numbers.py` | A literal carrying meaning nobody wrote down |
 | Formatting | `cargo fmt --all -- --check` | |
 | Clippy | `cargo clippy --workspace --all-targets --all-features -- -D warnings` | |
+| End-to-end suites | `python3 -m pytest tests/` | A defect only the running binary shows -- the exec channel against live hosts, and the app itself in a real terminal |
+| Line-count ratchet | `python3 tools/ratchet_check.py` | A production file growing past its recorded ceiling |
+| Fuzz targets compile | `cargo check --manifest-path fuzz/Cargo.toml --all-targets` | A fuzz target that stopped compiling because what it fuzzes changed shape |
 | Coverage | `bash tools/coverage_check.sh` | Line coverage below 95% |
 
 The three lists -- the hook, `ci.yml` and `local-ci.py` -- are compared against
@@ -77,17 +80,42 @@ stopped detecting reports a clean tree exactly like a clean tree does -- the
 emoji gate missed escaped codepoints entirely until a padlock turned up in a
 repo it called clean.
 
-To run the whole set plus the fuzz and benchmark gates before pushing:
+To run the whole set before pushing:
 
 ```bash
 python3 scripts/local-ci.py
 ```
 
-### CI runs stable; local development runs nightly
+The pre-push hook runs exactly that, once. It used to run `tools/gate.sh --full`
+first and then this, which is nearly the same work twice -- both end in the 95%
+coverage floor, the slowest thing in the suite.
 
-There is no `rust-toolchain.toml`, on purpose -- `cargo fuzz` needs nightly and
-the fuzz gate in `local-ci.py` would stop working under a pin. The cost is that
-the two run different lint sets, in both directions:
+**Pushing a tag skips it.** A tag names a commit that is already on the remote
+and was already gated to get there, so re-running the suite against it cannot
+learn anything. Cutting v0.43.0 ran the full suite four times before this
+changed, and the tag run is the one a timeout killed halfway through the
+release.
+
+The only gate `local-ci.py` still adds over the hook and CI is the **benchmark
+thresholds**, which need a quiet machine to mean anything. The ratchet and the
+fuzz targets used to be here too, and both were moved after each caught
+something too late: the ratchet went red on a commit the hook passed, and a fuzz
+target stopped compiling and reached a release.
+
+### The toolchain is pinned; only `cargo fuzz` steps outside it
+
+`rust-toolchain.toml` pins the workspace to stable, so the local gate and CI
+compile the same code with the same compiler.
+
+This section used to say the opposite -- "There is no `rust-toolchain.toml`, on
+purpose", with the reason that a pin would break the fuzz gate. Both halves were
+wrong: the file exists, and `cargo fuzz` is invoked as `cargo +nightly fuzz`,
+which overrides a pin rather than being blocked by one. A doc that states a
+constraint the code does not have is the same defect as a comment that does; it
+is only harder to notice.
+
+Nightly is still reachable, and the two run different lint sets in both
+directions:
 
 * a lint nightly has and stable does not makes the *name* in an `#[allow]` an
   error on stable, under `-D unknown-lints`;
