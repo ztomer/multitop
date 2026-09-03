@@ -61,6 +61,8 @@ red, which is how ten deprecations once shipped green.
 | Keychain isolation | `python3 tools/check_keychain_isolation.py` | A test reaching the real OS keychain and stopping the suite on a dialog |
 | Row 0 owner | `python3 tools/check_row0_owner.py` | A pane's view assigned outside `panel.rs`, which overwrites the banner |
 | Magic numbers | `python3 tools/check_magic_numbers.py` | A literal carrying meaning nobody wrote down |
+| Agent version | `python3 tools/check_agent_version.py` | Workspace `0.44.x` not inside `x86_64/aarch64` agent → stale `Hello` loop |
+| Codesign | `python3 tools/check_codesign.py` | Ad-hoc `Identifier=multitop-abc123` → keychain “Always Allow” per-build |
 | Formatting | `cargo fmt --all -- --check` | |
 | Clippy | `cargo clippy --workspace --all-targets --all-features -- -D warnings` | |
 | End-to-end suites | `python3 -m pytest tests/` | A defect only the running binary shows -- the exec channel against live hosts, and the app itself in a real terminal |
@@ -138,6 +140,16 @@ rustup toolchain install stable --component clippy
 ```
 
 If clippy passes here and fails there, suspect the lint *name* before the code.
+
+### Hello + agent embedding
+
+Every stream starts with `Hello` (`agent_version` + `proto_version`/`min`) — see `crates/agent/src/proto/mod.rs:31`. The client validates `is_valid`/`is_compatible`, rejects duplicate Hello, and never downgrades a newer remote. `build.rs` panics for `release` when `CARGO_PKG_VERSION` not inside the musl binary (stale `0.44.0` inside `0.44.1` looped forever); `tools/check_agent_version.py` gates the same in hook/CI/local-ci. Always build the release with `./build.sh` — `cargo build -p multitop` alone embeds `missing` or stale.
+
+`build.sh` also `codesign --identifier com.ztomer.multitop` for `TARGET/*multitop` + `~/.cargo/bin/multitop`; `tools/check_codesign.py` (auto-fixes) keeps `Always Allow` in `login.keychain` from expiring on each ad-hoc build (`multitop-abc123`).
+
+### Vault as source of truth
+
+`vault.bin` is the source of truth to *report*, but a run that needs a password and finds `None` in the vault must fall back to `login.keychain` (`crates/multitop/src/vault.rs:71`). New vaults are seeded from `panel.sudo_password` *or* `password_store::load` (`crates/multitop/src/app/vault.rs:219`), and `VaultUnlocked` `crates/multitop/src/app/apply.rs:344` reloads `vault.hosts()` into `panels` so the upgrade view shows `Stored` not `will prompt`. Without this, `0.33:22`/`0.90:22` stayed `Unset` even though the vault held `mangarkongar`.
 
 ### The TPM round trip
 

@@ -280,7 +280,7 @@ The test suite covers panel rendering across multiple terminal dimensions, windo
 - **Zero-allocation sampling & minimal memory footprint.** The agent reuses internal buffers (`scanned`, `active_pids`, `temp_procs`) across ticks, deallocates platform IPC handles, and defers process string allocations until after sorting and truncation. Memory usage remains constant at < 2.7 MiB RSS (< 320 KiB private) over long-running sessions.
 - **Upgrade state machine.** Per-server `UpgradeState` enum (NIL/STARTED/DONE) with power-loss detection via `upgrade_started_at` marker, exit-code-aware completion, and concurrent upgrade locking.
 - **Agent cache cleanup.** After each agent upload, stale `agent-*` binaries are removed from `~/.cache/multitop/`, keeping only the current x86_64 and aarch64 builds.
-- **Binary protocol.** The agent streams compact `b"MTOP"` packets over SSH — >10× more network efficient than ANSI text streaming.
+- **Binary protocol.** The agent streams compact `b"MTOP"` packets over SSH — >10× more network efficient than ANSI text streaming. The first packet on every stream is `Hello` (`agent_version` + `proto_version`/`min`) — the client validates `is_valid`/`is_compatible`, rejects duplicate Hello, and the `replace_agent` loop has a circuit-breaker for stale embedded agents (`build.rs` `panic!` for `release` + `tools/check_agent_version.py`).
 
 ## Project structure
 
