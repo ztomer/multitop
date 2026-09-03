@@ -201,7 +201,10 @@ fn main() {
                     path.display()
                 );
                 if profile == "release" {
-                    panic!("{msg}");
+                    #[allow(clippy::panic)]
+                    {
+                        panic!("{msg}");
+                    }
                 } else {
                     println!("cargo:warning={msg}");
                 }
@@ -218,8 +221,7 @@ fn main() {
             // Release builds must have an agent; debug can run local-only.
             if profile == "release" {
                 println!(
-                    "cargo:warning=No {} agent found for release build — local-only, no remote monitoring (rebuild with ./build.sh to include it)",
-                    triple
+                    "cargo:warning=No {triple} agent found for release build — local-only, no remote monitoring (rebuild with ./build.sh to include it)"
                 );
             }
             write!(
