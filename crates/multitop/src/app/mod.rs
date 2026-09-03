@@ -38,6 +38,9 @@ pub struct App {
     pub command_palette_visible: bool,
     pub command_input: String,
     pub graph_zoom: u8,
+    pub alert_cpu: Option<u8>,
+    pub alert_mem: Option<u8>,
+    pub alert_disk: Option<u8>,
 }
 
 pub const LOG_AMORTIZE: usize = 512;

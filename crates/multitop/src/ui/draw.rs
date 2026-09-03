@@ -182,12 +182,48 @@ pub fn draw(f: &mut Frame, app: &mut App) {
             );
             let space_needed = disp_w + 2;
 
+            // Alerts as panels — tint the banner amber→red when breaching.
+            let alert_color = panel.last_monitor.as_ref().and_then(|p| match p {
+                multitop_agent::proto::Payload::Monitor(snap) => {
+                    let cfg = crate::config::Config {
+                        servers: vec![],
+                        theme: None,
+                        upgrade_history_lines: 5000,
+                        history_lines_raised_from: None,
+                        banner_style: crate::layout::BannerStyle::default(),
+                        plaintext_passwords: vec![],
+                        alert_cpu: app.alert_cpu,
+                        alert_mem: app.alert_mem,
+                        alert_disk: app.alert_disk,
+                    };
+                    let h = crate::health::health(snap, &cfg);
+                    if h < 50 {
+                        Some(Color::Red)
+                    } else if h < 80 {
+                        Some(Color::Yellow)
+                    } else {
+                        None
+                    }
+                }
+                _ => None,
+            });
+
             if total_w >= space_needed {
                 let rem = total_w - space_needed;
                 let left_rule_len = rem / 2;
                 let right_rule_len = rem - left_rule_len;
 
                 let fw = &server_target;
+                let (name_open, name_close) = if let Some(c) = alert_color {
+                    let code = match c {
+                        Color::Red => "\x1b[38;2;255;85;85m",
+                        Color::Yellow => "\x1b[38;2;241;250;140m",
+                        _ => theme.primary(),
+                    };
+                    (format!("{code}{}", theme.bold), theme.reset.to_string())
+                } else {
+                    (format!("{}{}", theme.primary(), theme.bold), theme.reset.to_string())
+                };
 
                 // A space either side of the name. `space_needed` has always
                 // budgeted two and only one was emitted, so the rule was a
@@ -195,14 +231,13 @@ pub fn draw(f: &mut Frame, app: &mut App) {
                 // the name was a wall of fullwidth glyphs, obvious once it is
                 // ordinary text.
                 lines[0] = format!(
-                    "{}{}{} {}{}{}{} {}{}{}{}",
+                    "{}{}{} {}{}{} {}{}{}{}",
                     theme.secondary(),
                     "\u{2500}".repeat(left_rule_len),
                     theme.reset,
-                    theme.primary(),
-                    theme.bold,
+                    name_open,
                     fw,
-                    theme.reset,
+                    name_close,
                     theme.secondary(),
                     "\u{2500}".repeat(right_rule_len),
                     theme.reset,
@@ -212,13 +247,19 @@ pub fn draw(f: &mut Frame, app: &mut App) {
                 // Not `center_header`: that is the agent's own helper and maps
                 // the name into fullwidth glyphs, which is the defect this
                 // branch also had.
+                let (name_open2, name_close2) = if let Some(c) = alert_color {
+                    let code = match c {
+                        Color::Red => "\x1b[38;2;255;85;85m",
+                        Color::Yellow => "\x1b[38;2;241;250;140m",
+                        _ => theme.primary(),
+                    };
+                    (format!("{code}{}", theme.bold), theme.reset.to_string())
+                } else {
+                    (format!("{}{}", theme.primary(), theme.bold), theme.reset.to_string())
+                };
                 lines[0] = format!(
                     "{}{}{}{}{}",
-                    theme.primary(),
-                    theme.bold,
-                    server_target,
-                    theme.reset,
-                    badge_span(&badge)
+                    name_open2, server_target, name_close2, theme.reset, badge_span(&badge)
                 );
             }
         }

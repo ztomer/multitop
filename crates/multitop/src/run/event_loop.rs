@@ -111,6 +111,9 @@ where
                 &cfg.plaintext_passwords,
             );
         }
+        app.alert_cpu = cfg.alert_cpu;
+        app.alert_mem = cfg.alert_mem;
+        app.alert_disk = cfg.alert_disk;
     }
     let loaded = crate::state::load_state(&config_path);
     app.last_update = loaded.state.last_update;

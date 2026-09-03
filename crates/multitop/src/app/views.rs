@@ -35,6 +35,9 @@ impl App {
             command_palette_visible: false,
             command_input: String::new(),
             graph_zoom: 1,
+            alert_cpu: None,
+            alert_mem: None,
+            alert_disk: None,
         }
     }
 
