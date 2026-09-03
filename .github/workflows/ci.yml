@@ -50,7 +50,11 @@ jobs:
           python3 tools/check_row0_owner.py --self-test
           python3 tools/check_row0_owner.py
           python3 tools/check_magic_numbers.py --self-test
-          python3 tools/check_magic_numbers.py
+           python3 tools/check_magic_numbers.py
+           python3 tools/check_agent_version.py --self-test
+           python3 tools/check_agent_version.py
+           python3 tools/check_codesign.py --self-test
+           python3 tools/check_codesign.py
 
       - name: Formatting
         run: cargo fmt --all -- --check

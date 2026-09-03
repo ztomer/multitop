@@ -26,7 +26,9 @@ for checker in \
     check_key_hints \
     check_keychain_isolation \
     check_row0_owner \
-    check_magic_numbers
+    check_magic_numbers \
+    check_agent_version \
+    check_codesign
 do
     info "$checker"
     if ! python3 "tools/$checker.py" --self-test >"$log" 2>&1; then

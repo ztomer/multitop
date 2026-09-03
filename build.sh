@@ -131,8 +131,9 @@ cargo build -p multitop $CARGO_PROFILE_FLAG
 # Without a fixed identifier each build gets a random ad-hoc ID and the
 # keychain sees it as a different app.
 if command -v codesign >/dev/null 2>&1; then
-    _bin_tmp="$TARGET_DIR/$PROFILE/multitop"
-    codesign -s - --identifier com.ztomer.multitop "$_bin_tmp" 2>/dev/null || true
+    for _p in "$TARGET_DIR/$PROFILE/multitop" "$HOME/.cargo/bin/multitop" "$TARGET_DIR/debug/multitop" "$TARGET_DIR/release/multitop"; do
+        [ -f "$_p" ] && codesign -s - --identifier com.ztomer.multitop "$_p" 2>/dev/null || true
+    done
 fi
 
 BIN="$TARGET_DIR/$PROFILE/multitop"

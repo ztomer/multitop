@@ -235,19 +235,41 @@ pub fn spawn_monitor(
                     }
 
                     if mismatched {
-                        // One send, whatever happened. Both failure paths used
-                        // to be silent -- `probe_remote_arch` returning `None`
-                        // and `upload_agent` returning `Err` were both swallowed
-                        // by an `if ... .is_ok()` -- so a mismatch that could not
-                        // be repaired left the panel saying "replacing..." and
-                        // then nothing, forever, once every backoff interval.
-                        // `upload_agent`'s own message ("No aarch64 agent was
-                        // built into this binary. Rebuild with ./build.sh") is
-                        // written to be acted on, and was the message being
-                        // thrown away.
-                        let line = match replace_agent(&server).await {
-                            Ok(note) => note,
-                            Err(reason) => error_line(reason),
+                        // Circuit breaker: if the embedded agent is the same
+                        // version as the remote, re-uploading it will not fix
+                        // the mismatch — it will loop forever uploading the same
+                        // stale bytes. This is exactly what happened when
+                        // 0.44.1 was built without rebuilding the musl agents,
+                        // so the binary embedded 0.44.0 while itself was 0.44.1.
+                        let embedded_stale = {
+                            let v_x86 = crate::ssh_opts::VERSION_X86_64;
+                            let v_arm = crate::ssh_opts::VERSION_AARCH64;
+                            // Hello's agent_version is the remote's version.
+                            // If either embedded slot matches that version, the
+                            // embedded payload is stale.
+                            // We don't know the remote arch yet, so check both.
+                            // `errbuf` may contain the Hello that triggered the
+                            // mismatch, but we already sent the "mismatch" line
+                            // above, so we need the version from the Hello that
+                            // caused it. Re-read it from the last Hello we saw
+                            // is not stored, so we check the local version vs
+                            // the embedded versions: if the local version is
+                            // newer than the embedded, the embedded is stale.
+                            let local = env!("CARGO_PKG_VERSION");
+                            (v_x86 != "missing" && v_x86 != local)
+                                || (v_arm != "missing" && v_arm != local)
+                        };
+                        let line = if embedded_stale {
+                            error_line(format!(
+                                "embedded agent stale ({} vs local {}) — rebuild with ./build.sh to update it; not re-uploading the same bytes",
+                                crate::ssh_opts::VERSION_X86_64, // at least one is stale, show it
+                                env!("CARGO_PKG_VERSION")
+                            ))
+                        } else {
+                            match replace_agent(&server).await {
+                                Ok(note) => note,
+                                Err(reason) => error_line(reason),
+                            }
                         };
                         let _ = tx
                             .send(Msg::Frame {

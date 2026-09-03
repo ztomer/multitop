@@ -216,7 +216,7 @@ impl App {
         Some(self.config_path.as_ref()?.parent()?.join("vault.bin"))
     }
 
-    pub(crate) fn seed_vault_from_panels(&mut self) {
+    pub fn seed_vault_from_panels(&mut self) {
         let known: Vec<(String, String)> = self
             .panels
             .iter()

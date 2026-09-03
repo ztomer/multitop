@@ -126,6 +126,28 @@ if ! python3 tools/check_magic_numbers.py >"$log" 2>&1; then
 fi
 ok "no unnamed literals"
 
+info "checking agent version matches embedded binary"
+if ! python3 tools/check_agent_version.py --self-test >"$log" 2>&1; then
+    cat "$log" >&2
+    die "the agent-version checker's own self-test failed"
+fi
+if ! python3 tools/check_agent_version.py >"$log" 2>&1; then
+    cat "$log" >&2
+    die "embedded agent stale — rebuild with ./build.sh"
+fi
+ok "agent version matches"
+
+info "checking codesign is stable"
+if ! python3 tools/check_codesign.py --self-test >"$log" 2>&1; then
+    cat "$log" >&2
+    die "the codesign checker's own self-test failed"
+fi
+if ! python3 tools/check_codesign.py >"$log" 2>&1; then
+    cat "$log" >&2
+    die "binary signature unstable — run: for f in ~/.cargo/bin/multitop ~/.cache/cargo-target/debug/multitop ~/.cache/cargo-target/release/multitop; do codesign -s - --identifier com.ztomer.multitop \"\$f\"; done"
+fi
+ok "codesign stable"
+
 info "checking formatting"
 if ! cargo fmt --all -- --check >"$log" 2>&1; then
     cat "$log" >&2

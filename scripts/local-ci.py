@@ -127,6 +127,8 @@ CHECKERS = [
     ("keychain isolation", "check_keychain_isolation.py"),
     ("row 0 owner", "check_row0_owner.py"),
     ("magic numbers", "check_magic_numbers.py"),
+    ("agent version", "check_agent_version.py"),
+    ("codesign", "check_codesign.py"),
 ]
 
 

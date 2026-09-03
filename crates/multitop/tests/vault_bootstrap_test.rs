@@ -254,3 +254,97 @@ async fn a_created_vault_can_be_unlocked_and_holds_passwords() {
 
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+#[test]
+fn new_vault_seeds_from_keychain_when_panel_has_no_password() {
+    let _keychain = isolate_keychain();
+    // Store a password in the mock keychain for a host that the panel doesn't yet hold.
+    let srv = server("seed-host");
+    multitop::password_store::save(&srv, "keychain-seed-pw").unwrap();
+
+    let mut app = App::new(vec![srv.clone()]);
+    // No in-memory password on the panel.
+    assert!(app.panels[0].sudo_password.is_none());
+
+    let dir = std::env::temp_dir().join(format!("multitop_seed_{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let vault_path = dir.join("vault.bin");
+    let config_path = dir.join("config.toml");
+    std::fs::write(&config_path, "").unwrap();
+    app.config_path = Some(config_path.clone());
+
+    // Create and unlock a vault the way the app does (cheap Argon2 for tests).
+    let rt = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap();
+    let vault = multitop_vault::Vault::new(multitop_vault::VaultConfig {
+        vault_path: vault_path.clone(),
+        argon2_params: Some(multitop_vault::crypto::Argon2Params {
+            t: 1,
+            m_kib: 32768,
+            p: 1,
+        }),
+        use_os_keychain: false,
+    });
+    rt.block_on(vault.initialize("master-pw")).unwrap();
+    let unlocked = vault.unlock_with_password("master-pw").unwrap();
+    app.vault_state = multitop::app::VaultState::Unlocked {
+        vault: Box::new(unlocked),
+        awaiting_biometric: false,
+    };
+    // Seed should pull from the keychain even though the panel is empty.
+    app.seed_vault_from_panels();
+
+    let vault_ref = match &app.vault_state {
+        multitop::app::VaultState::Unlocked { vault, .. } => vault,
+        _ => panic!("vault should be unlocked"),
+    };
+    let got = vault_ref
+        .get_password(&multitop::password_store::account(&srv))
+        .expect("seed should have copied the keychain password into the vault");
+    assert_eq!(
+        secrecy::ExposeSecret::expose_secret(&got),
+        "keychain-seed-pw"
+    );
+
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn vault_fallback_loads_from_keychain_when_vault_has_no_entry() {
+    let _keychain = isolate_keychain();
+    let srv = server("fallback-host");
+    multitop::password_store::save(&srv, "fallback-pw").unwrap();
+
+    let dir = std::env::temp_dir().join(format!("multitop_fallback_{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let vault_path = dir.join("vault.bin");
+    let rt = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap();
+    let vault = multitop_vault::Vault::new(multitop_vault::VaultConfig {
+        vault_path: vault_path.clone(),
+        argon2_params: Some(multitop_vault::crypto::Argon2Params {
+            t: 1,
+            m_kib: 32768,
+            p: 1,
+        }),
+        use_os_keychain: false,
+    });
+    rt.block_on(vault.initialize("master-pw")).unwrap();
+    let unlocked = vault.unlock_with_password("master-pw").unwrap();
+    // Don't put fallback-host into the vault — leave it empty to test fallback.
+
+    let mut panel = multitop::panel::Panel::new(srv.clone());
+    assert!(panel.sudo_password.is_none());
+    multitop::vault::try_load_vault_password(&mut panel, &unlocked);
+    assert_eq!(
+        panel.sudo_password.as_deref(),
+        Some("fallback-pw"),
+        "vault miss should fall back to keychain"
+    );
+
+    let _ = std::fs::remove_dir_all(&dir);
+}

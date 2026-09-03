@@ -162,6 +162,14 @@ fn main() {
 
     let mut src = String::new();
 
+    // Workspace version that must be inside the agent binary.
+    // `CARGO_PKG_VERSION` is the `multitop` crate's version, which is the
+    // workspace version. An agent built from an older checkout still contains
+    // the old version string, so embedding it would make every Hello mismatch
+    // and loop forever uploading the same stale bytes.
+    let ws_version = std::env::var("CARGO_PKG_VERSION").unwrap_or_default();
+    let profile = std::env::var("PROFILE").unwrap_or_default();
+
     for (var, ident, triple) in [
         (
             "MULTITOP_AGENT_X86_64",
@@ -179,18 +187,46 @@ fn main() {
             let path_str = path.display().to_string();
             println!("cargo:rerun-if-changed={path_str}");
             let bytes = std::fs::read(&path).expect("read agent binary");
+            // Hard gate: a release binary must embed an agent built from this
+            // same checkout. A stale agent (e.g. 0.44.0 bytes inside a 0.44.1
+            // build) makes Hello `0.44.0 vs 0.44.1` and the `replace_agent`
+            // loop uploads the same stale bytes forever.
+            if !ws_version.is_empty()
+                && !bytes
+                    .windows(ws_version.len())
+                    .any(|w| w == ws_version.as_bytes())
+            {
+                let msg = format!(
+                    "agent {triple} version mismatch: workspace {ws_version} not found in binary at {} — rebuild with ./build.sh",
+                    path.display()
+                );
+                if profile == "release" {
+                    panic!("{msg}");
+                } else {
+                    println!("cargo:warning={msg}");
+                }
+            }
             write!(
                 src,
                 "pub static AGENT_{ident}: Option<&[u8]> = Some(include_bytes!(r\"{path_str}\"));\n\
-                 pub static HASH_{ident}: &str = \"{:016x}\";\n",
+                 pub static HASH_{ident}: &str = \"{:016x}\";\n\
+                 pub static VERSION_{ident}: &str = \"{ws_version}\";\n",
                 fnv1a(&bytes)
             )
             .expect("write to src");
         } else {
+            // Release builds must have an agent; debug can run local-only.
+            if profile == "release" {
+                println!(
+                    "cargo:warning=No {} agent found for release build — local-only, no remote monitoring (rebuild with ./build.sh to include it)",
+                    triple
+                );
+            }
             write!(
                 src,
                 "pub static AGENT_{ident}: Option<&[u8]> = None;\n\
-                 pub static HASH_{ident}: &str = \"missing\";\n"
+                 pub static HASH_{ident}: &str = \"missing\";\n\
+                 pub static VERSION_{ident}: &str = \"missing\";\n"
             )
             .expect("write to src");
         }
