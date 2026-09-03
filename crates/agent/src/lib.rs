@@ -199,6 +199,12 @@ pub fn palette_for_env() -> &'static color::Palette {
     }
 }
 
+fn emit_hello<W: std::io::Write>(out: &mut W) -> std::io::Result<()> {
+    let hello = proto::Hello::new(crate::consts::AGENT_VERSION.to_string());
+    out.write_all(&proto::encode_packet(&proto::Payload::Hello(hello)))?;
+    Ok(())
+}
+
 /// One fetch frame. On a terminal this is the text-only fallback — the full
 /// rendering with distro logos lives in the monitor crate's `fetch_render`.
 pub fn emit_fetch<W: std::io::Write>(
@@ -209,6 +215,7 @@ pub fn emit_fetch<W: std::io::Write>(
     out: &mut W,
 ) -> std::io::Result<()> {
     if !is_tty {
+        emit_hello(out)?;
         out.write_all(&proto::encode_packet(&proto::Payload::Fetch(snap.clone())))?;
         return out.flush();
     }
@@ -249,6 +256,7 @@ pub fn emit_docker<W: std::io::Write>(
         let frame = docker::render(host, args.cols, args.lines, &rows, pal, args.sort);
         writeln!(out, "{}", frame.join("\n"))?;
     } else {
+        emit_hello(out)?;
         let payload = proto::Payload::Docker {
             host: host.to_string(),
             rows,
@@ -302,6 +310,10 @@ pub fn monitor_loop<W: std::io::Write>(
     out: &mut W,
     next_tick: &mut dyn FnMut() -> Option<f64>,
 ) {
+    if !is_tty {
+        let _ = emit_hello(out);
+        let _ = out.flush();
+    }
     let (cols, lines) = sample_dims(args, is_tty);
     let mut buf = String::with_capacity(consts::FRAME_BUF_CAPACITY);
     let mut elapsed = 0.0;

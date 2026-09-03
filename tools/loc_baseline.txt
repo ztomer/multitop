@@ -13,4 +13,5 @@
 #
 # lines path
 0 __under_cap_sentinel__
+510 crates/agent/src/lib.rs
 714 crates/multitop/src/diag.rs

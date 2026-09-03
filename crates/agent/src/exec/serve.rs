@@ -21,6 +21,15 @@ use super::{ExecFrame, Stream};
 /// frame. A client given silence cannot tell a refused request from a wedged
 /// host, and that ambiguity is what pinned panels in `STARTED`.
 pub fn serve<W: Write>(host: &str, cols: usize, lines: usize, out: &mut W) {
+    // Hello is the first thing any client sees on this channel, before any
+    // Exec frame. It makes the version check an explicit handshake rather than
+    // a field buried inside Begin.
+    {
+        let hello = crate::proto::Hello::new(crate::consts::AGENT_VERSION.to_string());
+        let pkt = crate::proto::encode_packet(&crate::proto::Payload::Hello(hello));
+        let _ = out.write_all(&pkt);
+        let _ = out.flush();
+    }
     let Some(ExecFrame::Request {
         command,
         password,

@@ -6,7 +6,8 @@
 //! unreachable.
 
 use super::{
-    EXEC_MIN_VERSION, HEADER_LEN, MAGIC, MODE_DOCKER, MODE_EXEC, MODE_FETCH, MODE_MONITOR,
+    EXEC_MIN_VERSION, HEADER_LEN, MAGIC, MODE_DOCKER, MODE_EXEC, MODE_FETCH, MODE_HELLO,
+    MODE_MONITOR,
 };
 use crate::docker::Row as DockerRow;
 use crate::fetch::FetchSnapshot;
@@ -30,6 +31,7 @@ pub fn decode_packet(data: &[u8]) -> Option<Payload> {
 
     let mut cur = Cursor::new(&data[8..]);
     match mode {
+        MODE_HELLO => decode_hello(&mut cur).map(Payload::Hello),
         MODE_MONITOR => decode_snapshot(&mut cur, version).map(Payload::Monitor),
         // The Docker row layout gained a field in protocol 2. Read with the
         // wrong layout the rows do not fail -- they come out as plausible
@@ -160,6 +162,17 @@ fn decode_snapshot(cur: &mut Cursor, version: u8) -> Option<Snapshot> {
         rx_rate,
         tx_rate,
         procs,
+    })
+}
+
+fn decode_hello(cur: &mut Cursor) -> Option<crate::proto::Hello> {
+    let agent_version = cur.read_str()?;
+    let proto_version = cur.read_u8()?;
+    let min_proto_version = cur.read_u8()?;
+    Some(crate::proto::Hello {
+        agent_version,
+        proto_version,
+        min_proto_version,
     })
 }
 

@@ -12,6 +12,7 @@ import struct
 MAGIC = b"MTOP"
 VERSION = 5
 MODE_EXEC = 3
+MODE_HELLO = 4
 
 KIND_REQUEST, KIND_BEGIN, KIND_OUT, KIND_MARKER, KIND_ALIVE, KIND_EXIT = range(6)
 MARKERS = {0: "PwReady", 1: "SudoFailed", 2: "LockHeld", 3: "Started", 4: "Done"}
@@ -44,15 +45,27 @@ def decode(data):
     while pos + 8 <= len(data):
         if data[pos:pos + 4] != MAGIC:
             raise Desync(f"no magic at byte {pos}: {data[pos:pos + 16]!r}")
+        ver, mode = data[pos+4], data[pos+5]
         length = struct.unpack("<H", data[pos + 6:pos + 8])[0]
         body = data[pos + 8:pos + 8 + length]
         if len(body) < length:
             raise Desync(f"frame at {pos} claims {length} bytes, {len(body)} present")
-        frames.append(_frame(body))
+        if mode == MODE_HELLO:
+            frames.append(_hello(body))
+        elif mode == MODE_EXEC:
+            frames.append(_frame(body))
+        else:
+            raise Desync(f"unexpected mode {mode} at byte {pos}")
         pos += 8 + length
     if pos != len(data):
         raise Desync(f"{len(data) - pos} trailing bytes that are not a frame")
     return frames
+
+
+def _hello(body):
+    ver, rest = _take_str(body)
+    proto, min_proto = rest[0], rest[1]
+    return ("Hello", ver.decode(), proto, min_proto)
 
 
 def _frame(body):

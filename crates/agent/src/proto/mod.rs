@@ -26,6 +26,22 @@ pub const PROTO_VERSION: u8 = 5;
 /// number that decides whether an operator is told their upgrade worked.
 pub const EXEC_MIN_VERSION: u8 = 5;
 
+/// Lowest proto version this build can speak. Hello negotiation uses this
+/// to find an overlap; outside the range the session is replaced.
+pub const PROTO_MIN_VERSION: u8 = 2;
+
+/// Longest `agent_version` Hello will accept. Sane semver is <20 chars;
+/// 64 leaves room for pre-release while bounding what a malicious hello can make
+/// the receiver allocate.
+pub const MAX_AGENT_VERSION_LEN: usize = 64;
+
+/// Highest proto version Hello will accept. Current wire is 5; 20 leaves headroom
+/// without letting a garbage 255 negotiate.
+pub const MAX_PROTO_VERSION: u8 = 20;
+
+/// Sentinel when no agent was embedded. Must never negotiate as valid.
+pub const MISSING_VERSION: &str = "missing";
+
 #[repr(u8)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ProtoMode {
@@ -33,6 +49,7 @@ pub enum ProtoMode {
     Docker = 1,
     Fetch = 2,
     Exec = 3,
+    Hello = 4,
 }
 
 impl ProtoMode {
@@ -49,6 +66,7 @@ impl TryFrom<u8> for ProtoMode {
             1 => Ok(ProtoMode::Docker),
             2 => Ok(ProtoMode::Fetch),
             3 => Ok(ProtoMode::Exec),
+            4 => Ok(ProtoMode::Hello),
             other => Err(other),
         }
     }
@@ -58,6 +76,133 @@ pub const MODE_MONITOR: u8 = ProtoMode::Monitor.as_u8();
 pub const MODE_DOCKER: u8 = ProtoMode::Docker.as_u8();
 pub const MODE_FETCH: u8 = ProtoMode::Fetch.as_u8();
 pub const MODE_EXEC: u8 = ProtoMode::Exec.as_u8();
+pub const MODE_HELLO: u8 = ProtoMode::Hello.as_u8();
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct Hello {
+    pub agent_version: String,
+    pub proto_version: u8,
+    pub min_proto_version: u8,
+}
+
+impl Hello {
+    #[must_use]
+    pub fn new(agent_version: String) -> Self {
+        const { assert!(PROTO_MIN_VERSION <= PROTO_VERSION) }
+        Self {
+            agent_version,
+            proto_version: PROTO_VERSION,
+            min_proto_version: PROTO_MIN_VERSION,
+        }
+    }
+
+    /// Validate wire invariants. Foolproof means a truncated or malicious
+    /// Hello never negotiates.
+    #[must_use]
+    pub fn is_valid(&self) -> bool {
+        if self.agent_version.is_empty() || self.agent_version.len() > MAX_AGENT_VERSION_LEN {
+            return false;
+        }
+        if self.agent_version == MISSING_VERSION {
+            return false;
+        }
+        if self.proto_version == 0 || self.min_proto_version == 0 {
+            return false;
+        }
+        if self.min_proto_version > self.proto_version {
+            return false;
+        }
+        if self.proto_version > MAX_PROTO_VERSION || self.min_proto_version > MAX_PROTO_VERSION {
+            return false;
+        }
+        // agent_version should be dotted numeric, but allow at least one dot
+        // to reject garbage while still permitting future pre-release tags.
+        if !self
+            .agent_version
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '.' || c == '-' || c == '+')
+        {
+            return false;
+        }
+        true
+    }
+
+    /// Whether this hello overlaps with the local build's range.
+    #[must_use]
+    pub fn is_compatible(&self) -> bool {
+        if !self.is_valid() {
+            return false;
+        }
+        self.proto_version >= PROTO_MIN_VERSION && PROTO_VERSION >= self.min_proto_version
+    }
+
+    /// Parse "0.43.0" as (major, minor, patch). Returns None for garbage.
+    fn parse_version(v: &str) -> Option<(u16, u16, u16)> {
+        let mut parts = v.split('.');
+        let major = parts.next()?.parse().ok()?;
+        let minor = parts.next()?.parse().ok()?;
+        let patch_str = parts.next()?;
+        // strip pre-release/build metadata
+        let patch = patch_str.split(['-', '+']).next()?.parse().ok()?;
+        if parts.next().is_some() {
+            return None;
+        }
+        Some((major, minor, patch))
+    }
+
+    /// Whether the agent binary should be replaced. Foolproof: never downgrade
+    /// a newer remote, and never negotiate with an invalid Hello.
+    #[must_use]
+    pub fn needs_replacement(&self, local_version: &str) -> bool {
+        if !self.is_valid() || !self.is_compatible() {
+            return true;
+        }
+        if self.agent_version == local_version {
+            return false;
+        }
+        // If versions parse, only replace when remote is older.
+        if let (Some(remote), Some(local)) = (
+            Self::parse_version(&self.agent_version),
+            Self::parse_version(local_version),
+        ) {
+            return remote < local;
+        }
+        // Unparseable but not equal → replace to converge
+        true
+    }
+
+    /// Human-readable reason for replacement.
+    #[must_use]
+    pub fn mismatch_reason(&self, local_version: &str) -> String {
+        if !self.is_valid() {
+            return format!(
+                "invalid Hello (agent_version={:?} proto={} min={})",
+                self.agent_version, self.proto_version, self.min_proto_version
+            );
+        }
+        if !self.is_compatible() {
+            return format!(
+                "incompatible proto remote {} (min {}) vs local {} (min {})",
+                self.proto_version, self.min_proto_version, PROTO_VERSION, PROTO_MIN_VERSION
+            );
+        }
+        if self.agent_version != local_version {
+            if let (Some(remote), Some(local)) = (
+                Self::parse_version(&self.agent_version),
+                Self::parse_version(local_version),
+            ) {
+                if remote > local {
+                    return format!(
+                        "remote {} newer than local {} — update local",
+                        self.agent_version, local_version
+                    );
+                }
+            }
+            return format!("remote {} vs local {}", self.agent_version, local_version);
+        }
+        String::new()
+    }
+}
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum Payload {
@@ -65,6 +210,7 @@ pub enum Payload {
     Docker { host: String, rows: Vec<DockerRow> },
     Fetch(FetchSnapshot),
     Exec(ExecFrame),
+    Hello(Hello),
 }
 
 /// Bytes of fixed header before the payload: magic(4) + version(1) + mode(1) + len(2).
@@ -160,5 +306,88 @@ mod framing_tests {
             Payload::Docker { rows: got, .. } => assert_eq!(got.len(), 3),
             other => panic!("wrong payload kind: {other:?}"),
         }
+    }
+
+    #[test]
+    fn hello_round_trips_and_validates() {
+        let hello = Hello::new("0.43.0".into());
+        assert!(hello.is_valid());
+        assert!(hello.is_compatible());
+        assert!(!hello.needs_replacement("0.43.0"));
+        let pkt = encode_packet(&Payload::Hello(hello.clone()));
+        match decode_packet(&pkt).unwrap() {
+            Payload::Hello(got) => assert_eq!(got, hello),
+            other => panic!("wrong payload kind: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn hello_foolproof_rejects_garbage() {
+        // empty, missing, proto 0, min>proto, overly long
+        for bad in [
+            Hello {
+                agent_version: "".into(),
+                proto_version: 5,
+                min_proto_version: 2,
+            },
+            Hello {
+                agent_version: "missing".into(),
+                proto_version: 5,
+                min_proto_version: 2,
+            },
+            Hello {
+                agent_version: "0.43.0".into(),
+                proto_version: 0,
+                min_proto_version: 0,
+            },
+            Hello {
+                agent_version: "0.43.0".into(),
+                proto_version: 2,
+                min_proto_version: 5,
+            },
+            Hello {
+                agent_version: "a".repeat(65),
+                proto_version: 5,
+                min_proto_version: 2,
+            },
+            Hello {
+                agent_version: "bad/../../".into(),
+                proto_version: 5,
+                min_proto_version: 2,
+            },
+        ] {
+            assert!(!bad.is_valid(), "should be invalid: {bad:?}");
+            assert!(!bad.is_compatible());
+            assert!(bad.needs_replacement("0.43.0"));
+        }
+    }
+
+    #[test]
+    fn hello_never_downgrades_newer_remote() {
+        let hello = Hello {
+            agent_version: "0.44.0".into(),
+            proto_version: 5,
+            min_proto_version: 2,
+        };
+        assert!(hello.is_valid());
+        assert!(hello.is_compatible());
+        // local 0.43.0 is older, should NOT replace newer remote
+        assert!(!hello.needs_replacement("0.44.0"));
+        assert!(
+            !hello.needs_replacement("0.43.0"),
+            "should not downgrade 0.44 onto 0.43"
+        );
+        assert!(hello.mismatch_reason("0.43.0").contains("newer than local"));
+    }
+
+    #[test]
+    fn hello_proto_incompatible_needs_replacement() {
+        let hello = Hello {
+            agent_version: "0.43.0".into(),
+            proto_version: 99,
+            min_proto_version: 99,
+        };
+        assert!(!hello.is_compatible());
+        assert!(hello.needs_replacement("0.43.0"));
     }
 }

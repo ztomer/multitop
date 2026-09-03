@@ -292,6 +292,20 @@ where
         }
         let mut packet = header.to_vec();
         packet.append(&mut body);
+        // Negotiation: first packet should be Hello. Validate before Exec frames.
+        if let Some(Payload::Hello(hello)) = decode_packet(&packet) {
+            let local_version = env!("CARGO_PKG_VERSION");
+            if hello.needs_replacement(local_version) {
+                report.preamble = Some(format!(
+                    "agent version mismatch: remote {} (proto {}) vs local {} (proto {})",
+                    hello.agent_version,
+                    hello.proto_version,
+                    local_version,
+                    multitop_agent::proto::PROTO_VERSION
+                ));
+            }
+            continue;
+        }
         let Some(Payload::Exec(frame)) = decode_packet(&packet) else {
             continue;
         };

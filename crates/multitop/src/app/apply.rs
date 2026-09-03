@@ -97,7 +97,8 @@ impl App {
                     // control the version of, so "cannot happen" is a claim
                     // about someone else's host. Nothing on screen changes, and
                     // the panel keeps streaming.
-                    multitop_agent::proto::Payload::Exec(_) => false,
+                    multitop_agent::proto::Payload::Exec(_)
+                    | multitop_agent::proto::Payload::Hello(_) => false,
                 }
             }
             Msg::Frame {

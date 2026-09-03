@@ -48,6 +48,12 @@ fuzz_target!(|data: &[u8]| {
                     assert!(bytes.len() <= exec::MAX_EXEC_CHUNK);
                 }
             }
+            proto::Payload::Hello(h) => {
+                let round = proto::encode_packet(&proto::Payload::Hello(h.clone()));
+                if let Some(proto::Payload::Hello(again)) = proto::decode_packet(&round) {
+                    assert_eq!(h, again, "hello did not round-trip");
+                }
+            }
         }
     }
 });

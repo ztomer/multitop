@@ -43,8 +43,24 @@ pub fn spawn_fetch(
         };
 
         let mut errbuf = Vec::new();
+        let local_version = env!("CARGO_PKG_VERSION");
 
         while let Ok(Some(payload)) = next_packet(&mut stream, &mut errbuf).await {
+            if let multitop_agent::proto::Payload::Hello(hello) = &payload {
+                if hello.needs_replacement(local_version) {
+                    let _ = tx
+                        .send(Msg::AuxLine {
+                            panel: idx,
+                            gen,
+                            line: error_line(format!(
+                                "agent version mismatch: remote {} vs local {} — fetch will be retried after replacement",
+                                hello.agent_version, local_version
+                            )),
+                        })
+                        .await;
+                }
+                continue;
+            }
             if tx
                 .send(Msg::Packet {
                     panel: idx,
@@ -114,8 +130,24 @@ pub fn spawn_docker(
             })
             .await;
         let mut errbuf = Vec::new();
+        let local_version = env!("CARGO_PKG_VERSION");
 
         while let Ok(Some(payload)) = next_packet(&mut stream, &mut errbuf).await {
+            if let multitop_agent::proto::Payload::Hello(hello) = &payload {
+                if hello.needs_replacement(local_version) {
+                    let _ = tx
+                        .send(Msg::AuxLine {
+                            panel: idx,
+                            gen,
+                            line: error_line(format!(
+                                "agent version mismatch: remote {} vs local {} — docker will be retried after replacement",
+                                hello.agent_version, local_version
+                            )),
+                        })
+                        .await;
+                }
+                continue;
+            }
             if tx
                 .send(Msg::Packet {
                     panel: idx,

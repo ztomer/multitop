@@ -92,6 +92,7 @@ pub fn spawn_biometric_unlock(
     })
 }
 
+#[allow(clippy::too_many_lines)]
 #[must_use]
 pub fn spawn_monitor(
     idx: usize,
@@ -120,10 +121,61 @@ pub fn spawn_monitor(
                     let mut delivered = false;
                     let mut errbuf = Vec::new();
                     let mut version_checked = false;
+                    let mut hello_seen = false;
                     let mut mismatched = false;
                     while let Ok(Some(payload)) =
                         stream::next_packet(&mut stream, &mut errbuf).await
                     {
+                        if let Payload::Hello(hello) = &payload {
+                            // Foolproof: Hello must be first and only once.
+                            if hello_seen {
+                                let _ = tx
+                                    .send(Msg::Frame {
+                                        panel: idx,
+                                        epoch,
+                                        lines: vec![error_line(format!(
+                                            "protocol violation: duplicate Hello from {} (proto {} min {})",
+                                            hello.agent_version, hello.proto_version, hello.min_proto_version
+                                        ))],
+                                    })
+                                    .await;
+                                break;
+                            }
+                            hello_seen = true;
+                            if !hello.is_valid() {
+                                let _ = tx
+                                    .send(Msg::Frame {
+                                        panel: idx,
+                                        epoch,
+                                        lines: vec![error_line(format!(
+                                            "invalid Hello from {}: {}",
+                                            server.host,
+                                            hello.mismatch_reason(local_version)
+                                        ))],
+                                    })
+                                    .await;
+                                mismatched = true;
+                                break;
+                            }
+                            if !version_checked {
+                                version_checked = true;
+                                if hello.needs_replacement(local_version) {
+                                    let reason = hello.mismatch_reason(local_version);
+                                    let _ = tx
+                                        .send(Msg::Frame {
+                                            panel: idx,
+                                            epoch,
+                                            lines: vec![format!(
+                                                "\u{2192} agent version mismatch: {reason}, replacing..."
+                                            )],
+                                        })
+                                        .await;
+                                    mismatched = true;
+                                    break;
+                                }
+                            }
+                            continue;
+                        }
                         if let Payload::Monitor(snap) = &payload {
                             if !version_checked {
                                 version_checked = true;
