@@ -127,6 +127,14 @@ export MULTITOP_AGENT_AARCH64="$(agent_path aarch64-unknown-linux-musl)"
 info "building multitop for the host"
 cargo build -p multitop $CARGO_PROFILE_FLAG
 
+# Stabilize ad-hoc signature so keychain "Always Allow" persists across builds.
+# Without a fixed identifier each build gets a random ad-hoc ID and the
+# keychain sees it as a different app.
+if command -v codesign >/dev/null 2>&1; then
+    _bin_tmp="$TARGET_DIR/$PROFILE/multitop"
+    codesign -s - --identifier com.ztomer.multitop "$_bin_tmp" 2>/dev/null || true
+fi
+
 BIN="$TARGET_DIR/$PROFILE/multitop"
 ok "built $BIN ($(($(wc -c < "$BIN" | tr -d ' ') / 1024)) KiB)"
 # Print a path that actually runs from the repo: relative when the binary is

@@ -78,5 +78,13 @@ pub fn try_load_vault_password(panel: &mut Panel, unlocked: &UnlockedVault) {
         // also has to be marked as coming from outside this session, which is
         // what the Upgrade view reads to say where a credential came from.
         panel.set_sudo_password(pass.expose_secret().to_string(), true);
+        return;
+    }
+    // Fallback to OS keychain when vault doesn't have it — migration for
+    // hosts added before the vault existed, or vaults created empty.
+    // The vault is the source of truth to *report*, but a run that needs a
+    // password and finds none in the vault must still try the keychain.
+    if let Ok(Some(pass)) = password_store::load(&panel.server) {
+        panel.set_sudo_password(pass, true);
     }
 }

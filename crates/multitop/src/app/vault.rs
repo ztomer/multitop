@@ -221,7 +221,10 @@ impl App {
             .panels
             .iter()
             .filter_map(|p| {
-                let pass = p.sudo_password.clone()?;
+                let pass = p
+                    .sudo_password
+                    .clone()
+                    .or_else(|| crate::password_store::load(&p.server).ok().flatten())?;
                 Some((crate::password_store::account(&p.server), pass))
             })
             .collect();

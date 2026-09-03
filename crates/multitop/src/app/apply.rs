@@ -3,6 +3,7 @@ use crate::app::App;
 use crate::app::{AppMode, VaultState};
 use crate::panel::Mode;
 use crate::types::Msg;
+use secrecy::ExposeSecret;
 use std::sync::Arc;
 impl App {
     fn accepts(&self, panel: usize, gen: u64) -> bool {
@@ -349,6 +350,37 @@ impl App {
                     vault: unlocked,
                     awaiting_biometric: false,
                 };
+                // Reload vault passwords into panels now that the vault is
+                // open — otherwise the upgrade view still says "will prompt"
+                // for hosts whose passwords are already in the vault.
+                // Collect first to avoid borrowing `self` mutably and immutably
+                // at once.
+                let to_load: Vec<(String, String)> = if let VaultState::Unlocked {
+                    vault, ..
+                } = &self.vault_state
+                {
+                    vault
+                        .hosts()
+                        .into_iter()
+                        .filter_map(|host| {
+                            let pass = vault.get_password(&host)?;
+                            Some((host, pass.expose_secret().to_string()))
+                        })
+                        .collect()
+                } else {
+                    Vec::new()
+                };
+                for p in &mut self.panels {
+                    let key = crate::password_store::account(&p.server);
+                    if p.sudo_password.is_some() {
+                        continue;
+                    }
+                    if let Some((_, pass)) = to_load.iter().find(|(k, _)| k == &key) {
+                        p.set_sudo_password(pass.clone(), true);
+                    } else if let Ok(Some(pass)) = crate::password_store::load(&p.server) {
+                        p.set_sudo_password(pass, true);
+                    }
+                }
                 self.mode = AppMode::ShowUpgradeModal;
                 true
             }
