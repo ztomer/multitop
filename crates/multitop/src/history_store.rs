@@ -17,7 +17,13 @@ fn path_for(host: &str) -> Option<PathBuf> {
     // Sanitize `user@host:port` into a filename.
     let safe: String = host
         .chars()
-        .map(|c| if c.is_ascii_alphanumeric() || c == '-' || c == '_' { c } else { '_' })
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || c == '-' || c == '_' {
+                c
+            } else {
+                '_'
+            }
+        })
         .collect();
     Some(dir.join(format!("{safe}.zst")))
 }

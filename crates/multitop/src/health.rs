@@ -9,45 +9,56 @@ use multitop_agent::render::Snapshot;
 /// from `crates/agent/src/consts.rs` `CPU_HIGH_PCT` etc. A host with no
 /// thresholds configured is a host the operator has not asked to watch, so it
 /// scores 100 and never appears in `/ unhealthy`.
+pub const MAX_HEALTH: i16 = 100;
+pub const HEALTH_RED_BELOW: u8 = 50;
+pub const HEALTH_YELLOW_BELOW: u8 = 80;
+const CRITICAL_PCT: f64 = 95.0;
+const WARNING_FACTOR: f64 = 0.75;
+const CPU_ALERT_PENALTY: i16 = 30;
+const MEM_ALERT_PENALTY: i16 = 30;
+const DISK_ALERT_PENALTY: i16 = 20;
+const CRITICAL_EXTRA_PENALTY: i16 = 10;
+const NEAR_ALERT_PENALTY: i16 = 10;
+
 #[must_use]
 pub fn health(snap: &Snapshot, cfg: &Config) -> u8 {
     let cpu_alert = cfg.alert_cpu.unwrap_or(80);
     let mem_alert = cfg.alert_mem.unwrap_or(85);
     let disk_alert = cfg.alert_disk.unwrap_or(90);
 
-    let mut score: i16 = 100;
+    let mut score: i16 = MAX_HEALTH;
 
     // CPU busy percent across all cores.
     if snap.cpu_pct >= f64::from(cpu_alert) {
-        score -= 30;
-        if snap.cpu_pct >= 95.0 {
-            score -= 10;
+        score -= CPU_ALERT_PENALTY;
+        if snap.cpu_pct >= CRITICAL_PCT {
+            score -= CRITICAL_EXTRA_PENALTY;
         }
-    } else if snap.cpu_pct >= f64::from(cpu_alert).mul_add(0.75, 0.0) {
-        score -= 10;
+    } else if snap.cpu_pct >= f64::from(cpu_alert).mul_add(WARNING_FACTOR, 0.0) {
+        score -= NEAR_ALERT_PENALTY;
     }
 
     // Memory percent.
     let mem_pct = snap.mem.pct;
     if mem_pct >= f64::from(mem_alert) {
-        score -= 30;
-        if mem_pct >= 95.0 {
-            score -= 10;
+        score -= MEM_ALERT_PENALTY;
+        if mem_pct >= CRITICAL_PCT {
+            score -= CRITICAL_EXTRA_PENALTY;
         }
-    } else if mem_pct >= f64::from(mem_alert).mul_add(0.75, 0.0) {
-        score -= 10;
+    } else if mem_pct >= f64::from(mem_alert).mul_add(WARNING_FACTOR, 0.0) {
+        score -= NEAR_ALERT_PENALTY;
     }
 
     // Disk percent.
     let disk_pct = snap.disk.pct;
     if disk_pct >= f64::from(disk_alert) {
-        score -= 20;
-        if disk_pct >= 95.0 {
-            score -= 10;
+        score -= DISK_ALERT_PENALTY;
+        if disk_pct >= CRITICAL_PCT {
+            score -= CRITICAL_EXTRA_PENALTY;
         }
     }
 
-    score.clamp(0, 100) as u8
+    score.clamp(0, MAX_HEALTH) as u8
 }
 
 /// Whether a snapshot breaches any configured threshold.
@@ -112,7 +123,7 @@ mod tests {
 
     #[test]
     fn health_drops_on_breach() {
-        assert!(health(&snap(85.0, 10.0, 10.0), &cfg()) < 100);
-        assert!(health(&snap(95.0, 95.0, 95.0), &cfg()) < 50);
+        assert!(health(&snap(85.0, 10.0, 10.0), &cfg()) < MAX_HEALTH as u8);
+        assert!(health(&snap(95.0, 95.0, 95.0), &cfg()) < HEALTH_RED_BELOW);
     }
 }

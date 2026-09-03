@@ -16,6 +16,8 @@ OPTIONS:
     -r, --remote <HOSTS>   Override config with comma-separated remote hosts/IPs
         --local            Include local machine (localhost) in server list
         --local-only       Monitor local machine only (no config or SSH required)
+        --serve [<ADDR>]   Run as headless HTTP companion (default :8080)
+        --serve-token <TOKEN>  Bearer token for --serve (auto-generated if omitted)
     -h, --help             Print this help
     -V, --version          Print version
 
@@ -33,6 +35,8 @@ pub struct CliOptions {
     pub local: bool,
     pub local_only: bool,
     pub remote_hosts: Vec<String>,
+    pub serve_addr: Option<String>,
+    pub serve_token: Option<String>,
 }
 
 enum Startup {
@@ -43,7 +47,7 @@ enum Startup {
 }
 
 fn parse_cli<I: IntoIterator<Item = String>>(argv: I) -> Startup {
-    let mut iter = argv.into_iter();
+    let mut iter = argv.into_iter().peekable();
     let mut opts = CliOptions::default();
     while let Some(arg) = iter.next() {
         match arg.as_str() {
@@ -68,9 +72,30 @@ fn parse_cli<I: IntoIterator<Item = String>>(argv: I) -> Startup {
             },
             "--local" => opts.local = true,
             "--local-only" => opts.local_only = true,
+            "--serve" => {
+                // --serve, --serve <addr>, --serve=<addr> all supported.
+                // Use peek to see if next token is an addr (not a flag).
+                let addr = match iter.peek() {
+                    Some(next) if !next.starts_with('-') => iter.next().unwrap(),
+                    _ => ":8080".to_string(),
+                };
+                opts.serve_addr = Some(addr);
+            }
+            "--serve-token" => match iter.next() {
+                Some(t) => opts.serve_token = Some(t),
+                None => return Startup::Fail("--serve-token requires a value".into()),
+            },
             "--agent" => {
                 let rest: Vec<String> = iter.collect();
                 return Startup::Agent(rest);
+            }
+            other if other.starts_with("--serve=") => {
+                let addr = other.strip_prefix("--serve=").unwrap().to_string();
+                opts.serve_addr = Some(if addr.is_empty() {
+                    ":8080".to_string()
+                } else {
+                    addr
+                });
             }
             other => return Startup::Fail(format!("Unknown argument '{other}'\n\n{USAGE}")),
         }
@@ -191,6 +216,100 @@ fn main() -> ExitCode {
             );
             return ExitCode::FAILURE;
         }
+    }
+
+    // --serve: headless HTTP companion reusing the MTOP pipeline.
+    if let Some(addr) = opts.serve_addr.clone() {
+        let token = opts.serve_token.clone().or_else(|| {
+            // Auto-generate a token if not supplied, but only when binding to loopback
+            // or when explicitly requested. For now, generate if not supplied and print it.
+            use std::collections::hash_map::DefaultHasher;
+            use std::hash::{Hash, Hasher};
+            let mut hasher = DefaultHasher::new();
+            format!(
+                "{}-{}",
+                std::process::id(),
+                std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap()
+                    .as_nanos()
+            )
+            .hash(&mut hasher);
+            let t = format!("{:016x}", hasher.finish());
+            Some(t)
+        });
+        // Need to load full config for health thresholds
+        let cfg = config::load(&config_path).unwrap_or_else(|_| config::Config {
+            servers: servers.clone(),
+            theme: initial_theme.clone(),
+            upgrade_history_lines: crate::config::DEFAULT_UPGRADE_HISTORY_LINES,
+            history_lines_raised_from: None,
+            banner_style: multitop::layout::BannerStyle::default(),
+            plaintext_passwords: vec![],
+            alert_cpu: None,
+            alert_mem: None,
+            alert_disk: None,
+        });
+        let addr: std::net::SocketAddr = match addr.parse() {
+            Ok(a) => a,
+            Err(_) => {
+                // Allow :8080, 8080, 127.0.0.1:8080
+                let a = if addr.starts_with(':') {
+                    format!("127.0.0.1{addr}")
+                } else if addr.chars().all(|c| c.is_ascii_digit()) {
+                    format!("127.0.0.1:{addr}")
+                } else {
+                    addr.clone()
+                };
+                match a.parse() {
+                    Ok(a) => a,
+                    Err(e) => {
+                        eprintln!("[Error] Invalid --serve address '{addr}': {e}");
+                        return ExitCode::FAILURE;
+                    }
+                }
+            }
+        };
+        if let Some(ref t) = token {
+            eprintln!("multitop --serve on http://{addr} token={t}");
+            eprintln!("  curl -H \"Authorization: Bearer {t}\" http://{addr}/api/hosts");
+        } else {
+            eprintln!("multitop --serve on http://{addr} (no token)");
+        }
+        let runtime = match tokio::runtime::Builder::new_multi_thread()
+            .enable_all()
+            .build()
+        {
+            Ok(r) => r,
+            Err(e) => {
+                eprintln!("[Error] Could not start async runtime: {e}");
+                return ExitCode::FAILURE;
+            }
+        };
+        let code = runtime.block_on(async move {
+            let live = std::sync::Arc::new(tokio::sync::RwLock::new(
+                multitop::server::LiveState::default(),
+            ));
+            let app_state = multitop::server::AppState {
+                live: live.clone(),
+                token: token.clone(),
+                servers: servers.clone(),
+                config: cfg,
+            };
+            // Sort for collectors
+            let sort = multitop_agent::SortBy::Cpu;
+            multitop::server::spawn_collectors(servers, live, sort);
+            multitop::server::serve(addr, app_state)
+                .await
+                .map_err(|e| e.to_string())
+        });
+        return match code {
+            Ok(()) => ExitCode::SUCCESS,
+            Err(e) => {
+                eprintln!("[Error] {e}");
+                ExitCode::FAILURE
+            }
+        };
     }
 
     let runtime = match tokio::runtime::Builder::new_multi_thread()

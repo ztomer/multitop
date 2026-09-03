@@ -284,9 +284,7 @@ impl Panel {
     pub fn new(server: Server) -> Self {
         let pal = &multitop_agent::color::ANSI;
         let history = crate::history_store::load(&server.host)
-            .or_else(|| {
-                crate::history_store::load(&crate::password_store::account(&server))
-            })
+            .or_else(|| crate::history_store::load(&crate::password_store::account(&server)))
             .unwrap_or_default();
         Self {
             server,

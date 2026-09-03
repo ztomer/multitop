@@ -509,7 +509,12 @@ pub fn handle_key(
 
     // View per host, sort, and filter are now per-panel state that survives
     // restarts, so any view switch persists the new layout.
-    if !cmds.is_empty() || matches!(key.code, KeyCode::Char('f' | 'F' | 'd' | 'D' | 'g' | 'G' | 's' | 'S' | 'u' | 'U')) {
+    if !cmds.is_empty()
+        || matches!(
+            key.code,
+            KeyCode::Char('f' | 'F' | 'd' | 'D' | 'g' | 'G' | 's' | 'S' | 'u' | 'U')
+        )
+    {
         app.persist_state();
     }
 
@@ -663,7 +668,11 @@ fn execute_palette_command(
         app.dispatch_credential_loads(load, tx);
     } else if input == "vault unlock" {
         if let Some((vault, epoch)) = app.begin_vault_unlock() {
-            drop(crate::run::spawn::spawn_biometric_unlock(vault, epoch, tx.clone()));
+            drop(crate::run::spawn::spawn_biometric_unlock(
+                vault,
+                epoch,
+                tx.clone(),
+            ));
         } else if app.show_vault_password_prompt() {
             // already prompting
         } else {

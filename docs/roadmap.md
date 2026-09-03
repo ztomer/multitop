@@ -52,11 +52,20 @@ Pass: `tests/test_exec_live.py` oracle `ls -l ; ls -l` still `cold==warm==unmuxe
 
 Pass: `cargo test` `upgrade_view` `HostUpdate` round-trip, manual `ntfy` curl.
 
+## Phase 5 — Serve (headless companion, `Hello` + `Token`)
+
+Reuses `b"MTOP"` decoder (`multitop_agent::proto::decode_packet`) as JSON, no new wire. New auth surface: `Hello` already validates `proto_version`, `Token` is `Authorization: Bearer <token>` (auto-generated or `--serve-token`).
+
+| Item | What | Touches |
+|------|------|---------|
+| **`multitop --serve :8080`** | `axum 0.7` `Router` `GET /` HTML + `GET /api/hosts`/`/api/health`/`/api/snapshot/:host`/`/api/history/:host`/`/api/mtop` (raw `MTOP` proof) + `spawn_collectors` reusing `ssh::spawn_agent` + `stream::connect` + `History` | `crates/multitop/src/server.rs`, `crates/multitop/src/main.rs:173` `--serve`/`--serve-token`, `crates/multitop/Cargo.toml` `axum/tower` |
+
+Pass: `cargo test server::tests` `5` (`index_ok_without_token`, `hosts_requires_token`, `snapshot_not_found`, `mtop_raw_uses_decoder`, `hello_token_is_checked`), live `curl -H "Authorization: Bearer …" http://127.0.0.1:18080/api/hosts` `has_snapshot:true` `health:100`.
+
 ## Future backlog (not now)
 
 | Item | Why deferred |
 |------|--------------|
-| **Web companion `multitop --serve :8080`** | Reuses `b"MTOP"` decoder as `xterm.js`/JSON, but is a new binary, new auth surface (`Hello` + `Token`), new deploy. Put behind `Phase 4` + `cargo bench` headroom. |
 | **Mobile companion** | Same `MTOP` over `WebSocket`, needs `Hello` + `Token` hardening + APNs. |
 | **Post-quantum KEM** | Not warranted for device-local file threat model. |
 | **Plugin SDK (WASM)** | Custom `exec` panels cover 80% without sandbox. |

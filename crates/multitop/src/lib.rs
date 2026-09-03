@@ -26,6 +26,7 @@ pub mod passwords;
 pub mod refit;
 pub mod render_payload;
 pub mod run;
+pub mod server;
 pub mod ssh;
 pub mod ssh_opts;
 pub mod state;

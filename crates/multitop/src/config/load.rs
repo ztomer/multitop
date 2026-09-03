@@ -127,21 +127,22 @@ pub fn parse(text: &str) -> Result<Config, ConfigError> {
             crate::layout::BannerStyle::parse(s)
         });
 
+    const MAX_ALERT_PCT: u8 = 100;
     let alert_cpu = value
         .get("alert_cpu")
         .and_then(toml::Value::as_integer)
         .and_then(|v| u8::try_from(v).ok())
-        .filter(|&v| v <= 100);
+        .filter(|&v| v <= MAX_ALERT_PCT);
     let alert_mem = value
         .get("alert_mem")
         .and_then(toml::Value::as_integer)
         .and_then(|v| u8::try_from(v).ok())
-        .filter(|&v| v <= 100);
+        .filter(|&v| v <= MAX_ALERT_PCT);
     let alert_disk = value
         .get("alert_disk")
         .and_then(toml::Value::as_integer)
         .and_then(|v| u8::try_from(v).ok())
-        .filter(|&v| v <= 100);
+        .filter(|&v| v <= MAX_ALERT_PCT);
 
     Ok(Config {
         servers: out,

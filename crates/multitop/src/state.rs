@@ -493,7 +493,10 @@ mod tests {
         let loaded = load_state(&config_path);
 
         assert_eq!(loaded.state, state);
-        assert_eq!(loaded.state.selected_host.as_deref(), Some("ztomer@192.168.0.33:22"));
+        assert_eq!(
+            loaded.state.selected_host.as_deref(),
+            Some("ztomer@192.168.0.33:22")
+        );
         assert_eq!(loaded.state.filter_query.as_deref(), Some("beelink"));
         assert_eq!(loaded.state.sort.as_deref(), Some("mem"));
         assert_eq!(loaded.state.views.len(), 2);

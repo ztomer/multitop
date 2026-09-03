@@ -197,9 +197,9 @@ pub fn draw(f: &mut Frame, app: &mut App) {
                         alert_disk: app.alert_disk,
                     };
                     let h = crate::health::health(snap, &cfg);
-                    if h < 50 {
+                    if h < crate::health::HEALTH_RED_BELOW {
                         Some(Color::Red)
-                    } else if h < 80 {
+                    } else if h < crate::health::HEALTH_YELLOW_BELOW {
                         Some(Color::Yellow)
                     } else {
                         None
@@ -222,7 +222,10 @@ pub fn draw(f: &mut Frame, app: &mut App) {
                     };
                     (format!("{code}{}", theme.bold), theme.reset.to_string())
                 } else {
-                    (format!("{}{}", theme.primary(), theme.bold), theme.reset.to_string())
+                    (
+                        format!("{}{}", theme.primary(), theme.bold),
+                        theme.reset.to_string(),
+                    )
                 };
 
                 // A space either side of the name. `space_needed` has always
@@ -255,11 +258,18 @@ pub fn draw(f: &mut Frame, app: &mut App) {
                     };
                     (format!("{code}{}", theme.bold), theme.reset.to_string())
                 } else {
-                    (format!("{}{}", theme.primary(), theme.bold), theme.reset.to_string())
+                    (
+                        format!("{}{}", theme.primary(), theme.bold),
+                        theme.reset.to_string(),
+                    )
                 };
                 lines[0] = format!(
                     "{}{}{}{}{}",
-                    name_open2, server_target, name_close2, theme.reset, badge_span(&badge)
+                    name_open2,
+                    server_target,
+                    name_close2,
+                    theme.reset,
+                    badge_span(&badge)
                 );
             }
         }
