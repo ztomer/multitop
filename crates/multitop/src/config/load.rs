@@ -127,6 +127,22 @@ pub fn parse(text: &str) -> Result<Config, ConfigError> {
             crate::layout::BannerStyle::parse(s)
         });
 
+    let alert_cpu = value
+        .get("alert_cpu")
+        .and_then(toml::Value::as_integer)
+        .and_then(|v| u8::try_from(v).ok())
+        .filter(|&v| v <= 100);
+    let alert_mem = value
+        .get("alert_mem")
+        .and_then(toml::Value::as_integer)
+        .and_then(|v| u8::try_from(v).ok())
+        .filter(|&v| v <= 100);
+    let alert_disk = value
+        .get("alert_disk")
+        .and_then(toml::Value::as_integer)
+        .and_then(|v| u8::try_from(v).ok())
+        .filter(|&v| v <= 100);
+
     Ok(Config {
         servers: out,
         theme,
@@ -134,6 +150,9 @@ pub fn parse(text: &str) -> Result<Config, ConfigError> {
         history_lines_raised_from,
         banner_style,
         plaintext_passwords: plaintext,
+        alert_cpu,
+        alert_mem,
+        alert_disk,
     })
 }
 

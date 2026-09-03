@@ -46,6 +46,9 @@ pub struct Config {
     pub history_lines_raised_from: Option<usize>,
     pub banner_style: crate::layout::BannerStyle,
     pub plaintext_passwords: Vec<(Server, String)>,
+    pub alert_cpu: Option<u8>,
+    pub alert_mem: Option<u8>,
+    pub alert_disk: Option<u8>,
 }
 
 pub fn default_config_path() -> PathBuf {

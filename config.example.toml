@@ -16,6 +16,12 @@ user = ""
 # banner is drawn in a different typeface from everything under it. multitop
 # cannot see your font, so this is your call. Toggle with B in Settings.
 # banner_style = "plain"
+# Alert thresholds (0-100, optional). When a metric exceeds the threshold the
+# panel header tints amber→red and `H` shows the last 30m sparkline of the
+# breach. Same `METER_HIGH_PCT` constants the bars use.
+# alert_cpu = 80
+# alert_mem = 85
+# alert_disk = 90
 # The command runs as the SSH `user`, not as root, so prefix any privileged
 # step with `sudo` -- apt and dpkg will refuse to run as a normal user.
 
