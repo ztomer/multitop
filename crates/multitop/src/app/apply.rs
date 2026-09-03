@@ -355,21 +355,19 @@ impl App {
                 // for hosts whose passwords are already in the vault.
                 // Collect first to avoid borrowing `self` mutably and immutably
                 // at once.
-                let to_load: Vec<(String, String)> = if let VaultState::Unlocked {
-                    vault, ..
-                } = &self.vault_state
-                {
-                    vault
-                        .hosts()
-                        .into_iter()
-                        .filter_map(|host| {
-                            let pass = vault.get_password(&host)?;
-                            Some((host, pass.expose_secret().to_string()))
-                        })
-                        .collect()
-                } else {
-                    Vec::new()
-                };
+                let to_load: Vec<(String, String)> =
+                    if let VaultState::Unlocked { vault, .. } = &self.vault_state {
+                        vault
+                            .hosts()
+                            .into_iter()
+                            .filter_map(|host| {
+                                let pass = vault.get_password(&host)?;
+                                Some((host, pass.expose_secret().to_string()))
+                            })
+                            .collect()
+                    } else {
+                        Vec::new()
+                    };
                 for p in &mut self.panels {
                     let key = crate::password_store::account(&p.server);
                     if p.sudo_password.is_some() {
