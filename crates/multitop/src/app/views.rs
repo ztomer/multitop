@@ -182,6 +182,31 @@ impl App {
         self.panels.iter().any(|p| p.mode == Mode::Graphs)
     }
 
+    #[must_use]
+    pub fn in_alerts(&self) -> bool {
+        self.panels.iter().any(|p| p.mode == Mode::Alerts)
+    }
+
+    pub fn toggle_alerts(&mut self, dims: (u16, u16)) -> Vec<Command> {
+        if self.in_alerts() {
+            return Vec::new();
+        }
+        self.leave_current_view();
+        let pal = self.current_theme();
+        for i in 0..self.panels.len() {
+            if self.panels[i].upgrade_state != crate::panel::UpgradeState::STARTED {
+                self.bump(i);
+            }
+            let p = &mut self.panels[i];
+            p.mode = Mode::Alerts;
+            // Reuse the graphs renderer for now — alerts will be a filtered view of it.
+            let lines =
+                crate::graphs::render_graphs(&p.history, dims.0 as usize, dims.1 as usize, pal);
+            p.show_frame(lines);
+        }
+        Vec::new()
+    }
+
     /// Draw every panel's history. The Monitor stream is already running and
     /// already feeding `history`, so there is nothing to spawn and nothing to
     /// wait for -- this is a change of how the same packets are drawn.
@@ -417,7 +442,7 @@ impl App {
         let sort = self.sort;
         for panel in &mut self.panels {
             match panel.mode {
-                Mode::Monitor => {
+                Mode::Monitor | Mode::Alerts => {
                     if let Some(payload) = &panel.last_monitor {
                         let lines = crate::render_payload::render_payload(payload, dims, sort, pal);
                         panel.show_frame(lines);

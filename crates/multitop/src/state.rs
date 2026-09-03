@@ -325,6 +325,10 @@ mod tests {
             last_update: Some(1_722_000_000),
             upgrade_started_at: None,
             hosts: BTreeMap::new(),
+            selected_host: None,
+            filter_query: None,
+            sort: None,
+            views: BTreeMap::new(),
         };
 
         save_state(&config_path, &state).unwrap();
@@ -365,6 +369,10 @@ mod tests {
             last_update: Some(1_722_000_072),
             upgrade_started_at: None,
             hosts,
+            selected_host: None,
+            filter_query: None,
+            sort: None,
+            views: BTreeMap::new(),
         };
         save_state(&config_path, &state).unwrap();
         let loaded = load_state(&config_path);
@@ -446,6 +454,10 @@ mod tests {
             last_update: None,
             upgrade_started_at: Some(1_723_000_000),
             hosts: BTreeMap::new(),
+            selected_host: None,
+            filter_query: None,
+            sort: None,
+            views: BTreeMap::new(),
         };
 
         save_state(&config_path, &state).unwrap();
@@ -453,6 +465,39 @@ mod tests {
 
         assert_eq!(loaded.state, state);
         assert_eq!(loaded.notice, None, "a clean load says nothing");
+
+        let _ = std::fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
+    fn layout_state_roundtrip() {
+        let temp_dir = std::env::temp_dir().join("multitop_test_layout");
+        let _ = std::fs::create_dir_all(&temp_dir);
+        let config_path = temp_dir.join("config.toml");
+
+        let mut views = BTreeMap::new();
+        views.insert("ztomer@192.168.0.33:22".to_string(), "docker".to_string());
+        views.insert("ztomer@192.168.0.90:22".to_string(), "fetch".to_string());
+
+        let state = AppState {
+            last_update: None,
+            upgrade_started_at: None,
+            hosts: BTreeMap::new(),
+            selected_host: Some("ztomer@192.168.0.33:22".to_string()),
+            filter_query: Some("beelink".to_string()),
+            sort: Some("mem".to_string()),
+            views,
+        };
+
+        save_state(&config_path, &state).unwrap();
+        let loaded = load_state(&config_path);
+
+        assert_eq!(loaded.state, state);
+        assert_eq!(loaded.state.selected_host.as_deref(), Some("ztomer@192.168.0.33:22"));
+        assert_eq!(loaded.state.filter_query.as_deref(), Some("beelink"));
+        assert_eq!(loaded.state.sort.as_deref(), Some("mem"));
+        assert_eq!(loaded.state.views.len(), 2);
+        assert_eq!(loaded.state.views["ztomer@192.168.0.33:22"], "docker");
 
         let _ = std::fs::remove_dir_all(&temp_dir);
     }

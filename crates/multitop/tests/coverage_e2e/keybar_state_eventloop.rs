@@ -96,6 +96,10 @@ async fn state_save_and_load_roundtrip() {
         last_update: Some(172),
         upgrade_started_at: None,
         hosts,
+        selected_host: None,
+        filter_query: None,
+        sort: None,
+        views: Default::default(),
     };
 
     multitop::state::save_state(&config_path, &state).expect("save ok");

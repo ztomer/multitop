@@ -179,6 +179,7 @@ pub enum Mode {
     Upgrade,
     /// The same Monitor stream, drawn as history rather than as a moment.
     Graphs,
+    Alerts,
 }
 
 impl Mode {
@@ -190,6 +191,7 @@ impl Mode {
             Self::Fetch => "fetch",
             Self::Upgrade => "upgrade",
             Self::Graphs => "graphs",
+            Self::Alerts => "alerts",
         }
     }
 
@@ -201,6 +203,7 @@ impl Mode {
             "fetch" => Some(Self::Fetch),
             "upgrade" => Some(Self::Upgrade),
             "graphs" => Some(Self::Graphs),
+            "alerts" => Some(Self::Alerts),
             _ => None,
         }
     }

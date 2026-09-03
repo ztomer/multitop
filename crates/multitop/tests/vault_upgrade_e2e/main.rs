@@ -101,8 +101,11 @@ async fn app_with_vault(
         theme: None,
         upgrade_history_lines: 5000,
         history_lines_raised_from: None,
-        banner_style: multitop::layout::BannerStyle::Plain,
+        banner_style: Default::default(),
         plaintext_passwords: Vec::new(),
+        alert_cpu: None,
+        alert_mem: None,
+        alert_disk: None,
     };
     multitop::config::save_servers(&config_path, &config.servers).unwrap();
 

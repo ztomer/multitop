@@ -33,6 +33,10 @@ fn populated() -> AppState {
         last_update: Some(1_722_000_600),
         upgrade_started_at: Some(1_722_000_000),
         hosts,
+        selected_host: None,
+        filter_query: None,
+        sort: None,
+        views: Default::default(),
     }
 }
 

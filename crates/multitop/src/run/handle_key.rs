@@ -397,6 +397,14 @@ pub fn handle_key(
             yank_selected_host(app);
             return;
         }
+        KeyCode::Char('H') if !app.is_filtering() => {
+            let cmds = app.toggle_alerts(dims);
+            for cmd in cmds {
+                let _ = cmd;
+            }
+            app.persist_state();
+            return;
+        }
         KeyCode::Enter | KeyCode::Char('z' | 'Z') => {
             app.toggle_focus();
             app.rerender_all(dims);

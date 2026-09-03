@@ -100,6 +100,10 @@ fn test_state_persistence_roundtrip() {
         last_update: Some(1_722_000_000),
         upgrade_started_at: None,
         hosts: std::collections::BTreeMap::new(),
+        selected_host: None,
+        filter_query: None,
+        sort: None,
+        views: Default::default(),
     };
 
     state::save_state(&config_path, &initial).expect("save state");

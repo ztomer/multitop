@@ -27,12 +27,51 @@ impl Panel {
     /// the filter cannot find would be the filter lying about what it searched.
     ///
     /// Only cached payloads are consulted, which is exactly the same rule --
-    /// the cache is what was drawn.
+    /// the cache is what was drawn. `unhealthy` is a synthetic token that
+    /// checks `health` rather than text, and a `/.../` query is a regex.
     #[must_use]
     pub fn matches_filter(&self, query: &str) -> bool {
         let q = query.trim().to_lowercase();
         if q.is_empty() {
             return true;
+        }
+        // `unhealthy` — matches hosts breaching any alert threshold.
+        if q == "unhealthy" {
+            if let Some(multitop_agent::proto::Payload::Monitor(snap)) = &self.last_monitor {
+                // Use a dummy config with default thresholds (80/85/90) when the
+                // real config is not at hand; the panel doesn't carry it.
+                // A host that is actually breaching will still match, and a
+                // healthy host will not be invented as breaching.
+                let cfg = crate::config::Config {
+                    servers: vec![],
+                    theme: None,
+                    upgrade_history_lines: 5000,
+                    history_lines_raised_from: None,
+                    banner_style: Default::default(),
+                    plaintext_passwords: vec![],
+                    alert_cpu: None,
+                    alert_mem: None,
+                    alert_disk: None,
+                };
+                return crate::health::is_breaching(snap, &cfg);
+            }
+            return false;
+        }
+        // `/.../` regex — `(?i)` already via lowercasing, so just try.
+        if q.starts_with('/') && q.ends_with('/') && q.len() > 2 {
+            let pat = &q[1..q.len() - 1];
+            if let Ok(re) = regex::Regex::new(pat) {
+                let haystack = |text: &str| re.is_match(text);
+                if haystack(&self.server.host) || haystack(&self.server.user) {
+                    return true;
+                }
+                return match self.mode {
+                    Mode::Monitor | Mode::Graphs | Mode::Alerts => self.monitor_matches(&haystack),
+                    Mode::Docker => self.docker_matches(&haystack),
+                    Mode::Fetch => self.fetch_matches(&haystack),
+                    Mode::Upgrade => self.last_upgrade.iter().any(|l| haystack(l)),
+                };
+            }
         }
         let hit = |text: &str| text.to_lowercase().contains(&q);
 
@@ -42,7 +81,7 @@ impl Panel {
         match self.mode {
             // Graphs draws the same Monitor stream, so it searches the same
             // thing. Anything else would make `G` change what `/` finds.
-            Mode::Monitor | Mode::Graphs => self.monitor_matches(&hit),
+            Mode::Monitor | Mode::Graphs | Mode::Alerts => self.monitor_matches(&hit),
             Mode::Docker => self.docker_matches(&hit),
             Mode::Fetch => self.fetch_matches(&hit),
             Mode::Upgrade => self.last_upgrade.iter().any(|l| hit(l)),

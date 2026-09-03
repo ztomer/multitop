@@ -14,6 +14,7 @@ pub mod fetch_render;
 pub mod filter;
 pub mod fmt;
 pub mod graphs;
+pub mod health;
 pub mod history;
 pub mod layout;
 pub mod modals;

@@ -223,6 +223,10 @@ async fn a_state_file_round_trips_through_a_save_and_a_load() {
         last_update: Some(1_700_000_060),
         upgrade_started_at: None,
         hosts,
+        selected_host: None,
+        filter_query: None,
+        sort: None,
+        views: Default::default(),
     };
     state::save_state(&config_path, &saved).expect("the state must save");
 

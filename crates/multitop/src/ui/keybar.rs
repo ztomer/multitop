@@ -228,11 +228,17 @@ pub fn keybar_line(
         Span::styled("G", g_hi),
         Span::styled("raphs", g_lbl),
         Span::styled("  ", label),
+        Span::styled("H", key_hi),
+        Span::styled(" alerts", label),
+        Span::styled("  ", label),
         Span::styled("U", u_hi),
         Span::styled(upgrade_word, u_lbl),
         Span::styled("  ", label),
         Span::styled("/", key_hi),
         Span::styled(" Filter", label),
+        Span::styled("  ", label),
+        Span::styled("y", key_hi),
+        Span::styled(" yank", label),
     ];
     // A filter in force is never abbreviated away: panels are hidden, and a
     // monitor that silently stops showing a host is worse than one showing it
