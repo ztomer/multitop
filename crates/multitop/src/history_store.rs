@@ -31,6 +31,14 @@ fn path_for(host: &str) -> Option<PathBuf> {
 /// Load history for `host` if it exists on disk.
 #[must_use]
 pub fn load(host: &str) -> Option<History> {
+    // Tests divert the credential store to an in-memory mock; history should
+    // not leak between tests via the real filesystem either. A test that
+    // rebuilds a panel must start from an empty history, otherwise the next
+    // sample is the 6th, not the 4th, and the assertion on `tail(8)` fails
+    // with 5 stale `30.0` samples from a previous run's `alpha.zst`.
+    if crate::password_store::is_mock_enabled() {
+        return None;
+    }
     let path = path_for(host)?;
     let bytes = std::fs::read(path).ok()?;
     // zstd or plain JSON for backwards compat.
@@ -45,6 +53,9 @@ pub fn load(host: &str) -> Option<History> {
 
 /// Save `history` for `host` (best-effort, no error surface).
 pub fn save(host: &str, history: &History) {
+    if crate::password_store::is_mock_enabled() {
+        return;
+    }
     let Some(path) = path_for(host) else {
         return;
     };

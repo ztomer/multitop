@@ -146,7 +146,7 @@ fn keybar_badges_shed() {
     let sort_label = Style::default().fg(Color::DarkGray);
     let badges =
         multitop::ui::keybar_badges(SortBy::Cpu, pal, label, key_hi, sort_label, Color::Yellow);
-    assert_eq!(badges.len(), 3);
+    assert_eq!(badges.len(), 5);
 }
 
 #[test]

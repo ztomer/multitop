@@ -15,7 +15,7 @@ fn keybar_badges_shed_whole() {
     let accent = Color::Yellow;
 
     let badges = keybar_badges(SortBy::Cpu, pal, label, key_hi, sort_label, accent);
-    assert_eq!(badges.len(), 3, "three badges: Settings, Theme, Sort");
+    assert_eq!(badges.len(), 5, "five badges: H Alerts, y Yank, Settings, Theme, Sort");
     // Each badge has (width, spans).
     for (w, spans) in &badges {
         assert!(*w > 0);

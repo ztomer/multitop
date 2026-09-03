@@ -68,6 +68,16 @@ pub fn keybar_badges(
         multitop_agent::SortBy::Cpu => (inactive, active),
     };
     let badges = vec![
+        vec![
+            Span::styled("[", sort_label),
+            Span::styled("H", key_hi),
+            Span::styled("] Alerts", label),
+        ],
+        vec![
+            Span::styled("[", sort_label),
+            Span::styled("y", key_hi),
+            Span::styled("] Yank", label),
+        ],
         // `[E] Settings`, not `[SEttings]`: every other key in the bar
         // highlights the first letter, so highlighting the second here made the
         // one mnemonic that has to be explained rather than seen.
@@ -228,17 +238,11 @@ pub fn keybar_line(
         Span::styled("G", g_hi),
         Span::styled("raphs", g_lbl),
         Span::styled("  ", label),
-        Span::styled("H", key_hi),
-        Span::styled(" alerts", label),
-        Span::styled("  ", label),
         Span::styled("U", u_hi),
         Span::styled(upgrade_word, u_lbl),
         Span::styled("  ", label),
         Span::styled("/", key_hi),
         Span::styled(" Filter", label),
-        Span::styled("  ", label),
-        Span::styled("y", key_hi),
-        Span::styled(" yank", label),
     ];
     // A filter in force is never abbreviated away: panels are hidden, and a
     // monitor that silently stops showing a host is worse than one showing it
@@ -284,7 +288,7 @@ pub fn keybar_line(
     let widths: Vec<usize> = badges.iter().map(|(w, _)| *w).collect();
     // The budget already excludes the left group, so the leading gap between it
     // and the first badge has to come out too.
-    let kept = crate::layout::fit_row(&widths, gap, budget.saturating_sub(gap), &[2, 1, 0]);
+    let kept = crate::layout::fit_row(&widths, gap, budget.saturating_sub(gap), &[1, 0, 4, 3, 2]);
 
     let kept_width: usize =
         kept.iter().map(|i| widths[*i]).sum::<usize>() + gap * kept.len().saturating_sub(1);
