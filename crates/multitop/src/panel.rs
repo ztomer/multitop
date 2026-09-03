@@ -283,6 +283,11 @@ impl Panel {
     #[must_use]
     pub fn new(server: Server) -> Self {
         let pal = &multitop_agent::color::ANSI;
+        let history = crate::history_store::load(&server.host)
+            .or_else(|| {
+                crate::history_store::load(&crate::password_store::account(&server))
+            })
+            .unwrap_or_default();
         Self {
             server,
             mode: Mode::Monitor,
@@ -293,7 +298,7 @@ impl Panel {
             upgrade_state: UpgradeState::NIL,
             upgrade_gen: 0,
             last_monitor: None,
-            history: crate::history::History::default(),
+            history,
             last_docker: None,
             // Row 0 belongs to the host banner, which `ui::draw` composes over
             // whatever is there. A body that starts at row 0 therefore has its

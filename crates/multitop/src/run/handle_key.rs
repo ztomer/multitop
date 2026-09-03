@@ -393,6 +393,20 @@ pub fn handle_key(
             app.rerender_all(dims);
             return;
         }
+        KeyCode::Char('+') | KeyCode::Char('=') => {
+            if app.in_graphs() || app.in_alerts() {
+                app.graph_zoom = (app.graph_zoom + 1).clamp(1, 4);
+                app.rerender_all(dims);
+            }
+            return;
+        }
+        KeyCode::Char('-') | KeyCode::Char('_') => {
+            if app.in_graphs() || app.in_alerts() {
+                app.graph_zoom = app.graph_zoom.saturating_sub(1).max(1);
+                app.rerender_all(dims);
+            }
+            return;
+        }
         KeyCode::Char('y' | 'Y') => {
             yank_selected_host(app);
             return;

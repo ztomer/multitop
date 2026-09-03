@@ -16,6 +16,7 @@ pub mod fmt;
 pub mod graphs;
 pub mod health;
 pub mod history;
+pub mod history_store;
 pub mod layout;
 pub mod modals;
 pub mod panel;

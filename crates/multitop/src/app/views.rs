@@ -34,6 +34,7 @@ impl App {
             focused_panel: None,
             command_palette_visible: false,
             command_input: String::new(),
+            graph_zoom: 1,
         }
     }
 
@@ -199,9 +200,13 @@ impl App {
             }
             let p = &mut self.panels[i];
             p.mode = Mode::Alerts;
-            // Reuse the graphs renderer for now — alerts will be a filtered view of it.
-            let lines =
-                crate::graphs::render_graphs(&p.history, dims.0 as usize, dims.1 as usize, pal);
+            let lines = crate::graphs::render_graphs_with_zoom(
+                &p.history,
+                dims.0 as usize,
+                dims.1 as usize,
+                pal,
+                self.graph_zoom,
+            );
             p.show_frame(lines);
         }
         Vec::new()
@@ -224,8 +229,13 @@ impl App {
             }
             let p = &mut self.panels[i];
             p.mode = Mode::Graphs;
-            let lines =
-                crate::graphs::render_graphs(&p.history, dims.0 as usize, dims.1 as usize, pal);
+            let lines = crate::graphs::render_graphs_with_zoom(
+                &p.history,
+                dims.0 as usize,
+                dims.1 as usize,
+                pal,
+                self.graph_zoom,
+            );
             p.show_frame(lines);
         }
         Vec::new()
@@ -452,11 +462,12 @@ impl App {
                     // A resize changes how many samples fit, so the graph is
                     // redrawn from the history rather than refitted -- refitting
                     // would stretch braille cells into nonsense.
-                    let lines = crate::graphs::render_graphs(
+                    let lines = crate::graphs::render_graphs_with_zoom(
                         &panel.history,
                         dims.0 as usize,
                         dims.1 as usize,
                         pal,
+                        self.graph_zoom,
                     );
                     panel.show_frame(lines);
                 }

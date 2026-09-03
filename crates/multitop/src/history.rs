@@ -22,7 +22,7 @@ use std::collections::VecDeque;
 pub const SAMPLES: usize = 512;
 
 /// One measured quantity over time, oldest first.
-#[derive(Clone, Debug, Default, PartialEq)]
+#[derive(Clone, Debug, Default, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct Series {
     samples: VecDeque<f64>,
 }
@@ -65,7 +65,7 @@ impl Series {
 }
 
 /// The three series a panel keeps.
-#[derive(Clone, Debug, Default, PartialEq)]
+#[derive(Clone, Debug, Default, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct History {
     /// Busy percent across all cores, 0..=100.
     pub cpu: Series,

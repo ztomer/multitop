@@ -1328,6 +1328,8 @@ dependencies = [
  "ratatui",
  "regex",
  "secrecy",
+ "serde",
+ "serde_json",
  "signal-hook",
  "tempfile",
  "tokio",

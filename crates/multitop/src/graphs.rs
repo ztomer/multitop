@@ -149,6 +149,17 @@ fn plot(spec: &Plot<'_>, cols: usize, rows: usize, pal: &Palette) -> Vec<String>
 /// same reason; this one now says so out loud.
 #[must_use]
 pub fn render_graphs(history: &History, cols: usize, rows: usize, pal: &Palette) -> Vec<String> {
+    render_graphs_with_zoom(history, cols, rows, pal, 1)
+}
+
+#[must_use]
+pub fn render_graphs_with_zoom(
+    history: &History,
+    cols: usize,
+    rows: usize,
+    pal: &Palette,
+    zoom: u8,
+) -> Vec<String> {
     let mut out = vec![String::new()];
     if history.is_empty() {
         out.push(format!(
@@ -163,7 +174,7 @@ pub fn render_graphs(history: &History, cols: usize, rows: usize, pal: &Palette)
         return out;
     }
 
-    let window = cols * DOT_COLS;
+    let window = cols * DOT_COLS * zoom.max(1) as usize;
     let cpu = history.cpu.tail(window);
     let mem = history.mem.tail(window);
     let rx = history.rx.tail(window);

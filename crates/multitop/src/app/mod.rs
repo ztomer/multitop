@@ -37,6 +37,7 @@ pub struct App {
     pub focused_panel: Option<usize>,
     pub command_palette_visible: bool,
     pub command_input: String,
+    pub graph_zoom: u8,
 }
 
 pub const LOG_AMORTIZE: usize = 512;

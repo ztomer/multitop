@@ -45,6 +45,7 @@ impl App {
                         // panel the user has not looked at yet still has a past
                         // to draw when they do.
                         p.history.record(snap);
+                        crate::history_store::save(&snap.host, &p.history);
                         p.last_monitor = Some(payload.clone());
                         let lines =
                             crate::render_payload::render_payload(&payload, dims, sort, pal);

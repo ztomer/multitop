@@ -29,6 +29,8 @@ multitop-agent = { path = "../agent" }
 multitop-vault = { path = "../vault" }
 secrecy = "0.10"
 regex = "1"
+serde = { version = "1", features = ["derive"] }
+serde_json = { version = "1", features = ["std"] }
 
 [[bench]]
 name = "client_bench"
