@@ -47,15 +47,65 @@ impl Panel {
                     theme: None,
                     upgrade_history_lines: 5000,
                     history_lines_raised_from: None,
-                    banner_style: Default::default(),
+                    banner_style: crate::layout::BannerStyle::default(),
                     plaintext_passwords: vec![],
                     alert_cpu: None,
                     alert_mem: None,
                     alert_disk: None,
+                    alerts: vec![],
                 };
                 return crate::health::is_breaching(snap, &cfg);
             }
             return false;
+        }
+        // `ip:1.2.3.4` — match host IP.
+        if let Some(ip) = q.strip_prefix("ip:") {
+            let ip = ip.trim();
+            if !ip.is_empty() && self.server.host.contains(ip) {
+                return true;
+            }
+        }
+        // `image:nginx` — match docker image.
+        if let Some(img) = q.strip_prefix("image:") {
+            let img = img.trim();
+            if !img.is_empty() {
+                if let Some(multitop_agent::proto::Payload::Docker { rows, .. }) = &self.last_docker
+                {
+                    if rows.iter().any(|r| r.image.to_lowercase().contains(img)) {
+                        return true;
+                    }
+                }
+                // Also check fetch? No, image only in docker.
+            }
+        }
+        // `cpu>50`, `cpu>=50`, `cpu<50`, `mem>80` etc.
+        for prefix in [
+            "cpu>=", "cpu<=", "cpu>", "cpu<", "mem>=", "mem<=", "mem>", "mem<",
+        ] {
+            if let Some(num_str) = q.strip_prefix(prefix) {
+                if let Ok(threshold) = num_str.trim().parse::<f64>() {
+                    if let Some(multitop_agent::proto::Payload::Monitor(snap)) = &self.last_monitor
+                    {
+                        let value = if prefix.starts_with("cpu") {
+                            snap.cpu_pct
+                        } else {
+                            snap.mem.pct
+                        };
+                        let cmp = if prefix.contains(">=") {
+                            value >= threshold
+                        } else if prefix.contains("<=") {
+                            value <= threshold
+                        } else if prefix.contains('>') {
+                            value > threshold
+                        } else {
+                            value < threshold
+                        };
+                        if cmp {
+                            return true;
+                        }
+                    }
+                }
+            }
         }
         // `/.../` regex — `(?i)` already via lowercasing, so just try.
         if q.starts_with('/') && q.ends_with('/') && q.len() > 2 {

@@ -249,6 +249,7 @@ mod tests {
             port: 22,
             user: "mock_user".into(),
             upgrade_cmd: None,
+            custom_command: None,
         };
 
         assert_eq!(load(&server).unwrap(), None);

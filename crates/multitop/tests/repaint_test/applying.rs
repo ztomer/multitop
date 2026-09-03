@@ -21,6 +21,7 @@ fn local_server(cmd: &str) -> Server {
         port: 0,
         user: String::new(),
         upgrade_cmd: Some(cmd.to_string()),
+        custom_command: None,
     }
 }
 

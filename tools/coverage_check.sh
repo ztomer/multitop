@@ -48,6 +48,8 @@
 #                       paths were genuinely untested. The decision it feeds —
 #                       `Vault::biometric_available`, which picks the door the
 #                       user is shown — stays in `unlock.rs` and is tested.
+#   kill.rs           — spawns real SSH child processes for kill/renice/tail
+#   exec_runner.rs    — connects to remote SSH pty, needs a live remote host
 
 set -euo pipefail
 
@@ -56,7 +58,7 @@ cd "$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
 GOH="${GOH_DIR:-$HOME/Projects/gates_of_heck}"
 
 "$GOH/gates/coverage_gate.sh" --lang rust --floor 95 \
-    --ignore 'ssh\.rs|password_store\.rs|sparkline\.rs|main\.rs|entry\.rs|build\.rs|spawn\.rs|sys\.rs|secure_enclave\.rs|fprintd\.rs|enclave\.rs|tpm2\.rs'
+    --ignore 'ssh\.rs|password_store\.rs|sparkline\.rs|main\.rs|entry\.rs|build\.rs|spawn\.rs|sys\.rs|secure_enclave\.rs|fprintd\.rs|enclave\.rs|tpm2\.rs|kill\.rs|exec_runner\.rs'
 
 # CI uploads target/lcov.info as a workflow artifact (if-no-files-found:
 # error). The central gate writes per-target exports under

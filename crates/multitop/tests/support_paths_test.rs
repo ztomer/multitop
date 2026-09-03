@@ -226,7 +226,8 @@ async fn a_state_file_round_trips_through_a_save_and_a_load() {
         selected_host: None,
         filter_query: None,
         sort: None,
-        views: Default::default(),
+        views: std::collections::BTreeMap::default(),
+        saved_filters: vec![],
     };
     state::save_state(&config_path, &saved).expect("the state must save");
 
@@ -251,6 +252,7 @@ async fn a_local_server_is_recognised_however_it_is_spelled() {
         port,
         user: String::new(),
         upgrade_cmd: None,
+        custom_command: None,
     };
     assert!(multitop::ssh::is_local(&local("localhost", 22)));
     assert!(multitop::ssh::is_local(&local("127.0.0.1", 22)));
@@ -279,6 +281,7 @@ async fn no_ssh_command_asks_for_a_pty() {
         port: 2222,
         user: "root".into(),
         upgrade_cmd: None,
+        custom_command: None,
     };
     let args: Vec<String> = multitop::ssh::ssh_command(&server)
         .as_std()

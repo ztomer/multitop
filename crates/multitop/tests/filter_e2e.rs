@@ -57,6 +57,7 @@ fn server(host: &str, user: &str) -> Server {
         port: 22,
         user: user.to_string(),
         upgrade_cmd: None,
+        custom_command: None,
     }
 }
 

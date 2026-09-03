@@ -48,6 +48,7 @@ fn server(host: &str) -> Server {
         port: 22,
         user: "ztomer".to_string(),
         upgrade_cmd: None,
+        custom_command: None,
     }
 }
 

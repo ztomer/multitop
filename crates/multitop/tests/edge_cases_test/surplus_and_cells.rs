@@ -19,6 +19,7 @@ async fn writing_the_server_list_creates_the_directory_it_needs() {
             port: 2222,
             user: "root".into(),
             upgrade_cmd: None,
+            custom_command: None,
         }],
     )
     .expect("the directory must be created");

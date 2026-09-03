@@ -156,6 +156,7 @@ fn mode_bytes_map_to_modes_and_back() {
         (1, ProtoMode::Docker),
         (2, ProtoMode::Fetch),
         (3, ProtoMode::Exec),
+        (4, ProtoMode::Hello),
     ] {
         assert_eq!(ProtoMode::try_from(byte).unwrap(), mode);
         assert_eq!(mode.as_u8(), byte);
@@ -164,10 +165,10 @@ fn mode_bytes_map_to_modes_and_back() {
 
 #[test]
 fn an_unknown_mode_byte_is_rejected_rather_than_guessed() {
-    // 3 is Exec as of protocol 5. The byte chosen here has to be one no mode
+    // 4 is Hello as of protocol 5 companion. The byte chosen here has to be one no mode
     // uses, or this test passes for the wrong reason the moment a mode is
-    // added -- which is what happened to its previous version.
-    assert_eq!(ProtoMode::try_from(4), Err(4));
+    // added.
+    assert_eq!(ProtoMode::try_from(5), Err(5));
     assert_eq!(ProtoMode::try_from(255), Err(255));
 
     // And the decoder refuses the whole packet rather than returning an

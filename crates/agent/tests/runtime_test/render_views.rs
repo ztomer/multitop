@@ -6,7 +6,11 @@ fn a_piped_fetch_view_is_a_packet_the_client_can_decode() {
     let mut out = Vec::new();
     emit_fetch(&snap, 80, false, &ANSI, &mut out).unwrap();
 
-    let Payload::Fetch(got) = decode_packet(&out).expect("must be one whole packet") else {
+    let hello = decode_packet(&out).expect("hello packet");
+    assert!(matches!(hello, Payload::Hello(_)));
+    let declared = u16::from_le_bytes([out[6], out[7]]) as usize;
+    let fetch_bytes = &out[8 + declared..];
+    let Payload::Fetch(got) = decode_packet(fetch_bytes).expect("must be fetch packet") else {
         panic!("wrong payload kind");
     };
     assert_eq!(got, snap);
@@ -55,7 +59,11 @@ fn a_piped_docker_view_is_a_packet_carrying_every_row() {
     )
     .unwrap();
 
-    let Payload::Docker { host, rows } = decode_packet(&out).expect("one whole packet") else {
+    let hello = decode_packet(&out).expect("hello packet");
+    assert!(matches!(hello, Payload::Hello(_)));
+    let declared = u16::from_le_bytes([out[6], out[7]]) as usize;
+    let docker_bytes = &out[8 + declared..];
+    let Payload::Docker { host, rows } = decode_packet(docker_bytes).expect("docker packet") else {
         panic!("wrong payload kind");
     };
     assert_eq!(host, "web-01");

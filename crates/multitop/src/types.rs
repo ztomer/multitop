@@ -129,4 +129,10 @@ pub enum Msg {
         epoch: u64,
         result: Result<Option<String>, String>,
     },
+    /// Result of an unprivileged upgradable packages check.
+    UpgradableReceived {
+        panel: usize,
+        gen: u64,
+        summary: String,
+    },
 }

@@ -55,6 +55,7 @@ fn ssh_server(upgrade_cmd: &str) -> Server {
         port,
         user,
         upgrade_cmd: Some(upgrade_cmd.to_string()),
+        custom_command: None,
     }
 }
 
@@ -323,6 +324,7 @@ async fn test_remote_upgrade_connection_failure() {
         port: 22,
         user: "testuser".to_string(),
         upgrade_cmd: Some("ls -l".to_string()),
+        custom_command: None,
     };
 
     let (tx, rx) = mpsc::channel::<Msg>(100);

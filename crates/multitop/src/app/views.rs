@@ -38,6 +38,9 @@ impl App {
             alert_cpu: None,
             alert_mem: None,
             alert_disk: None,
+            alert_targets: Vec::new(),
+            saved_filters: Vec::new(),
+            kill_confirm: None,
         }
     }
 
@@ -128,6 +131,39 @@ impl App {
                 return vec![focused];
             }
         }
+        // `/ unhealthy` is a synthetic token that checks health rather than text,
+        // and vault-locked is a client-side signal not in `Snapshot`. Handling
+        // it here lets the app inject `vault_locked` and NET, while keeping
+        // `Panel::matches_filter` pure for its own tests.
+        if self.filter_query.trim().eq_ignore_ascii_case("unhealthy") {
+            let cfg = crate::config::Config {
+                servers: vec![],
+                theme: None,
+                upgrade_history_lines: 5000,
+                history_lines_raised_from: None,
+                banner_style: crate::layout::BannerStyle::default(),
+                plaintext_passwords: vec![],
+                alert_cpu: self.alert_cpu,
+                alert_mem: self.alert_mem,
+                alert_disk: self.alert_disk,
+                alerts: self.alert_targets.clone(),
+            };
+            let vault_locked =
+                self.vault.is_some() && matches!(self.vault_state, VaultState::Locked);
+            return self
+                .panels
+                .iter()
+                .enumerate()
+                .filter(|(_, p)| {
+                    if let Some(multitop_agent::proto::Payload::Monitor(snap)) = &p.last_monitor {
+                        crate::health::is_breaching_with_vault(snap, &cfg, vault_locked)
+                    } else {
+                        false
+                    }
+                })
+                .map(|(i, _)| i)
+                .collect();
+        }
         self.panels
             .iter()
             .enumerate()
@@ -197,18 +233,24 @@ impl App {
         }
         self.leave_current_view();
         let pal = self.current_theme();
+        let vault_locked = self.vault.is_some() && matches!(self.vault_state, VaultState::Locked);
         for i in 0..self.panels.len() {
             if self.panels[i].upgrade_state != crate::panel::UpgradeState::STARTED {
                 self.bump(i);
             }
             let p = &mut self.panels[i];
             p.mode = Mode::Alerts;
-            let lines = crate::graphs::render_graphs_with_zoom(
+            let lines = crate::graphs::render_alerts(
                 &p.history,
                 dims.0 as usize,
                 dims.1 as usize,
                 pal,
-                self.graph_zoom,
+                crate::graphs::AlertConfig {
+                    cpu: self.alert_cpu,
+                    mem: self.alert_mem,
+                    disk: self.alert_disk,
+                    vault_locked,
+                },
             );
             p.show_frame(lines);
         }
@@ -340,9 +382,11 @@ impl App {
     }
 
     #[must_use]
-    pub const fn active_confirm(&self) -> Option<Confirm> {
+    pub fn active_confirm(&self) -> Option<Confirm> {
         if self.quit_armed {
             Some(Confirm::Quit)
+        } else if self.kill_confirm.is_some() {
+            Some(Confirm::Kill)
         } else if matches!(self.mode, AppMode::ShowUpgradeModal) {
             Some(Confirm::Upgrade)
         } else {
@@ -438,61 +482,6 @@ impl App {
             panel.scroll_offset = 0;
             // A fresh run clears the ring, so the place it was left is gone too.
             panel.upgrade_scroll_offset = 0;
-        }
-    }
-
-    pub fn cycle_theme(&mut self) {
-        self.theme_idx = (self.theme_idx + 1) % multitop_agent::color::THEMES.len();
-    }
-
-    #[must_use]
-    pub fn current_theme(&self) -> &'static multitop_agent::color::Palette {
-        &multitop_agent::color::THEMES[self.theme_idx]
-    }
-
-    pub fn rerender_all(&mut self, dims: (u16, u16)) {
-        let pal = self.current_theme();
-        let sort = self.sort;
-        for panel in &mut self.panels {
-            match panel.mode {
-                Mode::Monitor | Mode::Alerts => {
-                    if let Some(payload) = &panel.last_monitor {
-                        let lines = crate::render_payload::render_payload(payload, dims, sort, pal);
-                        panel.show_frame(lines);
-                    }
-                }
-                Mode::Graphs => {
-                    // A resize changes how many samples fit, so the graph is
-                    // redrawn from the history rather than refitted -- refitting
-                    // would stretch braille cells into nonsense.
-                    let lines = crate::graphs::render_graphs_with_zoom(
-                        &panel.history,
-                        dims.0 as usize,
-                        dims.1 as usize,
-                        pal,
-                        self.graph_zoom,
-                    );
-                    panel.show_frame(lines);
-                }
-                Mode::Docker => {
-                    if let Some(payload) = &panel.last_docker {
-                        let lines = crate::render_payload::render_payload(payload, dims, sort, pal);
-                        panel.show_frame(lines);
-                    }
-                }
-                Mode::Fetch => {
-                    if let Some(snap) = &panel.last_fetch {
-                        let lines = crate::fetch_render::render_fetch(
-                            snap,
-                            dims.0 as usize,
-                            dims.1 as usize,
-                            pal,
-                        );
-                        panel.show_frame(lines);
-                    }
-                }
-                Mode::Upgrade => {}
-            }
         }
     }
 }

@@ -114,6 +114,7 @@ where
         app.alert_cpu = cfg.alert_cpu;
         app.alert_mem = cfg.alert_mem;
         app.alert_disk = cfg.alert_disk;
+        app.alert_targets = cfg.alerts;
     }
     let loaded = crate::state::load_state(&config_path);
     app.last_update = loaded.state.last_update;
@@ -139,7 +140,7 @@ where
         }
     }
     for (host, view_str) in loaded.state.views {
-        if let Some(mode) = crate::panel::Mode::from_str(&view_str) {
+        if let Ok(mode) = view_str.parse::<crate::panel::Mode>() {
             if let Some(p) = app
                 .panels
                 .iter_mut()
@@ -149,6 +150,7 @@ where
             }
         }
     }
+    app.saved_filters = loaded.state.saved_filters;
     // A state file that could not be read is not a first run, and saying
     // nothing made the two identical on screen while the next write destroyed
     // the evidence.
@@ -176,15 +178,37 @@ where
     // decides how many monitors exist.
     let mut dims = AgentDims::new(dims_tx, terminal.size(), app.visible_panes());
     for (i, panel) in app.panels.iter().enumerate() {
-        tasks.monitors[i] = Some(spawn_monitor(
-            i,
-            panel.gen,
-            app.panels_epoch,
-            panel.server.clone(),
-            dims_rx.clone(),
-            app.sort,
-            tx.clone(),
-        ));
+        if let Some(cmd) = panel.server.custom_command.clone() {
+            // `[[panels]] command="…"` per roadmap Phase 3 — runs every 250 ms
+            // via Exec pty, rendered as a Fetch card (`render_payload.rs:20`).
+            let gen = panel.gen;
+            let server = panel.server.clone();
+            let pass = panel.sudo_password.clone();
+            tasks.set_aux(
+                i,
+                crate::tasks::spawn_custom(i, gen, server, cmd, pass, tx.clone()),
+            );
+            // Custom panels start as Fetch so the card is visible without `f`.
+            // The monitor stream is not needed for them.
+            // Note: `app.panels[i].mode` is still Monitor at this point; set
+            // through mutable borrow after the loop to avoid borrow checker.
+        } else {
+            tasks.monitors[i] = Some(spawn_monitor(
+                i,
+                panel.gen,
+                app.panels_epoch,
+                panel.server.clone(),
+                dims_rx.clone(),
+                app.sort,
+                tx.clone(),
+            ));
+        }
+    }
+    for (i, panel) in app.panels.iter_mut().enumerate() {
+        if panel.server.custom_command.is_some() {
+            panel.mode = crate::panel::Mode::Fetch;
+        }
+        let _ = i;
     }
 
     // Tracks which panel list the running tasks were started for.

@@ -22,6 +22,7 @@ fn the_confirmation_on_screen_is_the_one_whose_keys_are_live() {
         port: 22,
         user: "admin".to_string(),
         upgrade_cmd: Some("apt upgrade".to_string()),
+        custom_command: None,
     }]);
 
     // An upgrade is running, so Esc arms a quit rather than taking it.
@@ -268,6 +269,7 @@ fn mark_upgrade_interrupted_flips_started_to_done() {
         port: 22,
         user: "admin".into(),
         upgrade_cmd: Some("sudo apt upgrade".into()),
+        custom_command: None,
     };
 
     a.mark_upgrade_interrupted(0);
@@ -287,6 +289,7 @@ fn mark_upgrade_interrupted_persists_finished_at() {
         port: 22,
         user: "admin".into(),
         upgrade_cmd: Some("sudo apt upgrade".into()),
+        custom_command: None,
     };
 
     a.mark_upgrade_interrupted(0);

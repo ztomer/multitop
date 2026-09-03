@@ -13,10 +13,10 @@
 #
 # lines path
 0 __under_cap_sentinel__
-501 crates/multitop/src/run/event_loop.rs
-504 crates/multitop/src/server.rs
 510 crates/agent/src/lib.rs
-523 crates/multitop/src/ui/keybar.rs
-580 crates/multitop/src/state.rs
-714 crates/multitop/src/diag.rs
-739 crates/multitop/src/run/handle_key.rs
+525 crates/multitop/src/run/event_loop.rs
+532 crates/multitop/src/server.rs
+571 crates/multitop/src/ui/keybar.rs
+609 crates/multitop/src/state.rs
+720 crates/multitop/src/diag.rs
+947 crates/multitop/src/run/handle_key.rs

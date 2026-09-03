@@ -80,6 +80,7 @@ fn ssh_server(cmd: &str) -> Server {
             .and_then(|p| p.parse().ok())
             .unwrap_or(22),
         upgrade_cmd: Some(cmd.to_string()),
+        custom_command: None,
     }
 }
 
@@ -352,6 +353,7 @@ async fn an_unreachable_host_reaches_a_terminal_state() {
         port: 22,
         user: "nobody".into(),
         upgrade_cmd: Some(SAFE_CMD.to_string()),
+        custom_command: None,
     }]);
 
     h.press('u');

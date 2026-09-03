@@ -47,6 +47,7 @@ pub struct Status<'a> {
     pub record: HostUpdate,
     pub credential: Credential,
     pub running: bool,
+    pub upgradable: Option<String>,
 }
 
 /// Render a duration as a compact human string: `1m 12s`, `2h 5m`, `45s`.
@@ -277,6 +278,10 @@ pub fn header(status: &Status, pal: &Palette, now: u64, width: usize) -> Vec<Str
             pal.muted(),
             pal.reset
         )),
+    }
+
+    if let Some(ref pkgs) = status.upgradable {
+        out.push(format!("{}  {pkgs}{}", label(pal, "Packages "), pal.reset));
     }
 
     out.push(format!(

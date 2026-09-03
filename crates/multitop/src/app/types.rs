@@ -22,6 +22,24 @@ pub enum Confirm {
     Quit,
     /// The upgrade confirmation row is up.
     Upgrade,
+    /// A `kill -9 <pid>` is armed for the selected host's top process.
+    Kill,
+}
+
+/// Which top-process action `x/o/r` is armed.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ExecKind {
+    Kill,
+    Journal,
+    Renice,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ExecConfirm {
+    pub panel: usize,
+    pub pid: u32,
+    pub name: String,
+    pub kind: ExecKind,
 }
 
 /// Vault authentication state machine.

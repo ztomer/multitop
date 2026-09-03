@@ -183,6 +183,7 @@ fn frame_upgrade_view_shows_command() {
         port: 22,
         user: "admin".into(),
         upgrade_cmd: Some("sudo apt upgrade -y".into()),
+        custom_command: None,
     }]);
     a.panels[0].mode = Mode::Upgrade;
 

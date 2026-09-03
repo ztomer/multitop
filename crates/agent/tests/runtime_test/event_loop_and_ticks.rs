@@ -42,7 +42,7 @@ fn the_loop_runs_until_the_tick_source_stops_it() {
         &mut next,
     );
 
-    // Three ticks, three frames — each a whole packet, back to back.
+    // Hello packet followed by three ticks, three frames — four packets total.
     let mut rest = &out[..];
     let mut frames = 0;
     while !rest.is_empty() {
@@ -54,7 +54,7 @@ fn the_loop_runs_until_the_tick_source_stops_it() {
         rest = &rest[8 + declared..];
         frames += 1;
     }
-    assert_eq!(frames, 3);
+    assert_eq!(frames, 4);
 }
 
 #[test]
@@ -62,7 +62,8 @@ fn the_loop_stops_when_the_reader_hangs_up() {
     // The write fails; the loop must return rather than spin emitting frames
     // into a broken pipe forever.
     let mut monitor = Monitor::new("h".into());
-    let mut sink = FailsAfter { writes_left: 1 };
+    // 1 write for Hello, 1 for the first frame, fails on subsequent write
+    let mut sink = FailsAfter { writes_left: 2 };
     let mut ticks = 0;
     let mut next = || {
         ticks += 1;

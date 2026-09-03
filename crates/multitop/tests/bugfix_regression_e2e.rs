@@ -43,6 +43,7 @@ fn test_server(host: &str) -> Server {
         port: 0,
         user: "testuser".to_string(),
         upgrade_cmd: Some("true".to_string()),
+        custom_command: None,
     }
 }
 
@@ -52,6 +53,7 @@ fn local_server(upgrade_cmd: &str) -> Server {
         port: 0,
         user: "testuser".to_string(),
         upgrade_cmd: Some(upgrade_cmd.to_string()),
+        custom_command: None,
     }
 }
 

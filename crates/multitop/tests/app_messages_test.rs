@@ -23,6 +23,7 @@ fn test_server(host: &str) -> Server {
         port: 0,
         user: "admin".to_string(),
         upgrade_cmd: Some("true".to_string()),
+        custom_command: None,
     }
 }
 
@@ -357,12 +358,14 @@ async fn a_host_with_no_upgrade_command_is_not_recorded_as_having_started_one() 
             port: 0,
             user: "a".into(),
             upgrade_cmd: Some("true".into()),
+            custom_command: None,
         },
         Server {
             host: "beta".into(),
             port: 0,
             user: "a".into(),
             upgrade_cmd: None,
+            custom_command: None,
         },
     ]);
 

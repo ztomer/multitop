@@ -8,6 +8,7 @@ fn the_scroll_badge_survives_into_the_rendered_frame() {
         port: 22,
         user: "admin".to_string(),
         upgrade_cmd: None,
+        custom_command: None,
     }]);
     // Row 0 is the banner's, and it is the only pinned row an ordinary pane has;
     // the rest scrolls under it.
@@ -46,6 +47,7 @@ fn a_connecting_host_says_connecting() {
         port: 22,
         user: "admin".to_string(),
         upgrade_cmd: None,
+        custom_command: None,
     }]);
     let mut term = ratatui::Terminal::new(ratatui::backend::TestBackend::new(80, 24)).unwrap();
     term.draw(|f| multitop::ui::draw(f, &mut app)).unwrap();
@@ -88,6 +90,7 @@ fn two_hosts_never_share_a_banner() {
                 port: 22,
                 user: "ztomer".to_string(),
                 upgrade_cmd: None,
+                custom_command: None,
             })
             .collect(),
     );
@@ -135,6 +138,7 @@ fn home_reaches_the_oldest_line_when_the_pane_carries_notices() {
         port: 22,
         user: "admin".to_string(),
         upgrade_cmd: None,
+        custom_command: None,
     }]);
     app.panels[0].note(
         "FIRST could not save upgrade state (Permission denied (os error 13)) -- an \
@@ -197,6 +201,7 @@ fn entering_a_view_puts_something_on_the_screen() {
             port: 22,
             user: "admin".to_string(),
             upgrade_cmd: None,
+            custom_command: None,
         }]);
         match key {
             "f" => drop(app.toggle_fetch((80, 24))),

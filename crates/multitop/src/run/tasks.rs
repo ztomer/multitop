@@ -158,6 +158,7 @@ mod tests {
             port: 0,
             user: "a".to_string(),
             upgrade_cmd: Some("true".to_string()),
+            custom_command: None,
         }
     }
 

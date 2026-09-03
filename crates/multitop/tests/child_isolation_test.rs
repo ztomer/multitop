@@ -27,6 +27,7 @@ fn local_server() -> Server {
         port: 0,
         user: String::new(),
         upgrade_cmd: Some("sleep 5".to_string()),
+        custom_command: None,
     }
 }
 

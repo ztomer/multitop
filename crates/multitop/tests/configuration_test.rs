@@ -30,6 +30,7 @@ fn server(host: &str) -> Server {
         port: 22,
         user: "root".to_string(),
         upgrade_cmd: Some("sudo apt update".to_string()),
+        custom_command: None,
     }
 }
 

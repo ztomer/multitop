@@ -1,6 +1,7 @@
 //! Upgrade view: status header, credential badges, fmt helpers.
 
 mod prod;
+pub mod upgradable;
 
 #[allow(clippy::module_inception)]
 #[cfg(test)]
@@ -8,6 +9,7 @@ mod prod;
 mod tests_module;
 
 pub use prod::{fmt_ago, fmt_duration, header, Credential, Status};
+pub use upgradable::parse_upgradable_output;
 // Re-export for tests
 pub use crate::config::Server;
 pub use crate::state::{HostUpdate, Outcome};

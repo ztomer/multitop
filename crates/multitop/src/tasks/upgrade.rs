@@ -408,3 +408,53 @@ async fn send_paint(idx: usize, gen: u64, paint: &Paint, tx: &Sender<Msg>) {
     };
     let _ = tx.send(msg).await;
 }
+
+/// Buffer size for reading unprivileged dry-run check output.
+const UPGRADABLE_CHECK_READ_BUF_LEN: usize = 4096;
+/// Maximum bytes of dry-run check output captured before truncation.
+const UPGRADABLE_CHECK_MAX_OUTPUT_BYTES: usize = 64 * 1024;
+
+/// Spawn an unprivileged dry-run package check (`apt list --upgradable`).
+#[must_use]
+pub fn spawn_upgradable_check(
+    idx: usize,
+    gen: u64,
+    server: Server,
+    tx: Sender<Msg>,
+) -> Option<JoinHandle<()>> {
+    let handle = tokio::runtime::Handle::try_current().ok()?;
+    Some(handle.spawn(async move {
+        let request = ExecFrame::Request {
+            command: "apt list --upgradable 2>/dev/null || true".to_string(),
+            password: None,
+            use_lock: false,
+            cols: 80,
+            rows: 24,
+        };
+        if let Ok(mut child) = ssh::spawn_exec(&server, &request).await {
+            let mut out = String::new();
+            if let Some(mut stdout) = child.stdout.take() {
+                let mut buf = vec![0u8; UPGRADABLE_CHECK_READ_BUF_LEN];
+                while let Ok(n) = stdout.read(&mut buf).await {
+                    if n == 0 {
+                        break;
+                    }
+                    out.push_str(&String::from_utf8_lossy(&buf[..n]));
+                    if out.len() > UPGRADABLE_CHECK_MAX_OUTPUT_BYTES {
+                        break;
+                    }
+                }
+            }
+            let _ = child.wait().await;
+            if let Some(summary) = crate::upgrade_view::parse_upgradable_output(&out) {
+                let _ = tx
+                    .send(Msg::UpgradableReceived {
+                        panel: idx,
+                        gen,
+                        summary,
+                    })
+                    .await;
+            }
+        }
+    }))
+}

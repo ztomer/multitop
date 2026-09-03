@@ -15,6 +15,7 @@ mod passwords_tests {
             port: 22,
             user: "admin".to_string(),
             upgrade_cmd: Some("sudo apt update".to_string()),
+            custom_command: None,
         }
     }
 

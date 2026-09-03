@@ -44,6 +44,7 @@ fn server(host: &str) -> Server {
         port: 22,
         user: "ztomer".to_string(),
         upgrade_cmd: Some("apt upgrade".into()),
+        custom_command: None,
     }
 }
 
@@ -271,7 +272,7 @@ fn new_vault_seeds_from_keychain_when_panel_has_no_password() {
     let vault_path = dir.join("vault.bin");
     let config_path = dir.join("config.toml");
     std::fs::write(&config_path, "").unwrap();
-    app.config_path = Some(config_path.clone());
+    app.config_path = Some(config_path);
 
     // Create and unlock a vault the way the app does (cheap Argon2 for tests).
     let rt = tokio::runtime::Builder::new_current_thread()
@@ -279,7 +280,7 @@ fn new_vault_seeds_from_keychain_when_panel_has_no_password() {
         .build()
         .unwrap();
     let vault = multitop_vault::Vault::new(multitop_vault::VaultConfig {
-        vault_path: vault_path.clone(),
+        vault_path,
         argon2_params: Some(multitop_vault::crypto::Argon2Params {
             t: 1,
             m_kib: 32768,
@@ -296,9 +297,11 @@ fn new_vault_seeds_from_keychain_when_panel_has_no_password() {
     // Seed should pull from the keychain even though the panel is empty.
     app.seed_vault_from_panels();
 
-    let vault_ref = match &app.vault_state {
-        multitop::app::VaultState::Unlocked { vault, .. } => vault,
-        _ => panic!("vault should be unlocked"),
+    let multitop::app::VaultState::Unlocked {
+        vault: vault_ref, ..
+    } = &app.vault_state
+    else {
+        panic!("vault should be unlocked")
     };
     let got = vault_ref
         .get_password(&multitop::password_store::account(&srv))
@@ -325,7 +328,7 @@ fn vault_fallback_loads_from_keychain_when_vault_has_no_entry() {
         .build()
         .unwrap();
     let vault = multitop_vault::Vault::new(multitop_vault::VaultConfig {
-        vault_path: vault_path.clone(),
+        vault_path,
         argon2_params: Some(multitop_vault::crypto::Argon2Params {
             t: 1,
             m_kib: 32768,
@@ -337,7 +340,7 @@ fn vault_fallback_loads_from_keychain_when_vault_has_no_entry() {
     let unlocked = vault.unlock_with_password("master-pw").unwrap();
     // Don't put fallback-host into the vault — leave it empty to test fallback.
 
-    let mut panel = multitop::panel::Panel::new(srv.clone());
+    let mut panel = multitop::panel::Panel::new(srv);
     assert!(panel.sudo_password.is_none());
     multitop::vault::try_load_vault_password(&mut panel, &unlocked);
     assert_eq!(

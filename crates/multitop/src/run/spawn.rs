@@ -310,6 +310,7 @@ mod replace_agent_tests {
             port,
             user: "admin".to_string(),
             upgrade_cmd: None,
+            custom_command: None,
         }
     }
 

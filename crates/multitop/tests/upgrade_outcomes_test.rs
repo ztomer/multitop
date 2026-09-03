@@ -29,6 +29,7 @@ fn local_server(cmd: Option<&str>) -> Server {
         port: 0,
         user: String::new(),
         upgrade_cmd: cmd.map(str::to_string),
+        custom_command: None,
     }
 }
 

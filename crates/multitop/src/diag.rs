@@ -128,6 +128,7 @@ pub struct Snapshot {
     pub last_update: Option<u64>,
     pub upgrade_started_at: Option<u64>,
     pub tasks: Liveness,
+    pub active_confirm: Option<String>,
 }
 
 /// Shared diagnostic state. Laterally safe by construction: every field is an
@@ -443,6 +444,7 @@ pub fn snapshot_app(app: &App, tasks: &Tasks) -> Snapshot {
         last_update: app.last_update,
         upgrade_started_at: app.upgrade_started_at,
         tasks: tasks.diag_liveness(),
+        active_confirm: app.active_confirm().map(|c| format!("{c:?}")),
     }
 }
 
@@ -451,14 +453,15 @@ fn render_snapshot(snapshot: &Snapshot) -> String {
     let mut out = String::new();
     let _ = writeln!(
         out,
-        "mode: {} | filter: {:?} | selected: {} | in_flight: {} | quit_armed: {} | should_quit: {} | vault_unlocked: {}",
+        "mode: {} | filter: {:?} | selected: {} | in_flight: {} | quit_armed: {} | should_quit: {} | vault_unlocked: {} | active_confirm: {:?}",
         snapshot.mode,
         snapshot.filter,
         snapshot.selected,
         snapshot.in_flight,
         snapshot.quit_armed,
         snapshot.should_quit,
-        snapshot.vault_unlocked
+        snapshot.vault_unlocked,
+        snapshot.active_confirm
     );
     let _ = writeln!(
         out,
@@ -499,6 +502,7 @@ mod tests {
             port: 22,
             user: "u".to_string(),
             upgrade_cmd: Some("true".to_string()),
+            custom_command: None,
         }
     }
 
@@ -533,6 +537,7 @@ mod tests {
             quit_armed: false,
             should_quit: false,
             vault_unlocked: true,
+            active_confirm: None,
             tasks: Liveness {
                 monitors_alive: 2,
                 upgrades_alive: 1,
@@ -634,6 +639,7 @@ mod tests {
             vault_unlocked: false,
             last_update: None,
             upgrade_started_at: None,
+            active_confirm: None,
             tasks: Liveness {
                 monitors_alive: 1,
                 upgrades_alive: 1,

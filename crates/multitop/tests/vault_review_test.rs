@@ -44,6 +44,7 @@ fn srv() -> Server {
         port: 22,
         user: "u".into(),
         upgrade_cmd: Some("true".into()),
+        custom_command: None,
     }
 }
 

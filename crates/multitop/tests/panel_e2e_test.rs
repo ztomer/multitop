@@ -35,6 +35,7 @@ fn test_server(host: &str) -> Server {
         port: 0,
         user: "testuser".to_string(),
         upgrade_cmd: Some("echo test".to_string()),
+        custom_command: None,
     }
 }
 

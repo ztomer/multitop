@@ -121,6 +121,7 @@ fn upgrade_pane_header_not_configured() {
         port: 22,
         user: "admin".into(),
         upgrade_cmd: None,
+        custom_command: None,
     }]);
     a.panels[0].mode = Mode::Upgrade;
 
@@ -153,6 +154,7 @@ fn confirm_upgrade_skips_hosts_without_cmd() {
         port: 22,
         user: "admin".into(),
         upgrade_cmd: None,
+        custom_command: None,
     }]);
     a.config_path = Some(std::env::temp_dir().join("cov_skip.toml"));
     a.panels[0].mode = Mode::Upgrade;
@@ -170,6 +172,7 @@ fn note_nothing_to_upgrade_says_so() {
         port: 22,
         user: "admin".into(),
         upgrade_cmd: None,
+        custom_command: None,
     }]);
 
     a.note_nothing_to_upgrade();

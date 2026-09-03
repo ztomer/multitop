@@ -19,6 +19,7 @@ pub mod history;
 pub mod history_store;
 pub mod layout;
 pub mod modals;
+pub mod notify;
 pub mod panel;
 pub mod password_actions;
 pub mod password_store;

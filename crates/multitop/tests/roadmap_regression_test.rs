@@ -40,6 +40,7 @@ fn test_server(user: &str, host: &str) -> Server {
         port: 22,
         user: user.to_string(),
         upgrade_cmd: Some("echo upgrade".to_string()),
+        custom_command: None,
     }
 }
 
@@ -103,7 +104,8 @@ fn test_state_persistence_roundtrip() {
         selected_host: None,
         filter_query: None,
         sort: None,
-        views: Default::default(),
+        views: std::collections::BTreeMap::default(),
+        saved_filters: vec![],
     };
 
     state::save_state(&config_path, &initial).expect("save state");
@@ -149,6 +151,7 @@ fn test_username_consistency_across_panes() {
         port: 22,
         user: String::new(),
         upgrade_cmd: None,
+        custom_command: None,
     };
 
     assert_eq!(server_with_user.target(), "alice@db-host");
@@ -174,6 +177,7 @@ fn a_packet_from_the_old_panel_list_cannot_paint_the_new_one() {
         port: 22,
         user: "admin".to_string(),
         upgrade_cmd: None,
+        custom_command: None,
     };
     let b = Server {
         host: "beta".to_string(),

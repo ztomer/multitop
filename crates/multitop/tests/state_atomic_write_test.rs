@@ -36,7 +36,8 @@ fn populated() -> AppState {
         selected_host: None,
         filter_query: None,
         sort: None,
-        views: Default::default(),
+        views: std::collections::BTreeMap::default(),
+        saved_filters: vec![],
     }
 }
 

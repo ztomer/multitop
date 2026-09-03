@@ -131,3 +131,105 @@ async fn u_confirms_the_upgrade_the_modal_asked_about() {
         "the modal stayed up after confirming"
     );
 }
+
+#[tokio::test]
+async fn x_arms_kill_confirmation_and_esc_stands_it_down() {
+    let _g = isolate().await;
+    let dir = tempfile::tempdir().unwrap();
+    let mut app = app_with_config(&dir, &["alpha"]);
+    let mut k = Keys::new(1);
+
+    let snap = multitop_agent::render::Snapshot {
+        host: "alpha".to_string(),
+        procs: vec![multitop_agent::proc::Proc {
+            pid: 1234,
+            name: "heavy-job".to_string(),
+            cpu: 95.0,
+            mem: 1024 * 1024,
+        }],
+        ..Default::default()
+    };
+    app.panels[0].last_monitor = Some(multitop_agent::proto::Payload::Monitor(snap));
+
+    // Press x -> arms kill confirm
+    k.press(&mut app, KeyCode::Char('x'));
+    assert_eq!(app.active_confirm(), Some(Confirm::Kill));
+    assert!(app.kill_confirm.is_some());
+    let kc = app.kill_confirm.as_ref().unwrap();
+    assert_eq!(kc.pid, 1234);
+    assert_eq!(kc.name, "heavy-job");
+    assert_eq!(kc.kind, multitop::app::ExecKind::Kill);
+
+    // Press Esc -> cancels
+    k.press(&mut app, KeyCode::Esc);
+    assert_eq!(app.active_confirm(), None);
+    assert!(app.kill_confirm.is_none());
+}
+
+#[tokio::test]
+async fn o_and_r_arm_journal_and_renice_confirmations() {
+    let _g = isolate().await;
+    let dir = tempfile::tempdir().unwrap();
+    let mut app = app_with_config(&dir, &["alpha"]);
+    let mut k = Keys::new(1);
+
+    let snap = multitop_agent::render::Snapshot {
+        host: "alpha".to_string(),
+        procs: vec![multitop_agent::proc::Proc {
+            pid: 4321,
+            name: "worker".to_string(),
+            cpu: 80.0,
+            mem: 512,
+        }],
+        ..Default::default()
+    };
+    app.panels[0].last_monitor = Some(multitop_agent::proto::Payload::Monitor(snap));
+
+    // Press o -> Journal confirm
+    k.press(&mut app, KeyCode::Char('o'));
+    assert_eq!(app.active_confirm(), Some(Confirm::Kill));
+    assert_eq!(
+        app.kill_confirm.as_ref().unwrap().kind,
+        multitop::app::ExecKind::Journal
+    );
+
+    // Cancel
+    k.press(&mut app, KeyCode::Esc);
+    assert_eq!(app.active_confirm(), None);
+
+    // Press r -> Renice confirm
+    k.press(&mut app, KeyCode::Char('r'));
+    assert_eq!(app.active_confirm(), Some(Confirm::Kill));
+    assert_eq!(
+        app.kill_confirm.as_ref().unwrap().kind,
+        multitop::app::ExecKind::Renice
+    );
+}
+
+#[tokio::test]
+async fn k_confirms_kill_and_starts_aux_task() {
+    let _g = isolate().await;
+    let dir = tempfile::tempdir().unwrap();
+    let mut app = app_with_config(&dir, &["alpha"]);
+    let mut k = Keys::new(1);
+
+    let snap = multitop_agent::render::Snapshot {
+        host: "alpha".to_string(),
+        procs: vec![multitop_agent::proc::Proc {
+            pid: 9999,
+            name: "stuck-proc".to_string(),
+            cpu: 99.0,
+            mem: 2048,
+        }],
+        ..Default::default()
+    };
+    app.panels[0].last_monitor = Some(multitop_agent::proto::Payload::Monitor(snap));
+
+    k.press(&mut app, KeyCode::Char('x'));
+    assert_eq!(app.active_confirm(), Some(Confirm::Kill));
+
+    // 'k' confirms the armed kill
+    k.press(&mut app, KeyCode::Char('k'));
+    assert_eq!(app.active_confirm(), None);
+    assert!(app.kill_confirm.is_none());
+}

@@ -63,6 +63,21 @@ impl App {
                             }
                             _ => {}
                         }
+                        if !self.alert_targets.is_empty() {
+                            if let Some(t) = self.alert_cpu {
+                                #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+                                let val = snap.cpu_pct.round() as u8;
+                                if val >= t {
+                                    crate::notify::dispatch_breach_notification(
+                                        &p.server,
+                                        "CPU",
+                                        val,
+                                        t,
+                                        &self.alert_targets,
+                                    );
+                                }
+                            }
+                        }
                         true
                     }
                     multitop_agent::proto::Payload::Docker { .. } => {
@@ -271,6 +286,16 @@ impl App {
                     entry.finished_at = Some(now);
                     entry.success = success;
 
+                    let duration = entry.duration_secs();
+                    if !self.alert_targets.is_empty() {
+                        crate::notify::dispatch_upgrade_notification(
+                            &self.panels[panel].server,
+                            success,
+                            duration,
+                            &self.alert_targets,
+                        );
+                    }
+
                     if success && !self.upgrades_in_flight() {
                         self.last_update = Some(now);
                         self.upgrade_started_at = None;
@@ -427,6 +452,19 @@ impl App {
                 };
                 p.answer_credential_load(result);
                 true
+            }
+            Msg::UpgradableReceived {
+                panel,
+                gen,
+                summary,
+            } => {
+                if let Some(p) = self.panels.get_mut(panel) {
+                    if p.gen == gen {
+                        p.upgradable = Some(summary);
+                        return true;
+                    }
+                }
+                false
             }
         }
     }

@@ -426,6 +426,47 @@ fn upgrade_confirm_row(
     chunk_row(&chunks, keybar_width, &shed, label)
 }
 
+fn kill_confirm_row(
+    app: &App,
+    accent: Color,
+    key_hi: Style,
+    label: Style,
+    keybar_width: u16,
+) -> Line<'static> {
+    let Some(ec) = &app.kill_confirm else {
+        return Line::from(vec![Span::styled("Kill ?", label)]);
+    };
+    let host = app
+        .panels
+        .get(ec.panel)
+        .map_or("?", |p| p.server.host.as_str());
+    let (action, key) = match ec.kind {
+        crate::app::ExecKind::Kill => ("Kill", "K"),
+        crate::app::ExecKind::Journal => ("Journal", "O"),
+        crate::app::ExecKind::Renice => ("Renice", "R"),
+    };
+    let target = format!("{action} {host}:{}:{}", ec.pid, ec.name);
+    let mut chunks: Vec<Vec<Span<'static>>> = vec![vec![Span::styled(
+        target,
+        Style::default()
+            .fg(accent)
+            .add_modifier(ratatui::style::Modifier::BOLD),
+    )]];
+    chunks.push(vec![
+        Span::styled("[", label),
+        Span::styled(key, key_hi),
+        Span::styled(format!("] {}", action.to_lowercase()), label),
+    ]);
+    chunks.push(vec![
+        Span::styled("[", label),
+        Span::styled("Esc", key_hi),
+        Span::styled("] cancel", label),
+    ]);
+    // Keep target + keys; nothing to shed except target if narrow.
+    let shed = vec![0usize];
+    chunk_row(&chunks, keybar_width, &shed, label)
+}
+
 /// The confirmation that replaces the keybar once Esc/q/Ctrl-C asked to quit
 /// while upgrades were in flight. Names the hosts, states the cost, and gives
 /// the two ways out.
@@ -509,6 +550,9 @@ pub fn keybar_content(
     // of keys while another set is live.
     match app.active_confirm() {
         Some(crate::app::Confirm::Quit) => quit_confirm_row(app, key_hi, label, keybar_width),
+        Some(crate::app::Confirm::Kill) => {
+            kill_confirm_row(app, accent_color, key_hi, label, keybar_width)
+        }
         Some(crate::app::Confirm::Upgrade) => {
             upgrade_confirm_row(app, accent_color, key_hi, label, keybar_width)
         }

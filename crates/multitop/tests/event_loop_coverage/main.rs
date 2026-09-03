@@ -30,6 +30,7 @@ fn test_server(host: &str) -> Server {
         port: PORT_COUNTER.fetch_add(1, Ordering::Relaxed),
         user: "admin".to_string(),
         upgrade_cmd: Some("true".to_string()),
+        custom_command: None,
     }
 }
 

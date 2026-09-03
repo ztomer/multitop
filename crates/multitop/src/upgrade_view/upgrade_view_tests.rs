@@ -15,6 +15,7 @@ mod tests_module {
             port: 22,
             user: "admin".into(),
             upgrade_cmd: cmd.map(str::to_string),
+            custom_command: None,
         }
     }
 
@@ -49,11 +50,28 @@ mod tests_module {
             record: HostUpdate::default(),
             credential: Credential::Missing,
             running: false,
+            upgradable: None,
         });
         assert!(text.contains("apt update && apt upgrade -y"), "{text}");
         assert!(text.contains("never"), "{text}");
         assert!(text.contains("ready"), "{text}");
         assert!(text.contains("u to run"), "{text}");
+    }
+
+    #[test]
+    fn shows_upgradable_packages_summary_when_present() {
+        let s = server(Some("apt update && apt upgrade -y"));
+        let text = render(&Status {
+            server: &s,
+            record: HostUpdate::default(),
+            credential: Credential::Stored,
+            running: false,
+            upgradable: Some("12 pkgs (kernel 6.8\u{2192}6.9 held)".to_string()),
+        });
+        assert!(
+            text.contains("Packages   12 pkgs (kernel 6.8\u{2192}6.9 held)"),
+            "{text}"
+        );
     }
 
     #[test]
@@ -64,6 +82,7 @@ mod tests_module {
             record: HostUpdate::default(),
             credential: Credential::Missing,
             running: false,
+            upgradable: None,
         });
         assert!(text.contains("not configured"), "{text}");
         assert!(text.contains("host is skipped"), "{text}");
@@ -87,6 +106,7 @@ mod tests_module {
             },
             credential: Credential::Stored,
             running: false,
+            upgradable: None,
         });
         assert!(text.contains("4 days ago"), "{text}");
         assert!(text.contains("ok"), "{text}");
@@ -106,6 +126,7 @@ mod tests_module {
             },
             credential: Credential::Stored,
             running: false,
+            upgradable: None,
         });
         assert!(text.contains("last run failed"), "{text}");
         assert!(text.contains("failed"), "{text}");
@@ -123,6 +144,7 @@ mod tests_module {
             },
             credential: Credential::Stored,
             running: false,
+            upgradable: None,
         });
         assert!(text.contains("interrupted"), "{text}");
         assert!(text.contains("never finished"), "{text}");
@@ -137,6 +159,7 @@ mod tests_module {
             record: HostUpdate::default(),
             credential: Credential::Stored,
             running: true,
+            upgradable: None,
         });
         assert!(text.contains("running"), "{text}");
         assert!(text.contains("do not quit"), "{text}");
@@ -171,6 +194,7 @@ mod tests_module {
             },
             credential: Credential::Stored,
             running: true,
+            upgradable: None,
         });
 
         assert!(
@@ -203,6 +227,7 @@ mod tests_module {
             },
             credential: Credential::Stored,
             running: false,
+            upgradable: None,
         });
         assert!(text.contains("interrupted"), "{text}");
         assert!(text.contains("last run never finished"), "{text}");
@@ -259,6 +284,7 @@ mod header_width_tests {
             port: 22,
             user: "admin".into(),
             upgrade_cmd: Some("sudo apt update && sudo apt upgrade -y".into()),
+            custom_command: None,
         };
         for credential in [
             Credential::Stored,
@@ -273,6 +299,7 @@ mod header_width_tests {
                     record: HostUpdate::default(),
                     credential,
                     running,
+                    upgradable: None,
                 };
                 for line in header(&status, &multitop_agent::color::ANSI, 1_800_000_000, PANE) {
                     let w = visible_width(&line);

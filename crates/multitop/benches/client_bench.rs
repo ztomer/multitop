@@ -90,6 +90,7 @@ fn main() {
                 port: 22,
                 user: "admin".into(),
                 upgrade_cmd: None,
+                custom_command: None,
             })
             .collect();
         let mut app = App::new(servers);

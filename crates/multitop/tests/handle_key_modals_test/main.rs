@@ -23,6 +23,7 @@ fn test_server(host: &str) -> Server {
         port: 0,
         user: "admin".to_string(),
         upgrade_cmd: Some("true".to_string()),
+        custom_command: None,
     }
 }
 
@@ -96,6 +97,7 @@ fn app_with_config(dir: &tempfile::TempDir, hosts: &[&str]) -> App {
 }
 
 // ---------------------------------------------------------------- key releases
+mod palette_and_modals;
 mod quit_and_upgrade_confirm;
 mod sort_and_paging;
 mod vault_prompts;

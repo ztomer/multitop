@@ -16,12 +16,14 @@ fn config_save_and_load_servers_roundtrip() {
             port: 22,
             user: "admin".into(),
             upgrade_cmd: Some("true".into()),
+            custom_command: None,
         },
         Server {
             host: "db-01".into(),
             port: 22,
             user: "admin".into(),
             upgrade_cmd: Some("true".into()),
+            custom_command: None,
         },
     ];
     multitop::config::save_servers(&path, &servers).expect("save ok");

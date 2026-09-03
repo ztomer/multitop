@@ -15,11 +15,11 @@ use std::collections::VecDeque;
 
 /// How many samples a series keeps.
 ///
-/// At the default refresh this is a few minutes of history, and it is wider
-/// than any pane can draw -- a graph shows the newest `2 * width` of it. Kept
-/// per panel, and one `f64` per sample per series, so the whole thing is a few
-/// kilobytes for a screen full of hosts.
-pub const SAMPLES: usize = 512;
+/// At a ~2 s refresh this is ~2.2 h (`4096 * 2 s`), backed by
+/// `~/.cache/multitop/history/<host>.zst` so `G` can draw ~1 h not just a few
+/// minutes. Kept per panel, one `f64` per sample per series -- even at `4096`
+/// the whole thing is <100 KiB per host after `zstd:3`.
+pub const SAMPLES: usize = 4096;
 
 /// One measured quantity over time, oldest first.
 #[derive(Clone, Debug, Default, PartialEq, serde::Serialize, serde::Deserialize)]
@@ -71,6 +71,9 @@ pub struct History {
     pub cpu: Series,
     /// Memory in use as a percent of total, 0..=100.
     pub mem: Series,
+    /// Disk in use as a percent of total, 0..=100.
+    #[serde(default)]
+    pub disk: Series,
     /// Received bytes per second.
     pub rx: Series,
     /// Transmitted bytes per second.
@@ -90,6 +93,7 @@ impl History {
         // `Usage` computes its own percent; recomputing it here would be a
         // second definition of "how full is memory" to keep in step by hand.
         self.mem.push(snap.mem.pct);
+        self.disk.push(snap.disk.pct);
         self.rx.push(snap.rx_rate);
         self.tx.push(snap.tx_rate);
         // Only when there is one. Pushing a zero for "not measured" would put a

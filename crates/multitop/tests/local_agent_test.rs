@@ -66,6 +66,7 @@ async fn connect_local_server_succeeds_and_streams_snapshots() {
         port: 0,
         user: String::new(),
         upgrade_cmd: None,
+        custom_command: None,
     };
 
     let mut stream = connect(&server, Mode::Monitor, SortBy::Cpu, |_| {})

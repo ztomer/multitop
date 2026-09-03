@@ -168,12 +168,14 @@ fn a_missing_binary_names_the_program_that_is_actually_missing() {
         port: 0,
         user: String::new(),
         upgrade_cmd: None,
+        custom_command: None,
     };
     let remote = Server {
         host: "web-01".into(),
         port: 22,
         user: "root".into(),
         upgrade_cmd: None,
+        custom_command: None,
     };
     let not_found = std::io::Error::new(std::io::ErrorKind::NotFound, "no such file");
 
@@ -190,12 +192,14 @@ fn any_other_spawn_failure_still_names_the_program() {
         port: 0,
         user: String::new(),
         upgrade_cmd: None,
+        custom_command: None,
     };
     let remote = Server {
         host: "web-01".into(),
         port: 22,
         user: "root".into(),
         upgrade_cmd: None,
+        custom_command: None,
     };
     let denied = std::io::Error::new(std::io::ErrorKind::PermissionDenied, "denied");
 

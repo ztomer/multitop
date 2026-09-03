@@ -4,6 +4,8 @@ use crate::config::{
 };
 use std::path::Path;
 
+const MAX_ALERT_PCT: u8 = 100;
+
 /// Read and parse the configuration at `path`.
 ///
 /// # Errors
@@ -93,11 +95,19 @@ pub fn parse(text: &str) -> Result<Config, ConfigError> {
             .map(str::to_string)
             .filter(|s| !s.trim().is_empty());
 
+        let custom_command = table
+            .get("command")
+            .or_else(|| table.get("custom_command"))
+            .and_then(|v| v.as_str())
+            .map(str::to_string)
+            .filter(|s| !s.trim().is_empty());
+
         let server = Server {
             host,
             port,
             user,
             upgrade_cmd,
+            custom_command,
         };
 
         if let Some(secret) = table
@@ -109,6 +119,52 @@ pub fn parse(text: &str) -> Result<Config, ConfigError> {
         }
 
         out.push(server);
+    }
+    // `[[panels]] command="nvidia-smi …"` per roadmap Phase 3 — treated as
+    // additional servers whose panel runs the command every 250 ms via Exec
+    // and is rendered as a Fetch card (`crates/multitop/src/render_payload.rs:20`).
+    if let Some(toml::Value::Array(panels)) = value.get("panels") {
+        for (idx, entry) in panels.iter().enumerate() {
+            let Some(table) = entry.as_table() else {
+                return Err(ConfigError(format!(
+                    "Panel entry at index {idx} is not a table"
+                )));
+            };
+            let host = match table.get("host").and_then(|v| v.as_str()) {
+                Some(h) if !h.is_empty() => h.to_string(),
+                _ => continue,
+            };
+            validate_host(&host)?;
+            let user = table
+                .get("user")
+                .and_then(|v| v.as_str())
+                .map_or_else(String::new, String::from);
+            validate_user(&user)?;
+            let port = match table.get("port") {
+                None => DEFAULT_PORT,
+                Some(v) => match v.as_integer().and_then(|p| u16::try_from(p).ok()) {
+                    Some(p) if p > 0 => p,
+                    _ => {
+                        return Err(ConfigError(format!(
+                            "Panel entry at index {idx} has an invalid 'port'"
+                        )))
+                    }
+                },
+            };
+            let command = table
+                .get("command")
+                .and_then(|v| v.as_str())
+                .map(str::to_string)
+                .filter(|s| !s.trim().is_empty());
+            let server = Server {
+                host,
+                port,
+                user,
+                upgrade_cmd: None,
+                custom_command: command,
+            };
+            out.push(server);
+        }
     }
 
     let requested = value
@@ -127,7 +183,6 @@ pub fn parse(text: &str) -> Result<Config, ConfigError> {
             crate::layout::BannerStyle::parse(s)
         });
 
-    const MAX_ALERT_PCT: u8 = 100;
     let alert_cpu = value
         .get("alert_cpu")
         .and_then(toml::Value::as_integer)
@@ -144,6 +199,37 @@ pub fn parse(text: &str) -> Result<Config, ConfigError> {
         .and_then(|v| u8::try_from(v).ok())
         .filter(|&v| v <= MAX_ALERT_PCT);
 
+    let mut alert_targets = Vec::new();
+    if let Some(toml::Value::Array(arr)) = value.get("alerts") {
+        for entry in arr {
+            if let Some(tbl) = entry.as_table() {
+                let webhook = tbl
+                    .get("webhook")
+                    .and_then(toml::Value::as_str)
+                    .map(String::from);
+                let desktop = tbl
+                    .get("desktop")
+                    .and_then(toml::Value::as_bool)
+                    .unwrap_or(false);
+                if webhook.is_some() || desktop {
+                    alert_targets.push(crate::config::AlertTarget { webhook, desktop });
+                }
+            }
+        }
+    } else if let Some(toml::Value::Table(tbl)) = value.get("alerts") {
+        let webhook = tbl
+            .get("webhook")
+            .and_then(toml::Value::as_str)
+            .map(String::from);
+        let desktop = tbl
+            .get("desktop")
+            .and_then(toml::Value::as_bool)
+            .unwrap_or(false);
+        if webhook.is_some() || desktop {
+            alert_targets.push(crate::config::AlertTarget { webhook, desktop });
+        }
+    }
+
     Ok(Config {
         servers: out,
         theme,
@@ -154,6 +240,7 @@ pub fn parse(text: &str) -> Result<Config, ConfigError> {
         alert_cpu,
         alert_mem,
         alert_disk,
+        alerts: alert_targets,
     })
 }
 
@@ -180,5 +267,57 @@ pub fn validate_user(user: &str) -> Result<(), ConfigError> {
         ))
     } else {
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parse_alerts_array_of_tables() {
+        let toml_str = r#"
+[[servers]]
+host = "prod-01"
+
+[[alerts]]
+webhook = "https://ntfy.sh/my-topic"
+desktop = true
+
+[[alerts]]
+webhook = "https://hooks.slack.com/services/xyz"
+"#;
+        let res = parse(toml_str);
+        assert!(res.is_ok());
+        let Ok(cfg) = res else { return };
+        assert_eq!(cfg.servers.len(), 1);
+        assert_eq!(cfg.alerts.len(), 2);
+        assert_eq!(
+            cfg.alerts[0].webhook.as_deref(),
+            Some("https://ntfy.sh/my-topic")
+        );
+        assert!(cfg.alerts[0].desktop);
+        assert_eq!(
+            cfg.alerts[1].webhook.as_deref(),
+            Some("https://hooks.slack.com/services/xyz")
+        );
+        assert!(!cfg.alerts[1].desktop);
+    }
+
+    #[test]
+    fn parse_alerts_single_table() {
+        let toml_str = r#"
+[[servers]]
+host = "prod-02"
+
+[alerts]
+desktop = true
+"#;
+        let res = parse(toml_str);
+        assert!(res.is_ok());
+        let Ok(cfg) = res else { return };
+        assert_eq!(cfg.alerts.len(), 1);
+        assert!(cfg.alerts[0].webhook.is_none());
+        assert!(cfg.alerts[0].desktop);
     }
 }

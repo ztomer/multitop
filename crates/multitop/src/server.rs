@@ -43,7 +43,7 @@ pub struct AppState {
     pub config: crate::config::Config,
 }
 
-fn check_auth(headers: &HeaderMap, token: &Option<String>) -> Result<(), StatusCode> {
+fn check_auth(headers: &HeaderMap, token: Option<&str>) -> Result<(), StatusCode> {
     let Some(expected) = token else {
         return Ok(());
     };
@@ -85,7 +85,7 @@ async fn index() -> Html<&'static str> {
 }
 
 async fn api_hosts(State(state): State<AppState>, headers: HeaderMap) -> impl IntoResponse {
-    if let Err(code) = check_auth(&headers, &state.token) {
+    if let Err(code) = check_auth(&headers, state.token.as_deref()) {
         return (code, Json(serde_json::json!({"error":"unauthorized"}))).into_response();
     }
     let live = state.live.read().await;
@@ -111,9 +111,7 @@ async fn api_hosts(State(state): State<AppState>, headers: HeaderMap) -> impl In
                     .find(|(k, _)| k.contains(&s.host))
                     .map(|(_, v)| v)
             });
-            let health = snap
-                .map(|sn| health::health(sn, &state.config))
-                .unwrap_or(100);
+            let health = snap.map_or(100, |sn| health::health(sn, &state.config));
             HostInfo {
                 host: s.host.clone(),
                 port: s.port,
@@ -128,26 +126,32 @@ async fn api_hosts(State(state): State<AppState>, headers: HeaderMap) -> impl In
 }
 
 async fn api_health(State(state): State<AppState>, headers: HeaderMap) -> impl IntoResponse {
-    if let Err(code) = check_auth(&headers, &state.token) {
+    if let Err(code) = check_auth(&headers, state.token.as_deref()) {
         return (code, Json(serde_json::json!({"error":"unauthorized"}))).into_response();
     }
-    let live = state.live.read().await;
-    let mut total = 0;
-    let mut breaching = 0;
-    for s in &state.servers {
-        let snap = live.snapshots.get(&s.host).or_else(|| {
-            live.snapshots
-                .iter()
-                .find(|(k, _)| k.contains(&s.host))
-                .map(|(_, v)| v)
-        });
-        total += 1;
-        if let Some(sn) = snap {
-            if health::is_breaching(sn, &state.config) {
-                breaching += 1;
+    let (total, breaching) = {
+        let snapshots = {
+            let live = state.live.read().await;
+            live.snapshots.clone()
+        };
+        let mut total = 0;
+        let mut breaching = 0;
+        for s in &state.servers {
+            let snap = snapshots.get(&s.host).or_else(|| {
+                snapshots
+                    .iter()
+                    .find(|(k, _)| k.contains(&s.host))
+                    .map(|(_, v)| v)
+            });
+            total += 1;
+            if let Some(sn) = snap {
+                if health::is_breaching(sn, &state.config) {
+                    breaching += 1;
+                }
             }
         }
-    }
+        (total, breaching)
+    };
     (
         StatusCode::OK,
         Json(serde_json::json!({
@@ -164,34 +168,42 @@ async fn api_snapshot(
     AxPath(host): AxPath<String>,
     headers: HeaderMap,
 ) -> impl IntoResponse {
-    if let Err(code) = check_auth(&headers, &state.token) {
+    if let Err(code) = check_auth(&headers, state.token.as_deref()) {
         return (code, Json(serde_json::json!({"error":"unauthorized"}))).into_response();
     }
-    let live = state.live.read().await;
-    // Try exact, then substring match for "beelink (192.168.0.33)" style
-    if let Some(snap) = live.snapshots.get(&host).or_else(|| {
+    let (resp, err_opt) = {
+        let live = state.live.read().await;
         live.snapshots
-            .iter()
-            .find(|(k, _)| k.contains(&host))
-            .map(|(_, v)| v)
-    }) {
-        // Snapshot doesn't derive Serialize (it contains non-serializable temps), so
-        // build a JSON view manually. Keep it close to the MTOP payload fields.
-        let v = serde_json::json!({
-            "host": snap.host,
-            "agent_version": snap.agent_version,
-            "cpu_pct": snap.cpu_pct,
-            "cpu_mhz": snap.cpu_mhz,
-            "cores": snap.cores.iter().map(|(idx,cpu,temp)| serde_json::json!({"idx": idx, "cpu": cpu, "temp": temp})).collect::<Vec<_>>(),
-            "mem": {"total": snap.mem.total, "used": snap.mem.used, "pct": snap.mem.pct},
-            "disk": {"total": snap.disk.total, "used": snap.disk.used, "pct": snap.disk.pct},
-            "rx_rate": snap.rx_rate,
-            "tx_rate": snap.tx_rate,
-            "procs": snap.procs.iter().map(|p| serde_json::json!({"pid": p.pid, "name": p.name, "cpu": p.cpu, "mem": p.mem})).collect::<Vec<_>>(),
-        });
+            .get(&host)
+            .or_else(|| {
+                live.snapshots
+                    .iter()
+                    .find(|(k, _)| k.contains(&host))
+                    .map(|(_, v)| v)
+            })
+            .map_or_else(
+                || (None, live.errors.get(&host).cloned()),
+                |snap| {
+                    let v = serde_json::json!({
+                        "host": snap.host,
+                        "agent_version": snap.agent_version,
+                        "cpu_pct": snap.cpu_pct,
+                        "cpu_mhz": snap.cpu_mhz,
+                        "cores": snap.cores.iter().map(|(idx,cpu,temp)| serde_json::json!({"idx": idx, "cpu": cpu, "temp": temp})).collect::<Vec<_>>(),
+                        "mem": {"total": snap.mem.total, "used": snap.mem.used, "pct": snap.mem.pct},
+                        "disk": {"total": snap.disk.total, "used": snap.disk.used, "pct": snap.disk.pct},
+                        "rx_rate": snap.rx_rate,
+                        "tx_rate": snap.tx_rate,
+                        "procs": snap.procs.iter().map(|p| serde_json::json!({"pid": p.pid, "name": p.name, "cpu": p.cpu, "mem": p.mem})).collect::<Vec<_>>(),
+                    });
+                    (Some(v), None)
+                },
+            )
+    };
+    if let Some(v) = resp {
         return (StatusCode::OK, Json(v)).into_response();
     }
-    if let Some(err) = live.errors.get(&host) {
+    if let Some(err) = err_opt {
         return (
             StatusCode::SERVICE_UNAVAILABLE,
             Json(serde_json::json!({"error": err})),
@@ -210,17 +222,22 @@ async fn api_history(
     AxPath(host): AxPath<String>,
     headers: HeaderMap,
 ) -> impl IntoResponse {
-    if let Err(code) = check_auth(&headers, &state.token) {
+    if let Err(code) = check_auth(&headers, state.token.as_deref()) {
         return (code, Json(serde_json::json!({"error":"unauthorized"}))).into_response();
     }
-    let live = state.live.read().await;
-    let hist = live.histories.get(&host).or_else(|| {
+    let entry = {
+        let live = state.live.read().await;
         live.histories
-            .iter()
-            .find(|(k, _)| k.contains(&host))
-            .map(|(_, v)| v)
-    });
-    if let Some(h) = hist {
+            .get(&host)
+            .or_else(|| {
+                live.histories
+                    .iter()
+                    .find(|(k, _)| k.contains(&host))
+                    .map(|(_, v)| v)
+            })
+            .cloned()
+    };
+    if let Some(h) = entry {
         return (StatusCode::OK, Json(h)).into_response();
     }
     (
@@ -231,17 +248,19 @@ async fn api_history(
 }
 
 async fn api_mtop_raw(State(state): State<AppState>, headers: HeaderMap) -> impl IntoResponse {
-    if let Err(code) = check_auth(&headers, &state.token) {
+    if let Err(code) = check_auth(&headers, state.token.as_deref()) {
         return (code, Json(serde_json::json!({"error":"unauthorized"}))).into_response();
     }
-    let live = state.live.read().await;
+    let snapshots: Vec<_> = {
+        let live = state.live.read().await;
+        live.snapshots.values().cloned().collect()
+    };
     // Reuse MTOP decoder: re-encode latest snapshots as MTOP then decode as JSON is already done.
     // This endpoint just proves the raw path is reachable; it returns the JSON form of all payloads.
-    let payloads: Vec<serde_json::Value> = live
-        .snapshots
-        .values()
+    let payloads: Vec<serde_json::Value> = snapshots
+        .into_iter()
         .map(|snap| {
-            let payload = Payload::Monitor(snap.clone());
+            let payload = Payload::Monitor(snap);
             let bytes = multitop_agent::proto::encode_packet(&payload);
             // Decode to prove b"MTOP" round-trip, then serialize
             if let Some(Payload::Monitor(decoded)) = multitop_agent::proto::decode_packet(&bytes) {
@@ -268,7 +287,7 @@ pub fn router(state: AppState) -> Router {
 /// Spawn one monitor task per server that updates `live` exactly like the TUI's
 /// `spawn_monitor` but without any `ratatui` rendering. Reuses `ssh::spawn_agent`
 /// + `stream::connect` + `Payload::Hello` validation + `History::record`.
-pub fn spawn_collectors(servers: Vec<Server>, live: SharedState, sort: multitop_agent::SortBy) {
+pub fn spawn_collectors(servers: Vec<Server>, live: &SharedState, sort: multitop_agent::SortBy) {
     use crate::ssh::Mode;
     use crate::stream::{connect, next_packet};
 
@@ -316,18 +335,20 @@ pub fn spawn_collectors(servers: Vec<Server>, live: SharedState, sort: multitop_
                                         break;
                                     }
                                 }
-                                let mut w = live.write().await;
-                                w.snapshots.insert(host_key.clone(), snap.clone());
-                                // Also insert under snap.host for substring matching
-                                w.snapshots.insert(snap.host.clone(), snap.clone());
                                 {
-                                    let hist = w.histories.entry(host_key.clone()).or_default();
-                                    hist.record(&snap);
+                                    let mut w = live.write().await;
+                                    w.snapshots.insert(host_key.clone(), snap.clone());
+                                    // Also insert under snap.host for substring matching
+                                    w.snapshots.insert(snap.host.clone(), snap.clone());
+                                    {
+                                        let hist = w.histories.entry(host_key.clone()).or_default();
+                                        hist.record(&snap);
+                                    }
+                                    let hist_cloned =
+                                        w.histories.get(&host_key).cloned().unwrap_or_default();
+                                    w.histories.insert(snap.host.clone(), hist_cloned);
+                                    w.errors.remove(&host_key);
                                 }
-                                let hist_cloned =
-                                    w.histories.get(&host_key).cloned().unwrap_or_default();
-                                w.histories.insert(snap.host.clone(), hist_cloned);
-                                w.errors.remove(&host_key);
                                 delivered = true;
                             }
                         }
@@ -363,6 +384,10 @@ pub fn spawn_collectors(servers: Vec<Server>, live: SharedState, sort: multitop_
     }
 }
 
+/// Start the HTTP server.
+///
+/// # Errors
+/// Returns an error string if binding the TCP listener or serving requests fails.
 pub async fn serve(addr: SocketAddr, state: AppState) -> Result<(), String> {
     let app = router(state);
     let listener = tokio::net::TcpListener::bind(addr)
@@ -376,6 +401,7 @@ pub async fn serve(addr: SocketAddr, state: AppState) -> Result<(), String> {
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
     use super::*;
     use axum::body::Body;
     use axum::http::Request;
@@ -388,19 +414,21 @@ mod tests {
             servers: vec![Server {
                 host: "test-host".into(),
                 port: 22,
-                user: "".into(),
+                user: String::new(),
                 upgrade_cmd: None,
+                custom_command: None,
             }],
             config: crate::config::Config {
                 servers: vec![],
                 theme: None,
                 upgrade_history_lines: 5000,
                 history_lines_raised_from: None,
-                banner_style: Default::default(),
+                banner_style: crate::layout::BannerStyle::default(),
                 plaintext_passwords: vec![],
                 alert_cpu: None,
                 alert_mem: None,
                 alert_disk: None,
+                alerts: vec![],
             },
         }
     }

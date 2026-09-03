@@ -15,6 +15,7 @@ fn test_server(host: &str) -> Server {
         port: 0,
         user: "testuser".to_string(),
         upgrade_cmd: Some("echo test".to_string()),
+        custom_command: None,
     }
 }
 
@@ -289,6 +290,7 @@ async fn stderr_is_still_read_after_stdout_has_closed() {
         upgrade_cmd: Some(
             "exec 1>&-; sleep 0.2; printf 'the actual reason\\n' >&2; exit 3".to_string(),
         ),
+        custom_command: None,
     };
     let (tx, mut rx) = mpsc::channel::<Msg>(100);
 

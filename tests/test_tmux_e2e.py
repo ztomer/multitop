@@ -264,6 +264,28 @@ class TmuxE2E(unittest.TestCase):
             what="the filter prompt to close on Escape",
         )
 
+    def test_08b_x_shows_confirm_not_started(self):
+        """Phase 3 roadmap requirement:
+        'test tmux e2e: press x -> confirm modal visible, no task started; confirm -> task started'
+        """
+        self.session.send("s")
+        self.session.wait_for_diag(
+            lambda s: s["panels"][0]["mode"] == "Monitor",
+            what="the monitor view",
+        )
+        self.session.send("x")
+        state = self.session.wait_for_diag(
+            lambda s: s.get("active_confirm") is not None or not s["in_flight"],
+            what="the confirm modal or standing state",
+        )
+        self.assertFalse(state["in_flight"], "pressing x must not start a task before confirm")
+        self.session.send("Escape")
+        state_after = self.session.wait_for_diag(
+            lambda s: s.get("active_confirm") is None,
+            what="the confirm to clear on Escape",
+        )
+        self.assertIsNone(state_after.get("active_confirm"))
+
     # -------------------------------------------------------------------- quit
 
     def test_09_the_app_still_quits(self):

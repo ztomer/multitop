@@ -76,7 +76,7 @@ fn parse_cli<I: IntoIterator<Item = String>>(argv: I) -> Startup {
                 // --serve, --serve <addr>, --serve=<addr> all supported.
                 // Use peek to see if next token is an addr (not a flag).
                 let addr = match iter.peek() {
-                    Some(next) if !next.starts_with('-') => iter.next().unwrap(),
+                    Some(next) if !next.starts_with('-') => iter.next().unwrap_or_default(),
                     _ => ":8080".to_string(),
                 };
                 opts.serve_addr = Some(addr);
@@ -89,15 +89,17 @@ fn parse_cli<I: IntoIterator<Item = String>>(argv: I) -> Startup {
                 let rest: Vec<String> = iter.collect();
                 return Startup::Agent(rest);
             }
-            other if other.starts_with("--serve=") => {
-                let addr = other.strip_prefix("--serve=").unwrap().to_string();
-                opts.serve_addr = Some(if addr.is_empty() {
-                    ":8080".to_string()
+            other => {
+                if let Some(addr) = other.strip_prefix("--serve=") {
+                    opts.serve_addr = Some(if addr.is_empty() {
+                        ":8080".to_string()
+                    } else {
+                        addr.to_string()
+                    });
                 } else {
-                    addr
-                });
+                    return Startup::Fail(format!("Unknown argument '{other}'\n\n{USAGE}"));
+                }
             }
-            other => return Startup::Fail(format!("Unknown argument '{other}'\n\n{USAGE}")),
         }
     }
     Startup::Run(opts)
@@ -124,6 +126,7 @@ fn resolve_servers(
         port: 0,
         user: String::new(),
         upgrade_cmd: None,
+        custom_command: None,
     };
     let mut initial_theme: Option<String> = None;
 
@@ -138,6 +141,7 @@ fn resolve_servers(
                 port: 22,
                 user: String::new(),
                 upgrade_cmd: None,
+                custom_command: None,
             })
             .collect();
         if opts.local && !list.iter().any(ssh::is_local) {
@@ -173,6 +177,7 @@ fn resolve_servers(
     Ok((servers, initial_theme))
 }
 
+#[allow(clippy::too_many_lines)]
 fn main() -> ExitCode {
     let opts = match parse_cli(std::env::args().skip(1)) {
         Startup::Run(opts) => opts,
@@ -220,7 +225,7 @@ fn main() -> ExitCode {
 
     // --serve: headless HTTP companion reusing the MTOP pipeline.
     if let Some(addr) = opts.serve_addr.clone() {
-        let token = opts.serve_token.clone().or_else(|| {
+        let token = opts.serve_token.or_else(|| {
             // Auto-generate a token if not supplied, but only when binding to loopback
             // or when explicitly requested. For now, generate if not supplied and print it.
             use std::collections::hash_map::DefaultHasher;
@@ -231,7 +236,7 @@ fn main() -> ExitCode {
                 std::process::id(),
                 std::time::SystemTime::now()
                     .duration_since(std::time::UNIX_EPOCH)
-                    .unwrap()
+                    .unwrap_or_default()
                     .as_nanos()
             )
             .hash(&mut hasher);
@@ -249,24 +254,24 @@ fn main() -> ExitCode {
             alert_cpu: None,
             alert_mem: None,
             alert_disk: None,
+            alerts: vec![],
         });
-        let addr: std::net::SocketAddr = match addr.parse() {
-            Ok(a) => a,
-            Err(_) => {
-                // Allow :8080, 8080, 127.0.0.1:8080
-                let a = if addr.starts_with(':') {
-                    format!("127.0.0.1{addr}")
-                } else if addr.chars().all(|c| c.is_ascii_digit()) {
-                    format!("127.0.0.1:{addr}")
-                } else {
-                    addr.clone()
-                };
-                match a.parse() {
-                    Ok(a) => a,
-                    Err(e) => {
-                        eprintln!("[Error] Invalid --serve address '{addr}': {e}");
-                        return ExitCode::FAILURE;
-                    }
+        let addr: std::net::SocketAddr = if let Ok(a) = addr.parse() {
+            a
+        } else {
+            // Allow :8080, 8080, 127.0.0.1:8080
+            let a = if addr.starts_with(':') {
+                format!("127.0.0.1{addr}")
+            } else if addr.chars().all(|c| c.is_ascii_digit()) {
+                format!("127.0.0.1:{addr}")
+            } else {
+                addr.clone()
+            };
+            match a.parse() {
+                Ok(a) => a,
+                Err(e) => {
+                    eprintln!("[Error] Invalid --serve address '{addr}': {e}");
+                    return ExitCode::FAILURE;
                 }
             }
         };
@@ -298,10 +303,8 @@ fn main() -> ExitCode {
             };
             // Sort for collectors
             let sort = multitop_agent::SortBy::Cpu;
-            multitop::server::spawn_collectors(servers, live, sort);
-            multitop::server::serve(addr, app_state)
-                .await
-                .map_err(|e| e.to_string())
+            multitop::server::spawn_collectors(servers, &live, sort);
+            multitop::server::serve(addr, app_state).await
         });
         return match code {
             Ok(()) => ExitCode::SUCCESS,

@@ -29,18 +29,21 @@ fn local_server_deduplication() {
         port: 0,
         user: String::new(),
         upgrade_cmd: None,
+        custom_command: None,
     };
     let s2 = Server {
         host: "localhost".into(),
         port: 22,
         user: String::new(),
         upgrade_cmd: None,
+        custom_command: None,
     };
     let s3 = Server {
         host: "192.168.0.33".into(),
         port: 22,
         user: String::new(),
         upgrade_cmd: None,
+        custom_command: None,
     };
 
     let mut servers = vec![s1, s2, s3];
@@ -126,6 +129,7 @@ fn a_state_write_that_failed_is_reported() {
         port: 22,
         user: "admin".to_string(),
         upgrade_cmd: Some("apt upgrade".to_string()),
+        custom_command: None,
     }]);
 
     // A config path whose parent is a regular file: `save_state` cannot create
@@ -176,6 +180,7 @@ fn the_failed_state_write_notice_survives_confirm_upgrade() {
         port: 22,
         user: "admin".to_string(),
         upgrade_cmd: Some("apt upgrade".to_string()),
+        custom_command: None,
     }]);
 
     let blocker =

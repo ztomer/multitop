@@ -56,6 +56,7 @@ pub fn parse_ssh_config(text: &str) -> Vec<Server> {
                         port: current_port,
                         user: current_user.clone(),
                         upgrade_cmd: None,
+                        custom_command: None,
                     });
                 }
                 let first_host = parts.next().unwrap_or("");
@@ -93,6 +94,7 @@ pub fn parse_ssh_config(text: &str) -> Vec<Server> {
             port: current_port,
             user: current_user,
             upgrade_cmd: None,
+            custom_command: None,
         });
     }
 

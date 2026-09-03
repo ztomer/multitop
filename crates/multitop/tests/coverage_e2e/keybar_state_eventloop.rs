@@ -15,7 +15,11 @@ fn keybar_badges_shed_whole() {
     let accent = Color::Yellow;
 
     let badges = keybar_badges(SortBy::Cpu, pal, label, key_hi, sort_label, accent);
-    assert_eq!(badges.len(), 5, "five badges: H Alerts, y Yank, Settings, Theme, Sort");
+    assert_eq!(
+        badges.len(),
+        5,
+        "five badges: H Alerts, y Yank, Settings, Theme, Sort"
+    );
     // Each badge has (width, spans).
     for (w, spans) in &badges {
         assert!(*w > 0);
@@ -99,7 +103,8 @@ async fn state_save_and_load_roundtrip() {
         selected_host: None,
         filter_query: None,
         sort: None,
-        views: Default::default(),
+        views: std::collections::BTreeMap::default(),
+        saved_filters: vec![],
     };
 
     multitop::state::save_state(&config_path, &state).expect("save ok");
@@ -171,6 +176,7 @@ fn event_loop_test_server(port_offset: u16) -> Server {
         port: 0,
         user: "testuser".into(),
         upgrade_cmd: Some("true".into()),
+        custom_command: None,
     }
 }
 

@@ -16,6 +16,7 @@ fn no_upgrade_server(host: &str) -> Server {
         port: 22,
         user: String::new(),
         upgrade_cmd: None,
+        custom_command: None,
     }
 }
 

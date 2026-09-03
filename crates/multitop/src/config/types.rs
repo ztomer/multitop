@@ -18,12 +18,16 @@ impl std::fmt::Display for ConfigError {
 
 impl std::error::Error for ConfigError {}
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct Server {
     pub host: String,
     pub port: u16,
     pub user: String,
     pub upgrade_cmd: Option<String>,
+    /// `[[panels]] command="nvidia-smi …"` per roadmap Phase 3 — when present
+    /// the panel runs this command on the host every `250ms` via the `Exec` pty
+    /// and is rendered as a `Fetch` card.
+    pub custom_command: Option<String>,
 }
 
 impl Server {
@@ -38,6 +42,12 @@ impl Server {
     }
 }
 
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct AlertTarget {
+    pub webhook: Option<String>,
+    pub desktop: bool,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Config {
     pub servers: Vec<Server>,
@@ -49,6 +59,7 @@ pub struct Config {
     pub alert_cpu: Option<u8>,
     pub alert_mem: Option<u8>,
     pub alert_disk: Option<u8>,
+    pub alerts: Vec<AlertTarget>,
 }
 
 pub fn default_config_path() -> PathBuf {

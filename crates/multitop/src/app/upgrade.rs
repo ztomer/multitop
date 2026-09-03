@@ -39,6 +39,7 @@ impl App {
             record: self.host_update(panel),
             credential,
             running,
+            upgradable: p.upgradable.clone(),
         };
 
         crate::upgrade_view::header(&status, pal, Self::now_secs(), 0)
@@ -272,6 +273,7 @@ impl App {
                 .get(self.selected_panel)
                 .map(|p| crate::password_store::account(&p.server)),
             filter_query: Some(self.filter_query.clone()).filter(|s| !s.trim().is_empty()),
+            saved_filters: self.saved_filters.clone(),
             sort: Some(self.sort.word().to_string()),
             views: self
                 .panels

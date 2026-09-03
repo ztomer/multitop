@@ -347,6 +347,10 @@ def parse_dump(text):
                 "scroll": int(match.group("scroll")),
             }
         )
+    if "active_confirm: Some(" in text:
+        state["active_confirm"] = text.split("active_confirm: ")[1].split("\n")[0].strip()
+    else:
+        state["active_confirm"] = None
     return state
 
 

@@ -19,6 +19,7 @@ fn one_notice_is_one_notice_across_views() {
         port: 22,
         user: "admin".to_string(),
         upgrade_cmd: Some("apt upgrade".to_string()),
+        custom_command: None,
     }]);
     app.panels[0].note(N.to_string());
     app.enter_upgrade_view();

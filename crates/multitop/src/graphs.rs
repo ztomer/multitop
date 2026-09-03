@@ -24,6 +24,17 @@ const BRAILLE_BASE: u32 = 0x2800;
 /// Where a clock reads better in gigahertz than in megahertz.
 const GHZ_IN_MHZ: f64 = 1000.0;
 
+/// Default 30-minute alert history window at ~2s per sample: 900 samples.
+pub const ALERT_HISTORY_WINDOW_SAMPLES: usize = 900;
+
+#[derive(Clone, Copy, Default)]
+pub struct AlertConfig {
+    pub cpu: Option<u8>,
+    pub mem: Option<u8>,
+    pub disk: Option<u8>,
+    pub vault_locked: bool,
+}
+
 /// Bit for each dot, indexed `[column][row]`.
 ///
 /// Braille numbers its dots 1-6 down the two columns and adds 7 and 8 at the
@@ -254,6 +265,91 @@ pub fn render_graphs_with_zoom(
         pal,
     ));
     with_head(out, lines)
+}
+
+/// `H` view: last 30 m breach sparkline.
+///
+/// Reuses `History` and per-metric thresholds, not new agent fields. Each
+/// sample becomes 100 (breaching) or 0 (healthy) against `alert_cpu/mem/disk`
+/// and `vault_locked`; the graph is the 30 m history of "is this host
+/// unhealthy". Right-aligned, 30 min = 900 samples at ~2 s.
+#[must_use]
+pub fn render_alerts(
+    history: &History,
+    cols: usize,
+    rows: usize,
+    pal: &Palette,
+    cfg: AlertConfig,
+) -> Vec<String> {
+    let mut out = vec![String::new()];
+    if history.is_empty() {
+        out.push(format!(
+            "{}\u{2192} Alerts: no samples yet -- waiting for first Monitor packet{}",
+            pal.muted(),
+            pal.reset
+        ));
+        return out;
+    }
+    let body = rows.saturating_sub(1);
+    if body == 0 {
+        return out;
+    }
+
+    let cpu_alert = f64::from(cfg.cpu.unwrap_or(80));
+    let mem_alert = f64::from(cfg.mem.unwrap_or(85));
+    let disk_alert = f64::from(cfg.disk.unwrap_or(90));
+    // 30 min at ~2 s: 900 samples. Clamp to what history has.
+    let window = ALERT_HISTORY_WINDOW_SAMPLES;
+    let cpus = history.cpu.tail(window);
+    let mems = history.mem.tail(window);
+    let disks = history.disk.tail(window);
+    let n = cpus.len().max(mems.len()).max(disks.len());
+    let mut samples = Vec::with_capacity(n);
+    let breaching_now = cpus.last().copied().unwrap_or(0.0) >= cpu_alert
+        || mems.last().copied().unwrap_or(0.0) >= mem_alert
+        || disks.last().copied().unwrap_or(0.0) >= disk_alert
+        || cfg.vault_locked;
+    let breaches = cpus
+        .iter()
+        .zip(mems.iter().chain(std::iter::repeat(&0.0)))
+        .zip(disks.iter().chain(std::iter::repeat(&0.0)))
+        .map(|((c, m), d)| {
+            if *c >= cpu_alert || *m >= mem_alert || *d >= disk_alert || cfg.vault_locked {
+                100.0
+            } else {
+                0.0
+            }
+        })
+        .collect::<Vec<_>>();
+    // Pad to n if histories unequal (mhz-style); not needed but keeps alignment.
+    samples.extend(breaches);
+    while samples.len() < n {
+        samples.push(if cfg.vault_locked { 100.0 } else { 0.0 });
+    }
+    let breaching_count = samples.iter().filter(|v| **v > 0.0).count();
+    let reading = if breaching_now {
+        format!("breaching {breaching_count}/{n}")
+    } else {
+        format!("ok {breaching_count}/{n} breaching")
+    };
+    let colour = if breaching_now {
+        pal.meter_high()
+    } else {
+        pal.meter_low()
+    };
+    out.extend(plot(
+        &Plot {
+            heading: "ALERTS 30m",
+            reading: &reading,
+            samples: &samples,
+            max: 100.0,
+            colour,
+        },
+        cols,
+        body,
+        pal,
+    ));
+    out
 }
 
 /// The CPU plot, named once because both layouts draw it.

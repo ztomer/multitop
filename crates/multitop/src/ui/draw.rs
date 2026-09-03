@@ -1,5 +1,6 @@
 use crate::ansi;
 use crate::app::App;
+use crate::modals::Waiting;
 use crate::ui::keybar::{badge_span, keybar_content};
 use crate::ui::layout::{regions, SIDE_MARGIN};
 use crate::ui::windowing::pane_lines;
@@ -69,7 +70,6 @@ fn draw_modals(f: &mut Frame, app: &App) {
         crate::modals::draw_command_palette(f, app);
         return;
     }
-    use crate::modals::Waiting;
     let waiting = if app.vault_create_in_flight() {
         Some(Waiting::Creating)
     } else if app.vault_verifying() {
@@ -195,8 +195,11 @@ pub fn draw(f: &mut Frame, app: &mut App) {
                         alert_cpu: app.alert_cpu,
                         alert_mem: app.alert_mem,
                         alert_disk: app.alert_disk,
+                        alerts: app.alert_targets.clone(),
                     };
-                    let h = crate::health::health(snap, &cfg);
+                    let vault_locked = app.vault.is_some()
+                        && matches!(app.vault_state, crate::app::VaultState::Locked);
+                    let h = crate::health::health_with_vault(snap, &cfg, vault_locked);
                     if h < crate::health::HEALTH_RED_BELOW {
                         Some(Color::Red)
                     } else if h < crate::health::HEALTH_YELLOW_BELOW {
@@ -214,19 +217,7 @@ pub fn draw(f: &mut Frame, app: &mut App) {
                 let right_rule_len = rem - left_rule_len;
 
                 let fw = &server_target;
-                let (name_open, name_close) = if let Some(c) = alert_color {
-                    let code = match c {
-                        Color::Red => "\x1b[38;2;255;85;85m",
-                        Color::Yellow => "\x1b[38;2;241;250;140m",
-                        _ => theme.primary(),
-                    };
-                    (format!("{code}{}", theme.bold), theme.reset.to_string())
-                } else {
-                    (
-                        format!("{}{}", theme.primary(), theme.bold),
-                        theme.reset.to_string(),
-                    )
-                };
+                let (name_open, name_close) = header_name_color(alert_color, theme);
 
                 // A space either side of the name. `space_needed` has always
                 // budgeted two and only one was emitted, so the rule was a
@@ -250,19 +241,7 @@ pub fn draw(f: &mut Frame, app: &mut App) {
                 // Not `center_header`: that is the agent's own helper and maps
                 // the name into fullwidth glyphs, which is the defect this
                 // branch also had.
-                let (name_open2, name_close2) = if let Some(c) = alert_color {
-                    let code = match c {
-                        Color::Red => "\x1b[38;2;255;85;85m",
-                        Color::Yellow => "\x1b[38;2;241;250;140m",
-                        _ => theme.primary(),
-                    };
-                    (format!("{code}{}", theme.bold), theme.reset.to_string())
-                } else {
-                    (
-                        format!("{}{}", theme.primary(), theme.bold),
-                        theme.reset.to_string(),
-                    )
-                };
+                let (name_open2, name_close2) = header_name_color(alert_color, theme);
                 lines[0] = format!(
                     "{}{}{}{}{}",
                     name_open2,
@@ -297,4 +276,24 @@ pub fn draw(f: &mut Frame, app: &mut App) {
     );
 
     draw_modals(f, app);
+}
+
+fn header_name_color(
+    alert_color: Option<ratatui::style::Color>,
+    theme: &multitop_agent::color::Palette,
+) -> (String, String) {
+    match alert_color {
+        Some(ratatui::style::Color::Red) => (
+            format!("\x1b[38;2;255;85;85m{}", theme.bold),
+            theme.reset.to_string(),
+        ),
+        Some(ratatui::style::Color::Yellow) => (
+            format!("\x1b[38;2;241;250;140m{}", theme.bold),
+            theme.reset.to_string(),
+        ),
+        _ => (
+            format!("{}{}", theme.primary(), theme.bold),
+            theme.reset.to_string(),
+        ),
+    }
 }

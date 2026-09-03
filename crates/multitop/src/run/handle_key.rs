@@ -57,12 +57,7 @@ pub fn handle_key(
     if app.help_visible {
         if matches!(
             key.code,
-            KeyCode::Char('?')
-                | KeyCode::Char('h')
-                | KeyCode::Char('H')
-                | KeyCode::Esc
-                | KeyCode::Char('q')
-                | KeyCode::Char('Q')
+            KeyCode::Char('?' | 'h' | 'H' | 'q' | 'Q') | KeyCode::Esc
         ) {
             app.help_visible = false;
         }
@@ -125,6 +120,82 @@ pub fn handle_key(
                 KeyCode::Char('q' | 'Q') => app.quit(),
                 KeyCode::Char('c') if key.modifiers.contains(KeyModifiers::CONTROL) => app.quit(),
                 KeyCode::Esc => app.cancel_quit(),
+                _ => {}
+            }
+            return;
+        }
+        Some(Confirm::Kill) => {
+            match key.code {
+                // Same discipline as Upgrade: only the advertised key kills.
+                // `Enter` is what an operator hits to dismiss, not to authorize
+                // `kill -9` on a production pid.
+                KeyCode::Char('k' | 'K' | 'x' | 'X') => {
+                    if let Some(ec) = app.kill_confirm.take() {
+                        if ec.kind == crate::app::ExecKind::Kill && ec.panel < app.panels.len() {
+                            let gen = app.bump(ec.panel);
+                            let server = app.panels[ec.panel].server.clone();
+                            let pass = app.panels[ec.panel].sudo_password.clone();
+                            let handle = crate::tasks::spawn_kill(
+                                ec.panel,
+                                gen,
+                                server,
+                                ec.pid,
+                                ec.name,
+                                pass,
+                                tx.clone(),
+                            );
+                            tasks.set_aux(ec.panel, handle);
+                        } else {
+                            // Wrong key for armed action — re-arm.
+                            app.kill_confirm = Some(ec);
+                        }
+                    }
+                }
+                KeyCode::Char('o' | 'O') => {
+                    if let Some(ec) = app.kill_confirm.take() {
+                        if ec.kind == crate::app::ExecKind::Journal && ec.panel < app.panels.len() {
+                            let gen = app.bump(ec.panel);
+                            let server = app.panels[ec.panel].server.clone();
+                            let pass = app.panels[ec.panel].sudo_password.clone();
+                            let handle = crate::tasks::spawn_journal(
+                                ec.panel,
+                                gen,
+                                server,
+                                ec.pid,
+                                ec.name,
+                                pass,
+                                tx.clone(),
+                            );
+                            tasks.set_aux(ec.panel, handle);
+                        } else {
+                            app.kill_confirm = Some(ec);
+                        }
+                    }
+                }
+                KeyCode::Char('r' | 'R') => {
+                    if let Some(ec) = app.kill_confirm.take() {
+                        if ec.kind == crate::app::ExecKind::Renice && ec.panel < app.panels.len() {
+                            let gen = app.bump(ec.panel);
+                            let server = app.panels[ec.panel].server.clone();
+                            let pass = app.panels[ec.panel].sudo_password.clone();
+                            let handle = crate::tasks::spawn_renice(
+                                ec.panel,
+                                gen,
+                                server,
+                                ec.pid,
+                                ec.name,
+                                pass,
+                                tx.clone(),
+                            );
+                            tasks.set_aux(ec.panel, handle);
+                        } else {
+                            app.kill_confirm = Some(ec);
+                        }
+                    }
+                }
+                KeyCode::Esc | KeyCode::Char('q' | 'Q' | 'n' | 'N') => {
+                    app.kill_confirm = None;
+                }
                 _ => {}
             }
             return;
@@ -296,6 +367,18 @@ pub fn handle_key(
     // single-letter bindings below -- otherwise a host called "docker" could
     // not be typed without switching views half way through.
     if app.is_filtering() {
+        // Ctrl-S saves the current query into the 1..3 slots.
+        if key.code == KeyCode::Char('s') && key.modifiers.contains(KeyModifiers::CONTROL) {
+            let q = app.filter_query.trim().to_string();
+            if !q.is_empty() && !app.saved_filters.contains(&q) {
+                if app.saved_filters.len() >= 3 {
+                    app.saved_filters.remove(0);
+                }
+                app.saved_filters.push(q);
+                app.persist_state();
+            }
+            return;
+        }
         match key.code {
             KeyCode::Esc => {
                 app.filter_query.clear();
@@ -314,6 +397,30 @@ pub fn handle_key(
         clamp_selection_to_filter(app);
         app.persist_state();
         return;
+    }
+    // Ctrl-S outside filtering also saves the applied query.
+    if key.code == KeyCode::Char('s') && key.modifiers.contains(KeyModifiers::CONTROL) {
+        let q = app.filter_query.trim().to_string();
+        if !q.is_empty() && !app.saved_filters.contains(&q) {
+            if app.saved_filters.len() >= 3 {
+                app.saved_filters.remove(0);
+            }
+            app.saved_filters.push(q);
+            app.persist_state();
+        }
+        return;
+    }
+    // Ctrl-1..3 recalls a saved filter (1 is most recent when only one).
+    if key.modifiers.contains(KeyModifiers::CONTROL) {
+        if let KeyCode::Char(c @ '1'..='3') = key.code {
+            let idx = (c as usize) - ('1' as usize);
+            if let Some(q) = app.saved_filters.get(idx).cloned() {
+                app.filter_query = q;
+                clamp_selection_to_filter(app);
+                app.persist_state();
+            }
+            return;
+        }
     }
 
     match key.code {
@@ -393,14 +500,16 @@ pub fn handle_key(
             app.rerender_all(dims);
             return;
         }
-        KeyCode::Char('+') | KeyCode::Char('=') => {
+        KeyCode::Char('+' | '=') => {
             if app.in_graphs() || app.in_alerts() {
-                app.graph_zoom = (app.graph_zoom + 1).clamp(1, 4);
+                // 4096 samples ≈2.2 h; 80 cols*2*16=2560 ≈1.4 h, 1..16 covers
+                // ~10 s to ~1 h at 80 cols, validated against bench.
+                app.graph_zoom = (app.graph_zoom + 1).clamp(1, 16);
                 app.rerender_all(dims);
             }
             return;
         }
-        KeyCode::Char('-') | KeyCode::Char('_') => {
+        KeyCode::Char('-' | '_') => {
             if app.in_graphs() || app.in_alerts() {
                 app.graph_zoom = app.graph_zoom.saturating_sub(1).max(1);
                 app.rerender_all(dims);
@@ -417,6 +526,92 @@ pub fn handle_key(
                 let _ = cmd;
             }
             app.persist_state();
+            return;
+        }
+        KeyCode::Char('x' | 'X') => {
+            // Top process on the selected host, per current sort, as `host:pid:name`
+            // guarded by the same Confirm pattern as Upgrade (`Confirm::Kill`).
+            if let Some(panel) = app.panels.get(app.selected_panel) {
+                if let Some(multitop_agent::proto::Payload::Monitor(snap)) = &panel.last_monitor {
+                    let mut procs = snap.procs.clone();
+                    match app.sort {
+                        SortBy::Cpu => procs.sort_by(|a, b| {
+                            b.cpu
+                                .partial_cmp(&a.cpu)
+                                .unwrap_or(std::cmp::Ordering::Equal)
+                        }),
+                        SortBy::Mem => procs.sort_by_key(|a| std::cmp::Reverse(a.mem)),
+                    }
+                    if let Some(top) = procs.first() {
+                        app.kill_confirm = Some(crate::app::ExecConfirm {
+                            panel: app.selected_panel,
+                            pid: top.pid,
+                            name: top.name.clone(),
+                            kind: crate::app::ExecKind::Kill,
+                        });
+                    }
+                }
+            }
+            return;
+        }
+        KeyCode::Char('o' | 'O') => {
+            if let Some(panel) = app.panels.get(app.selected_panel) {
+                if let Some(multitop_agent::proto::Payload::Monitor(snap)) = &panel.last_monitor {
+                    let mut procs = snap.procs.clone();
+                    match app.sort {
+                        SortBy::Cpu => procs.sort_by(|a, b| {
+                            b.cpu
+                                .partial_cmp(&a.cpu)
+                                .unwrap_or(std::cmp::Ordering::Equal)
+                        }),
+                        SortBy::Mem => procs.sort_by_key(|a| std::cmp::Reverse(a.mem)),
+                    }
+                    if let Some(top) = procs.first() {
+                        app.kill_confirm = Some(crate::app::ExecConfirm {
+                            panel: app.selected_panel,
+                            pid: top.pid,
+                            name: top.name.clone(),
+                            kind: crate::app::ExecKind::Journal,
+                        });
+                    }
+                }
+            }
+            return;
+        }
+        KeyCode::Char('r' | 'R') => {
+            if let Some(panel) = app.panels.get(app.selected_panel) {
+                if let Some(multitop_agent::proto::Payload::Monitor(snap)) = &panel.last_monitor {
+                    let mut procs = snap.procs.clone();
+                    match app.sort {
+                        SortBy::Cpu => procs.sort_by(|a, b| {
+                            b.cpu
+                                .partial_cmp(&a.cpu)
+                                .unwrap_or(std::cmp::Ordering::Equal)
+                        }),
+                        SortBy::Mem => procs.sort_by_key(|a| std::cmp::Reverse(a.mem)),
+                    }
+                    if let Some(top) = procs.first() {
+                        app.kill_confirm = Some(crate::app::ExecConfirm {
+                            panel: app.selected_panel,
+                            pid: top.pid,
+                            name: top.name.clone(),
+                            kind: crate::app::ExecKind::Renice,
+                        });
+                    }
+                }
+            }
+            return;
+        }
+        KeyCode::Char('l' | 'L') => {
+            // `tail -n 200 -F /var/log/syslog` as framed Exec — Painter+RingLines reuse.
+            if app.selected_panel < app.panels.len() {
+                let panel = app.selected_panel;
+                let gen = app.bump(panel);
+                let server = app.panels[panel].server.clone();
+                let pass = app.panels[panel].sudo_password.clone();
+                let handle = crate::tasks::spawn_tail(panel, gen, server, pass, tx.clone());
+                tasks.set_aux(panel, handle);
+            }
             return;
         }
         KeyCode::Enter | KeyCode::Char('z' | 'Z') => {
@@ -455,6 +650,7 @@ pub fn handle_key(
         KeyCode::Char('f' | 'F') => app.toggle_fetch(dims),
         KeyCode::Char('d' | 'D') => app.toggle_docker(dims),
         KeyCode::Char('g' | 'G') => app.toggle_graphs(dims),
+        KeyCode::Char('h' | 'H') => app.toggle_alerts(dims),
         KeyCode::Char('s' | 'S') => app.switch_stats(),
         // `u` is deliberately two presses, and the rule does not depend on
         // whether an upgrade has run before:
@@ -473,6 +669,18 @@ pub fn handle_key(
             if !app.in_upgrade() {
                 let loads = app.enter_upgrade_view();
                 app.dispatch_credential_loads(loads, tx);
+                for i in app.filtered_indices() {
+                    if app.panels[i].upgradable.is_none()
+                        && app.panels[i].server.upgrade_cmd.is_some()
+                    {
+                        let _ = crate::tasks::spawn_upgradable_check(
+                            i,
+                            app.panels[i].gen,
+                            app.panels[i].server.clone(),
+                            tx.clone(),
+                        );
+                    }
+                }
             } else if app.upgrades_in_flight() {
                 // Already running — don't start another.
             } else if !app.upgrade_runnable() {
@@ -512,7 +720,7 @@ pub fn handle_key(
     if !cmds.is_empty()
         || matches!(
             key.code,
-            KeyCode::Char('f' | 'F' | 'd' | 'D' | 'g' | 'G' | 's' | 'S' | 'u' | 'U')
+            KeyCode::Char('f' | 'F' | 'd' | 'D' | 'g' | 'G' | 'h' | 'H' | 's' | 'S' | 'u' | 'U')
         )
     {
         app.persist_state();
@@ -585,8 +793,8 @@ fn execute_palette_command(
     tasks: &mut Tasks,
 ) {
     let input = input.trim().to_lowercase();
-    if input.starts_with("filter ") {
-        app.filter_query = input["filter ".len()..].to_string();
+    if let Some(stripped) = input.strip_prefix("filter ") {
+        app.filter_query = stripped.to_string();
         clamp_selection_to_filter(app);
         app.persist_state();
     } else if input == "filter" || input == "clear filter" {

@@ -1,13 +1,16 @@
 //! Long-running tasks: SSH command execution and output streaming.
 
+mod exec_runner;
+mod kill;
 mod painted;
 mod spawn;
 mod upgrade;
 mod verdict;
 
+pub use kill::{spawn_custom, spawn_journal, spawn_kill, spawn_renice, spawn_tail};
 pub use painted::*;
 pub use spawn::{spawn_docker, spawn_fetch};
-pub use upgrade::spawn_upgrade;
+pub use upgrade::{spawn_upgradable_check, spawn_upgrade};
 
 #[cfg(test)]
 mod tests {

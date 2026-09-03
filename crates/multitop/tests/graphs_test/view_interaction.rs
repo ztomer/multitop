@@ -180,3 +180,17 @@ async fn the_keybar_offers_the_graph_view() {
     let text: String = line.spans.iter().map(|s| s.content.as_ref()).collect();
     assert!(text.contains("raphs"), "no way to discover `G`: {text:?}");
 }
+
+#[tokio::test]
+async fn h_puts_every_panel_into_alerts_view() {
+    let _g = isolate().await;
+    let mut app = App::new(vec![test_server("alpha")]);
+    let (tx, _rx) = mpsc::channel::<Msg>(16);
+    let mut tasks = Tasks::new(1);
+
+    press(&mut app, KeyCode::Char('h'), &tx, &mut tasks);
+    assert!(app.in_alerts());
+    assert_eq!(app.panels[0].mode, Mode::Alerts);
+    app.cycle_theme();
+    app.rerender_all((80, 24));
+}

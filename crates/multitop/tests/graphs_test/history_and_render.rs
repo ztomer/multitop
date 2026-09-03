@@ -319,3 +319,78 @@ fn a_single_row_pane_is_a_heading_and_no_plot() {
     h.record(&snapshot(60.0, 10, 0.0, 0.0));
     assert_eq!(render_graphs(&h, 30, 1, PLAIN).len(), 1);
 }
+
+#[test]
+fn render_alerts_empty_and_active() {
+    let empty_h = History::default();
+    let res = multitop::graphs::render_alerts(
+        &empty_h,
+        40,
+        10,
+        PLAIN,
+        multitop::graphs::AlertConfig::default(),
+    );
+    assert!(res.join("\n").contains("waiting for first Monitor packet"));
+
+    assert_eq!(
+        multitop::graphs::render_alerts(
+            &empty_h,
+            40,
+            0,
+            PLAIN,
+            multitop::graphs::AlertConfig::default(),
+        )
+        .len(),
+        2
+    );
+
+    let mut h = History::default();
+    for i in 0..15 {
+        h.record(&snapshot(f64::from(i) * 5.0, 20, 0.0, 0.0));
+    }
+    let res = multitop::graphs::render_alerts(
+        &h,
+        40,
+        10,
+        PLAIN,
+        multitop::graphs::AlertConfig {
+            cpu: Some(50),
+            mem: Some(85),
+            disk: Some(90),
+            vault_locked: false,
+        },
+    );
+    let text = res.join("\n");
+    assert!(text.contains("ALERTS 30m"), "{text}");
+    assert!(text.contains("breaching"), "{text}");
+
+    let res = multitop::graphs::render_alerts(
+        &h,
+        40,
+        10,
+        PLAIN,
+        multitop::graphs::AlertConfig {
+            cpu: Some(99),
+            mem: Some(99),
+            disk: Some(99),
+            vault_locked: false,
+        },
+    );
+    let text2 = res.join("\n");
+    assert!(text2.contains("ok"), "{text2}");
+
+    let res = multitop::graphs::render_alerts(
+        &h,
+        40,
+        10,
+        PLAIN,
+        multitop::graphs::AlertConfig {
+            cpu: Some(99),
+            mem: Some(99),
+            disk: Some(99),
+            vault_locked: true,
+        },
+    );
+    let text3 = res.join("\n");
+    assert!(text3.contains("breaching"), "{text3}");
+}

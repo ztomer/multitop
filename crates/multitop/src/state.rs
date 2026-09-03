@@ -61,6 +61,8 @@ pub struct AppState {
     pub sort: Option<String>,
     /// Per-host view (`monitor`/`docker`/`fetch`/`graphs`/`upgrade`), keyed by `user@host:port`.
     pub views: BTreeMap<String, String>,
+    /// Saved filter queries, up to 3, via Ctrl-S.
+    pub saved_filters: Vec<String>,
 }
 
 #[must_use]
@@ -192,6 +194,19 @@ pub fn load_state(config_path: &Path) -> StateLoad {
         }
     }
 
+    let saved_filters = val
+        .as_table()
+        .and_then(|t| t.get("saved_filters"))
+        .and_then(toml::Value::as_array)
+        .map(|arr| {
+            arr.iter()
+                .filter_map(toml::Value::as_str)
+                .map(ToString::to_string)
+                .take(3)
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
+
     StateLoad {
         state: AppState {
             last_update,
@@ -201,6 +216,7 @@ pub fn load_state(config_path: &Path) -> StateLoad {
             filter_query,
             sort,
             views,
+            saved_filters,
         },
         notice: None,
     }
@@ -255,6 +271,15 @@ pub fn save_state(config_path: &Path, state: &AppState) -> Result<(), String> {
             views.insert(k.clone(), toml::Value::String(v.clone()));
         }
         table.insert("views".to_string(), toml::Value::Table(views));
+    }
+    if !state.saved_filters.is_empty() {
+        let arr = state
+            .saved_filters
+            .iter()
+            .take(3)
+            .map(|s| toml::Value::String(s.clone()))
+            .collect::<Vec<_>>();
+        table.insert("saved_filters".to_string(), toml::Value::Array(arr));
     }
 
     let content = toml::to_string(&table).map_err(|e| e.to_string())?;
@@ -329,6 +354,7 @@ mod tests {
             filter_query: None,
             sort: None,
             views: BTreeMap::new(),
+            saved_filters: Vec::new(),
         };
 
         save_state(&config_path, &state).unwrap();
@@ -373,6 +399,7 @@ mod tests {
             filter_query: None,
             sort: None,
             views: BTreeMap::new(),
+            saved_filters: Vec::new(),
         };
         save_state(&config_path, &state).unwrap();
         let loaded = load_state(&config_path);
@@ -458,6 +485,7 @@ mod tests {
             filter_query: None,
             sort: None,
             views: BTreeMap::new(),
+            saved_filters: Vec::new(),
         };
 
         save_state(&config_path, &state).unwrap();
@@ -487,6 +515,7 @@ mod tests {
             filter_query: Some("beelink".to_string()),
             sort: Some("mem".to_string()),
             views,
+            saved_filters: Vec::new(),
         };
 
         save_state(&config_path, &state).unwrap();

@@ -12,6 +12,7 @@ fn test_server(host: &str, user: &str, port: u16, upgrade_cmd: Option<&str>) -> 
         user: user.to_string(),
         port,
         upgrade_cmd: upgrade_cmd.map(String::from),
+        custom_command: None,
     }
 }
 

@@ -3,6 +3,7 @@
 #![allow(clippy::missing_const_for_fn)]
 
 mod apply;
+mod render;
 mod types;
 mod upgrade;
 mod vault;
@@ -10,8 +11,9 @@ mod views;
 
 pub use crate::panel::{Mode, Panel};
 pub use crate::types::{Command, Msg};
-pub use types::{AppMode, Confirm, VaultState};
+pub use types::{AppMode, Confirm, ExecConfirm, ExecKind, VaultState};
 
+#[allow(clippy::struct_excessive_bools)]
 pub struct App {
     pub panels: Vec<Panel>,
     pub selected_panel: usize,
@@ -41,6 +43,10 @@ pub struct App {
     pub alert_cpu: Option<u8>,
     pub alert_mem: Option<u8>,
     pub alert_disk: Option<u8>,
+    pub alert_targets: Vec<crate::config::AlertTarget>,
+    pub saved_filters: Vec<String>,
+    /// `x/o/r` armed for `host:pid:name` per roadmap Phase 3.
+    pub kill_confirm: Option<ExecConfirm>,
 }
 
 pub const LOG_AMORTIZE: usize = 512;

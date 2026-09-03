@@ -44,6 +44,7 @@ fn test_server(host: &str) -> Server {
         port: next_port(),
         user: "admin".to_string(),
         upgrade_cmd: Some("sudo apt update".to_string()),
+        custom_command: None,
     }
 }
 

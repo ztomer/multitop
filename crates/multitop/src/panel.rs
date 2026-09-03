@@ -194,17 +194,20 @@ impl Mode {
             Self::Alerts => "alerts",
         }
     }
+}
 
-    #[must_use]
-    pub fn from_str(s: &str) -> Option<Self> {
+impl std::str::FromStr for Mode {
+    type Err = ();
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s {
-            "monitor" => Some(Self::Monitor),
-            "docker" => Some(Self::Docker),
-            "fetch" => Some(Self::Fetch),
-            "upgrade" => Some(Self::Upgrade),
-            "graphs" => Some(Self::Graphs),
-            "alerts" => Some(Self::Alerts),
-            _ => None,
+            "monitor" => Ok(Self::Monitor),
+            "docker" => Ok(Self::Docker),
+            "fetch" => Ok(Self::Fetch),
+            "upgrade" => Ok(Self::Upgrade),
+            "graphs" => Ok(Self::Graphs),
+            "alerts" => Ok(Self::Alerts),
+            _ => Err(()),
         }
     }
 }
@@ -272,6 +275,7 @@ pub struct Panel {
     /// -- "a message built, stored, and never drawn" -- reached by the other
     /// door: not written to the wrong buffer, written to one that is rebuilt.
     pub notes: Vec<String>,
+    pub upgradable: Option<String>,
 }
 
 /// How many notices a pane carries. They are all things the user has to act on,
@@ -315,6 +319,7 @@ impl Panel {
             external_password: false,
             password_checked: false,
             password_checking: false,
+            upgradable: None,
         }
     }
 

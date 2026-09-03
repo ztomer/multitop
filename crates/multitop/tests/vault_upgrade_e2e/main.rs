@@ -44,12 +44,14 @@ fn test_servers() -> Vec<Server> {
             port: 22,
             user: "testuser".into(),
             upgrade_cmd: Some("echo upgrade-1".into()),
+            custom_command: None,
         },
         Server {
             host: "test-host-2".into(),
             port: 22,
             user: "testuser".into(),
             upgrade_cmd: Some("echo upgrade-2".into()),
+            custom_command: None,
         },
     ]
 }
@@ -101,11 +103,12 @@ async fn app_with_vault(
         theme: None,
         upgrade_history_lines: 5000,
         history_lines_raised_from: None,
-        banner_style: Default::default(),
+        banner_style: multitop::layout::BannerStyle::default(),
         plaintext_passwords: Vec::new(),
         alert_cpu: None,
         alert_mem: None,
         alert_disk: None,
+        alerts: Vec::new(),
     };
     multitop::config::save_servers(&config_path, &config.servers).unwrap();
 

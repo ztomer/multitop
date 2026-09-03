@@ -29,6 +29,7 @@ fn test_server(host: &str) -> Server {
         port: 22,
         user: "admin".to_string(),
         upgrade_cmd: Some("true".to_string()),
+        custom_command: None,
     }
 }
 

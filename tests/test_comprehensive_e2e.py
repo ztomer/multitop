@@ -152,8 +152,8 @@ class ComprehensiveE2E(unittest.TestCase):
         self.session.send("H")
         time.sleep(1)
         s2 = self.session.capture()
-        # Alerts view should also show graphs
-        self.assertIn("CPU", s2)
+        # Alerts view should show ALERTS 30m graph
+        self.assertIn("ALERTS 30m", s2)
         self.session.send("s")
         time.sleep(1)
 
