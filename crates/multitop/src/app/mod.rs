@@ -33,6 +33,10 @@ pub struct App {
     pub should_quit: bool,
     pub quit_armed: bool,
     pub panels_epoch: u64,
+    pub help_visible: bool,
+    pub focused_panel: Option<usize>,
+    pub command_palette_visible: bool,
+    pub command_input: String,
 }
 
 pub const LOG_AMORTIZE: usize = 512;

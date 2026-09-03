@@ -105,6 +105,179 @@ pub fn draw_vault_awaiting_biometric(f: &mut Frame, waiting: Waiting) {
 /// carried per line, a wrapped continuation starts at the border.
 const PAD: u16 = 2;
 
+/// Keys table from `README.md:82`, rendered as the `?` overlay.
+///
+/// The table is the one place the keys are named in English rather than as
+/// `tui/lib.sh` `→` glyphs, so a key that does nothing is visible immediately.
+/// Drawn with `Rams` dim + `NO_COLOR` aware via `Palette`.
+pub fn draw_command_palette(f: &mut Frame, app: &App) {
+    let area = f.area();
+    let popup_width = (72u16).min(area.width.saturating_sub(4));
+    let popup_height = (12u16).min(area.height.saturating_sub(4));
+    let x = (area.width.saturating_sub(popup_width)) / 2;
+    let y = (area.height.saturating_sub(popup_height)) / 2;
+    let rect = Rect::new(x, y, popup_width, popup_height);
+
+    let theme = &multitop_agent::color::THEMES[0];
+    let border = Color::Rgb(
+        theme.ratatui_border.0,
+        theme.ratatui_border.1,
+        theme.ratatui_border.2,
+    );
+    let accent = Color::Rgb(
+        theme.ratatui_accent.0,
+        theme.ratatui_accent.1,
+        theme.ratatui_accent.2,
+    );
+
+    let block = ratatui::widgets::Block::default()
+        .title(" Command Palette  : to open ")
+        .title_style(
+            Style::default()
+                .fg(accent)
+                .add_modifier(ratatui::style::Modifier::BOLD),
+        )
+        .borders(ratatui::widgets::Borders::ALL)
+        .padding(ratatui::widgets::Padding::horizontal(PAD))
+        .border_style(Style::default().fg(border));
+
+    let input = app.command_input.as_str();
+    let filter = input.to_lowercase();
+    let all = [
+        "filter <query>",
+        "clear filter",
+        "upgrade",
+        "docker",
+        "fetch",
+        "graphs",
+        "stats",
+        "sort cpu",
+        "sort mem",
+        "theme",
+        "add server",
+        "vault unlock",
+        "yank",
+    ];
+    let shown: Vec<&str> = all
+        .iter()
+        .copied()
+        .filter(|c| filter.is_empty() || c.contains(&filter))
+        .take(8)
+        .collect();
+
+    let mut rows: Vec<Line> = vec![
+        Line::from(vec![
+            Span::styled(": ", Style::default().fg(Color::Yellow)),
+            Span::styled(input.to_string(), Style::default().fg(Color::White)),
+            Span::styled("\u{2588}", Style::default().fg(Color::Yellow)),
+        ]),
+        Line::from(""),
+    ];
+    for cmd in &shown {
+        rows.push(Line::from(vec![Span::styled(
+            format!("  {cmd}"),
+            Style::default().fg(Color::DarkGray),
+        )]));
+    }
+    if shown.is_empty() {
+        rows.push(Line::from(vec![Span::styled(
+            "  No matches",
+            Style::default().fg(Color::DarkGray),
+        )]));
+    }
+    rows.push(Line::from(""));
+    rows.push(Line::from(vec![
+        Span::styled("Enter", Style::default().fg(Color::White)),
+        Span::styled(" run  ", Style::default().fg(Color::DarkGray)),
+        Span::styled("Esc", Style::default().fg(Color::White)),
+        Span::styled(" close", Style::default().fg(Color::DarkGray)),
+    ]));
+
+    f.render_widget(ratatui::widgets::Clear, rect);
+    let para = Paragraph::new(rows).block(block).wrap(Wrap { trim: false });
+    f.render_widget(para, rect);
+}
+
+pub fn draw_help(f: &mut Frame) {
+    let area = f.area();
+    let popup_width = (72u16).min(area.width.saturating_sub(4));
+    let popup_height = (20u16).min(area.height.saturating_sub(4));
+    let x = (area.width.saturating_sub(popup_width)) / 2;
+    let y = (area.height.saturating_sub(popup_height)) / 2;
+    let rect = Rect::new(x, y, popup_width, popup_height);
+
+    let theme = &multitop_agent::color::THEMES[0];
+    let border = Color::Rgb(
+        theme.ratatui_border.0,
+        theme.ratatui_border.1,
+        theme.ratatui_border.2,
+    );
+    let accent = Color::Rgb(
+        theme.ratatui_accent.0,
+        theme.ratatui_accent.1,
+        theme.ratatui_accent.2,
+    );
+
+    let block = ratatui::widgets::Block::default()
+        .title(" Help  ? to close ")
+        .title_style(
+            Style::default()
+                .fg(accent)
+                .add_modifier(ratatui::style::Modifier::BOLD),
+        )
+        .borders(ratatui::widgets::Borders::ALL)
+        .padding(ratatui::widgets::Padding::horizontal(PAD))
+        .border_style(Style::default().fg(border));
+
+    let rows: Vec<Line> = vec![
+        Line::from(vec![
+            Span::styled("Esc/q", Style::default().fg(Color::Yellow)),
+            Span::raw(" quit  "),
+            Span::styled("c", Style::default().fg(Color::Yellow)),
+            Span::raw("/"),
+            Span::styled("m", Style::default().fg(Color::Yellow)),
+            Span::raw(" sort  "),
+            Span::styled("d", Style::default().fg(Color::Yellow)),
+            Span::raw(" docker  "),
+            Span::styled("s", Style::default().fg(Color::Yellow)),
+            Span::raw(" stats"),
+        ]),
+        Line::from(vec![
+            Span::styled("G", Style::default().fg(Color::Yellow)),
+            Span::raw(" graphs  "),
+            Span::styled("u", Style::default().fg(Color::Yellow)),
+            Span::raw(" update  "),
+            Span::styled("f", Style::default().fg(Color::Yellow)),
+            Span::raw(" fetch  "),
+            Span::styled("e", Style::default().fg(Color::Yellow)),
+            Span::raw(" settings"),
+        ]),
+        Line::from(vec![
+            Span::styled("/", Style::default().fg(Color::Yellow)),
+            Span::raw(" filter  "),
+            Span::styled("1-9", Style::default().fg(Color::Yellow)),
+            Span::raw(" select  "),
+            Span::styled("t", Style::default().fg(Color::Yellow)),
+            Span::raw(" theme  "),
+            Span::styled("?", Style::default().fg(Color::Yellow)),
+            Span::raw(" help"),
+        ]),
+        Line::from(""),
+        Line::from(vec![Span::styled(
+            "Upgrade is two presses: u shows what would run, u again confirms.",
+            Style::default().fg(Color::DarkGray),
+        )]),
+        Line::from(vec![Span::styled(
+            "Filter searches host/user + whatever the view shows (process, container, OS).",
+            Style::default().fg(Color::DarkGray),
+        )]),
+    ];
+
+    f.render_widget(ratatui::widgets::Clear, rect);
+    let para = Paragraph::new(rows).block(block).wrap(Wrap { trim: false });
+    f.render_widget(para, rect);
+}
+
 /// The prompt for unlocking an existing vault, or choosing a new master
 /// password.
 ///

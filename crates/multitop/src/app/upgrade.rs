@@ -267,6 +267,22 @@ impl App {
             last_update: self.last_update,
             upgrade_started_at: self.upgrade_started_at,
             hosts: self.host_updates.clone(),
+            selected_host: self
+                .panels
+                .get(self.selected_panel)
+                .map(|p| crate::password_store::account(&p.server)),
+            filter_query: Some(self.filter_query.clone()).filter(|s| !s.trim().is_empty()),
+            sort: Some(self.sort.word().to_string()),
+            views: self
+                .panels
+                .iter()
+                .map(|p| {
+                    (
+                        crate::password_store::account(&p.server),
+                        p.mode.as_str().to_string(),
+                    )
+                })
+                .collect(),
         };
         if let Err(e) = crate::state::save_state(&path, &state) {
             let note = format!(

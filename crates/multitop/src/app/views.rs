@@ -30,6 +30,10 @@ impl App {
             should_quit: false,
             quit_armed: false,
             panels_epoch: 0,
+            help_visible: false,
+            focused_panel: None,
+            command_palette_visible: false,
+            command_input: String::new(),
         }
     }
 
@@ -115,6 +119,11 @@ impl App {
     /// that panel is currently showing -- so it is asked rather than answered
     /// here against two fields chosen once.
     pub fn filtered_indices(&self) -> Vec<usize> {
+        if let Some(focused) = self.focused_panel {
+            if focused < self.panels.len() {
+                return vec![focused];
+            }
+        }
         self.panels
             .iter()
             .enumerate()
@@ -133,6 +142,23 @@ impl App {
     #[must_use]
     pub fn visible_panes(&self) -> usize {
         self.filtered_indices().len()
+    }
+
+    pub fn toggle_focus(&mut self) {
+        if let Some(focused) = self.focused_panel {
+            // Unfocus — restore selection to the focused host.
+            self.selected_panel = focused;
+            self.focused_panel = None;
+        } else {
+            // Focus the selected panel, even if it is filtered out — focus
+            // is the one case where a hidden host is deliberately shown alone.
+            self.focused_panel = Some(self.selected_panel);
+        }
+    }
+
+    #[must_use]
+    pub const fn is_focused(&self) -> bool {
+        self.focused_panel.is_some()
     }
 
     pub fn bump(&mut self, idx: usize) -> u64 {

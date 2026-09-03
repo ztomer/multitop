@@ -51,6 +51,59 @@ pub fn handle_key(
         return;
     }
 
+    // Help overlay — `?` from anywhere, `Esc`/`?`/`q` to close. Checked before
+    // the confirm modal so help can be summoned even with a quit armed, and
+    // before the filter so `?` in the filter query doesn't open it.
+    if app.help_visible {
+        if matches!(
+            key.code,
+            KeyCode::Char('?')
+                | KeyCode::Char('h')
+                | KeyCode::Char('H')
+                | KeyCode::Esc
+                | KeyCode::Char('q')
+                | KeyCode::Char('Q')
+        ) {
+            app.help_visible = false;
+        }
+        return;
+    }
+    if matches!(key.code, KeyCode::Char('?')) {
+        app.help_visible = true;
+        return;
+    }
+
+    // Command palette — `:` from anywhere, `Esc` to close, `Enter` to execute.
+    if app.command_palette_visible {
+        match key.code {
+            KeyCode::Esc => {
+                app.command_palette_visible = false;
+                app.command_input.clear();
+                return;
+            }
+            KeyCode::Enter => {
+                let input = std::mem::take(&mut app.command_input);
+                app.command_palette_visible = false;
+                execute_palette_command(&input, app, dims, tx, tasks);
+                return;
+            }
+            KeyCode::Backspace => {
+                app.command_input.pop();
+                return;
+            }
+            KeyCode::Char(c) => {
+                app.command_input.push(c);
+                return;
+            }
+            _ => return,
+        }
+    }
+    if matches!(key.code, KeyCode::Char(':')) {
+        app.command_palette_visible = true;
+        app.command_input.clear();
+        return;
+    }
+
     // Which confirmation is in force is `App::active_confirm`'s answer, not a
     // second copy of the priority. This used to test `show_upgrade_modal` first
     // while `ui::keybar_content` tested `quit_armed` first, so with both set the
@@ -259,16 +312,26 @@ pub fn handle_key(
             _ => {}
         }
         clamp_selection_to_filter(app);
+        app.persist_state();
         return;
     }
 
     match key.code {
+        // Focus first — `Esc` while zoomed should unzoom, not clear the filter
+        // underneath or quit. The focused host is the one the user asked to see
+        // alone, and the filter they left behind is still there when they return.
+        KeyCode::Esc if app.is_focused() => {
+            app.toggle_focus();
+            app.rerender_all(dims);
+            return;
+        }
         // Esc clears an applied filter before it quits. Quitting on the same
         // key that got you here reads as the app dying, and the panels are
         // already hidden, so there is nothing on screen to explain it.
         KeyCode::Esc if !app.filter_query.trim().is_empty() => {
             app.filter_query.clear();
             clamp_selection_to_filter(app);
+            app.persist_state();
             return;
         }
         KeyCode::Char('/') => {
@@ -300,6 +363,7 @@ pub fn handle_key(
             let slot = (c as usize) - ('1' as usize);
             if let Some(&panel) = app.filtered_indices().get(slot) {
                 app.selected_panel = panel;
+                app.persist_state();
             }
             return;
         }
@@ -307,6 +371,7 @@ pub fn handle_key(
             let old_sort = app.sort;
             app.sort = SortBy::Cpu;
             if old_sort != app.sort {
+                app.persist_state();
                 super::event_loop::restart_all_agents(app, dims_rx, tx, tasks);
             }
             return;
@@ -315,6 +380,7 @@ pub fn handle_key(
             let old_sort = app.sort;
             app.sort = SortBy::Mem;
             if old_sort != app.sort {
+                app.persist_state();
                 super::event_loop::restart_all_agents(app, dims_rx, tx, tasks);
             }
             return;
@@ -324,6 +390,15 @@ pub fn handle_key(
             if let Some(ref path) = app.config_path {
                 crate::config::save_theme(path, app.current_theme().name);
             }
+            app.rerender_all(dims);
+            return;
+        }
+        KeyCode::Char('y' | 'Y') => {
+            yank_selected_host(app);
+            return;
+        }
+        KeyCode::Enter | KeyCode::Char('z' | 'Z') => {
+            app.toggle_focus();
             app.rerender_all(dims);
             return;
         }
@@ -410,6 +485,12 @@ pub fn handle_key(
         _ => return,
     };
 
+    // View per host, sort, and filter are now per-panel state that survives
+    // restarts, so any view switch persists the new layout.
+    if !cmds.is_empty() || matches!(key.code, KeyCode::Char('f' | 'F' | 'd' | 'D' | 'g' | 'G' | 's' | 'S' | 'u' | 'U')) {
+        app.persist_state();
+    }
+
     execute_cmds(cmds, app, dims, tx, tasks);
 }
 
@@ -466,6 +547,151 @@ pub fn execute_cmds(
                 );
             }
         }
+    }
+}
+
+fn execute_palette_command(
+    input: &str,
+    app: &mut App,
+    dims: (u16, u16),
+    tx: &Sender<Msg>,
+    tasks: &mut Tasks,
+) {
+    let input = input.trim().to_lowercase();
+    if input.starts_with("filter ") {
+        app.filter_query = input["filter ".len()..].to_string();
+        clamp_selection_to_filter(app);
+        app.persist_state();
+    } else if input == "filter" || input == "clear filter" {
+        app.filter_query.clear();
+        clamp_selection_to_filter(app);
+        app.persist_state();
+    } else if input.starts_with("upgrade") {
+        let loads = app.enter_upgrade_view();
+        app.dispatch_credential_loads(loads, tx);
+    } else if input == "docker" {
+        let cmds = app.toggle_docker(dims);
+        for cmd in cmds {
+            if let crate::types::Command::RunDocker { panel, gen } = cmd {
+                tasks.set_aux(
+                    panel,
+                    crate::tasks::spawn_docker(
+                        panel,
+                        gen,
+                        app.panels_epoch,
+                        app.panels[panel].server.clone(),
+                        dims,
+                        app.sort,
+                        tx.clone(),
+                    ),
+                );
+            }
+        }
+        app.persist_state();
+    } else if input == "fetch" {
+        let cmds = app.toggle_fetch(dims);
+        for cmd in cmds {
+            if let crate::types::Command::RunFetch { panel, gen } = cmd {
+                tasks.set_aux(
+                    panel,
+                    crate::tasks::spawn_fetch(
+                        panel,
+                        gen,
+                        app.panels_epoch,
+                        app.panels[panel].server.clone(),
+                        dims,
+                        app.sort,
+                        tx.clone(),
+                    ),
+                );
+            }
+        }
+        app.persist_state();
+    } else if input == "graphs" || input == "graph" {
+        let cmds = app.toggle_graphs(dims);
+        for cmd in cmds {
+            // toggle_graphs returns empty, just rerenders
+            let _ = cmd;
+        }
+        app.persist_state();
+    } else if input == "stats" || input == "s" {
+        let cmds = app.switch_stats();
+        for cmd in cmds {
+            let _ = cmd;
+        }
+        app.persist_state();
+    } else if input.starts_with("sort ") {
+        let old = app.sort;
+        if input.contains("mem") {
+            app.sort = SortBy::Mem;
+        } else {
+            app.sort = SortBy::Cpu;
+        }
+        if old != app.sort {
+            app.persist_state();
+        }
+    } else if input == "theme" || input.starts_with("theme ") {
+        app.cycle_theme();
+        if let Some(ref path) = app.config_path {
+            crate::config::save_theme(path, app.current_theme().name);
+        }
+        app.rerender_all(dims);
+    } else if input == "add server" || input == "add" {
+        let load = crate::passwords::open(app, app.selected_panel, true);
+        app.dispatch_credential_loads(load, tx);
+    } else if input == "vault unlock" {
+        if let Some((vault, epoch)) = app.begin_vault_unlock() {
+            drop(crate::run::spawn::spawn_biometric_unlock(vault, epoch, tx.clone()));
+        } else if app.show_vault_password_prompt() {
+            // already prompting
+        } else {
+            app.set_show_upgrade_modal(true);
+        }
+    } else if input == "yank" || input.starts_with("yank ") || input == "y" || input == "copy" {
+        yank_selected_host(app);
+    }
+}
+
+fn yank_selected_host(app: &App) {
+    let Some(panel) = app.panels.get(app.selected_panel) else {
+        return;
+    };
+    let target = panel.server.target();
+    let text = target.as_ref().to_string();
+    // Try pbcopy (macOS) then xclip/xsel (Linux), best effort.
+    #[cfg(target_os = "macos")]
+    {
+        let _ = std::process::Command::new("pbcopy")
+            .stdin(std::process::Stdio::piped())
+            .spawn()
+            .and_then(|mut child| {
+                use std::io::Write as _;
+                if let Some(stdin) = child.stdin.as_mut() {
+                    let _ = stdin.write_all(text.as_bytes());
+                }
+                child.wait()
+            });
+    }
+    #[cfg(target_os = "linux")]
+    {
+        for prog in ["xclip", "xsel"] {
+            let mut cmd = std::process::Command::new(prog);
+            if prog == "xclip" {
+                cmd.args(["-selection", "clipboard"]);
+            }
+            if let Ok(mut child) = cmd.stdin(std::process::Stdio::piped()).spawn() {
+                use std::io::Write as _;
+                if let Some(stdin) = child.stdin.as_mut() {
+                    let _ = stdin.write_all(text.as_bytes());
+                }
+                let _ = child.wait();
+                break;
+            }
+        }
+    }
+    #[cfg(not(any(target_os = "macos", target_os = "linux")))]
+    {
+        let _ = text;
     }
 }
 

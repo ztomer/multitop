@@ -61,6 +61,14 @@ fn draw_no_matches(f: &mut Frame, app: &App, theme: &multitop_agent::color::Pale
 /// show the vault-creation prompt -- the user pressed Enter on a row and landed
 /// back on the stats screen.
 fn draw_modals(f: &mut Frame, app: &App) {
+    if app.help_visible {
+        crate::modals::draw_help(f);
+        return;
+    }
+    if app.command_palette_visible {
+        crate::modals::draw_command_palette(f, app);
+        return;
+    }
     use crate::modals::Waiting;
     let waiting = if app.vault_create_in_flight() {
         Some(Waiting::Creating)

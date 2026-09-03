@@ -116,6 +116,36 @@ where
     app.last_update = loaded.state.last_update;
     app.host_updates = loaded.state.hosts;
     app.upgrade_started_at = loaded.state.upgrade_started_at;
+    if let Some(q) = loaded.state.filter_query {
+        app.filter_query = q;
+    }
+    if let Some(s) = loaded.state.sort {
+        match s.as_str() {
+            "mem" | "memory" => app.sort = multitop_agent::SortBy::Mem,
+            "cpu" => app.sort = multitop_agent::SortBy::Cpu,
+            _ => {}
+        }
+    }
+    if let Some(host) = loaded.state.selected_host {
+        if let Some(idx) = app
+            .panels
+            .iter()
+            .position(|p| crate::password_store::account(&p.server) == host)
+        {
+            app.selected_panel = idx;
+        }
+    }
+    for (host, view_str) in loaded.state.views {
+        if let Some(mode) = crate::panel::Mode::from_str(&view_str) {
+            if let Some(p) = app
+                .panels
+                .iter_mut()
+                .find(|p| crate::password_store::account(&p.server) == host)
+            {
+                p.mode = mode;
+            }
+        }
+    }
     // A state file that could not be read is not a first run, and saying
     // nothing made the two identical on screen while the next write destroyed
     // the evidence.
@@ -272,6 +302,7 @@ where
                                         crossterm::event::MouseButton::Left,
                                     ) => {
                                         app.selected_panel = target_panel;
+                                        app.persist_state();
                                         dirty = true;
                                     }
                                     MouseEventKind::ScrollUp => {

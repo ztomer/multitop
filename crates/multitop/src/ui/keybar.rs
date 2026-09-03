@@ -467,6 +467,34 @@ pub fn keybar_content(
     let key_hi = Style::default()
         .fg(Color::White)
         .add_modifier(ratatui::style::Modifier::BOLD);
+    if app.help_visible {
+        return Line::from(vec![
+            Span::styled("[", label),
+            Span::styled("Esc", key_hi),
+            Span::styled("] close help  ", label),
+            Span::styled("?", key_hi),
+            Span::styled(" toggle  ", label),
+            Span::styled("[q] quit", label),
+        ]);
+    }
+    if app.command_palette_visible {
+        return Line::from(vec![
+            Span::styled("[", label),
+            Span::styled("Esc", key_hi),
+            Span::styled("] close  ", label),
+            Span::styled("Enter", key_hi),
+            Span::styled(" run", label),
+        ]);
+    }
+    if app.is_focused() {
+        return Line::from(vec![
+            Span::styled("[", label),
+            Span::styled("Esc", key_hi),
+            Span::styled("] unzoom  ", label),
+            Span::styled("z", key_hi),
+            Span::styled(" focus", label),
+        ]);
+    }
     // The same answer `run::handle_key` acts on, so the row cannot name one set
     // of keys while another set is live.
     match app.active_confirm() {

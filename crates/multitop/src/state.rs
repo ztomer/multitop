@@ -53,6 +53,14 @@ pub struct AppState {
     /// `password_store::account`). Keyed by stable identity rather than panel
     /// index so records survive reordering or adding servers.
     pub hosts: BTreeMap<String, HostUpdate>,
+    /// Last selected panel, by `user@host:port`.
+    pub selected_host: Option<String>,
+    /// Last filter query.
+    pub filter_query: Option<String>,
+    /// Last sort mode (`cpu` or `mem`).
+    pub sort: Option<String>,
+    /// Per-host view (`monitor`/`docker`/`fetch`/`graphs`/`upgrade`), keyed by `user@host:port`.
+    pub views: BTreeMap<String, String>,
 }
 
 #[must_use]
@@ -65,6 +73,13 @@ fn get_opt_u64(val: &toml::Value, key: &str) -> Option<u64> {
         .and_then(|t| t.get(key))
         .and_then(toml::Value::as_integer)
         .and_then(|n| u64::try_from(n).ok())
+}
+
+fn get_opt_string(val: &toml::Value, key: &str) -> Option<String> {
+    val.as_table()
+        .and_then(|t| t.get(key))
+        .and_then(toml::Value::as_str)
+        .map(ToString::to_string)
 }
 
 /// The state that was loaded, and anything the user has to be told about it.
@@ -161,11 +176,31 @@ pub fn load_state(config_path: &Path) -> StateLoad {
         }
     }
 
+    let selected_host = get_opt_string(&val, "selected_host");
+    let filter_query = get_opt_string(&val, "filter_query");
+    let sort = get_opt_string(&val, "sort");
+    let mut views = BTreeMap::new();
+    if let Some(table) = val
+        .as_table()
+        .and_then(|t| t.get("views"))
+        .and_then(toml::Value::as_table)
+    {
+        for (k, v) in table {
+            if let Some(s) = v.as_str() {
+                views.insert(k.clone(), s.to_string());
+            }
+        }
+    }
+
     StateLoad {
         state: AppState {
             last_update,
             upgrade_started_at,
             hosts,
+            selected_host,
+            filter_query,
+            sort,
+            views,
         },
         notice: None,
     }
@@ -202,6 +237,24 @@ pub fn save_state(config_path: &Path, state: &AppState) -> Result<(), String> {
             hosts.insert(key.clone(), toml::Value::Table(entry));
         }
         table.insert("hosts".to_string(), toml::Value::Table(hosts));
+    }
+    if let Some(s) = &state.selected_host {
+        table.insert("selected_host".to_string(), toml::Value::String(s.clone()));
+    }
+    if let Some(s) = &state.filter_query {
+        if !s.trim().is_empty() {
+            table.insert("filter_query".to_string(), toml::Value::String(s.clone()));
+        }
+    }
+    if let Some(s) = &state.sort {
+        table.insert("sort".to_string(), toml::Value::String(s.clone()));
+    }
+    if !state.views.is_empty() {
+        let mut views = toml::Table::new();
+        for (k, v) in &state.views {
+            views.insert(k.clone(), toml::Value::String(v.clone()));
+        }
+        table.insert("views".to_string(), toml::Value::Table(views));
     }
 
     let content = toml::to_string(&table).map_err(|e| e.to_string())?;

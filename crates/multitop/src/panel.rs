@@ -181,6 +181,31 @@ pub enum Mode {
     Graphs,
 }
 
+impl Mode {
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Monitor => "monitor",
+            Self::Docker => "docker",
+            Self::Fetch => "fetch",
+            Self::Upgrade => "upgrade",
+            Self::Graphs => "graphs",
+        }
+    }
+
+    #[must_use]
+    pub fn from_str(s: &str) -> Option<Self> {
+        match s {
+            "monitor" => Some(Self::Monitor),
+            "docker" => Some(Self::Docker),
+            "fetch" => Some(Self::Fetch),
+            "upgrade" => Some(Self::Upgrade),
+            "graphs" => Some(Self::Graphs),
+            _ => None,
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum UpgradeState {
     #[default]
