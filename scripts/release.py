@@ -202,28 +202,45 @@ def previous_ref(tag: str) -> str:
     the last real release and that dead tag — exactly the changes a user
     upgrading via Homebrew is about to receive.
     """
+    candidates = []
     r = gh("api", f"repos/{REPO}/releases/latest", "--jq", ".tag_name")
     latest = r.stdout.strip()
-    if r.returncode == 0 and latest and latest != tag:
-        # Guard against a release whose tag is no longer in this clone.
-        if check("git", "rev-parse", "--verify", f"{latest}^{{commit}}").returncode == 0:
-            return latest
-
+    # Sanitized: whatever the API layer returns, only a version tag is
+    # accepted as an anchor. Anything else falls through to local tags
+    # rather than into a `git log` range that fails silent and empty.
+    if r.returncode == 0 and re.fullmatch(r"v\d+\.\d+\.\d+", latest or "") and latest != tag:
+        candidates.append(latest)
     r = check("git", "tag", "-l", "--sort=-version:refname")
-    for t in r.stdout.strip().split():
-        if t.startswith("v") and t != tag:
-            return t
-
-    return check("git", "rev-list", "--max-parents=1", "HEAD").stdout.strip()
+    candidates.extend(t for t in r.stdout.strip().split() if t.startswith("v") and t != tag)
+    # Verified, loudly: v0.45.1 shipped a blank "What's new" because this
+    # clone had never fetched tags, no candidate resolved, and the old
+    # fallback chain never said so. An unresolvable or non-ancestor base
+    # makes `git log` fail (or range over the wrong history) with empty
+    # stdout, which used to become published empty notes.
+    for prev in candidates:
+        if check("git", "rev-parse", "--verify", f"{prev}^{{commit}}").returncode != 0:
+            continue
+        if check("git", "merge-base", "--is-ancestor", prev, "HEAD").returncode != 0:
+            continue
+        return prev
+    die(
+        "cannot anchor release notes: no published-release tag resolves "
+        "locally and is an ancestor of HEAD (this clone may never have "
+        "fetched tags). Run: git fetch origin --tags"
+    )
 
 
 def step_release_notes(tag: str) -> str:
     prev = previous_ref(tag)
     info(f"building release notes (since {prev}, the last published release)")
 
-    # Main commit summaries
+    # Main commit summaries. Empty means the anchor resolved to nothing
+    # useful (or to HEAD itself) -- publishing that is a blank "What's new",
+    # which is exactly what v0.45.1 first shipped. Refuse instead.
     r = check("git", "log", "--oneline", f"{prev}..HEAD", "--format=- %s")
     commits = r.stdout.strip()
+    if not commits:
+        die(f"no commits in {prev}..HEAD — refusing to publish empty notes")
 
     # Detail body from the release commit
     r = check("git", "log", f"{prev}..HEAD", "--format=%b")
