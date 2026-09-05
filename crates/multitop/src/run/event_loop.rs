@@ -146,7 +146,8 @@ where
                 .iter_mut()
                 .find(|p| crate::password_store::account(&p.server) == host)
             {
-                p.mode = mode;
+                // Stored task-backed views restart as Monitor (see for_startup).
+                p.mode = mode.for_startup();
             }
         }
     }
@@ -159,7 +160,6 @@ where
             p.note(notice.clone());
         }
     }
-    // Initialize vault if vault.bin exists
     app.vault = crate::vault::create_vault(&config_path).map(std::sync::Arc::new);
     if let Some(ref tname) = initial_theme {
         if let Some(idx) = multitop_agent::color::THEMES

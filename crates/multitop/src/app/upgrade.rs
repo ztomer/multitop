@@ -281,7 +281,10 @@ impl App {
                 .map(|p| {
                     (
                         crate::password_store::account(&p.server),
-                        p.mode.as_str().to_string(),
+                        // Task-backed views would restore dead (see
+                        // `Mode::for_startup`): persist where the panel can
+                        // actually resume, not where it happens to be.
+                        p.mode.for_startup().as_str().to_string(),
                     )
                 })
                 .collect(),
