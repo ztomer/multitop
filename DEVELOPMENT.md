@@ -7,7 +7,6 @@ Internal documentation for contributors and maintainers.
 | Topic | Document |
 |-------|----------|
 | **Release Process** | [RELEASE.md](RELEASE.md) |
-| **Performance** | [docs/performance.md](docs/performance.md) |
 | **Roadmap** | [docs/roadmap.md](docs/roadmap.md) — the single forward-looking backlog |
 
 ## Optional: faster local builds
@@ -300,6 +299,9 @@ BENCH_DURATION_SECS=60 BENCH_REMOTE_HOST=<host> BENCH_REMOTE_USER=<user> \
 # Local build with embedded agents
 ./build.sh
 
+# Build and install to Homebrew's bindir ($(brew --prefix)/bin)
+./install.sh
+
 # Cross-compile with zigbuild (used in CI/Homebrew)
 ./build.sh --backend zigbuild
 ```
@@ -310,6 +312,7 @@ BENCH_DURATION_SECS=60 BENCH_REMOTE_HOST=<host> BENCH_REMOTE_USER=<user> \
 |------|---------|
 | `scripts/release.py` | Automated release (GitHub + Homebrew) |
 | `build.sh` | Build script with agent embedding |
+| `install.sh` | Install built binary to `$(brew --prefix)/bin` |
 | `Cargo.toml` | Workspace version + dependencies |
 | `crates/multitop/Cargo.toml` | Package metadata |
 | `config.example.toml` | Sample configuration |

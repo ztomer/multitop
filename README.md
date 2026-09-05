@@ -21,6 +21,13 @@ brew tap ztomer/tap
 brew install multitop
 ```
 
+### From source
+
+```bash
+./install.sh    # builds (./build.sh) and installs to $(brew --prefix)/bin
+multitop
+```
+
 ## Quick start
 
 ```bash
@@ -38,9 +45,12 @@ mkdir -p ~/.config/multitop
 cp config.example.toml ~/.config/multitop/config.toml
 # edit it with your server list
 
-# Build locally and run:
+# Build locally and run from the repo:
 ./build.sh
 ./multitop
+
+# Or install to Homebrew's bindir and run from anywhere:
+./install.sh
 ```
 
 ## What you see
@@ -77,6 +87,11 @@ for confirmation and runs, so you always see what you are about to do first.
 The stats stream keeps running underneath the Docker and upgrade views, so
 returning with **s** is instant rather than reconnecting. It is also what fills
 the graph history, so **G** has a past to draw the moment you press it.
+
+Stats and Graphs are the only views that survive a restart. Docker, Fetch,
+Alerts and Upgrade need a live task behind them, so panels always reopen in
+Stats (or Graphs, if that is where they were) — a restarted Docker view would
+otherwise sit on "connecting..." with nothing behind it.
 
 ## Keys
 
@@ -227,9 +242,6 @@ sessions.
 | **Full TUI draw (4 panels)** | 0.42 ms / draw (2,381 FPS) |
 | **Memory drift (5 min)** | 0 bytes |
 
-See `docs/performance.md` for full benchmark details, SOTA comparison tables,
-and fuzzing verification results.
-
 ## Requirements
 
 - **Local**: macOS on Apple Silicon, or Linux. Rust 1.85+, `ssh`, and a
@@ -286,6 +298,7 @@ The test suite covers panel rendering across multiple terminal dimensions, windo
 
 ```
 ├── build.sh                  # cross-compiles agents, then builds release binary
+├── install.sh                # builds, then installs to $(brew --prefix)/bin
 ├── multitop                  # launcher for target/release/multitop
 ├── config.example.toml
 ├── crates/
