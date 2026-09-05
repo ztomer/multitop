@@ -92,9 +92,17 @@ def step_cut(tag: str):
     """
     version = tag.lstrip("v")
 
+    # Idempotent resume: a previous --cut that died after the bump (for
+    # example at the commit hook) leaves exactly its own unfinished work
+    # behind -- Cargo.toml at the target version plus refreshed locks. That
+    # is safe to resume into; anything else dirty is someone's edits.
     r = check("git", "status", "--porcelain")
-    if r.stdout.strip():
-        die("working tree is dirty — commit or stash before cutting a release")
+    dirty = [line[3:] for line in r.stdout.splitlines() if line.strip()]
+    if dirty:
+        if all(f in ("Cargo.toml", "Cargo.lock", "fuzz/Cargo.lock") for f in dirty):
+            info("resuming previous cut (only release files dirty)")
+        else:
+            die("working tree is dirty — commit or stash before cutting a release")
 
     branch = check("git", "rev-parse", "--abbrev-ref", "HEAD").stdout.strip()
 
