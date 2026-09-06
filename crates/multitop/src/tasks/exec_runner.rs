@@ -12,7 +12,7 @@ use crate::app::Msg;
 use crate::config::Server;
 use crate::fmt::{error_line, status_line};
 use crate::ssh;
-use crate::tasks::painted::Painter;
+use crate::tasks::painted::{paint_msg, Painter};
 
 pub const STALL_AFTER: Duration = Duration::from_secs(30);
 
@@ -224,6 +224,31 @@ async fn drain_stdout(stdout: ChildStdout, action: &ExecAction<'_>) -> (bool, Op
     (stalled, exit_code)
 }
 
+/// Paint one stream's bytes with the run's shared cursor and send what lands.
+///
+/// Stdout goes plain, stderr red; placement (append vs overwrite) is the
+/// painter's call either way. Blank stderr paints are dropped, as before --
+/// a colour wrapper around nothing is a row of nothing -- while blank stdout
+/// lines still append: a blank line between two paragraphs is output.
+async fn send_painted(
+    action: &ExecAction<'_>,
+    painter: &mut Painter,
+    bytes: &[u8],
+    style: impl Fn(String) -> String,
+    drop_empty: bool,
+) {
+    for paint in painter.feed_bytes(bytes) {
+        if drop_empty && paint.text.trim().is_empty() && paint.back == 0 && paint.erase_below == 0 {
+            continue;
+        }
+        let line = style(paint.text.clone());
+        let _ = action
+            .tx
+            .send(paint_msg(action.idx, action.gen, &paint, line))
+            .await;
+    }
+}
+
 async fn handle_exec_frame(
     frame: ExecFrame,
     painter: &mut Painter,
@@ -235,16 +260,7 @@ async fn handle_exec_frame(
             bytes,
             ..
         } => {
-            for paint in painter.feed_bytes(&bytes) {
-                let _ = action
-                    .tx
-                    .send(Msg::AuxLine {
-                        panel: action.idx,
-                        gen: action.gen,
-                        line: paint.text,
-                    })
-                    .await;
-            }
+            send_painted(action, painter, &bytes, std::convert::identity, false).await;
             None
         }
         ExecFrame::Out {
@@ -252,17 +268,12 @@ async fn handle_exec_frame(
             bytes,
             ..
         } => {
-            let text = String::from_utf8_lossy(&bytes).trim().to_string();
-            if !text.is_empty() {
-                let _ = action
-                    .tx
-                    .send(Msg::AuxLine {
-                        panel: action.idx,
-                        gen: action.gen,
-                        line: error_line(text),
-                    })
-                    .await;
-            }
+            // Through the same painter, not around it: `\r` progress on
+            // stderr rewrites one line exactly like stdout does, and a
+            // per-chunk `AuxLine` would append a copy per tick. One cursor
+            // serves both streams -- the remote pty has only one -- so the
+            // painter is shared, and only the styling differs.
+            send_painted(action, painter, &bytes, error_line, true).await;
             None
         }
         ExecFrame::Marker(MarkerKind::SudoFailed) => {
@@ -294,4 +305,120 @@ async fn read_need_agent(stderr: ChildStderr) -> Option<String> {
         }
     }
     report_need_agent
+}
+
+#[cfg(test)]
+mod send_painted_tests {
+    #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+    use super::*;
+    use crate::tasks::{Paint, Painter};
+
+    fn action<'a>(server: &'a Server, tx: &'a Sender<Msg>) -> ExecAction<'a> {
+        ExecAction {
+            idx: 0,
+            gen: 0,
+            server,
+            command: "cmd",
+            pass: None,
+            tx,
+            header: "header",
+            action_desc: "action",
+        }
+    }
+
+    fn server() -> Server {
+        Server {
+            host: "host".to_string(),
+            port: 0,
+            user: String::new(),
+            upgrade_cmd: None,
+            custom_command: None,
+        }
+    }
+
+    /// Placement is the painter's call: appends stay lines, rewinds become
+    /// repaints, and the caller's styling survives either way.
+    #[test]
+    fn paint_msg_routes_by_movement_and_keeps_styling() {
+        let append = Paint {
+            text: "plain".to_string(),
+            back: 0,
+            erase_below: 0,
+        };
+        assert!(matches!(
+            paint_msg(0, 0, &append, append.text.clone()),
+            Msg::AuxLine { .. }
+        ));
+        let repaint = Paint {
+            text: "red".to_string(),
+            back: 2,
+            erase_below: 0,
+        };
+        match paint_msg(0, 0, &repaint, error_line("red")) {
+            Msg::AuxRepaint { back, line, .. } => {
+                assert_eq!(back, 2);
+                assert!(line.contains("red"), "styling must survive: {line:?}");
+            }
+            other => panic!("a rewind must repaint, got {other:?}"),
+        }
+    }
+
+    /// `\r` progress on stderr rewrites one line exactly like stdout: before
+    /// the shared painter it arrived as one `AuxLine` per chunk and every
+    /// tick appended a copy.
+    #[tokio::test]
+    async fn stderr_progress_repaints_instead_of_appending() {
+        let (tx, mut rx) = tokio::sync::mpsc::channel(16);
+        let server = server();
+        let action = action(&server, &tx);
+        let mut painter = Painter::new();
+        send_painted(&action, &mut painter, b"10%\n", error_line, true).await;
+        send_painted(
+            &action,
+            &mut painter,
+            b"\r\x1b[2K\x1b[1A\x1b[2K100%\n",
+            error_line,
+            true,
+        )
+        .await;
+        drop(tx);
+        let mut msgs = Vec::new();
+        while let Some(msg) = rx.recv().await {
+            msgs.push(msg);
+        }
+        assert_eq!(msgs.len(), 2, "two paints, not three: {msgs:?}");
+        assert!(matches!(msgs[0], Msg::AuxLine { .. }));
+        match &msgs[1] {
+            Msg::AuxRepaint { back, line, .. } => {
+                assert_eq!(*back, 1, "rewrites the newest row: {msgs:?}");
+                assert!(line.contains("100%"), "styling kept: {line:?}");
+            }
+            other => panic!("the rewind must repaint, got {other:?}"),
+        }
+    }
+
+    /// Blank stderr paints are dropped, as before -- a colour wrapper around
+    /// nothing is a row of nothing -- while blank stdout lines still append.
+    #[tokio::test]
+    async fn blank_stderr_is_dropped_and_blank_stdout_is_kept() {
+        let (tx, mut rx) = tokio::sync::mpsc::channel(16);
+        let server = server();
+        let action = action(&server, &tx);
+        let mut painter = Painter::new();
+        send_painted(&action, &mut painter, b"  \n", error_line, true).await;
+        send_painted(
+            &action,
+            &mut painter,
+            b"  \n",
+            std::convert::identity,
+            false,
+        )
+        .await;
+        drop(tx);
+        let mut count = 0;
+        while rx.recv().await.is_some() {
+            count += 1;
+        }
+        assert_eq!(count, 1, "only the stdout blank survives");
+    }
 }

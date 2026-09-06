@@ -153,23 +153,50 @@ impl Painter {
     /// swallowing it runs them together.
     fn paint(&mut self, terminated: bool) -> Option<Paint> {
         let raw = String::from_utf8_lossy(&self.raw).into_owned();
-        let (moved_up, moved_down, erase_below, body) = Self::consume_controls(&raw);
-        let line_up = self.up.saturating_add(moved_up).saturating_sub(moved_down);
-
+        let was_open = self.open;
+        // Movement is consumed at the head of every `\r`-state, not just the
+        // buffer head. Live renderers rewind AFTER drawing
+        // (`┘<CR><ESC>[2K<ESC>[1A…<ESC>[2K┏┓`), so a head-only read keeps the
+        // trailing choreography as text: every tick appends and nothing ever
+        // repaints. Text selection is unchanged -- the last non-empty state
+        // still wins; only the movement accounting widens.
+        let states: Vec<&str> = painted_states(&raw).collect();
         // The last state a carriage return left the line in -- but the last
         // *non-empty* one. A line that ends in a bare `\r` has had its cursor
         // sent to column 0 and nothing written there yet: the screen still
         // shows what was there, and blanking it would make every progress bar
         // flicker between its value and nothing.
-        let text = painted_states(&body)
-            .rfind(|state| !state.is_empty())
-            .unwrap_or("")
-            .to_string();
+        let winner = states.iter().rposition(|s| !s.is_empty());
+        let mut moved_up = 0usize;
+        let mut moved_down = 0usize;
+        let mut erase_below = 0usize;
+        let mut text = String::new();
+        for (i, state) in states.iter().enumerate() {
+            let (u, d, e, t) = Self::consume_controls(state);
+            moved_up = moved_up.saturating_add(u);
+            moved_down = moved_down.saturating_add(d);
+            erase_below = erase_below.max(e);
+            if Some(i) == winner {
+                text = t;
+            }
+        }
+        // A chunk that ends inside an escape sequence is not a paint yet: the
+        // rest of the sequence is still coming, and emitting the fragment
+        // would append escape bytes to the log as a line of their own. Raw is
+        // kept, so the next feed re-derives from the reassembled whole.
+        if !terminated && ends_mid_sequence(&text) {
+            return None;
+        }
+        let line_up = self.up.saturating_add(moved_up).saturating_sub(moved_down);
 
+        // A paint that starts on an open (unterminated) line addresses rows
+        // from the content row the cursor is already sitting on -- one row
+        // below the append point -- so it lands one row further back than
+        // the same movement from a fresh row.
         let back = if line_up > 0 {
-            line_up
+            line_up.saturating_add(usize::from(was_open))
         } else {
-            usize::from(self.open)
+            usize::from(was_open)
         };
 
         let movement_only = text.is_empty() && erase_below == 0 && (moved_up > 0 || moved_down > 0);
@@ -180,11 +207,23 @@ impl Painter {
             if movement_only {
                 self.up = line_up;
             } else {
-                self.up = line_up.saturating_sub(1);
+                // Resuming an open line does not advance past a row: the
+                // `\n` only ends the content row the cursor was already on.
+                // The open row itself stays carried by `was_open`, not by
+                // `up`, so the next paint's movement counts from the append
+                // point instead of double-counting it.
+                self.up = line_up.saturating_sub(usize::from(!was_open));
             }
             self.open = false;
             self.raw.clear();
-        } else if !movement_only {
+        } else if movement_only {
+            // Recorded nowhere: raw is kept and the next paint recomputes
+            // from the whole, so counting it here would count it twice.
+        } else {
+            // The movement base resets to the append point. The open row the
+            // cursor sits on is carried by `was_open` from here on; leaving
+            // the old base in place counts it twice on the next rewind.
+            self.up = 0;
             self.open = true;
         }
 
@@ -259,5 +298,43 @@ impl Painter {
 
         text_prefix.push_str(rest);
         (up, down, erase, text_prefix)
+    }
+}
+
+/// Whether text ends inside a CSI sequence with no final byte yet -- a chunk
+/// boundary fell mid-escape. Reads with the same grammar `consume_controls`
+/// parses with: CSI introducer plus parameter bytes only.
+fn ends_mid_sequence(text: &str) -> bool {
+    let Some(i) = text.rfind('\x1b') else {
+        return false;
+    };
+    let tail = &text[i + 1..];
+    if tail.is_empty() {
+        return true;
+    }
+    let Some(params) = tail.strip_prefix('[') else {
+        return false;
+    };
+    params.chars().all(|c| ('\x30'..='\x3F').contains(&c))
+}
+
+/// Route one paint to the message that places it: a paint that moved nowhere
+/// appends, anything else overwrites in place.
+///
+/// One definition shared by the upgrade runner and the generic exec runner,
+/// so the two cannot disagree about which paint overwrites. Callers style
+/// the line -- stderr arrives red -- while placement is decided here.
+#[must_use]
+pub const fn paint_msg(panel: usize, gen: u64, paint: &Paint, line: String) -> crate::app::Msg {
+    if paint.back == 0 && paint.erase_below == 0 {
+        crate::app::Msg::AuxLine { panel, gen, line }
+    } else {
+        crate::app::Msg::AuxRepaint {
+            panel,
+            gen,
+            line,
+            back: paint.back,
+            erase_below: paint.erase_below,
+        }
     }
 }

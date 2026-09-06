@@ -293,3 +293,70 @@ fn finishing_repaints_an_unterminated_last_line_rather_than_appending_it() {
     );
     assert!(p.finish().is_none(), "and there is nothing owed after that");
 }
+
+/// Live renderers rewind AFTER drawing: the erase-and-up choreography trails
+/// the content it undoes (`bot<CR><ESC>[2K<ESC>[1A…<ESC>[2K>top`). A head-only
+/// read kept that choreography as text, so a 7-line Rich table landed 77
+/// lines in the log with 0 repaints. The movement below the content counts
+/// exactly like movement above it.
+#[test]
+fn a_trailing_rewind_repaints_the_lines_it_covers() {
+    let mut p = Painter::new();
+    one(&mut p, "one");
+    one(&mut p, "two");
+    // The cursor is on a fresh row (the last line was newline-terminated),
+    // so the tool redraws "two" there, erases it, steps up onto the real
+    // "two" and erases that too, then draws the replacement. One row above
+    // the append point -- and the erase needs no reporting, because the
+    // write replaces the line it cleared.
+    let paint = one(&mut p, "two\r\u{1b}[2K\u{1b}[1A\u{1b}[2KONE");
+    assert_eq!(paint.text, "ONE");
+    assert_eq!(paint.back, 1, "one row above the append point");
+    assert_eq!(paint.erase_below, 0);
+}
+
+/// The steady state, tick after tick: a block redrawn from its own open
+/// bottom line converges instead of growing. Each tick's first paint lands
+/// on the oldest row and the rest follow it down.
+#[test]
+fn a_block_rewound_from_its_open_line_converges() {
+    let mut p = Painter::new();
+    // First block: closed lines, then an open bottom line -- live regions
+    // leave the cursor sitting on content, with no newline after it.
+    let paints = p.feed_bytes(b"A1\nB1");
+    assert_eq!(paints.len(), 2);
+    assert!(paints.iter().all(|paint| paint.back == 0));
+    for (top, bottom) in [("C", "D"), ("E", "F"), ("G", "H")] {
+        let bytes = format!("\r\x1b[2K\x1b[1A\x1b[2K{top}\n{bottom}");
+        let paints = p.feed_bytes(bytes.as_bytes());
+        assert_eq!(paints.len(), 2, "tick {top}{bottom}: {paints:?}");
+        assert_eq!(paints[0].text, top);
+        assert_eq!(
+            paints[0].back, 2,
+            "tick {top}{bottom} must overwrite the oldest row, not append"
+        );
+        assert_eq!(paints[1].text, bottom);
+        assert_eq!(paints[1].back, 1, "the row below follows it down");
+    }
+}
+
+/// A rewind split across writes is the same rewind: raw is kept, so the next
+/// feed re-derives from the reassembled whole rather than counting anything
+/// twice.
+#[test]
+fn a_trailing_rewind_split_across_chunks_counts_once() {
+    let mut p = Painter::new();
+    one(&mut p, "one");
+    // Unterminated bottom line, exactly as the block above leaves it.
+    let paints = p.feed_bytes(b"two");
+    assert_eq!(paints.len(), 1);
+    assert_eq!(paints[0].back, 0);
+    // The choreography arrives with no newline yet: nothing to paint, and
+    // -- crucially -- nothing recorded, or the reassembled whole would move
+    // twice.
+    assert!(p.feed_bytes(b"\r\x1b[2K\x1b[1A").is_empty());
+    let paints = p.feed_bytes(b"\x1b[2KOVER\r\n");
+    assert_eq!(paints.len(), 1);
+    assert_eq!(paints[0].text, "OVER");
+    assert_eq!(paints[0].back, 2, "one rewind, counted once");
+}

@@ -391,22 +391,9 @@ fn keep_stderr(chunk: &str, report: &mut Report) {
 }
 
 async fn send_paint(idx: usize, gen: u64, paint: &Paint, tx: &Sender<Msg>) {
-    let msg = if paint.back == 0 && paint.erase_below == 0 {
-        Msg::AuxLine {
-            panel: idx,
-            gen,
-            line: paint.text.clone(),
-        }
-    } else {
-        Msg::AuxRepaint {
-            panel: idx,
-            gen,
-            line: paint.text.clone(),
-            back: paint.back,
-            erase_below: paint.erase_below,
-        }
-    };
-    let _ = tx.send(msg).await;
+    let _ = tx
+        .send(crate::tasks::paint_msg(idx, gen, paint, paint.text.clone()))
+        .await;
 }
 
 /// Buffer size for reading unprivileged dry-run check output.

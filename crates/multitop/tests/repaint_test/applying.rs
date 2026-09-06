@@ -290,3 +290,60 @@ async fn output_that_never_moves_the_cursor_is_untouched_by_any_of_this() {
         assert!(log.contains(expected), "{expected} missing from:\n{log}");
     }
 }
+
+#[tokio::test]
+async fn a_block_rewound_trailing_its_choreography_stays_one_block() {
+    // The Rich Live shape, as `update-local` draws it: no newline after the
+    // block, so the cursor sits on content; each tick redraws from below
+    // with the erase-and-up choreography trailing (`\r<ESC>[2K<ESC>[1A…`).
+    // Three ticks used to be three copies of the block plus the choreography
+    // as text. No inner quotes, so the whole thing survives `sh_quote`.
+    let _g = isolate().await;
+    let script = concat!(
+        r"printf 'A1\nB1'; ",
+        r"printf '\r\033[2K\033[1A\033[2KA2\nB2'; ",
+        r"printf '\r\033[2K\033[1A\033[2KA3\nB3\n'; ",
+        "exit 0"
+    );
+
+    let (tx, mut rx) = mpsc::channel::<Msg>(512);
+    let handle = spawn_upgrade(0, 1, local_server(script), None, tx);
+
+    let mut app = app_mid_upgrade();
+    app.panels[0].upgrade_gen = 1;
+    let collect = async {
+        while let Some(msg) = rx.recv().await {
+            let done = matches!(msg, Msg::AuxDone { .. });
+            app.apply(msg);
+            if done {
+                break;
+            }
+        }
+    };
+    tokio::time::timeout(Duration::from_secs(60), collect)
+        .await
+        .expect("the run must finish");
+    handle.abort();
+
+    let log: Vec<String> = app.panels[0].last_upgrade.iter().cloned().collect();
+    let tops: Vec<&String> = log.iter().filter(|l| l.starts_with('A')).collect();
+    let bots: Vec<&String> = log.iter().filter(|l| l.starts_with('B')).collect();
+    assert_eq!(
+        tops,
+        vec!["A3"],
+        "three ticks left copies behind:\n{}",
+        log.join("\n")
+    );
+    assert_eq!(
+        bots,
+        vec!["B3"],
+        "three ticks left copies behind:\n{}",
+        log.join("\n")
+    );
+    assert!(
+        !log.iter()
+            .any(|l| l.contains("\u{1b}[2K") || l.contains("\u{1b}[1A")),
+        "choreography leaked into the log as text:\n{}",
+        log.join("\n")
+    );
+}
