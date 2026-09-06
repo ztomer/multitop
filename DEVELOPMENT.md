@@ -123,6 +123,13 @@ then contended the next attempt. Before killing anything:
 4. A red gate that passes alone gets one calm retry before anyone debugs it:
    this box is shared, and export/timeout flakes under parallel load have
    now outnumbered real regressions three to zero.
+5. `git push --dry-run` proves nothing about authentication: ref discovery
+   on a public repo is anonymous, so it succeeds while the real POST would
+   fail. `tools/push_probe.sh` checks the stages that matter --
+   reachability, authed discovery, push permission -- each timed, each
+   named, in seconds. Run it before theorizing about the transport.
+6. Backgrounded gate runs stay observable: `local-ci.py` line-buffers its
+   output, so `tail -f` the log instead of wondering whether it stalled.
 
 ### The toolchain is pinned; only `cargo fuzz` steps outside it
 

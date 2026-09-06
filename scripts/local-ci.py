@@ -355,6 +355,13 @@ def check_benchmarks() -> bool:
 
 
 def main() -> int:
+    # Line-buffered from the start: with stdout redirected (nohup, CI logs)
+    # the phase lines would otherwise sit in the buffer for minutes and a
+    # backgrounded run would look dead while working. tail -f stays honest.
+    try:
+        sys.stdout.reconfigure(line_buffering=True)
+    except AttributeError:
+        pass
     # The suite's own isolation, in case a test is reached that forgot its
     # guard. Belt and braces: `check_keychain_isolation.py` is what actually
     # enforces this.
