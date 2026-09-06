@@ -334,6 +334,7 @@ BENCH_DURATION_SECS=60 BENCH_REMOTE_HOST=<host> BENCH_REMOTE_USER=<user> \
 | `scripts/release.py` | Automated release (GitHub + Homebrew) |
 | `build.sh` | Build script with agent embedding |
 | `install.sh` | Install built binary to `$(brew --prefix)/bin` |
+| `tools/gate_lock.py` | Single-flight lock for gate runs (hooks + local-ci) |
 | `Cargo.toml` | Workspace version + dependencies |
 | `crates/multitop/Cargo.toml` | Package metadata |
 | `config.example.toml` | Sample configuration |

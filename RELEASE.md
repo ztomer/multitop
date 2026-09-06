@@ -36,8 +36,11 @@ python3 scripts/release.py v0.32.0
 With `--cut`, first:
 
 0. **Cuts the release** — verifies a clean tree, bumps the workspace version in
-   `Cargo.toml`, refreshes `Cargo.lock` so it cannot drift, commits (through the
-   pre-commit gates), creates the annotated tag, and pushes branch + tag
+   `Cargo.toml`, refreshes `Cargo.lock` so it cannot drift, rebuilds the
+   agents with the new version baked in (every bump stales them by
+   definition, and the agent-version gate would refuse the commit without
+   it), commits (through the pre-commit gates), creates the annotated tag,
+   and pushes branch + tag
 
 Then, always:
 
