@@ -342,6 +342,7 @@ BENCH_DURATION_SECS=60 BENCH_REMOTE_HOST=<host> BENCH_REMOTE_USER=<user> \
 | `build.sh` | Build script with agent embedding |
 | `install.sh` | Install built binary to `$(brew --prefix)/bin` |
 | `tools/gate_lock.py` | Single-flight lock for gate runs (hooks + local-ci) |
+| `tools/push_probe.sh` | Staged push path diagnostic (reachability, auth, permissions) |
 | `Cargo.toml` | Workspace version + dependencies |
 | `crates/multitop/Cargo.toml` | Package metadata |
 | `config.example.toml` | Sample configuration |

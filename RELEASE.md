@@ -8,6 +8,7 @@ the fuzz and benchmark gates the hook does not carry.
 - `gh` (GitHub CLI) authenticated: `gh auth login`
 - `git` on PATH
 - Push access to `ztomer/homebrew-tap`
+- Optional connectivity and auth verification: `./tools/push_probe.sh`
 
 The tap push needs a token with `repo` scope. The script takes it from
 `GITHUB_TOKEN`/`GH_TOKEN` if set, and otherwise falls back to `gh auth token`,
