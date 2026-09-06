@@ -74,6 +74,7 @@ Additional views accessible via keys:
   running, so it costs nothing extra on the wire
 - **Docker view** (`d`) — container list with CPU/memory usage, sorted by load
 - **Update view** (`u`) — per-server update status; press `u` again to run
+- **Alerts view** (`H`) — threshold breaches over the last 30 minutes, from the stats stream already running
 - **Settings screen** (`e`) — servers, their passwords, and the vault
 - **Filter** (`/`) — narrow the grid to hosts matching what you type, searching
   whatever the panes are currently showing
@@ -109,6 +110,16 @@ otherwise sit on "connecting..." with nothing behind it.
 | **/** | Filter the grid. Matches the host and user in every view, plus whatever the panes are showing right now: process names in **Stats** and **Graphs** (every process the host is running, not only the ones its table had room to draw), container names, images and status in **Docker**, the OS/kernel/model card in **Fetch**, the log in **Update**. **Enter** keeps it, **ESC** clears it |
 | **1**–**9** | Select a panel |
 | **t** | Cycle the active theme |
+| **H** | Toggle the alerts view: threshold breaches over the last 30 minutes |
+| **y** | Yank — copy the selected panel's SSH target (`user@host`) to the clipboard |
+| **z** / **Enter** | Focus the selected panel alone; again (or **ESC**) to unzoom |
+| **x** | Kill the top process on the selected host (asks first) |
+| **o** | Journal of the top process on the selected host |
+| **r** | Renice the top process on the selected host |
+| **l** | Tail the syslog on the selected host |
+| **+** / **-** | Zoom graphs in / out |
+| **:** | Command palette (`yank`, `copy`, …) |
+| **?** | Help overlay listing every key |
 
 ## The agent
 
