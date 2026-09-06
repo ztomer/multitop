@@ -154,6 +154,17 @@ def step_cut(tag: str):
             # a stale lock there costs a dirty file, not a broken install.
             warn("could not refresh fuzz/Cargo.lock -- it may lag this release")
 
+    # Rebuild the agents with the bumped version baked in, before the commit
+    # hook runs. The version string is embedded in the agent binaries, so
+    # every bump makes them stale by definition -- and the agent-version gate
+    # refuses the commit until they are rebuilt. Running the build here turns
+    # the old bump/commit-fail/rebuild/resume dance into one straight run.
+    info("rebuilding agents with the new version (./build.sh)")
+    rb = check(str(root / "build.sh"), cwd=str(root))
+    if rb.returncode != 0:
+        tail = "\n".join((rb.stdout + rb.stderr).splitlines()[-15:])
+        die(f"./build.sh failed -- fix it and re-run (this cut resumes):\n{tail}")
+
     r = check("git", "status", "--porcelain")
     if r.stdout.strip():
         check("git", "add", "Cargo.toml", "Cargo.lock", check=True)
@@ -174,10 +185,14 @@ def step_cut(tag: str):
         ok(f"tagged {tag}")
 
     info(f"pushing {branch} and {tag}")
-    if check("git", "push", "origin", branch).returncode != 0:
-        die(f"failed to push {branch}")
-    if check("git", "push", "origin", tag).returncode != 0:
-        die(f"failed to push {tag}")
+    r = check("git", "push", "origin", branch)
+    # The command's own output, not just our label: a bare "failed to push"
+    # once cost an evening to a transport stall this message would have named.
+    if r.returncode != 0:
+        die(f"failed to push {branch}:\n{r.stdout}{r.stderr}")
+    r = check("git", "push", "origin", tag)
+    if r.returncode != 0:
+        die(f"failed to push {tag}:\n{r.stdout}{r.stderr}")
     ok(f"pushed {branch} and {tag}")
 
 
