@@ -31,6 +31,7 @@ SRC = Path("crates/multitop/src")
 # `KeyCode::Char('e' | 'E')`, `KeyCode::Char('y' | 'Y')`, `KeyCode::Char(c @ '1'..='9')`
 BINDING = re.compile(r"KeyCode::Char\(([^)]*)\)")
 CHAR_LIT = re.compile(r"'(.)'")
+CHAR_RANGE = re.compile(r"'([a-zA-Z0-9])'\.\.='([a-zA-Z0-9])'")
 
 # What a key hint looks like in prose the user reads. Deliberately narrow: these
 # are the shapes that have actually appeared, and a scanner that guesses more
@@ -58,6 +59,11 @@ def bound_keys(root: Path) -> set[str]:
         for arm in BINDING.findall(path.read_text(encoding="utf-8")):
             for ch in CHAR_LIT.findall(arm):
                 keys.add(ch.lower())
+            # Ranges bind every character between, not just the endpoints:
+            # `c @ '1'..='9'` matched '1' and '9' and called '5' unbound.
+            for lo, hi in CHAR_RANGE.findall(arm):
+                for code in range(ord(lo), ord(hi) + 1):
+                    keys.add(chr(code).lower())
     return keys
 
 
@@ -80,6 +86,45 @@ def offenders(root: Path) -> list[tuple[Path, int, str, str]]:
                 for key in pattern.findall(lit):
                     if key.lower() not in keys:
                         found.append((path, lineno, key, lit))
+    found.extend(help_table_offenders(root, keys))
+    return found
+
+
+HELP_TABLE = re.compile(r"const HELP_ROWS.*?\[(.*?)\];", re.DOTALL)
+HELP_ENTRY = re.compile(r'\(\s*"([^"]+)"\s*,')
+HELP_RANGE = re.compile(r"^([0-9])-([0-9])$")
+
+
+def help_table_offenders(
+    root: Path, keys: set[str]
+) -> list[tuple[Path, int, str, str]]:
+    """Every key the help overlay names must be bound.
+
+    The prose patterns above cannot see the `("q", "...")` table the help
+    panel is built from -- bare key literals match none of those shapes --
+    so a table entry naming a dead key would ship silently. This reads the
+    table instead of the prose.
+    """
+    found = []
+    modals = root / "modals.rs"
+    text = modals.read_text(encoding="utf-8") if modals.is_file() else ""
+    table = HELP_TABLE.search(text)
+    if table is None:
+        # Fail loud, not silent: if the table moved or was renamed, this
+        # check stopping quietly is exactly the drift it exists to prevent.
+        return [(modals, 0, "?", "HELP_ROWS not found -- the help table moved?")]
+    for key in HELP_ENTRY.findall(table.group(1)):
+        names: list[str] = []
+        if (m := HELP_RANGE.fullmatch(key)) is not None:
+            names = [str(n) for n in range(int(m.group(1)), int(m.group(2)) + 1)]
+        elif len(key) == 1:
+            names = [key]
+        else:
+            found.append((modals, 0, key, f"help key {key!r} is not a single key"))
+            continue
+        for name in names:
+            if name.lower() not in keys:
+                found.append((modals, 0, name, f"help names {name!r}, nothing binds it"))
     return found
 
 
@@ -87,6 +132,9 @@ def self_test() -> int:
     with tempfile.TemporaryDirectory() as tmp:
         root = Path(tmp)
         (root / "run.rs").write_text("match key { KeyCode::Char('e' | 'E') => open(), }", encoding="utf-8")
+        (root / "modals.rs").write_text(
+            'const HELP_ROWS: &[(&str, &str)] = &[("e", "edit")];', encoding="utf-8"
+        )
         (root / "bad.rs").write_text('let s = "press q to save";', encoding="utf-8")
         hits = offenders(root)
         if not any(h[2] == "q" for h in hits):
@@ -96,6 +144,34 @@ def self_test() -> int:
         (root / "bad.rs").write_text('let s = "press e to save";', encoding="utf-8")
         if offenders(root):
             print("self-test FAILED: a bound key hint was reported")
+            return 1
+
+        # Ranges bind their middles, not just their endpoints.
+        (root / "run.rs").write_text(
+            "match key { KeyCode::Char(c @ '1'..='9') => sel(c), }", encoding="utf-8"
+        )
+        if "5" not in bound_keys(root):
+            print("self-test FAILED: a range-bound key reads as unbound")
+            return 1
+
+        # The help table is read as a table: an entry naming a dead key fails,
+        # and a moved table fails loud instead of stopping silently.
+        (root / "run.rs").write_text(
+            "match key { KeyCode::Char('q') => quit(), }", encoding="utf-8"
+        )
+        (root / "bad.rs").write_text("let ok = 1;", encoding="utf-8")
+        (root / "modals.rs").write_text(
+            'const HELP_ROWS: &[(&str, &str)] = &[("q", "quit"), ("1-9", "select")];',
+            encoding="utf-8",
+        )
+        hits = offenders(root)
+        if not any(h[2] == "2" for h in hits):
+            print("self-test FAILED: a dead help-table key was not detected")
+            return 1
+        (root / "modals.rs").write_text("// no table here", encoding="utf-8")
+        hits = offenders(root)
+        if len(hits) != 1 or hits[0][2] != "?":
+            print("self-test FAILED: a missing help table was not reported")
             return 1
     print("check_key_hints self-test: ok")
     return 0

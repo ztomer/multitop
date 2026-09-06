@@ -100,8 +100,29 @@ release.
 The only gate `local-ci.py` still adds over the hook and CI is the **benchmark
 thresholds**, which need a quiet machine to mean anything. The ratchet and the
 fuzz targets used to be here too, and both were moved after each caught
-something too late: the ratchet went red on a commit the hook passed, and a fuzz
+something too late: the ratchet went red on a commit this hook passed, and a fuzz
 target stopped compiling and reached a release.
+
+### When a push looks stuck
+
+A branch push runs the pre-push hook first, which is the whole suite -- expect
+~15 silent minutes, not a hang. Two evenings have now been spent debugging
+pushes that were working, and killing them mid-hook orphaned full suites that
+then contended the next attempt. Before killing anything:
+
+1. `ps` the chain: `git push` waits in `wait_or_whine` on the hook, and the
+   hook's children (`cargo test`, `pytest`, `llvm-cov`) are the progress.
+   A `git-remote-https` parked in `CLOSE_WAIT` is idle, not stuck -- sample
+   the *parent* (`sample <pid> 8`), which names the actual wait.
+2. Gate runs serialize per clone (`tools/gate_lock.py`, heartbeat while
+   waiting, `GATE_LOCK=0` escapes). A second suite alongside -- a killed
+   push's orphaned hook, a commit during a push -- queues instead of
+   contending, which is what the timing flakes feed on.
+3. Never read `$?` after a pipe: `git push … | head; echo $?` reports `head`,
+   not git. `set -o pipefail`, or capture the rc before piping.
+4. A red gate that passes alone gets one calm retry before anyone debugs it:
+   this box is shared, and export/timeout flakes under parallel load have
+   now outnumbered real regressions three to zero.
 
 ### The toolchain is pinned; only `cargo fuzz` steps outside it
 
