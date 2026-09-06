@@ -146,7 +146,9 @@ impl Harness {
     /// value to *arrive* rather than asserting on a snapshot -- the loop
     /// processes a scripted burst faster than the test can look at it.
     async fn expect_dims(&mut self, want: (u16, u16), what: &str) {
-        let waited = tokio::time::timeout(Duration::from_secs(5), async {
+        // Ceiling, not a sleep: early when healthy. 5s tripped under
+        // parallel-suite load before the loop had even started.
+        let waited = tokio::time::timeout(Duration::from_secs(15), async {
             while *self.dims.borrow_and_update() != want {
                 if self.dims.changed().await.is_err() {
                     return;
@@ -389,9 +391,9 @@ async fn the_loop_still_quits_after_the_upgrade_completes() {
     tx.send(Ok(key(KeyCode::Char('s')))).await.expect("key");
     tx.send(Ok(key(KeyCode::Char('q')))).await.expect("key");
 
-    let outcome = tokio::time::timeout(Duration::from_secs(5), h.finish())
+    let outcome = tokio::time::timeout(Duration::from_secs(15), h.finish())
         .await
-        .expect("the loop did not resolve within 5s after `q` -- it is wedged")
+        .expect("the loop did not resolve within 15s after `q` -- it is wedged")
         .expect("the loop task panicked");
     assert!(
         outcome.error.is_none(),
@@ -439,7 +441,7 @@ async fn a_quit_key_lands_while_the_upgrade_channel_is_flooded() {
     tokio::time::sleep(Duration::from_millis(250)).await;
     tx.send(Ok(key(KeyCode::Char('q')))).await.expect("key");
 
-    let outcome = tokio::time::timeout(Duration::from_secs(5), h.finish())
+    let outcome = tokio::time::timeout(Duration::from_secs(15), h.finish())
         .await
         .inspect_err(|_elapsed| {
             // Timeout: ask the loop itself where it is before declaring a wedge.
@@ -537,7 +539,7 @@ fn the_loop_stays_live_while_a_credential_load_blocks() {
         tokio::time::sleep(Duration::from_millis(250)).await;
         tx.send(Ok(key(KeyCode::Char('q')))).await.expect("key");
 
-        let outcome = tokio::time::timeout(Duration::from_secs(5), h.finish())
+        let outcome = tokio::time::timeout(Duration::from_secs(15), h.finish())
             .await
             .expect("the loop never quit while a credential load was in flight")
             .expect("the loop task panicked");
@@ -605,7 +607,7 @@ async fn monitor_packets_use_the_panel_gen_after_a_view_switch() {
     tx.send(Ok(key(KeyCode::Char('s')))).await.expect("key");
     tx.send(Ok(key(KeyCode::Char('q')))).await.expect("key");
 
-    let outcome = tokio::time::timeout(Duration::from_secs(5), h.finish())
+    let outcome = tokio::time::timeout(Duration::from_secs(15), h.finish())
         .await
         .expect("loop wedged after view switch -- monitor gen likely stale")
         .expect("loop task panicked");
