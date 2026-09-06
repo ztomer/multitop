@@ -103,7 +103,10 @@ async fn spawn_upgrade_collapses_carriage_returns() {
 
 async fn collect_messages(rx: &mut tokio::sync::mpsc::Receiver<Msg>) -> Vec<Msg> {
     let mut msgs = Vec::new();
-    let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(10);
+    // A ceiling, not a sleep: every caller breaks on AuxDone, so this only
+    // binds a genuinely hung upgrade. 10s tripped under parallel-suite load
+    // on a spawn (agent fork, pty, sudo) that takes 7s alone.
+    let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(30);
     while tokio::time::Instant::now() < deadline {
         let remaining = deadline - tokio::time::Instant::now();
         match tokio::time::timeout(remaining, rx.recv()).await {
