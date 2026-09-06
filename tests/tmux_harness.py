@@ -363,19 +363,30 @@ def session_dir(tag="e2e"):
 
 
 def newest_source_time(root=None):
-    """When this crate's source was last touched."""
+    """When this crate's source was last touched.
+
+    Integration tests and benches do not count: they are separate targets
+    that are never linked into the binary under test, so touching only them
+    cannot make the binary stale -- but the harness used to say it did, and
+    a test-only commit then failed with "run `cargo build` first" after a
+    build that (correctly) changed nothing. Unit tests inside src/ DO count:
+    editing one recompiles and relinks the binary, refreshing its mtime.
+    """
     root = root or os.path.join(
         os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "crates"
     )
     newest = 0.0
-    for base, _, files in os.walk(root):
+    for base, dirs, files in os.walk(root):
+        # Prune whole subtrees the binary cannot incorporate. Modifying the
+        # walk in place ([:] assignment) keeps os.walk from descending.
+        dirs[:] = [d for d in dirs if d not in ("tests", "benches")]
         for name in files:
             if name.endswith(".rs") or name == "Cargo.toml":
                 newest = max(newest, os.path.getmtime(os.path.join(base, name)))
     return newest
 
 
-def stale_reason(binary):
+def stale_reason(binary, root=None):
     """Why this binary must not be trusted, or None if it is current.
 
     An e2e test drives a *binary*, and a binary older than the source is a test
@@ -388,7 +399,7 @@ def stale_reason(binary):
     So it is checked rather than assumed, and the answer is a refusal with a
     reason instead of a run that quietly means nothing.
     """
-    source = newest_source_time()
+    source = newest_source_time(root)
     built = os.path.getmtime(binary)
     if built >= source:
         return None
