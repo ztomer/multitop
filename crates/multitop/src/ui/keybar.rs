@@ -102,7 +102,6 @@ pub fn keybar_badges(
             Span::styled("[Sort: ", sort_label),
             Span::styled("C", key_hi),
             Span::styled("pu", cpu_style),
-            // Was "/ ", which rendered as `Cpu/ Mem`.
             Span::styled("/", sort_label),
             Span::styled("M", key_hi),
             Span::styled("em", mem_style),
@@ -115,7 +114,6 @@ pub fn keybar_badges(
         .collect()
 }
 
-/// The scroll badge, coloured, or nothing at all when not scrolled back.
 pub fn badge_span(badge: &str) -> String {
     if badge.is_empty() {
         String::new()
@@ -124,7 +122,6 @@ pub fn badge_span(badge: &str) -> String {
     }
 }
 
-/// Display width of a run of spans.
 fn span_width(spans: &[Span<'static>]) -> usize {
     spans.iter().map(|s| s.content.chars().count()).sum()
 }
@@ -160,8 +157,8 @@ fn keybar_initials(
     //
     // These are indices into the row above, so the order of the two lists is
     // coupled -- moving a key in the row means moving its index here. The row
-    // is Q S D F G U / E.
-    let kept = crate::layout::fit_row(&widths, 2, keybar_width as usize, &[3, 4, 2, 5, 1, 6, 7]);
+    // is Q S D F G U / E ?.
+    let kept = crate::layout::fit_row(&widths, 2, keybar_width as usize, &[3, 4, 2, 5, 1, 6, 7, 8]);
     let mut out = Vec::new();
     for (n, index) in kept.iter().enumerate() {
         if n > 0 {
@@ -243,6 +240,9 @@ pub fn keybar_line(
         Span::styled("  ", label),
         Span::styled("/", key_hi),
         Span::styled(" Filter", label),
+        Span::styled("  ", label),
+        Span::styled("?", key_hi),
+        Span::styled(" Help", label),
     ];
     // A filter in force is never abbreviated away: panels are hidden, and a
     // monitor that silently stops showing a host is worse than one showing it
@@ -269,6 +269,7 @@ pub fn keybar_line(
             ("U", u_hi),
             ("/", key_hi),
             ("E", key_hi),
+            ("?", key_hi),
         ];
         return keybar_initials(&keys, keybar_width, label, filter, accent_color);
     }
@@ -462,7 +463,6 @@ fn kill_confirm_row(
         Span::styled("Esc", key_hi),
         Span::styled("] cancel", label),
     ]);
-    // Keep target + keys; nothing to shed except target if narrow.
     let shed = vec![0usize];
     chunk_row(&chunks, keybar_width, &shed, label)
 }

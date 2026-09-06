@@ -198,10 +198,43 @@ pub fn draw_command_palette(f: &mut Frame, app: &App) {
     f.render_widget(para, rect);
 }
 
+/// Every main-view key, one per line, in keybar order: views first, then
+/// doors, then the rest. A clustered row cannot hold them all, and the last
+/// attempt left H, y, z and the palette out entirely.
+const HELP_ROWS: &[(&str, &str)] = &[
+    ("q", "quit (terminates every SSH session)"),
+    ("s", "per server statistics"),
+    ("d", "docker containers per server"),
+    ("f", "fetch OS, kernel and model card"),
+    ("g", "graphs from stats history"),
+    ("u", "update status, press again to run"),
+    ("/", "filter the grid"),
+    ("e", "settings: servers, passwords, vault"),
+    ("H", "alerts from CPU, memory and disk thresholds"),
+    ("y", "yank, copy selected panel SSH target"),
+    ("t", "cycle theme"),
+    ("c", "sort processes by CPU"),
+    ("m", "sort processes by memory"),
+    ("z", "focus selected panel alone"),
+    ("1-9", "select panel"),
+    ("x", "kill top process (asks first)"),
+    ("o", "journal of top process"),
+    ("r", "renice top process"),
+    ("l", "tail the syslog"),
+    ("+", "zoom graphs in"),
+    ("-", "zoom graphs out"),
+    (":", "command palette"),
+    ("?", "this help"),
+];
+
 pub fn draw_help(f: &mut Frame) {
     let area = f.area();
     let popup_width = (72u16).min(area.width.saturating_sub(4));
-    let popup_height = (20u16).min(area.height.saturating_sub(4));
+    // One row per key plus border, title and the two note lines: a fixed
+    // height would clip the moment a binding is added.
+    let popup_height = u16::try_from(HELP_ROWS.len() + 8)
+        .unwrap_or(u16::MAX)
+        .min(area.height.saturating_sub(4));
     let x = (area.width.saturating_sub(popup_width)) / 2;
     let y = (area.height.saturating_sub(popup_height)) / 2;
     let rect = Rect::new(x, y, popup_width, popup_height);
@@ -229,40 +262,17 @@ pub fn draw_help(f: &mut Frame) {
         .padding(ratatui::widgets::Padding::horizontal(PAD))
         .border_style(Style::default().fg(border));
 
-    let rows: Vec<Line> = vec![
-        Line::from(vec![
-            Span::styled("Esc/q", Style::default().fg(Color::Yellow)),
-            Span::raw(" quit  "),
-            Span::styled("c", Style::default().fg(Color::Yellow)),
-            Span::raw("/"),
-            Span::styled("m", Style::default().fg(Color::Yellow)),
-            Span::raw(" sort  "),
-            Span::styled("d", Style::default().fg(Color::Yellow)),
-            Span::raw(" docker  "),
-            Span::styled("s", Style::default().fg(Color::Yellow)),
-            Span::raw(" stats"),
-        ]),
-        Line::from(vec![
-            Span::styled("G", Style::default().fg(Color::Yellow)),
-            Span::raw(" graphs  "),
-            Span::styled("u", Style::default().fg(Color::Yellow)),
-            Span::raw(" update  "),
-            Span::styled("f", Style::default().fg(Color::Yellow)),
-            Span::raw(" fetch  "),
-            Span::styled("e", Style::default().fg(Color::Yellow)),
-            Span::raw(" settings"),
-        ]),
-        Line::from(vec![
-            Span::styled("/", Style::default().fg(Color::Yellow)),
-            Span::raw(" filter  "),
-            Span::styled("1-9", Style::default().fg(Color::Yellow)),
-            Span::raw(" select  "),
-            Span::styled("t", Style::default().fg(Color::Yellow)),
-            Span::raw(" theme  "),
-            Span::styled("?", Style::default().fg(Color::Yellow)),
-            Span::raw(" help"),
-        ]),
-        Line::from(""),
+    let mut rows: Vec<Line> = HELP_ROWS
+        .iter()
+        .map(|(key, what)| {
+            Line::from(vec![
+                Span::styled(*key, Style::default().fg(Color::Yellow)),
+                Span::raw(format!(" - {what}")),
+            ])
+        })
+        .collect();
+    rows.push(Line::from(""));
+    rows.extend([
         Line::from(vec![Span::styled(
             "Upgrade is two presses: u shows what would run, u again confirms.",
             Style::default().fg(Color::DarkGray),
@@ -271,7 +281,7 @@ pub fn draw_help(f: &mut Frame) {
             "Filter searches host/user + whatever the view shows (process, container, OS).",
             Style::default().fg(Color::DarkGray),
         )]),
-    ];
+    ]);
 
     f.render_widget(ratatui::widgets::Clear, rect);
     let para = Paragraph::new(rows).block(block).wrap(Wrap { trim: false });
