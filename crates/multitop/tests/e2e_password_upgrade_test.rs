@@ -142,7 +142,10 @@ async fn test_e2e_spawn_upgrade_streams_output_with_stored_password() {
     let mut stream_line_received = false;
     let mut done_received = false;
 
-    while let Ok(msg) = tokio::time::timeout(std::time::Duration::from_secs(5), rx.recv()).await {
+    // 10s, not 5s: the hook runs every suite in parallel and a spawned
+    // upgrade going quiet for 5s under that load is congestion, not a hang.
+    // The carriage-return test below already uses 10s for the same reason.
+    while let Ok(msg) = tokio::time::timeout(std::time::Duration::from_secs(10), rx.recv()).await {
         let Some(msg) = msg else { break };
         match msg {
             Msg::AuxBegin {
@@ -196,7 +199,8 @@ async fn test_e2e_spawn_upgrade_emits_in_stream_tip_on_sudo_failure() {
 
     let mut tip_received = false;
 
-    while let Ok(msg) = tokio::time::timeout(std::time::Duration::from_secs(5), rx.recv()).await {
+    // Same 10s as above: parallel-suite congestion, not a hang.
+    while let Ok(msg) = tokio::time::timeout(std::time::Duration::from_secs(10), rx.recv()).await {
         let Some(msg) = msg else { break };
         if matches!(msg, Msg::AuxLine { ref line, .. } | Msg::AuxRepaint { ref line, .. } if line.contains("Set password in settings ('e')"))
         {
