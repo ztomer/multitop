@@ -362,6 +362,21 @@ def main() -> int:
     os.environ["CI"] = "1"
     fast = "--fast" in sys.argv
 
+    # One gate run per clone: a second suite alongside this one contends the
+    # shared target dir and the CPU until timing-sensitive suites flake.
+    # Same lock the hooks take (tools/gate_lock.py); re-entrant under exec.
+    gate_lock = [sys.executable, str(REPO / "tools" / "gate_lock.py")]
+    me = str(os.getpid())
+    if subprocess.run([*gate_lock, "acquire", me], cwd=REPO).returncode != 0:
+        err("could not take the gate lock")
+        return 1
+    try:
+        return run_steps(fast)
+    finally:
+        subprocess.run([*gate_lock, "release", me], cwd=REPO)
+
+
+def run_steps(fast: bool) -> int:
     steps = [structural_gates, check_file_length, rust_gates]
     if not fast:
         steps += [check_fuzz, check_benchmarks]

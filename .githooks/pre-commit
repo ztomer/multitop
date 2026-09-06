@@ -15,6 +15,15 @@ set -euo pipefail
 repo_root="$(git rev-parse --show-toplevel)"
 cd "$repo_root"
 
+# One gate run per clone: a second suite alongside this one contends the
+# shared target dir and the CPU until timing-sensitive suites flake.
+# tools/gate_lock.py blocks with a heartbeat (never fails silent), and the
+# trap below releases on every exit path including die(). The owner pid is
+# this shell's, captured once: the helper is short-lived, so its own pid
+# would read stale the instant it exits and release could never match.
+hook_pid=$$
+python3 tools/gate_lock.py acquire "$hook_pid"
+
 GOH="${GOH_DIR:-${GOH:-$HOME/Projects/gates_of_heck}}"
 "$GOH/gates/structural.sh" --staged
 
@@ -37,7 +46,7 @@ cd "$repo_root"
 . "$repo_root/tui/lib.sh"
 
 log="$(mktemp -t multitop-precommit)"
-trap 'rm -f "$log"' EXIT
+trap 'rm -f "$log"; python3 tools/gate_lock.py release "$hook_pid"' EXIT
 
 # Cargo may be missing from the environment a GUI git client hands us; say so
 # plainly rather than failing with "command not found".
