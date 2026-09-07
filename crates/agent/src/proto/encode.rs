@@ -57,7 +57,13 @@ pub fn encode_packet(payload: &Payload) -> Vec<u8> {
     } else {
         payload_len
     };
-    #[allow(clippy::cast_possible_truncation)]
+    // Cannot truncate: `payload_len` was clamped to MAX_PAYLOAD immediately
+    // above. `expect` rather than `allow`, so this errors if that clamp is ever
+    // removed and the cast becomes real.
+    #[expect(
+        clippy::cast_possible_truncation,
+        reason = "clamped to MAX_PAYLOAD above"
+    )]
     let len_bytes = (payload_len as u16).to_le_bytes();
     buf[6] = len_bytes[0];
     buf[7] = len_bytes[1];
@@ -67,7 +73,7 @@ pub fn encode_packet(payload: &Payload) -> Vec<u8> {
 
 fn encode_str(s: &str, buf: &mut Vec<u8>) {
     let bytes = s.as_bytes();
-    let len = bytes.len().min(u16::MAX as usize) as u16;
+    let len = u16::try_from(bytes.len()).unwrap_or(u16::MAX);
     buf.extend_from_slice(&len.to_le_bytes());
     buf.extend_from_slice(&bytes[..len as usize]);
 }
@@ -80,8 +86,7 @@ fn encode_snapshot(snap: &Snapshot, buf: &mut Vec<u8>) {
     // is "not measured", because there is no such thing as a negative clock.
     buf.extend_from_slice(&(snap.cpu_mhz.unwrap_or(-1.0) as f32).to_le_bytes());
 
-    #[allow(clippy::cast_possible_truncation)]
-    let num_cores = snap.cores.len().min(u16::MAX as usize) as u16;
+    let num_cores = u16::try_from(snap.cores.len()).unwrap_or(u16::MAX);
     buf.extend_from_slice(&num_cores.to_le_bytes());
     // `.take` so the declared count and the emitted items cannot disagree.
     for &(idx, cpu, temp) in snap.cores.iter().take(num_cores as usize) {
@@ -104,9 +109,15 @@ fn encode_snapshot(snap: &Snapshot, buf: &mut Vec<u8>) {
     buf.extend_from_slice(&(snap.rx_rate as f32).to_le_bytes());
     buf.extend_from_slice(&(snap.tx_rate as f32).to_le_bytes());
 
-    let num_procs = snap.procs.len().min(u16::MAX as usize) as u16;
+    let num_procs = u16::try_from(snap.procs.len()).unwrap_or(u16::MAX);
     buf.extend_from_slice(&num_procs.to_le_bytes());
-    for p in &snap.procs {
+    // `.take` so the declared count and the emitted items cannot disagree —
+    // the same guard the cores loop above already had. Without it a snapshot
+    // with more than 65_535 processes declared 65_535 and then emitted all of
+    // them, and the decoder desynchronised on the surplus. `encode_docker`
+    // below documents this exact class ("past 65535 rows the count wrapped");
+    // this was the one loop that did not apply it.
+    for p in snap.procs.iter().take(num_procs as usize) {
         buf.extend_from_slice(&p.pid.to_le_bytes());
         buf.extend_from_slice(&(p.cpu as f32).to_le_bytes());
         buf.extend_from_slice(&p.mem.to_le_bytes());
