@@ -134,6 +134,15 @@ fn a_tick_never_asks_for_more_processes_than_the_frame_can_hold() {
 }
 
 #[test]
+#[expect(
+    clippy::float_cmp,
+    reason = "these assert EXACTLY zero, which is the property under test — see the \
+              function name. clippy suggests an epsilon comparison, which would \
+              accept 1e-300 and defeat the very cases these guard: a rate that \
+              saturates instead of dividing by zero, a counter that does not \
+              underflow, a percentage that is not a NaN. `expect` not `allow`, \
+              so it errors if the comparison ever stops being strict."
+)]
 fn a_zero_interval_tick_reports_no_rate_rather_than_dividing_by_zero() {
     let mut monitor = Monitor::new("h".into());
     let snap = monitor.tick(0.0, 120, 50, SortBy::Cpu);

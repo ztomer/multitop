@@ -14,6 +14,7 @@ pub mod docker;
 pub mod docker_cli;
 pub mod docker_render;
 pub mod docker_transport;
+pub mod emit;
 pub mod exec;
 pub mod fetch;
 pub mod fmt;
@@ -24,6 +25,10 @@ pub mod proto;
 pub mod render;
 pub mod render_layout;
 pub mod sys;
+
+// Re-exported so the split is invisible to callers.
+use emit::emit_hello;
+pub use emit::{emit_docker, emit_fetch, emit_monitor};
 
 /// Frame delimiter on the wire between agent and TUI.
 pub const FRAME_MARKER: &str = "===MONITOR===";
@@ -200,103 +205,6 @@ pub fn palette_for_env() -> &'static color::Palette {
     } else {
         &color::ANSI
     }
-}
-
-fn emit_hello<W: std::io::Write>(out: &mut W) -> std::io::Result<()> {
-    let hello = proto::Hello::new(crate::consts::AGENT_VERSION.to_string());
-    out.write_all(&proto::encode_packet(&proto::Payload::Hello(hello)))?;
-    Ok(())
-}
-
-/// One fetch frame. On a terminal this is the text-only fallback — the full
-/// rendering with distro logos lives in the monitor crate's `fetch_render`.
-pub fn emit_fetch<W: std::io::Write>(
-    snap: &fetch::FetchSnapshot,
-    cols: usize,
-    is_tty: bool,
-    pal: &color::Palette,
-    out: &mut W,
-) -> std::io::Result<()> {
-    if !is_tty {
-        emit_hello(out)?;
-        out.write_all(&proto::encode_packet(&proto::Payload::Fetch(snap.clone())))?;
-        return out.flush();
-    }
-    let details = [
-        ("OS", &snap.os),
-        ("Kernel", &snap.kernel),
-        ("Uptime", &snap.uptime),
-        ("Host", &snap.host_model),
-        ("CPU", &snap.cpu_model),
-        ("Memory", &snap.memory_str),
-        ("Disk", &snap.disk_str),
-    ];
-    writeln!(
-        out,
-        "{}",
-        crate::fmt::center_header(&snap.user_host, cols, pal)
-    )?;
-    for (label, val) in &details {
-        writeln!(
-            out,
-            "  {}{:<7}{}: {}{}{}",
-            pal.bold, label, pal.reset, pal.white, val, pal.reset
-        )?;
-    }
-    out.flush()
-}
-
-/// One docker frame.
-pub fn emit_docker<W: std::io::Write>(
-    host: &str,
-    rows: Vec<docker::Row>,
-    args: &Args,
-    is_tty: bool,
-    pal: &color::Palette,
-    out: &mut W,
-) -> std::io::Result<()> {
-    if is_tty {
-        let frame = docker::render(host, args.cols, args.lines, &rows, pal, args.sort);
-        writeln!(out, "{}", frame.join("\n"))?;
-    } else {
-        emit_hello(out)?;
-        let payload = proto::Payload::Docker {
-            host: host.to_string(),
-            rows,
-        };
-        out.write_all(&proto::encode_packet(&payload))?;
-    }
-    out.flush()
-}
-
-/// One monitor frame. `buf` is reused across frames so a repainting terminal
-/// costs no allocation per tick.
-pub fn emit_monitor<W: std::io::Write>(
-    snap: &render::Snapshot,
-    args: &Args,
-    is_tty: bool,
-    pal: &color::Palette,
-    buf: &mut String,
-    out: &mut W,
-) -> std::io::Result<()> {
-    if !is_tty {
-        out.write_all(&proto::encode_packet(&proto::Payload::Monitor(
-            snap.clone(),
-        )))?;
-        return out.flush();
-    }
-    buf.clear();
-    buf.push_str("\x1b[H\x1b[J");
-    render::render_to_buf(
-        snap,
-        args.cols,
-        args.lines,
-        render::bar_len_for(args.cols),
-        pal,
-        buf,
-    );
-    out.write_all(buf.as_bytes())?;
-    out.flush()
 }
 
 /// Repaint until the reader goes away.

@@ -79,6 +79,15 @@ fn cpu_pct_from_deltas() {
 }
 
 #[test]
+#[expect(
+    clippy::float_cmp,
+    reason = "these assert EXACTLY zero, which is the property under test — see the \
+              function name. clippy suggests an epsilon comparison, which would \
+              accept 1e-300 and defeat the very cases these guard: a rate that \
+              saturates instead of dividing by zero, a counter that does not \
+              underflow, a percentage that is not a NaN. `expect` not `allow`, \
+              so it errors if the comparison ever stops being strict."
+)]
 fn cpu_pct_zero_window() {
     let t = CpuTimes {
         total: 100,
@@ -125,6 +134,15 @@ fn meminfo_skips_lines_without_colon() {
 }
 
 #[test]
+#[expect(
+    clippy::float_cmp,
+    reason = "these assert EXACTLY zero, which is the property under test — see the \
+              function name. clippy suggests an epsilon comparison, which would \
+              accept 1e-300 and defeat the very cases these guard: a rate that \
+              saturates instead of dividing by zero, a counter that does not \
+              underflow, a percentage that is not a NaN. `expect` not `allow`, \
+              so it errors if the comparison ever stops being strict."
+)]
 fn meminfo_never_underflows() {
     let u = parse_meminfo("MemTotal: 100 kB\nMemFree: 500 kB\n");
     assert_eq!(u.used, 0);

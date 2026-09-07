@@ -333,6 +333,15 @@ fn an_unconstrained_container_shows_no_memory_limit() {
 }
 
 #[test]
+#[expect(
+    clippy::float_cmp,
+    reason = "these assert EXACTLY zero, which is the property under test — see the \
+              function name. clippy suggests an epsilon comparison, which would \
+              accept 1e-300 and defeat the very cases these guard: a rate that \
+              saturates instead of dividing by zero, a counter that does not \
+              underflow, a percentage that is not a NaN. `expect` not `allow`, \
+              so it errors if the comparison ever stops being strict."
+)]
 fn the_cli_fallback_joins_its_two_tables_on_the_container_name() {
     let ps = "web\tUp 3 days\tnginx\taaa111\ndb\tUp 1 hour\tpostgres\tbbb222\n";
     let stats = parse_cli_stats("web\t12.5%\t128MiB / 512MiB\n");
@@ -351,6 +360,15 @@ fn the_cli_fallback_joins_its_two_tables_on_the_container_name() {
 }
 
 #[test]
+#[expect(
+    clippy::float_cmp,
+    reason = "these assert EXACTLY zero, which is the property under test — see the \
+              function name. clippy suggests an epsilon comparison, which would \
+              accept 1e-300 and defeat the very cases these guard: a rate that \
+              saturates instead of dividing by zero, a counter that does not \
+              underflow, a percentage that is not a NaN. `expect` not `allow`, \
+              so it errors if the comparison ever stops being strict."
+)]
 fn a_cli_percentage_that_will_not_parse_reads_as_zero() {
     let stats = parse_cli_stats("web\t--\t128MiB / 512MiB\n");
     let rows = rows_from_cli("web\tUp\tnginx\taaa\n", &stats);

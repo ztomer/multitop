@@ -317,7 +317,7 @@ pub fn get_core_temps() -> HashMap<usize, f64> {
         if client.is_null() {
             return temps;
         }
-        let p_key = CFStringCreateWithCString(std::ptr::null(), c"Product".as_ptr(), 0x08000100);
+        let p_key = CFStringCreateWithCString(std::ptr::null(), c"Product".as_ptr(), 0x0800_0100);
         let services = IOHIDEventSystemClientCopyServices(client);
         if !services.is_null() {
             let count = CFArrayGetCount(services);
@@ -335,7 +335,7 @@ pub fn get_core_temps() -> HashMap<usize, f64> {
                                 prop,
                                 buf.as_mut_ptr(),
                                 crate::consts::IOKIT_NAME_BUF as _,
-                                0x08000100,
+                                0x0800_0100,
                             ) {
                                 let len = buf.iter().position(|&b| b == 0).unwrap_or(buf.len());
                                 let name = String::from_utf8_lossy(&buf[..len]);

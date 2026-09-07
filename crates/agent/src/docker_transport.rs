@@ -87,6 +87,11 @@ pub fn decode_chunked(body: &[u8]) -> Vec<u8> {
 ///
 /// `Connection: close` lets us read to EOF instead of tracking content
 /// lengths, and the daemon answers every one of these in a single response.
+/// # Errors
+///
+/// Returns the transport error unchanged: a missing socket, a refused
+/// connection, or a malformed HTTP response. Callers fall back to the CLI
+/// rather than treating any of these as fatal.
 pub fn http_get_on(endpoint: &DockerEndpoint, path: &str) -> io::Result<Vec<u8>> {
     let req = format!(
         "GET {path} HTTP/1.1\r\nHost: localhost\r\nAccept: application/json\r\nConnection: close\r\n\r\n"

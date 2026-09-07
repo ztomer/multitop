@@ -56,7 +56,7 @@ fn full(cores: usize, procs: usize, cols: usize) -> Snapshot {
 
 #[test]
 fn proc_rows_stay_aligned_across_pid_and_cpu_ranges() {
-    let procs: Vec<Proc> = [(1u32, 0.0), (99, 9.9), (99999, 100.0), (4194304, 7.5)]
+    let procs: Vec<Proc> = [(1u32, 0.0), (99, 9.9), (99999, 100.0), (4_194_304, 7.5)]
         .iter()
         .map(|&(pid, cpu)| proc(pid, "name", cpu, 1 << 20))
         .collect();

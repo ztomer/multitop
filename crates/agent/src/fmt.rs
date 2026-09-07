@@ -29,6 +29,13 @@ pub const SIZE_PAIR_W: usize = SIZE_W * 2 + 1;
 pub const SIZE_MAX: u64 = 9_999 * TI;
 
 #[must_use]
+#[expect(
+    clippy::cast_precision_loss,
+    reason = "the result is rendered at {:.1}, so f64's 53-bit mantissa carries \
+              orders of magnitude more precision than the output shows. The \
+              domain is capped at SIZE_MAX (9_999 TiB) besides, which is far \
+              below 2^53 bytes."
+)]
 pub fn fmt_size(b: u64) -> String {
     if b >= TI {
         format!("{:.1}TiB", b as f64 / TI as f64)
