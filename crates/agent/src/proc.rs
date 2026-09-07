@@ -57,6 +57,7 @@ pub struct CpuTimes {
 
 impl CpuTimes {
     /// Busy percentage over the window between two samples.
+    #[must_use]
     pub fn pct_since(&self, prev: &CpuTimes) -> f64 {
         let total = self.total.saturating_sub(prev.total);
         let idle = self.idle.saturating_sub(prev.idle);
@@ -75,6 +76,7 @@ pub struct CpuStat {
 }
 
 impl CpuStat {
+    #[must_use]
     pub fn core(&self, idx: usize) -> Option<CpuTimes> {
         self.cores.iter().find(|(i, _)| *i == idx).map(|(_, t)| *t)
     }
@@ -130,6 +132,7 @@ pub fn parse_proc_stat(data: &str) -> CpuStat {
 ///
 /// The path is a parameter so this, the Linux path that every deployed agent
 /// actually runs, is reachable from a test on a host that has no `/proc`.
+#[must_use]
 pub fn cpu_stat_from(path: &str) -> Option<CpuStat> {
     let mut buf = [0u8; crate::consts::PROC_STAT_BUF];
     let n = read_proc_bytes(path, &mut buf);
@@ -152,6 +155,7 @@ pub struct Usage {
 }
 
 impl Usage {
+    #[must_use]
     pub fn new(total: u64, used: u64) -> Self {
         let pct = if total > 0 {
             used as f64 / total as f64 * 100.0
@@ -163,6 +167,7 @@ impl Usage {
 }
 
 /// Parse `/proc/meminfo`. Used = total - free - buffers - cached.
+#[must_use]
 pub fn parse_meminfo(data: &str) -> Usage {
     if data.is_empty() {
         return Usage::default();
@@ -192,6 +197,7 @@ pub fn parse_meminfo(data: &str) -> Usage {
     Usage::new(total, total.saturating_sub(reclaimable))
 }
 
+#[must_use]
 pub fn root_mount_point(mountinfo: &str) -> Option<&str> {
     mountinfo.lines().find_map(|line| {
         let mut parts = line.split_ascii_whitespace();
@@ -200,15 +206,19 @@ pub fn root_mount_point(mountinfo: &str) -> Option<&str> {
     })
 }
 
+#[must_use]
 pub fn statvfs_bytes(path: &str) -> Option<(u64, u64)> {
     let c_path = std::ffi::CString::new(path).ok()?;
     unsafe {
         let mut st: libc::statvfs = std::mem::zeroed();
-        if libc::statvfs(c_path.as_ptr(), &mut st) != 0 {
+        if libc::statvfs(c_path.as_ptr(), &raw mut st) != 0 {
             return None;
         }
         let frsize = st.f_frsize as u64;
-        Some((st.f_blocks as u64 * frsize, st.f_bavail as u64 * frsize))
+        Some((
+            u64::from(st.f_blocks) * frsize,
+            u64::from(st.f_bavail) * frsize,
+        ))
     }
 }
 
@@ -222,6 +232,7 @@ pub fn root_mount_from(path: &str) -> Option<String> {
     root_mount_point(std::str::from_utf8(&buf[..n]).ok()?).map(str::to_string)
 }
 
+#[must_use]
 pub fn get_disk() -> Usage {
     let root = root_mount_from("/proc/self/mountinfo");
     let target = root.as_deref().unwrap_or("/");
@@ -233,6 +244,7 @@ pub fn get_disk() -> Usage {
 }
 
 /// `/proc/meminfo`, or `None` when it is absent or reports no total.
+#[must_use]
 pub fn memory_from(path: &str) -> Option<Usage> {
     let mut buf = [0u8; crate::consts::PROC_MEMINFO_BUF];
     let n = read_proc_bytes(path, &mut buf);
@@ -253,6 +265,7 @@ pub struct NetTotals {
     pub tx: u64,
 }
 
+#[must_use]
 pub fn parse_net_dev(data: &str) -> NetTotals {
     let mut totals = NetTotals::default();
     for line in data.lines().skip(2) {
@@ -279,6 +292,7 @@ pub fn parse_net_dev(data: &str) -> NetTotals {
 }
 
 /// `/proc/net/dev`, or `None` when it is absent or every counter is zero.
+#[must_use]
 pub fn net_from(path: &str) -> Option<NetTotals> {
     let mut buf = [0u8; crate::consts::PROC_NET_DEV_BUF];
     let n = read_proc_bytes(path, &mut buf);
@@ -357,7 +371,7 @@ impl ProcSampler {
                             .unwrap_or(std::cmp::Ordering::Equal)
                             .then_with(|| mem_b.cmp(&mem_a))
                             .then_with(|| scanned[i_a].pid.cmp(&scanned[i_b].pid))
-                    })
+                    });
             }
             crate::SortBy::Mem => {
                 self.temp_procs
@@ -370,7 +384,7 @@ impl ProcSampler {
                                     .unwrap_or(std::cmp::Ordering::Equal)
                             })
                             .then_with(|| scanned[i_a].pid.cmp(&scanned[i_b].pid))
-                    })
+                    });
             }
         }
 
@@ -432,6 +446,7 @@ impl ProcSampler {
 }
 
 /// Hostname from `/proc`, falling back to `gethostname(2)`.
+#[must_use]
 pub fn hostname() -> String {
     let from_proc = read_proc("/proc/sys/kernel/hostname").trim().to_string();
     if !from_proc.is_empty() {
@@ -439,7 +454,7 @@ pub fn hostname() -> String {
     }
     let mut buf = vec![0u8; crate::consts::SYSCTL_BUF];
     // SAFETY: buf is a valid writable allocation of the length we pass.
-    let rc = unsafe { libc::gethostname(buf.as_mut_ptr() as *mut libc::c_char, buf.len()) };
+    let rc = unsafe { libc::gethostname(buf.as_mut_ptr().cast::<libc::c_char>(), buf.len()) };
     if rc != 0 {
         return "unknown".to_string();
     }
@@ -452,6 +467,7 @@ pub fn hostname() -> String {
 /// Connecting a UDP socket sends nothing — it just asks the kernel which
 /// source address the default route would pick. That replaces the original's
 /// fork of `ip -4 addr` and its `/proc/net/fib_trie` fallback.
+#[must_use]
 pub fn primary_ip() -> Option<String> {
     let sock = std::net::UdpSocket::bind("0.0.0.0:0").ok()?;
     sock.connect("8.8.8.8:53").ok()?;

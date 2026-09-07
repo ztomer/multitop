@@ -83,7 +83,7 @@ fn decode_fetch(cur: &mut Cursor) -> Option<FetchSnapshot> {
 fn decode_snapshot(cur: &mut Cursor, version: u8) -> Option<Snapshot> {
     let host = cur.read_str()?;
     let agent_version = cur.read_str()?;
-    let cpu_pct = cur.read_f32()? as f64;
+    let cpu_pct = f64::from(cur.read_f32()?);
     let cpu_mhz = if version >= 3 {
         let raw = cur.read_f32()?;
         (raw > 0.0).then_some(f64::from(raw))
@@ -96,12 +96,12 @@ fn decode_snapshot(cur: &mut Cursor, version: u8) -> Option<Snapshot> {
     let mut cores = Vec::with_capacity(num_cores.min(rem_cores));
     for _ in 0..num_cores {
         let idx = cur.read_u16()? as usize;
-        let cpu = cur.read_f32()? as f64;
+        let cpu = f64::from(cur.read_f32()?);
         let temp_raw = cur.read_f32()?;
         let temp = if temp_raw < 0.0 {
             None
         } else {
-            Some(temp_raw as f64)
+            Some(f64::from(temp_raw))
         };
         cores.push((idx, cpu, temp));
     }
@@ -116,15 +116,15 @@ fn decode_snapshot(cur: &mut Cursor, version: u8) -> Option<Snapshot> {
     let mem_used = cur.read_u64()?;
     let disk_total = cur.read_u64()?;
     let disk_used = cur.read_u64()?;
-    let rx_rate = cur.read_f32()? as f64;
-    let tx_rate = cur.read_f32()? as f64;
+    let rx_rate = f64::from(cur.read_f32()?);
+    let tx_rate = f64::from(cur.read_f32()?);
 
     let num_procs = cur.read_u16()? as usize;
     let rem_procs = cur.remaining() / 18;
     let mut procs = Vec::with_capacity(num_procs.min(rem_procs));
     for _ in 0..num_procs {
         let pid = cur.read_u32()?;
-        let cpu = cur.read_f32()? as f64;
+        let cpu = f64::from(cur.read_f32()?);
         let mem = cur.read_u64()?;
         let name = cur.read_str()?;
         procs.push(Proc {
@@ -185,7 +185,7 @@ fn decode_docker(cur: &mut Cursor) -> Option<Payload> {
         let name = cur.read_str()?;
         let status = cur.read_str()?;
         let image = cur.read_str()?;
-        let cpu_pct = cur.read_f32()? as f64;
+        let cpu_pct = f64::from(cur.read_f32()?);
         let cpu = cur.read_str()?;
         let mem = cur.read_str()?;
         let mem_bytes = cur.read_u64()?;
@@ -208,10 +208,12 @@ pub struct Cursor<'a> {
 }
 
 impl<'a> Cursor<'a> {
+    #[must_use]
     pub fn new(data: &'a [u8]) -> Self {
         Cursor { data, pos: 0 }
     }
 
+    #[must_use]
     pub fn remaining(&self) -> usize {
         self.data.len().saturating_sub(self.pos)
     }

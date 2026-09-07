@@ -27,6 +27,7 @@ pub struct FetchSnapshot {
 /// Shared by the `/proc/uptime` path and the macOS `KERN_BOOTTIME` path: the
 /// two used to carry a copy each, which is two places for the spelling to
 /// drift apart.
+#[must_use]
 pub fn format_uptime(total_sec: u64) -> String {
     let days = total_sec / 86400;
     let hours = (total_sec % 86400) / 3600;
@@ -41,11 +42,13 @@ pub fn format_uptime(total_sec: u64) -> String {
 }
 
 /// Seconds of uptime from the first field of `/proc/uptime`.
+#[must_use]
 pub fn parse_proc_uptime(raw: &str) -> Option<u64> {
     let secs = raw.split_ascii_whitespace().next()?.parse::<f64>().ok()?;
     Some(secs as u64)
 }
 
+#[must_use]
 pub fn sample_uptime() -> String {
     if let Some(total_sec) = parse_proc_uptime(&proc::read_proc("/proc/uptime")) {
         return format_uptime(total_sec);
@@ -60,8 +63,8 @@ pub fn sample_uptime() -> String {
             libc::sysctl(
                 mib.as_mut_ptr(),
                 2,
-                &mut boot_time as *mut _ as *mut _,
-                &mut size,
+                (&raw mut boot_time).cast(),
+                &raw mut size,
                 std::ptr::null_mut(),
                 0,
             )
@@ -77,6 +80,7 @@ pub fn sample_uptime() -> String {
 }
 
 /// Distribution name from `/etc/os-release`: `PRETTY_NAME`, else `NAME`.
+#[must_use]
 pub fn parse_os_release(content: &str) -> Option<String> {
     let mut pretty = String::new();
     let mut name = String::new();
@@ -96,6 +100,7 @@ pub fn parse_os_release(content: &str) -> Option<String> {
     }
 }
 
+#[must_use]
 pub fn sample_os() -> String {
     if Path::new("/etc/os-release").exists() {
         if let Some(os) = parse_os_release(&proc::read_proc("/etc/os-release")) {
@@ -111,8 +116,8 @@ pub fn sample_os() -> String {
             let res = unsafe {
                 libc::sysctlbyname(
                     name.as_ptr(),
-                    os_rev.as_mut_ptr() as *mut _,
-                    &mut size,
+                    os_rev.as_mut_ptr().cast(),
+                    &raw mut size,
                     std::ptr::null_mut(),
                     0,
                 )
@@ -129,6 +134,7 @@ pub fn sample_os() -> String {
     "Linux".to_string()
 }
 
+#[must_use]
 pub fn sample_kernel() -> String {
     let ver = proc::read_proc("/proc/sys/kernel/osrelease")
         .trim()
@@ -145,8 +151,8 @@ pub fn sample_kernel() -> String {
             let res = unsafe {
                 libc::sysctlbyname(
                     name.as_ptr(),
-                    k_ver.as_mut_ptr() as *mut _,
-                    &mut size,
+                    k_ver.as_mut_ptr().cast(),
+                    &raw mut size,
                     std::ptr::null_mut(),
                     0,
                 )
@@ -163,6 +169,7 @@ pub fn sample_kernel() -> String {
 
 /// Machine name from DMI, as `vendor product` — but not `Dell Inc. Dell XPS`,
 /// because vendors routinely repeat themselves in `product_name`.
+#[must_use]
 pub fn dmi_model(sys_vendor: &str, product_name: &str) -> Option<String> {
     let (sys_vendor, product_name) = (sys_vendor.trim(), product_name.trim());
     if product_name.is_empty() {
@@ -174,6 +181,7 @@ pub fn dmi_model(sys_vendor: &str, product_name: &str) -> Option<String> {
     Some(product_name.to_string())
 }
 
+#[must_use]
 pub fn sample_host_model() -> String {
     let sys_vendor = proc::read_proc("/sys/class/dmi/id/sys_vendor");
     let product_name = proc::read_proc("/sys/class/dmi/id/product_name");
@@ -196,8 +204,8 @@ pub fn sample_host_model() -> String {
             let res = unsafe {
                 libc::sysctlbyname(
                     name.as_ptr(),
-                    model_buf.as_mut_ptr() as *mut _,
-                    &mut size,
+                    model_buf.as_mut_ptr().cast(),
+                    &raw mut size,
                     std::ptr::null_mut(),
                     0,
                 )
@@ -213,6 +221,7 @@ pub fn sample_host_model() -> String {
 
 /// `model name (cores)` from `/proc/cpuinfo`. ARM kernels spell the model
 /// `Hardware` or `Processor` instead, so all three are accepted.
+#[must_use]
 pub fn parse_cpuinfo(content: &str) -> Option<String> {
     let mut model = String::new();
     let mut count = 0usize;
@@ -237,6 +246,7 @@ pub fn parse_cpuinfo(content: &str) -> Option<String> {
     Some(format!("{model} ({cores})"))
 }
 
+#[must_use]
 pub fn sample_cpu_model() -> String {
     if let Some(cpu) = parse_cpuinfo(&proc::read_proc("/proc/cpuinfo")) {
         return cpu;
@@ -250,8 +260,8 @@ pub fn sample_cpu_model() -> String {
             let _res = unsafe {
                 libc::sysctlbyname(
                     name.as_ptr(),
-                    cpu_buf.as_mut_ptr() as *mut _,
-                    &mut size,
+                    cpu_buf.as_mut_ptr().cast(),
+                    &raw mut size,
                     std::ptr::null_mut(),
                     0,
                 )
@@ -262,8 +272,8 @@ pub fn sample_cpu_model() -> String {
                 let _ = unsafe {
                     libc::sysctlbyname(
                         c_name.as_ptr(),
-                        &mut num_cores as *mut _ as *mut _,
-                        &mut c_size,
+                        (&raw mut num_cores).cast(),
+                        &raw mut c_size,
                         std::ptr::null_mut(),
                         0,
                     )
@@ -280,6 +290,7 @@ pub fn sample_cpu_model() -> String {
     "Generic CPU".to_string()
 }
 
+#[must_use]
 pub fn sample_fetch(host: &str) -> FetchSnapshot {
     let user = std::env::var("USER").unwrap_or_else(|_| "user".to_string());
     let user_host = format!("{user}@{host}");

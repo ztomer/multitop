@@ -208,40 +208,48 @@ pub const PLAIN: Palette = Palette {
 
 impl Palette {
     /// Primary accent color for headers, main metrics, and titles.
+    #[must_use]
     pub fn primary(&self) -> &'static str {
         self.cyan
     }
 
     /// Secondary accent color for rule dividers, subtitles, and secondary metrics.
+    #[must_use]
     pub fn secondary(&self) -> &'static str {
         self.purple
     }
 
     /// Muted color for PIDs, total limits, indents, and secondary text.
+    #[must_use]
     pub fn muted(&self) -> &'static str {
         self.gray
     }
 
     /// Text color for process names, container names, and primary values.
+    #[must_use]
     pub fn text(&self) -> &'static str {
         self.white
     }
 
     /// Meter color for low resource usage (0-50% CPU, normal temps).
+    #[must_use]
     pub fn meter_low(&self) -> &'static str {
         self.green
     }
 
     /// Meter color for medium resource usage (50-80% CPU, warm temps).
+    #[must_use]
     pub fn meter_mid(&self) -> &'static str {
         self.yellow
     }
 
     /// Meter color for high/critical resource usage (>80% CPU, hot temps).
+    #[must_use]
     pub fn meter_high(&self) -> &'static str {
         self.red
     }
 
+    #[must_use]
     pub fn cpu_bar(&self, pct: f64) -> &'static str {
         if pct >= crate::consts::CPU_HIGH_PCT {
             self.meter_high()
@@ -252,6 +260,7 @@ impl Palette {
         }
     }
 
+    #[must_use]
     pub fn mem_bar(&self, pct: f64) -> &'static str {
         if pct >= crate::consts::MEM_HIGH_PCT {
             self.meter_high()
@@ -262,6 +271,7 @@ impl Palette {
         }
     }
 
+    #[must_use]
     pub fn disk_bar(&self, pct: f64) -> &'static str {
         if pct >= crate::consts::DISK_HIGH_PCT {
             self.meter_high()
@@ -273,6 +283,7 @@ impl Palette {
     }
 
     /// Green while running, yellow once exited, red for anything else.
+    #[must_use]
     pub fn status_color(&self, status: &str) -> &'static str {
         if status.starts_with("Up") || status == "running" {
             self.meter_low()
@@ -285,6 +296,7 @@ impl Palette {
 }
 
 /// Strip SGR sequences, for width math and for tests that assert on layout.
+#[must_use]
 pub fn strip_ansi(s: &str) -> String {
     let mut out = String::with_capacity(s.len());
     let mut chars = s.chars();

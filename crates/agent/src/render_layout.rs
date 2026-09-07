@@ -13,6 +13,7 @@ pub struct CoreGrid {
 }
 
 impl CoreGrid {
+    #[must_use]
     pub fn new(
         max_idx: usize,
         num_cores: usize,
@@ -48,6 +49,7 @@ pub enum Tier {
 }
 
 impl Tier {
+    #[must_use]
     pub fn for_lines(lines: usize) -> Self {
         match lines {
             0 => Tier::Full,
@@ -75,6 +77,7 @@ pub struct Chrome {
 }
 
 impl Chrome {
+    #[must_use]
     pub fn of(snap: &Snapshot, cols: usize, lines: usize) -> Self {
         let tier = Tier::for_lines(lines);
         let num_cores = if tier <= Tier::Compact {
@@ -110,6 +113,7 @@ impl Chrome {
         }
     }
 
+    #[must_use]
     pub fn cpu_rows(&self) -> usize {
         if self.tier == Tier::Micro || self.tier == Tier::TooSmall {
             return 0;
@@ -128,6 +132,7 @@ impl Chrome {
         }
     }
 
+    #[must_use]
     pub fn height(&self) -> usize {
         match self.tier {
             // The header, plus the "too small" note when there is a second

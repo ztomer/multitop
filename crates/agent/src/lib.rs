@@ -39,6 +39,7 @@ pub enum SortBy {
 }
 
 impl SortBy {
+    #[must_use]
     pub fn word(&self) -> &'static str {
         match self {
             SortBy::Cpu => "cpu",
@@ -87,6 +88,7 @@ pub enum Mode {
 }
 
 impl Mode {
+    #[must_use]
     pub fn word(&self) -> &'static str {
         match self {
             Mode::Monitor => "monitor",
@@ -191,6 +193,7 @@ fn sample_dims(args: &Args, is_tty: bool) -> (usize, usize) {
 }
 
 /// Which palette the environment asks for.
+#[must_use]
 pub fn palette_for_env() -> &'static color::Palette {
     if std::env::var_os("NO_COLOR").is_some() {
         &color::PLAIN
@@ -333,6 +336,7 @@ pub fn monitor_loop<W: std::io::Write>(
 ///
 /// Only a pipe is watched: a terminal's stdin belongs to the user, and a
 /// closed one there means nothing.
+#[must_use]
 pub fn stdin_eof_watcher() -> std::sync::Arc<std::sync::atomic::AtomicBool> {
     use std::io::{self, IsTerminal, Read};
     use std::sync::atomic::{AtomicBool, Ordering};
@@ -340,9 +344,7 @@ pub fn stdin_eof_watcher() -> std::sync::Arc<std::sync::atomic::AtomicBool> {
 
     let stdin_gone = Arc::new(AtomicBool::new(false));
     let stdin_pipe = !io::stdin().is_terminal()
-        && std::fs::metadata("/proc/self/fd/0")
-            .map(|m| m.file_type().is_fifo())
-            .unwrap_or(false);
+        && std::fs::metadata("/proc/self/fd/0").is_ok_and(|m| m.file_type().is_fifo());
     if stdin_pipe {
         let sig = stdin_gone.clone();
         std::thread::spawn(move || {
@@ -454,7 +456,7 @@ mod tests {
     use super::*;
 
     fn args(v: &[&str]) -> Args {
-        parse_args(v.iter().map(|s| s.to_string()))
+        parse_args(v.iter().map(std::string::ToString::to_string))
     }
 
     #[test]

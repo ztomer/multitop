@@ -40,6 +40,7 @@ pub struct Stats {
 }
 
 impl Stats {
+    #[must_use]
     pub fn mem_string(&self) -> String {
         format!("{}/{}", fmt_size(self.mem_used), fmt_size(self.mem_limit))
     }
@@ -50,6 +51,7 @@ pub use crate::docker_transport::*;
 // ------------------------------------------------------------------ parsing
 
 /// Extract the container list from `GET /containers/json`.
+#[must_use]
 pub fn parse_container_list(json: &str) -> Vec<Container> {
     let Ok(Value::Array(items)) = serde_json::from_str::<Value>(json) else {
         return Vec::new();
@@ -81,6 +83,7 @@ pub struct StatSample {
     pub mem_limit: u64,
 }
 
+#[must_use]
 pub fn parse_stat_sample(json: &str) -> Option<StatSample> {
     let v: Value = serde_json::from_str(json).ok()?;
     let cpu = &v["cpu_stats"];
@@ -121,6 +124,7 @@ pub fn parse_stat_sample(json: &str) -> Option<StatSample> {
 }
 
 /// CPU percentage between two samples, using Docker's own formula.
+#[must_use]
 pub fn cpu_pct_between(prev: &StatSample, curr: &StatSample) -> f64 {
     let cpu_delta = curr.cpu_total.saturating_sub(prev.cpu_total) as f64;
     let sys_delta = curr.system_total.saturating_sub(prev.system_total) as f64;
@@ -195,6 +199,7 @@ fn collect_stats_via_socket(
 
 // -------------------------------------------------------------- CLI fallback
 
+#[must_use]
 pub fn parse_cli_ps(text: &str) -> Vec<Container> {
     text.lines()
         .filter_map(|line| {
@@ -231,6 +236,7 @@ pub struct Row {
 /// Rows from the socket's container list and the stats sampled for it. A
 /// container the stats pass could not read shows zeroes rather than being
 /// dropped from the table.
+#[must_use]
 pub fn rows_from_stats(containers: Vec<Container>, stats: &HashMap<String, Stats>) -> Vec<Row> {
     containers
         .into_iter()
@@ -257,6 +263,7 @@ pub fn rows_from_stats(containers: Vec<Container>, stats: &HashMap<String, Stats
 ///
 /// The CLI reports memory as text it has already formatted, so `mem_bytes` is
 /// unknown here — sorting by memory falls back to the printed string's order.
+#[must_use]
 pub fn rows_from_cli(ps: &str, stats: &HashMap<String, (String, String)>) -> Vec<Row> {
     parse_cli_ps(ps)
         .into_iter()
@@ -279,10 +286,12 @@ pub fn rows_from_cli(ps: &str, stats: &HashMap<String, (String, String)>) -> Vec
 }
 
 /// Gather rows, preferring the socket and falling back to the CLI.
+#[must_use]
 pub fn collect() -> Vec<Row> {
     collect_from(&DockerEndpoint::from_env())
 }
 
+#[must_use]
 pub fn collect_from(endpoint: &DockerEndpoint) -> Vec<Row> {
     if let Ok(body) = http_get_on(endpoint, &format!("{API}/containers/json")) {
         let containers = parse_container_list(&String::from_utf8_lossy(&body));
@@ -318,6 +327,7 @@ pub(crate) const CPU_W: usize = 7;
 /// A `used/total` pair, sized from the formatter that produces it.
 pub(crate) const MEM_W: usize = SIZE_PAIR_W;
 
+#[must_use]
 pub fn truncate(s: &str, width: usize) -> String {
     if s.chars().count() < width {
         return s.to_string();

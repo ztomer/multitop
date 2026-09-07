@@ -28,6 +28,7 @@ pub struct RawProcStat {
     pub rss_pages: u64,
 }
 
+#[must_use]
 pub fn parse_pid_stat(data: &str) -> Option<RawProcStat> {
     let open = data.find('(')?;
     let close = data.rfind(')')?;
@@ -108,6 +109,7 @@ pub fn fmt_proc_comm_path(pid: u32, out: &mut [u8; crate::consts::PROC_PATH_BUF]
     std::str::from_utf8(&out[..len]).unwrap_or("")
 }
 
+#[must_use]
 pub fn read_comm(pid: u32) -> String {
     let mut path_buf = [0u8; crate::consts::PROC_PATH_BUF];
     let path = fmt_proc_comm_path(pid, &mut path_buf);
@@ -139,6 +141,7 @@ impl Default for ProcSampler {
 }
 
 impl ProcSampler {
+    #[must_use]
     pub fn new() -> Self {
         let clk_tck = unsafe { libc::sysconf(libc::_SC_CLK_TCK) };
         let page_size = unsafe { libc::sysconf(libc::_SC_PAGESIZE) };

@@ -103,7 +103,7 @@ pub const STDIN_WATCH_BUF: usize = 64;
 /// A per-core bar narrower than this is unreadable, so the bars are dropped
 /// and the grid shows figures alone.
 pub const MIN_READABLE_BAR_W: usize = 5;
-/// IOKit sensor plumbing: the HID page for thermal events, and the buffer a
+/// `IOKit` sensor plumbing: the HID page for thermal events, and the buffer a
 /// sensor name is copied into.
 pub const HID_TEMPERATURE_PAGE: u32 = 15;
 pub const IOKIT_NAME_BUF: usize = 128;

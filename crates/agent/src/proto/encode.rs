@@ -13,6 +13,7 @@ use crate::fetch::FetchSnapshot;
 use crate::proto::Payload;
 use crate::render::{Snapshot, TempUnit};
 
+#[must_use]
 pub fn encode_packet(payload: &Payload) -> Vec<u8> {
     let mut buf = Vec::with_capacity(crate::consts::PACKET_CAPACITY);
     // Header: magic(4) + version(1) + mode(1) + payload_len(2)

@@ -77,8 +77,8 @@ fn two_column_rows_align() {
             proc(
                 i * 1000,
                 &format!("name{i}"),
-                i as f64 * 3.0,
-                i as u64 * 1_000_000,
+                f64::from(i) * 3.0,
+                u64::from(i) * 1_000_000,
             )
         })
         .collect();
@@ -125,7 +125,7 @@ fn core_grid_indices_are_right_aligned() {
 
 #[test]
 fn two_columns_when_wide() {
-    let procs: Vec<Proc> = (1..=4).map(|i| proc(i, "p", i as f64, 1000)).collect();
+    let procs: Vec<Proc> = (1..=4).map(|i| proc(i, "p", f64::from(i), 1000)).collect();
     let s = Snapshot { procs, ..snap() };
     let out = render(&s, 80, 0, 48, &ANSI);
     assert_eq!(

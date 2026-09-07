@@ -14,6 +14,7 @@ pub struct Monitor {
 impl Monitor {
     /// Read the baselines every rate calculation is a delta against, so the
     /// first `tick` produces real numbers rather than a frame of zeroes.
+    #[must_use]
     pub fn new(host: String) -> Self {
         let mut sampler = ProcSampler::new();
         sampler.prime();
@@ -25,6 +26,7 @@ impl Monitor {
         }
     }
 
+    #[must_use]
     pub fn host(&self) -> &str {
         &self.host
     }

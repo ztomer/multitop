@@ -22,12 +22,14 @@ pub enum DockerEndpoint {
 pub const DEFAULT_SOCKET: &str = "/var/run/docker.sock";
 
 impl DockerEndpoint {
+    #[must_use]
     pub fn from_env() -> Self {
         Self::from_docker_host(std::env::var("DOCKER_HOST").ok().as_deref())
     }
 
     /// Read a `DOCKER_HOST` value. Anything that is neither `tcp://` nor
     /// `unix://` is taken as a bare socket path, which is what the CLI does.
+    #[must_use]
     pub fn from_docker_host(host: Option<&str>) -> Self {
         match host {
             Some(h) if h.starts_with("tcp://") => DockerEndpoint::Tcp(h.to_string()),
@@ -48,6 +50,7 @@ fn find_subslice(haystack: &[u8], needle: &[u8]) -> Option<usize> {
 }
 
 /// Decode `Transfer-Encoding: chunked` bodies.
+#[must_use]
 pub fn decode_chunked(body: &[u8]) -> Vec<u8> {
     let mut out = Vec::with_capacity(body.len());
     let mut pos = 0;

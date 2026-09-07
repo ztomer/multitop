@@ -116,15 +116,12 @@ impl Sieve {
         if self.partial.is_empty() {
             return sifted;
         }
-        match marker_of(&self.partial) {
-            Some(kind) => {
-                self.partial.clear();
-                sifted.push(Piece::Mark(kind));
-            }
-            None => {
-                let tail = std::mem::take(&mut self.partial);
-                push_out(&mut sifted, &tail);
-            }
+        if let Some(kind) = marker_of(&self.partial) {
+            self.partial.clear();
+            sifted.push(Piece::Mark(kind));
+        } else {
+            let tail = std::mem::take(&mut self.partial);
+            push_out(&mut sifted, &tail);
         }
         sifted
     }

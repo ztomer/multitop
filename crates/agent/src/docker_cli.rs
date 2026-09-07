@@ -3,6 +3,7 @@
 use std::collections::HashMap;
 use std::process::Command;
 
+#[must_use]
 pub fn docker_cli(args: &[&str]) -> Option<String> {
     let out = Command::new("docker").args(args).output().ok()?;
     if !out.status.success() {
@@ -15,6 +16,7 @@ pub fn docker_cli(args: &[&str]) -> Option<String> {
 // one through the `pub use docker_cli::*` glob and so was never called — and
 // it disagreed with the live copy about how many fields a row needs.
 
+#[must_use]
 pub fn parse_cli_stats(text: &str) -> HashMap<String, (String, String)> {
     text.lines()
         .filter_map(|line| {

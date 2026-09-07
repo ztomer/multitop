@@ -20,6 +20,7 @@ use super::{
 ///
 /// The login-and-interactive shells are what make an alias like `ud` resolve,
 /// which is what most people actually put in `upgrade_cmd`.
+#[must_use]
 pub fn wrap(command: &str, with_password: bool) -> String {
     let quoted = sh_quote(command);
     let inner = quoted.replace('\'', r"'\''");
@@ -53,6 +54,7 @@ pub fn wrap(command: &str, with_password: bool) -> String {
 }
 
 /// `/bin/sh -c <script>`, as C strings built before any fork.
+#[must_use]
 pub fn shell_argv(script: &str) -> Option<Vec<CString>> {
     Some(vec![
         CString::new("/bin/sh").ok()?,
@@ -62,6 +64,7 @@ pub fn shell_argv(script: &str) -> Option<Vec<CString>> {
 }
 
 /// Single-quote for a POSIX shell.
+#[must_use]
 pub fn sh_quote(s: &str) -> String {
     format!("'{}'", s.replace('\'', r"'\''"))
 }

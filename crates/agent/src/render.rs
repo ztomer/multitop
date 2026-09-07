@@ -77,11 +77,13 @@ pub struct Snapshot {
 }
 
 /// Bar width for the aggregate rows, derived from the panel width.
+#[must_use]
 pub fn bar_len_for(cols: usize) -> usize {
     cols.saturating_sub(32).max(4)
 }
 
 /// The NET row only appears once there is traffic worth reporting.
+#[must_use]
 pub fn shows_net(rx_rate: f64, tx_rate: f64) -> bool {
     rx_rate > crate::consts::NET_VISIBLE_BYTES_PER_SEC
         || tx_rate > crate::consts::NET_VISIBLE_BYTES_PER_SEC
@@ -126,6 +128,7 @@ impl Chrome {
 
     /// Rows a process table of `n` entries occupies, including its rule and
     /// header. An empty table draws nothing at all.
+    #[must_use]
     pub fn table_height(&self, n: usize) -> usize {
         if n == 0 || self.tier < Tier::Compact {
             return 0;
@@ -138,6 +141,7 @@ impl Chrome {
     ///
     /// Returns 0 when the panel has no room for a table — a clipped frame is
     /// worse than an honestly omitted one.
+    #[must_use]
     pub fn proc_budget(&self, lines: usize) -> usize {
         if self.tier < Tier::Compact {
             return 0;
@@ -182,6 +186,7 @@ fn name_width(cols: usize, two_column: bool) -> usize {
 // ----------------------------------------------------------------- rendering
 
 /// Truncate to `width` display cells, marking the cut with an ellipsis.
+#[must_use]
 pub fn truncate_name(name: &str, width: usize) -> String {
     if name.chars().count() < width {
         return name.to_string();
@@ -330,6 +335,7 @@ fn push_proc_table(out: &mut Vec<String>, procs: &[Proc], cols: usize, pal: &Pal
 }
 
 /// Render one frame.
+#[must_use]
 pub fn render(
     snap: &Snapshot,
     cols: usize,

@@ -2,6 +2,7 @@ use crate::color::Palette;
 use crate::docker::{truncate, Row, CPU_W, MEM_W, NAME_W, STATUS_W};
 use crate::fmt::center_header;
 
+#[must_use]
 pub fn render(
     host: &str,
     cols: usize,

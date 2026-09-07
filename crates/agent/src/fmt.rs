@@ -28,6 +28,7 @@ pub const SIZE_PAIR_W: usize = SIZE_W * 2 + 1;
 /// rather than assume their inputs are sane.
 pub const SIZE_MAX: u64 = 9_999 * TI;
 
+#[must_use]
 pub fn fmt_size(b: u64) -> String {
     if b >= TI {
         format!("{:.1}TiB", b as f64 / TI as f64)
@@ -38,10 +39,11 @@ pub fn fmt_size(b: u64) -> String {
     } else if b >= KI {
         format!("{:.1}KiB", b as f64 / KI as f64)
     } else {
-        format!("{}B", b)
+        format!("{b}B")
     }
 }
 
+#[must_use]
 pub fn fmt_rate(bytes_per_sec: f64) -> String {
     if bytes_per_sec >= (MI as f64) {
         format!("{:.1}M", bytes_per_sec / MI as f64)
@@ -71,6 +73,7 @@ static HASH_BAR: &str = "#######################################################
 static DOT_BAR: &str = "................................................................................................................................................................................................................................";
 
 /// Bracketed bar: `[####....]`, used for the aggregate CPU/MEM/DSK rows.
+#[must_use]
 pub fn make_bar(pct: f64, length: usize, color: &str, reset: &str) -> String {
     let filled = filled_cells(pct, length).min(HASH_BAR.len());
     let unfilled = length.saturating_sub(filled).min(DOT_BAR.len());
@@ -85,6 +88,7 @@ pub fn make_bar(pct: f64, length: usize, color: &str, reset: &str) -> String {
 }
 
 /// Unbracketed bar used inside a per-core cell, colored by its own load.
+#[must_use]
 pub fn core_bar(pct: f64, length: usize, p: &crate::color::Palette) -> String {
     let filled = filled_cells(pct, length).min(HASH_BAR.len());
     let unfilled = length.saturating_sub(filled).min(DOT_BAR.len());
@@ -99,6 +103,7 @@ pub fn core_bar(pct: f64, length: usize, p: &crate::color::Palette) -> String {
 
 /// Map printable ASCII into the fullwidth block so the host header reads as a
 /// distinct, wider title. Space and non-ASCII pass through unchanged.
+#[must_use]
 pub fn fullwidth(s: &str) -> String {
     s.chars()
         .map(|c| {
@@ -114,6 +119,7 @@ pub fn fullwidth(s: &str) -> String {
 
 /// Terminal cells occupied by `fullwidth(s)`: printable ASCII becomes a
 /// double-width glyph, everything else stays single-width.
+#[must_use]
 pub fn fullwidth_display_width(s: &str) -> usize {
     s.chars()
         .map(|c| {
@@ -130,6 +136,7 @@ pub fn fullwidth_display_width(s: &str) -> usize {
 use crate::color::Palette;
 
 /// Center-aligned header line: `────── ｈｏｓｔｎａｍｅ ──────`
+#[must_use]
 pub fn center_header(host: &str, cols: usize, pal: &Palette) -> String {
     let fw = fullwidth(host);
     let disp_w = fullwidth_display_width(host);

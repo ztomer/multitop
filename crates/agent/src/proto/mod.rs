@@ -53,6 +53,7 @@ pub enum ProtoMode {
 }
 
 impl ProtoMode {
+    #[must_use]
     pub const fn as_u8(self) -> u8 {
         self as u8
     }
@@ -326,7 +327,7 @@ mod framing_tests {
         // empty, missing, proto 0, min>proto, overly long
         for bad in [
             Hello {
-                agent_version: "".into(),
+                agent_version: String::new(),
                 proto_version: 5,
                 min_proto_version: 2,
             },

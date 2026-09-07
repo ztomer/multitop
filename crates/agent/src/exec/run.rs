@@ -143,12 +143,11 @@ pub fn run<W: Write>(req: &Request, out: &mut W) -> i32 {
 /// terminal frame. The obligation is structural rather than remembered.
 fn execute<W: Write>(req: &Request, out: &mut W, seq: &mut u32) -> pty::Outcome {
     let default_lock;
-    let lock_path = match req.lock_path {
-        Some(p) => p,
-        None => {
-            default_lock = lock::default_path();
-            &default_lock
-        }
+    let lock_path = if let Some(p) = req.lock_path {
+        p
+    } else {
+        default_lock = lock::default_path();
+        &default_lock
     };
     let _guard = if req.use_lock {
         match lock::acquire(lock_path) {

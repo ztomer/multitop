@@ -43,6 +43,7 @@ impl Drop for MachCpuInfoGuard {
 }
 
 #[cfg(target_os = "macos")]
+#[must_use]
 pub fn get_cpu_stat_macos() -> CpuStat {
     let mut stat = CpuStat::default();
     let mut num_cpus: libc::natural_t = 0;
@@ -54,9 +55,9 @@ pub fn get_cpu_stat_macos() -> CpuStat {
         libc::host_processor_info(
             host_port,
             libc::PROCESSOR_CPU_LOAD_INFO,
-            &mut num_cpus,
-            &mut cpu_info,
-            &mut msg_type,
+            &raw mut num_cpus,
+            &raw mut cpu_info,
+            &raw mut msg_type,
         )
     };
 
@@ -73,10 +74,10 @@ pub fn get_cpu_stat_macos() -> CpuStat {
 
         for i in 0..(num_cpus as usize) {
             let info = unsafe { *cpu_load.add(i) };
-            let user = info.cpu_ticks[libc::CPU_STATE_USER as usize] as u64;
-            let system = info.cpu_ticks[libc::CPU_STATE_SYSTEM as usize] as u64;
-            let idle = info.cpu_ticks[libc::CPU_STATE_IDLE as usize] as u64;
-            let nice = info.cpu_ticks[libc::CPU_STATE_NICE as usize] as u64;
+            let user = u64::from(info.cpu_ticks[libc::CPU_STATE_USER as usize]);
+            let system = u64::from(info.cpu_ticks[libc::CPU_STATE_SYSTEM as usize]);
+            let idle = u64::from(info.cpu_ticks[libc::CPU_STATE_IDLE as usize]);
+            let nice = u64::from(info.cpu_ticks[libc::CPU_STATE_NICE as usize]);
 
             let total = user + system + idle + nice;
             agg_total += total;
@@ -100,6 +101,7 @@ pub fn get_cpu_stat_macos() -> CpuStat {
 }
 
 #[cfg(target_os = "macos")]
+#[must_use]
 pub fn get_memory_macos() -> Usage {
     let mut total: u64 = 0;
     let mut size = std::mem::size_of::<u64>();
@@ -107,8 +109,8 @@ pub fn get_memory_macos() -> Usage {
         unsafe {
             libc::sysctlbyname(
                 name.as_ptr(),
-                &mut total as *mut _ as *mut _,
-                &mut size,
+                (&raw mut total).cast(),
+                &raw mut size,
                 std::ptr::null_mut(),
                 0,
             );
@@ -127,8 +129,8 @@ pub fn get_memory_macos() -> Usage {
         libc::host_statistics64(
             host_port,
             libc::HOST_VM_INFO64,
-            &mut vm_info as *mut _ as *mut _,
-            &mut count,
+            (&raw mut vm_info).cast(),
+            &raw mut count,
         )
     };
     unsafe {
@@ -138,9 +140,9 @@ pub fn get_memory_macos() -> Usage {
     if ret == libc::KERN_SUCCESS {
         let ps = unsafe { libc::sysconf(libc::_SC_PAGESIZE) };
         let page_size = if ps > 0 { ps as u64 } else { 4096 };
-        let active = vm_info.active_count as u64 * page_size;
-        let wire = vm_info.wire_count as u64 * page_size;
-        let compressed = vm_info.compressor_page_count as u64 * page_size;
+        let active = u64::from(vm_info.active_count) * page_size;
+        let wire = u64::from(vm_info.wire_count) * page_size;
+        let compressed = u64::from(vm_info.compressor_page_count) * page_size;
         let used = active + wire + compressed;
         Usage::new(total, used.min(total))
     } else {
@@ -154,11 +156,12 @@ pub fn get_memory_macos() -> Usage {
 }
 
 #[cfg(target_os = "macos")]
+#[must_use]
 pub fn get_net_macos() -> NetTotals {
     let mut totals = NetTotals::default();
     unsafe {
         let mut ifap: *mut libc::ifaddrs = std::ptr::null_mut();
-        if libc::getifaddrs(&mut ifap) == 0 && !ifap.is_null() {
+        if libc::getifaddrs(&raw mut ifap) == 0 && !ifap.is_null() {
             let mut curr = ifap;
             while !curr.is_null() {
                 let ifa = *curr;
@@ -175,8 +178,8 @@ pub fn get_net_macos() -> NetTotals {
                         let sa_family = (*ifa.ifa_addr).sa_family;
                         if sa_family == libc::AF_LINK as u8 {
                             let data = ifa.ifa_data as *const libc::if_data;
-                            totals.rx = totals.rx.saturating_add((*data).ifi_ibytes as u64);
-                            totals.tx = totals.tx.saturating_add((*data).ifi_obytes as u64);
+                            totals.rx = totals.rx.saturating_add(u64::from((*data).ifi_ibytes));
+                            totals.tx = totals.tx.saturating_add(u64::from((*data).ifi_obytes));
                         }
                     }
                 }
@@ -194,6 +197,7 @@ pub fn get_net_macos() -> NetTotals {
 }
 
 #[cfg(target_os = "macos")]
+#[must_use]
 pub fn scan_macos() -> Vec<RawProcStat> {
     let mut out = Vec::with_capacity(crate::consts::IOKIT_SENSOR_CAPACITY);
     let num_pids = unsafe { libc::proc_listallpids(std::ptr::null_mut(), 0) };
@@ -203,7 +207,7 @@ pub fn scan_macos() -> Vec<RawProcStat> {
     let mut pids = vec![0i32; num_pids as usize + 64];
     let bytes_got = unsafe {
         libc::proc_listallpids(
-            pids.as_mut_ptr() as *mut _,
+            pids.as_mut_ptr().cast(),
             (pids.len() * std::mem::size_of::<i32>()) as i32,
         )
     };
@@ -224,7 +228,7 @@ pub fn scan_macos() -> Vec<RawProcStat> {
                 pid,
                 libc::PROC_PIDTASKINFO,
                 0,
-                &mut task_info as *mut _ as *mut _,
+                (&raw mut task_info).cast(),
                 std::mem::size_of::<libc::proc_taskinfo>() as i32,
             )
         };
@@ -234,7 +238,7 @@ pub fn scan_macos() -> Vec<RawProcStat> {
 
         let mut name_buf = [0u8; crate::consts::SYSCTL_BUF];
         let name_res =
-            unsafe { libc::proc_name(pid, name_buf.as_mut_ptr() as *mut _, name_buf.len() as u32) };
+            unsafe { libc::proc_name(pid, name_buf.as_mut_ptr().cast(), name_buf.len() as u32) };
         let comm = if name_res > 0 {
             String::from_utf8_lossy(&name_buf[..name_res as usize]).to_string()
         } else {
@@ -302,6 +306,7 @@ extern "C" {
 }
 
 #[cfg(target_os = "macos")]
+#[must_use]
 pub fn get_core_temps() -> HashMap<usize, f64> {
     let mut temps = HashMap::new();
     let mut die_temps: HashMap<usize, f64> = HashMap::new();
@@ -318,12 +323,12 @@ pub fn get_core_temps() -> HashMap<usize, f64> {
             let count = CFArrayGetCount(services);
             for i in 0..count {
                 let service = CFArrayGetValueAtIndex(services, i);
-                let event = IOHIDServiceClientCopyEvent(service as *mut _, 15, 0, 0);
+                let event = IOHIDServiceClientCopyEvent(service.cast_mut(), 15, 0, 0);
                 if !event.is_null() {
                     let temp =
                         IOHIDEventGetFloatValue(event, crate::consts::HID_TEMPERATURE_PAGE << 16);
                     if (10.0..=120.0).contains(&temp) {
-                        let prop = IOHIDServiceClientCopyProperty(service as *mut _, p_key);
+                        let prop = IOHIDServiceClientCopyProperty(service.cast_mut(), p_key);
                         if !prop.is_null() {
                             let mut buf = [0u8; crate::consts::IOKIT_NAME_BUF];
                             if CFStringGetCString(
@@ -357,10 +362,10 @@ pub fn get_core_temps() -> HashMap<usize, f64> {
         CFRelease(client);
     }
 
-    let avg_temp = if !all_tdie.is_empty() {
-        all_tdie.iter().sum::<f64>() / all_tdie.len() as f64
-    } else {
+    let avg_temp = if all_tdie.is_empty() {
         0.0
+    } else {
+        all_tdie.iter().sum::<f64>() / all_tdie.len() as f64
     };
 
     if avg_temp > 0.0 {
@@ -382,8 +387,8 @@ fn macos_num_cpus() -> usize {
         unsafe {
             libc::sysctlbyname(
                 name.as_ptr(),
-                &mut count as *mut _ as *mut _,
-                &mut size,
+                (&raw mut count).cast(),
+                &raw mut size,
                 std::ptr::null_mut(),
                 0,
             );
