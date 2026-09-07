@@ -36,6 +36,7 @@ from __future__ import annotations
 
 import os
 import pathlib
+import re
 import subprocess
 import sys
 
@@ -44,10 +45,16 @@ REPO = pathlib.Path(__file__).resolve().parent.parent
 #: Files this size or smaller need no ceiling at all.
 LOC_LIMIT = 500
 
-#: Production source only. Test files are held to the same cap by the
-#: gates_of_heck structural gate (`.gatesrc`: `GOH_MAX_LINES`), which runs
-#: whole-tree; this sweep stays src-scoped so its ratchet and CI's stay
-#: comparable.
+#: Production source only. Test files are held to the cap by the gates_of_heck
+#: structural gate (`.gatesrc`: `GOH_MAX_LINES`), which runs whole-tree; this
+#: sweep stays src-scoped so its ratchet and CI's stay comparable.
+#:
+#: THAT SENTENCE WAS FALSE FOR ONE FILE and the claim is why nobody looked:
+#: `crates/multitop/tests/event_loop_e2e.rs` was 619 lines, named in
+#: GOH_LINE_EXCLUDE (so the cap did not apply) and absent from the baseline (so
+#: no ceiling applied). Bounded by nothing, silently. It was split into a
+#: directory target and the exemption removed; `ceiling_check()` below now makes
+#: the pairing structural, so prose is not what holds the property up.
 LOC_SCOPE = "crates/*/src/**/*.rs"
 
 BASELINE = REPO / "tools" / "loc_baseline.txt"
@@ -129,7 +136,7 @@ def main() -> int:
         )
         return 1
 
-    return subprocess.run(
+    rc = subprocess.run(
         [
             sys.executable,
             str(checker),
@@ -138,6 +145,38 @@ def main() -> int:
             "--current-from-command",
             current_command(),
         ],
+        cwd=REPO,
+    ).returncode
+    return rc or ceiling_check()
+
+
+def ceiling_check() -> int:
+    """Every GOH_LINE_EXCLUDE entry over the cap must carry a ceiling.
+
+    Runs from HERE, not only from `structural.sh`, for a parity reason: the
+    hook calls `structural.sh` and CI does not, so a check wired only there
+    would be a hook-only gate -- exactly the drift `check_gate_parity.py`
+    exists to prevent. This file is the one entry point all three callers
+    share.
+
+    The checker itself stays in gates_of_heck; nothing is vendored.
+    """
+    checker = goh() / "checks" / ("check_" + "exclusion_has_ceiling.py")
+    if not checker.is_file():
+        print(
+            f"ratchet: cannot find {checker}\n"
+            "  A gate that cannot run is not a gate that passed.",
+            file=sys.stderr,
+        )
+        return 1
+    exclude = ""
+    for line in (REPO / ".gatesrc").read_text().splitlines():
+        m = re.match(r"\s*GOH_LINE_EXCLUDE=\'([^\']*)\'", line)
+        if m:
+            exclude = m.group(1)
+    return subprocess.run(
+        [sys.executable, str(checker), "--max", str(LOC_LIMIT),
+         "--baseline", str(BASELINE.relative_to(REPO)), "--line-exclude", exclude],
         cwd=REPO,
     ).returncode
 

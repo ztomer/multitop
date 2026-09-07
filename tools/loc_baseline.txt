@@ -3,9 +3,15 @@
 # the house ratchet says so when one vanishes below the cap so the number here
 # can come down. A file not listed may not cross 500 at all.
 #
-# Tests are held to the same 500-line cap by the gates_of_heck structural
-# gate (.gatesrc: GOH_MAX_LINES); every test file that was over the cap has
-# been split into a directory target.
+# WHAT THIS FILE DOES NOT COVER, and how that is enforced. The sweep below is
+# crates/*/src only, so a file exempted from the cap via .gatesrc's
+# GOH_LINE_EXCLUDE and absent from here is bounded by NOTHING. This header used
+# to claim tests were "held to the same 500-line cap", which was false for
+# crates/multitop/tests/event_loop_e2e.rs (619 lines, exempt, unlisted) -- and
+# the claim is why nobody looked. That file is now a directory target and its
+# exemption is gone; the pairing itself is enforced by
+# gates_of_heck/checks/check_exclusion_has_ceiling.py, run from
+# tools/ratchet_check.py alongside the ratchet. Prose is not a gate.
 #
 # Consumed by gates_of_heck's checks/check_baseline_ratchet.py (via
 # scripts/local-ci.py). Format: "<lines> <path>" — VALUE FIRST; current values
