@@ -163,6 +163,11 @@ def rust_gates() -> bool:
                 "warnings",
             ],
         )
+        and run(
+            "clippy (every shipped target)",
+            # The agent's `cfg`-split halves: a single host lints only its own.
+            ["make", "clippy-targets"],
+        )
         and clippy_on_ci_toolchain()
         and run("tests", ["cargo", "test", "--workspace", "--all-features"])
         and end_to_end_suites()

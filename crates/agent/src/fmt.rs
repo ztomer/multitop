@@ -51,6 +51,16 @@ pub fn fmt_size(b: u64) -> String {
 }
 
 #[must_use]
+#[expect(
+    clippy::cast_possible_truncation,
+    clippy::cast_precision_loss,
+    reason = "a human-readable transfer rate. `MI`/`KI` are the 2^20 / 2^10 \
+              literals, exact in f64, so the comparisons and divisions lose \
+              nothing. The `as i64` is reached only on the sub-KiB branch, \
+              where the value is under 1024 and the truncation toward zero is \
+              deliberate — it is what the Python original's `int()` did, and \
+              the byte-identical output is pinned by the render tests."
+)]
 pub fn fmt_rate(bytes_per_sec: f64) -> String {
     if bytes_per_sec >= (MI as f64) {
         format!("{:.1}M", bytes_per_sec / MI as f64)
@@ -68,6 +78,15 @@ pub fn fmt_rate(bytes_per_sec: f64) -> String {
 /// outside 0..=100 (which a bad /proc delta can produce) made it emit a bar
 /// wider than its own column and skew the whole panel. Clamping keeps the
 /// column fixed-width no matter what the kernel hands us.
+#[expect(
+    clippy::cast_possible_truncation,
+    clippy::cast_precision_loss,
+    clippy::cast_sign_loss,
+    reason = "a bar length in terminal cells: `length` is a column width \
+              (tens), `pct` is guarded non-finite and non-positive above, and the \
+              result is clamped with `.min(length)`. The truncation is the \
+              intended floor — a half-filled cell is not drawable."
+)]
 fn filled_cells(pct: f64, length: usize) -> usize {
     if !pct.is_finite() || pct <= 0.0 {
         return 0;

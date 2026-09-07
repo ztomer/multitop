@@ -142,7 +142,7 @@ fn label(pal: &Palette, text: &str) -> String {
 
 /// Colour for the state badge: green when it is safe to go, amber when the
 /// user should look before pressing again.
-fn badge_color(status: &Status, pal: &Palette) -> &'static str {
+const fn badge_color(status: &Status, pal: &Palette) -> &'static str {
     match status.state() {
         HostState::Running => pal.meter_mid(),
         HostState::NotConfigured => pal.muted(),

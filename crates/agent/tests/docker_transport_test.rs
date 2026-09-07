@@ -32,7 +32,7 @@ impl TempSocket {
             N.fetch_add(1, Ordering::Relaxed)
         ));
         let _ = std::fs::remove_file(&path);
-        TempSocket(path)
+        Self(path)
     }
     fn endpoint(&self) -> DockerEndpoint {
         DockerEndpoint::Unix(self.0.to_string_lossy().into_owned())
@@ -71,6 +71,14 @@ fn plain_response(body: &str) -> Vec<u8> {
         .into_bytes()
 }
 
+#[expect(
+    clippy::format_push_string,
+    reason = "test fixture arithmetic: loop indices and small counts \
+              converted to build synthetic cores and processes. The magnitudes \
+              are the test's own literals — a handful to a few hundred — so \
+              nothing here can truncate. Kept as `expect` so it errors if the \
+              fixture ever stops casting."
+)]
 fn chunked_response(body: &str) -> Vec<u8> {
     let mut out = String::from(
         "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nTransfer-Encoding: chunked\r\nConnection: close\r\n\r\n",

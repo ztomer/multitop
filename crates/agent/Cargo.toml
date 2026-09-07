@@ -23,3 +23,12 @@ serde_json = { version = "1", default-features = false, features = ["std"] }
 
 [dev-dependencies]
 tempfile = "3"
+
+# THE CRATE THAT ESCAPED. `[workspace.lints]` has declared `pedantic` all along,
+# and `multitop` and `vault` both opted in — this one never did, so the biggest
+# crate in the workspace inherited none of it and accumulated 254 findings that
+# nothing reported. Opting in is what makes the workspace policy true rather
+# than merely written down; the gate runs clippy at `-D warnings`, so this is a
+# ratchet, not a suggestion.
+[lints]
+workspace = true

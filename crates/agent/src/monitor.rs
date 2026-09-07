@@ -18,7 +18,7 @@ impl Monitor {
     pub fn new(host: String) -> Self {
         let mut sampler = ProcSampler::new();
         sampler.prime();
-        Monitor {
+        Self {
             host,
             prev_cpu: proc::get_cpu_stat(),
             prev_net: proc::get_net(),
@@ -32,6 +32,13 @@ impl Monitor {
     }
 
     /// Sample everything once and return the frame to draw.
+    #[expect(
+        clippy::cast_precision_loss,
+        clippy::default_trait_access,
+        reason = "per-tick rates: byte and tick counters divided by an elapsed \
+              interval to produce a display figure. The counters are far below \
+              2^53 and the result is rendered, not accumulated."
+    )]
     pub fn tick(
         &mut self,
         interval: f64,
@@ -107,6 +114,12 @@ mod tests {
     use crate::proc::{Proc, Usage};
     use crate::render::{bar_len_for, render};
 
+    #[expect(
+        clippy::cast_possible_truncation,
+        reason = "per-tick rates: byte and tick counters divided by an elapsed \
+              interval to produce a display figure. The counters are far below \
+              2^53 and the result is rendered, not accumulated."
+    )]
     fn snapshot(cores: usize, procs: usize) -> Snapshot {
         Snapshot {
             host: "h".into(),

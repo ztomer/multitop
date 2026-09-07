@@ -28,7 +28,7 @@ impl CoreGrid {
         let seg_w = idx_w + 1 + if show_bars { per_core } else { 0 } + 4 + temp_w;
         let cell_w = seg_w + 1;
         let num_cols = (cols.saturating_sub(6) / cell_w).max(1);
-        CoreGrid {
+        Self {
             idx_w,
             bar_len: per_core,
             show_bars,
@@ -50,19 +50,32 @@ pub enum Tier {
 
 impl Tier {
     #[must_use]
-    pub fn for_lines(lines: usize) -> Self {
+    #[expect(
+        clippy::match_same_arms,
+        reason = "the tiers are ordered bands and two of them legitimately \
+              map to the same layout; merging the arms would hide which band a \
+              reader is in, which is the thing this match exists to show."
+    )]
+    pub const fn for_lines(lines: usize) -> Self {
         match lines {
-            0 => Tier::Full,
-            1..=2 => Tier::TooSmall,
-            3..=4 => Tier::Micro,
-            5..=7 => Tier::Minimal,
-            8..=11 => Tier::Compact,
-            _ => Tier::Full,
+            0 => Self::Full,
+            1..=2 => Self::TooSmall,
+            3..=4 => Self::Micro,
+            5..=7 => Self::Minimal,
+            8..=11 => Self::Compact,
+            _ => Self::Full,
         }
     }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[expect(
+    clippy::struct_excessive_bools,
+    reason = "these are not configuration flags, they are which SECTIONS a \
+              frame has room for — has_temps / has_mem / has_disk / has_net are \
+              four independent yes-or-no answers about one layout, and folding \
+              them into an enum or bitflags would obscure that they vary freely."
+)]
 pub struct Chrome {
     pub num_cores: usize,
     pub has_temps: bool,
@@ -101,7 +114,7 @@ impl Chrome {
         } else {
             snap.mem.total > 0
         };
-        Chrome {
+        Self {
             num_cores,
             has_temps,
             cols,

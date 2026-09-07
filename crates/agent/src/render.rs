@@ -122,7 +122,7 @@ pub use crate::render_layout::*;
 const TABLE_CHROME_ROWS: usize = 2;
 
 impl Chrome {
-    fn two_column(&self, num_procs: usize) -> bool {
+    const fn two_column(&self, num_procs: usize) -> bool {
         self.cols >= TWO_COLUMN_MIN_COLS && num_procs > 1
     }
 
@@ -243,6 +243,7 @@ fn push_core_rows(
     bar_len: usize,
     pal: &Palette,
 ) {
+    const LABEL_W: usize = " CPU ".len();
     let max_idx = cores.iter().map(|(i, _, _)| *i).max().unwrap_or(0);
     let has_temps = cores.iter().any(|(_, _, t)| t.is_some());
     let grid = CoreGrid::new(max_idx, cores.len(), cols, bar_len, has_temps);
@@ -250,22 +251,19 @@ fn push_core_rows(
     let segs: Vec<String> = cores
         .iter()
         .map(|&(idx, cp, temp)| {
-            let temp_str = match temp {
-                Some(c) => {
-                    let tc = if c >= crate::consts::CORE_TEMP_HIGH_C {
-                        pal.meter_high()
-                    } else if c >= crate::consts::CORE_TEMP_WARM_C {
-                        pal.meter_mid()
-                    } else {
-                        pal.meter_low()
-                    };
-                    match unit {
-                        TempUnit::F => format!(" {}{:.0}°F{}", tc, c * 1.8 + 32.0, pal.reset),
-                        TempUnit::C => format!(" {}{:.0}°C{}", tc, c, pal.reset),
-                    }
+            let temp_str = temp.map_or_else(String::new, |c| {
+                let tc = if c >= crate::consts::CORE_TEMP_HIGH_C {
+                    pal.meter_high()
+                } else if c >= crate::consts::CORE_TEMP_WARM_C {
+                    pal.meter_mid()
+                } else {
+                    pal.meter_low()
+                };
+                match unit {
+                    TempUnit::F => format!(" {}{:.0}°F{}", tc, c.mul_add(1.8, 32.0), pal.reset),
+                    TempUnit::C => format!(" {}{:.0}°C{}", tc, c, pal.reset),
                 }
-                None => String::new(),
-            };
+            });
             if grid.show_bars {
                 format!(
                     "{:>w$}:{}{:3.0}%{}",
@@ -281,7 +279,6 @@ fn push_core_rows(
         })
         .collect();
 
-    const LABEL_W: usize = " CPU ".len();
     let mut i = 0;
     while i < cores.len() {
         let mut row = if i == 0 {

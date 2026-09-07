@@ -209,12 +209,12 @@ pub struct Cursor<'a> {
 
 impl<'a> Cursor<'a> {
     #[must_use]
-    pub fn new(data: &'a [u8]) -> Self {
+    pub const fn new(data: &'a [u8]) -> Self {
         Cursor { data, pos: 0 }
     }
 
     #[must_use]
-    pub fn remaining(&self) -> usize {
+    pub const fn remaining(&self) -> usize {
         self.data.len().saturating_sub(self.pos)
     }
 

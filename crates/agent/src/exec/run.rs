@@ -11,6 +11,11 @@
 //!
 //! So `run` has exactly one exit, and the terminal frame is written there.
 
+#![expect(
+    unsafe_code,
+    reason = "FFI boundary; see the unsafe_code note in lib.rs"
+)]
+
 use std::ffi::CString;
 use std::io::{Read, Write};
 use std::time::{Duration, Instant};

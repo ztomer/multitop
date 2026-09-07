@@ -4,6 +4,17 @@
 //! host and runs over SSH. It writes frames to stdout; when stdout is a
 //! terminal it repaints in place, otherwise it delimits frames with
 //! `===MONITOR===` so the reader can tell them apart.
+//!
+//! # `unsafe_code`
+//!
+//! The workspace denies it. This crate is the one that cannot honour that: its
+//! entire job is `/proc`, `sysctl`, `openpty`, `flock`. Rather than lift the
+//! deny crate-wide, each module that reaches for libc names itself with a
+//! module-level attribute, so a NEW module still cannot add unsafe silently.
+//! The FFI modules are `exec/lock`, `exec/pty`, `exec/run`, `proc`, `proc_sys`,
+//! `fetch`, `sys` and `sys_temps`. The last three use `allow` rather than
+//! `expect` because their unsafe is `cfg(target_os = "macos")`: on Linux it
+//! disappears, and an unfulfilled `expect` under `-D warnings` is an error.
 
 use std::os::unix::fs::FileTypeExt;
 
@@ -20,11 +31,13 @@ pub mod fetch;
 pub mod fmt;
 pub mod monitor;
 pub mod proc;
+pub mod proc_disk;
 pub mod proc_sys;
 pub mod proto;
 pub mod render;
 pub mod render_layout;
 pub mod sys;
+pub mod sys_temps;
 
 // Re-exported so the split is invisible to callers.
 use emit::emit_hello;
@@ -45,10 +58,10 @@ pub enum SortBy {
 
 impl SortBy {
     #[must_use]
-    pub fn word(&self) -> &'static str {
+    pub const fn word(&self) -> &'static str {
         match self {
-            SortBy::Cpu => "cpu",
-            SortBy::Mem => "mem",
+            Self::Cpu => "cpu",
+            Self::Mem => "mem",
         }
     }
 }
@@ -94,19 +107,19 @@ pub enum Mode {
 
 impl Mode {
     #[must_use]
-    pub fn word(&self) -> &'static str {
+    pub const fn word(&self) -> &'static str {
         match self {
-            Mode::Monitor => "monitor",
-            Mode::Docker => "docker",
-            Mode::Fetch => "fetch",
-            Mode::Exec => "exec",
+            Self::Monitor => "monitor",
+            Self::Docker => "docker",
+            Self::Fetch => "fetch",
+            Self::Exec => "exec",
         }
     }
 }
 
 impl Default for Args {
     fn default() -> Self {
-        Args {
+        Self {
             mode: Mode::Monitor,
             tell: None,
             display_ip: None,
@@ -121,9 +134,9 @@ impl Default for Args {
 ///
 /// The mode word is optional so the binary still behaves sensibly when run by
 /// hand on a server with no arguments at all.
-pub fn parse_args<I: IntoIterator<Item = String>>(argv: I) -> Args {
+pub fn parse_args<I: IntoIterator<Item = String>>(raw: I) -> Args {
     let mut args = Args::default();
-    let mut rest: Vec<String> = argv.into_iter().collect();
+    let mut rest: Vec<String> = raw.into_iter().collect();
 
     if let Some(first) = rest.first() {
         match first.as_str() {
@@ -189,7 +202,7 @@ const STREAM_LINES: usize = 50;
 
 /// How much to sample for one frame: exactly what this terminal draws, or the
 /// stream budget when the far end does the drawing.
-fn sample_dims(args: &Args, is_tty: bool) -> (usize, usize) {
+const fn sample_dims(args: &Args, is_tty: bool) -> (usize, usize) {
     if is_tty {
         (args.cols, args.lines)
     } else {
@@ -300,12 +313,12 @@ pub fn usage() -> String {
     )
 }
 
-pub fn run_agent<I: IntoIterator<Item = String>>(argv: I) {
+pub fn run_agent<I: IntoIterator<Item = String>>(raw: I) {
     use std::io::{self, IsTerminal, Write};
     use std::sync::atomic::Ordering;
     use std::time::{Duration, Instant};
 
-    let args = parse_args(argv);
+    let args = parse_args(raw);
     if let Some(tell) = args.tell {
         let mut out = io::stdout().lock();
         let _ = match tell {

@@ -31,8 +31,9 @@ pub const DOCKER_CHROME_ROWS: usize = 4;
 pub const HWMON_GLOB: &str = "/sys/class/hwmon/hwmon*/temp*_input";
 pub const THERMAL_ZONE_GLOB: &str = "/sys/class/thermal/thermal_zone*/temp";
 
-/// Meter colour thresholds, as percentages. Each meter has its own pair
-/// because "hot" means something different for a CPU than for a disk: a disk
+/// Meter colour thresholds, as percentages.
+///
+/// Each meter has its own pair because "hot" means something different for a CPU than for a disk: a disk
 /// at 70% is fine, a disk at 90% is about to stop being fine.
 pub const CPU_HIGH_PCT: f64 = 80.0;
 pub const CPU_MID_PCT: f64 = 50.0;

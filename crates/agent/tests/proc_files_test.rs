@@ -24,7 +24,7 @@ impl Fixture {
             N.fetch_add(1, Ordering::Relaxed)
         ));
         std::fs::write(&path, body).unwrap();
-        Fixture(path)
+        Self(path)
     }
     fn path(&self) -> &str {
         self.0.to_str().unwrap()
@@ -115,7 +115,7 @@ fn a_cpu_line_without_an_idle_column_is_unusable_and_skipped() {
     let stat = proc::cpu_stat_from(f.path()).unwrap();
     assert_eq!(
         stat.aggregate,
-        Default::default(),
+        proc::CpuTimes::default(),
         "the short line was used anyway"
     );
     assert_eq!(stat.cores.len(), 1);
@@ -125,7 +125,7 @@ fn a_cpu_line_without_an_idle_column_is_unusable_and_skipped() {
 fn a_cpu_line_with_a_non_numeric_column_is_skipped() {
     let f = Fixture::new("stat-junk", "cpu  1 2 three 4 5\ncpu0 1 2 3 4 5\n");
     let stat = proc::cpu_stat_from(f.path()).unwrap();
-    assert_eq!(stat.aggregate, Default::default());
+    assert_eq!(stat.aggregate, proc::CpuTimes::default());
     assert_eq!(stat.cores.len(), 1);
 }
 

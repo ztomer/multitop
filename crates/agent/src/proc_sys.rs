@@ -1,5 +1,10 @@
 //! Low-level process sampling and stat parser functions.
 
+#![expect(
+    unsafe_code,
+    reason = "FFI boundary; see the unsafe_code note in lib.rs"
+)]
+
 use std::collections::{HashMap, HashSet};
 use std::fs;
 
@@ -29,6 +34,12 @@ pub struct RawProcStat {
 }
 
 #[must_use]
+#[expect(
+    clippy::cast_sign_loss,
+    reason = "/proc field widths: values parsed straight out of a pseudofile \
+              whose kernel-side types fix these ranges, converted for arithmetic \
+              that is then rendered."
+)]
 pub fn parse_pid_stat(data: &str) -> Option<RawProcStat> {
     let open = data.find('(')?;
     let close = data.rfind(')')?;
@@ -142,10 +153,17 @@ impl Default for ProcSampler {
 
 impl ProcSampler {
     #[must_use]
+    #[expect(
+        clippy::cast_precision_loss,
+        clippy::cast_sign_loss,
+        reason = "/proc field widths: values parsed straight out of a pseudofile \
+              whose kernel-side types fix these ranges, converted for arithmetic \
+              that is then rendered."
+    )]
     pub fn new() -> Self {
         let clk_tck = unsafe { libc::sysconf(libc::_SC_CLK_TCK) };
         let page_size = unsafe { libc::sysconf(libc::_SC_PAGESIZE) };
-        ProcSampler {
+        Self {
             prev: HashMap::new(),
             clk_tck: if clk_tck > 0 { clk_tck as f64 } else { 100.0 },
             page_size: if page_size > 0 {

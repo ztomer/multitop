@@ -3,6 +3,13 @@
 //! Data collection only — rendering (including logo lookup) lives in the
 //! monitor crate's `fetch_render` module to keep the agent binary small.
 
+#![allow(
+    unsafe_code,
+    reason = "FFI boundary, and `cfg(macos)`-gated: on Linux the unsafe \
+              vanishes and an `expect` would be unfulfilled, i.e. an error. \
+              See the unsafe_code note in lib.rs"
+)]
+
 use std::path::Path;
 
 use crate::consts::AGENT_VERSION;
@@ -43,12 +50,30 @@ pub fn format_uptime(total_sec: u64) -> String {
 
 /// Seconds of uptime from the first field of `/proc/uptime`.
 #[must_use]
+#[expect(
+    clippy::cast_possible_truncation,
+    clippy::cast_sign_loss,
+    reason = "uptime seconds: /proc/uptime is a fractional-second f64 that \
+              converts to whole seconds for display. The magnitude is a machine \
+              uptime, so the truncation is the intended rounding."
+)]
 pub fn parse_proc_uptime(raw: &str) -> Option<u64> {
     let secs = raw.split_ascii_whitespace().next()?.parse::<f64>().ok()?;
     Some(secs as u64)
 }
 
 #[must_use]
+#[cfg_attr(
+    target_os = "macos",
+    expect(
+        clippy::cast_sign_loss,
+        reason = "uptime seconds: /proc/uptime is a fractional-second f64 that \
+              converts to whole seconds for display. The magnitude is a machine \
+                  uptime, so the truncation is the intended rounding. Only the \
+                  macOS branch below casts, so the expectation is conditional \
+                  too -- unconditional, it is unfulfilled (an error) on Linux."
+    )
+)]
 pub fn sample_uptime() -> String {
     if let Some(total_sec) = parse_proc_uptime(&proc::read_proc("/proc/uptime")) {
         return format_uptime(total_sec);
@@ -247,6 +272,18 @@ pub fn parse_cpuinfo(content: &str) -> Option<String> {
 }
 
 #[must_use]
+#[cfg_attr(
+    target_os = "macos",
+    expect(
+        clippy::option_if_let_else,
+        reason = "the `if let Ok(name) = CString::new(..)` below is an early \
+                  guard inside the macOS branch, followed by two more sysctl \
+                  probes. `map_or_else` would put the whole remaining body in a \
+                  closure to save one `if`. Conditional because only the macOS \
+                  branch contains the pattern -- unconditional, the expectation \
+                  is unfulfilled, and therefore an error, on Linux."
+    )
+)]
 pub fn sample_cpu_model() -> String {
     if let Some(cpu) = parse_cpuinfo(&proc::read_proc("/proc/cpuinfo")) {
         return cpu;

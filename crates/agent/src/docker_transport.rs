@@ -32,15 +32,15 @@ impl DockerEndpoint {
     #[must_use]
     pub fn from_docker_host(host: Option<&str>) -> Self {
         match host {
-            Some(h) if h.starts_with("tcp://") => DockerEndpoint::Tcp(h.to_string()),
-            Some(h) if h.starts_with("unix://") => DockerEndpoint::Unix(
+            Some(h) if h.starts_with("tcp://") => Self::Tcp(h.to_string()),
+            Some(h) if h.starts_with("unix://") => Self::Unix(
                 h.strip_prefix("unix://")
                     .filter(|p| !p.is_empty())
                     .unwrap_or(DEFAULT_SOCKET)
                     .to_string(),
             ),
-            Some(h) if !h.trim().is_empty() => DockerEndpoint::Unix(h.to_string()),
-            _ => DockerEndpoint::Unix(DEFAULT_SOCKET.to_string()),
+            Some(h) if !h.trim().is_empty() => Self::Unix(h.to_string()),
+            _ => Self::Unix(DEFAULT_SOCKET.to_string()),
         }
     }
 }

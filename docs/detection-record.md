@@ -67,6 +67,10 @@ None of those three reached a user.
 | Leaving the Upgrade view mid-run left the Monitor pane scrolled to the log's offset | Three tests pinned the *shared field* rather than the round trip |
 | `begin_vault_unlock` set a biometric wait its one caller overwrote on the next line | Nothing read the state in between |
 | A regression test still asserted "must await biometric before prompting for a password" | It stayed green *because* of the dead assignment above |
+| `crates/agent` inherited none of the workspace lints -- it never had a `[lints]` table, while `multitop` and `vault` both did | lint sweep | `[lints] workspace = true`; the 254 findings it had been hiding fixed, not baselined |
+| Clippy only ever linted the host's target, so the agent's `cfg`-split halves were each checked by one machine and neither by both | lint sweep | `make clippy-targets` over all three shipped targets, wired into CI and `local-ci.py` |
+| Two `#[expect]`s were unfulfilled on Linux -- an error under `-D warnings` -- so the agent's build was broken for the platform it ships to, with every gate green | `make clippy-targets` (above) | `cfg_attr`'d to the same condition as the code they cover |
+| `read_proc_bytes` carried a summary line describing a different function (a String-returning reader with an 8KB heap buffer) | `clippy::too_long_first_doc_paragraph` | Doc rewritten to describe the function that is actually there |
 
 ### Instruments that were measuring the wrong thing
 

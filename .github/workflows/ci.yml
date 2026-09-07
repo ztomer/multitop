@@ -23,6 +23,12 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt, clippy
+          # The agent is half `cfg(target_os = ...)`, and a run only lints the
+          # half matching its own target. This job runs on ubuntu, so without
+          # these it never sees the macOS half at all -- and a developer on a
+          # Mac never sees the Linux half. `make clippy-targets` lints all of
+          # them from wherever it runs; these are the stds it needs to do it.
+          targets: x86_64-unknown-linux-musl, aarch64-unknown-linux-musl, aarch64-apple-darwin
 
       - uses: Swatinem/rust-cache@v2
 
@@ -63,6 +69,10 @@ jobs:
       # src and are where warnings have accumulated before.
       - name: Clippy
         run: cargo clippy --workspace --all-targets --all-features -- -D warnings
+
+      # Every target the agent is deployed to, not just this runner's.
+      - name: Clippy (shipped targets)
+        run: make clippy-targets
 
   test:
     name: test

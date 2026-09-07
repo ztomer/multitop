@@ -1,3 +1,5 @@
+#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+
 use multitop_agent::color::{strip_ansi, ANSI};
 use multitop_agent::docker::*;
 use multitop_agent::fmt::SIZE_MAX;

@@ -1,8 +1,10 @@
+#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+
 use multitop_agent::color::{strip_ansi, ANSI};
 use multitop_agent::proc::{Proc, Usage};
 use multitop_agent::render::*;
 
-fn usage(total: u64, used: u64, pct: f64) -> Usage {
+const fn usage(total: u64, used: u64, pct: f64) -> Usage {
     Usage { total, used, pct }
 }
 
@@ -70,6 +72,14 @@ fn dual_core_shows_per_core_cells() {
 }
 
 #[test]
+#[expect(
+    clippy::cast_precision_loss,
+    reason = "test fixture arithmetic: loop indices and small counts \
+              converted to build synthetic cores and processes. The magnitudes \
+              are the test's own literals — a handful to a few hundred — so \
+              nothing here can truncate. Kept as `expect` so it errors if the \
+              fixture ever stops casting."
+)]
 fn many_cores_wrap_to_multiple_rows() {
     let s = Snapshot {
         cores: (0..8).map(|i| (i, i as f64 * 10.0, None)).collect(),
@@ -267,6 +277,15 @@ fn percentage_is_right_aligned() {
 }
 
 #[test]
+#[expect(
+    clippy::cast_possible_truncation,
+    clippy::cast_precision_loss,
+    reason = "test fixture arithmetic: loop indices and small counts \
+              converted to build synthetic cores and processes. The magnitudes \
+              are the test's own literals — a handful to a few hundred — so \
+              nothing here can truncate. Kept as `expect` so it errors if the \
+              fixture ever stops casting."
+)]
 fn proc_rows_stay_aligned_across_all_size_magnitudes() {
     let sizes = [
         0u64,

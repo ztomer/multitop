@@ -20,8 +20,10 @@ pub const MAGIC: &[u8; 4] = b"MTOP";
 /// and onto this framing. It is the only mode that travels in both directions.
 pub const PROTO_VERSION: u8 = 5;
 
-/// The version that introduced [`ProtoMode::Exec`]. An Exec frame from an older
-/// agent is refused rather than misread: read with the wrong layout it would
+/// The version that introduced [`ProtoMode::Exec`].
+///
+/// An Exec frame from an older agent is refused rather than misread: read with
+/// the wrong layout it would
 /// come out one field along, and here that nonsense is an exit code -- the one
 /// number that decides whether an operator is told their upgrade worked.
 pub const EXEC_MIN_VERSION: u8 = 5;
@@ -63,11 +65,11 @@ impl TryFrom<u8> for ProtoMode {
     type Error = u8;
     fn try_from(val: u8) -> Result<Self, Self::Error> {
         match val {
-            0 => Ok(ProtoMode::Monitor),
-            1 => Ok(ProtoMode::Docker),
-            2 => Ok(ProtoMode::Fetch),
-            3 => Ok(ProtoMode::Exec),
-            4 => Ok(ProtoMode::Hello),
+            0 => Ok(Self::Monitor),
+            1 => Ok(Self::Docker),
+            2 => Ok(Self::Fetch),
+            3 => Ok(Self::Exec),
+            4 => Ok(Self::Hello),
             other => Err(other),
         }
     }
@@ -79,7 +81,7 @@ pub const MODE_FETCH: u8 = ProtoMode::Fetch.as_u8();
 pub const MODE_EXEC: u8 = ProtoMode::Exec.as_u8();
 pub const MODE_HELLO: u8 = ProtoMode::Hello.as_u8();
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Hello {
     pub agent_version: String,
     pub proto_version: u8,
@@ -88,7 +90,7 @@ pub struct Hello {
 
 impl Hello {
     #[must_use]
-    pub fn new(agent_version: String) -> Self {
+    pub const fn new(agent_version: String) -> Self {
         const { assert!(PROTO_MIN_VERSION <= PROTO_VERSION) }
         Self {
             agent_version,

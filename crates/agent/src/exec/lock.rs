@@ -21,6 +21,11 @@
 //! `pid` file stays, because liveness is a better answer than age whenever it
 //! is available.
 
+#![expect(
+    unsafe_code,
+    reason = "FFI boundary; see the unsafe_code note in lib.rs"
+)]
+
 use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};

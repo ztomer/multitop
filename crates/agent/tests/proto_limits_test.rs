@@ -5,6 +5,8 @@
 //! rule, and the seam is real: everything here is about a frame that does not
 //! fit, which is a different question from whether a frame round-trips.
 
+#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+
 use multitop_agent::proc::{Proc, Usage};
 use multitop_agent::proto::{decode_packet, encode_packet, Payload};
 use multitop_agent::render::{Snapshot, TempUnit};
@@ -31,8 +33,8 @@ fn snapshot_with(procs: Vec<Proc>) -> Snapshot {
 /// A snapshot far too large for one frame is DROPPED, not half-emitted.
 ///
 /// Two caps guard `encode_snapshot` and only one is reachable: `MAX_PAYLOAD` is
-/// 65_535 BYTES (~11 bytes per process, so a frame fills after roughly 5_000),
-/// while `num_procs` is a u16 COUNT clamping at 65_535. The byte cap always
+/// `65_535` BYTES (~11 bytes per process, so a frame fills after roughly `5_000`),
+/// while `num_procs` is a `u16` COUNT clamping at `65_535`. The byte cap always
 /// bites first, which makes the count clamp unreachable — worth recording,
 /// because `encode_snapshot` clamped `num_procs` and then iterated every
 /// process anyway. The `.take()` it now carries is defence in depth, not a fix

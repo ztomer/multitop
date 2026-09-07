@@ -78,6 +78,13 @@ fn encode_str(s: &str, buf: &mut Vec<u8>) {
     buf.extend_from_slice(&bytes[..len as usize]);
 }
 
+#[expect(
+    clippy::cast_possible_truncation,
+    reason = "wire-format widths the protocol fixes: a `u16` count and a \
+              `u16` length, both saturated with `try_from(..).unwrap_or(MAX)` or \
+              clamped to MAX_PAYLOAD before the cast, and both loops `.take` \
+              what they declared so the count and the items cannot disagree."
+)]
 fn encode_snapshot(snap: &Snapshot, buf: &mut Vec<u8>) {
     encode_str(&snap.host, buf);
     encode_str(&snap.agent_version, buf);
@@ -127,6 +134,13 @@ fn encode_snapshot(snap: &Snapshot, buf: &mut Vec<u8>) {
     encode_proc_names(&snap.proc_names, buf);
 }
 
+#[expect(
+    clippy::cast_possible_truncation,
+    reason = "wire-format widths the protocol fixes: a `u16` count and a \
+              `u16` length, both saturated with `try_from(..).unwrap_or(MAX)` or \
+              clamped to MAX_PAYLOAD before the cast, and both loops `.take` \
+              what they declared so the count and the items cannot disagree."
+)]
 fn encode_docker(host: &str, rows: &[DockerRow], buf: &mut Vec<u8>) {
     encode_str(host, buf);
     // The count is written after the rows, because how many fit is not known

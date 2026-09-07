@@ -75,7 +75,9 @@ pub const STARTED_SENTINEL: &str = "__multitop_started__";
 pub const DONE_SENTINEL: &str = "__multitop_done__";
 
 /// Exit status for a refused sudo password, so the outcome survives even if the
-/// marker is lost. A rejected password is not a failing upgrade command: the
+/// marker is lost.
+///
+/// A rejected password is not a failing upgrade command: the
 /// command never ran, and saying "exited 1" sends the operator to read their
 /// upgrade script instead of their password.
 pub const SUDO_FAILED_CODE: i32 = 111;

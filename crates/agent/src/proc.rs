@@ -3,28 +3,41 @@
 //! Everything here is pure parsing over strings the caller supplies, except
 //! for the thin `read_proc` / `statvfs` wrappers — which keeps the whole
 //! module unit-testable on a host that has no `/proc` at all.
+//!
+//! COUNTER PERCENTAGES. Several functions here divide two monotonic counters
+//! (CPU ticks since boot, byte totals) in f64. Both are orders of magnitude
+//! below 2^53 and the result is rendered to one decimal, so f64 carries far
+//! more precision than the output shows; integer division would lose the
+//! fraction that IS the answer. That is what the one-line `#[expect]`s mean.
+
+#![expect(
+    unsafe_code,
+    reason = "FFI boundary; see the unsafe_code note in lib.rs"
+)]
 
 use std::fs;
 use std::path::Path;
 
-/// Read a `/proc` file into a String with pre-allocated capacity, using an 8KB
-/// stack buffer to eliminate standard library reallocations on `st_size = 0`
-/// kernel pseudofiles.
-/// Read a pseudofile into a fixed stack byte buffer with ZERO heap allocation.
+/// Read a pseudofile into a caller-owned stack buffer, with zero heap allocation.
+///
+/// Kernel pseudofiles report `st_size = 0`, so the usual read-to-String path
+/// cannot pre-size and reallocates its way up. Handing in a fixed `[u8; N]`
+/// removes the allocation entirely, which matters because this runs per process
+/// per sample tick.
 pub fn read_proc_bytes<P: AsRef<Path>, const N: usize>(path: P, out: &mut [u8; N]) -> usize {
+    use std::io::Read;
     let Ok(mut file) = fs::File::open(path) else {
         return 0;
     };
-    use std::io::Read;
     file.read(out).unwrap_or_default()
 }
 
 /// Read a pseudofile into a caller-supplied String without allocating new memory buffers.
 pub fn read_proc_into<P: AsRef<Path>>(path: P, out: &mut String) -> bool {
+    use std::io::Read;
     let Ok(mut file) = fs::File::open(path) else {
         return false;
     };
-    use std::io::Read;
     let mut buf = [0u8; crate::consts::PROC_CHUNK_BUF];
     loop {
         match file.read(&mut buf) {
@@ -58,7 +71,11 @@ pub struct CpuTimes {
 impl CpuTimes {
     /// Busy percentage over the window between two samples.
     #[must_use]
-    pub fn pct_since(&self, prev: &CpuTimes) -> f64 {
+    #[expect(
+        clippy::cast_precision_loss,
+        reason = "counter percentage; see module note"
+    )]
+    pub fn pct_since(&self, prev: &Self) -> f64 {
         let total = self.total.saturating_sub(prev.total);
         let idle = self.idle.saturating_sub(prev.idle);
         if total == 0 {
@@ -156,13 +173,17 @@ pub struct Usage {
 
 impl Usage {
     #[must_use]
+    #[expect(
+        clippy::cast_precision_loss,
+        reason = "counter percentage; see module note"
+    )]
     pub fn new(total: u64, used: u64) -> Self {
         let pct = if total > 0 {
             used as f64 / total as f64 * 100.0
         } else {
             0.0
         };
-        Usage { total, used, pct }
+        Self { total, used, pct }
     }
 }
 
@@ -195,52 +216,6 @@ pub fn parse_meminfo(data: &str) -> Usage {
     let total = total * 1024;
     let reclaimable = (free + buffers + cached) * 1024;
     Usage::new(total, total.saturating_sub(reclaimable))
-}
-
-#[must_use]
-pub fn root_mount_point(mountinfo: &str) -> Option<&str> {
-    mountinfo.lines().find_map(|line| {
-        let mut parts = line.split_ascii_whitespace();
-        let mount_point = parts.nth(4)?;
-        (mount_point == "/").then_some(mount_point)
-    })
-}
-
-#[must_use]
-pub fn statvfs_bytes(path: &str) -> Option<(u64, u64)> {
-    let c_path = std::ffi::CString::new(path).ok()?;
-    unsafe {
-        let mut st: libc::statvfs = std::mem::zeroed();
-        if libc::statvfs(c_path.as_ptr(), &raw mut st) != 0 {
-            return None;
-        }
-        let frsize = st.f_frsize as u64;
-        Some((
-            u64::from(st.f_blocks) * frsize,
-            u64::from(st.f_bavail) * frsize,
-        ))
-    }
-}
-
-/// The mount point `statvfs` should be asked about, per `/proc/self/mountinfo`.
-pub fn root_mount_from(path: &str) -> Option<String> {
-    let mut buf = [0u8; crate::consts::PROC_MOUNTINFO_BUF];
-    let n = read_proc_bytes(path, &mut buf);
-    if n == 0 {
-        return None;
-    }
-    root_mount_point(std::str::from_utf8(&buf[..n]).ok()?).map(str::to_string)
-}
-
-#[must_use]
-pub fn get_disk() -> Usage {
-    let root = root_mount_from("/proc/self/mountinfo");
-    let target = root.as_deref().unwrap_or("/");
-    if let Some((total, free)) = statvfs_bytes(target) {
-        Usage::new(total, total.saturating_sub(free))
-    } else {
-        Usage::default()
-    }
 }
 
 /// `/proc/meminfo`, or `None` when it is absent or reports no total.
@@ -307,7 +282,8 @@ pub fn get_net() -> NetTotals {
     net_from("/proc/net/dev").unwrap_or_else(crate::sys::get_net_macos)
 }
 
-pub use crate::sys::get_core_temps;
+pub use crate::proc_disk::{get_disk, root_mount_from, root_mount_point, statvfs_bytes};
+pub use crate::sys_temps::get_core_temps;
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct Proc {
@@ -336,6 +312,10 @@ impl ProcSampler {
     }
 
     /// Top `n` processes over the last `elapsed` seconds, sorted by `sort_by`.
+    #[expect(
+        clippy::cast_precision_loss,
+        reason = "counter percentage; see module note"
+    )]
     pub fn top(&mut self, elapsed: f64, n: usize, sort_by: crate::SortBy) -> Vec<Proc> {
         self.scan();
         let scanned = std::mem::take(&mut self.scanned);

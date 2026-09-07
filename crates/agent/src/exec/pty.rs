@@ -12,6 +12,11 @@
 //! costs nothing -- no tool decides its output style from `isatty(2)` -- and
 //! keeps the failure reason separable all the way to the panel.
 
+#![expect(
+    unsafe_code,
+    reason = "FFI boundary; see the unsafe_code note in lib.rs"
+)]
+
 use std::ffi::CString;
 use std::io;
 use std::os::fd::RawFd;
@@ -56,7 +61,7 @@ pub struct Outcome {
 /// or had clobbered it. "could not start a shell: Unknown error: -6" tells an
 /// operator nothing at all -- not even which of the three syscalls involved
 /// went wrong -- so the name is attached here where it is still known.
-fn named(call: &str, e: io::Error) -> io::Error {
+fn named(call: &str, e: &io::Error) -> io::Error {
     let detail = match e.raw_os_error() {
         Some(n) if n <= 0 => format!("{call} failed and set no error code (rc {n})"),
         _ => format!("{call}: {e}"),
@@ -103,13 +108,13 @@ pub fn spawn(argv: &[CString], cols: u16, rows: u16) -> io::Result<Child> {
         )
     };
     if rc != 0 {
-        return Err(named("openpty", io::Error::last_os_error()));
+        return Err(named("openpty", &io::Error::last_os_error()));
     }
 
     let mut errfds: [libc::c_int; 2] = [-1, -1];
     // SAFETY: `pipe` writes exactly two ints into an array of two.
     if unsafe { libc::pipe(errfds.as_mut_ptr()) } != 0 {
-        let e = named("pipe", io::Error::last_os_error());
+        let e = named("pipe", &io::Error::last_os_error());
         // SAFETY: both were opened above and are live.
         unsafe {
             libc::close(master);
@@ -131,7 +136,7 @@ pub fn spawn(argv: &[CString], cols: u16, rows: u16) -> io::Result<Child> {
     // up in production too.
     let pid = unsafe { libc::fork() };
     if pid < 0 {
-        let e = named("fork", io::Error::last_os_error());
+        let e = named("fork", &io::Error::last_os_error());
         // SAFETY: all four were opened above and are live.
         unsafe {
             libc::close(master);
@@ -205,7 +210,8 @@ pub fn read_fd(fd: RawFd, buf: &mut [u8]) -> io::Result<usize> {
         }
         let e = io::Error::last_os_error();
         match e.raw_os_error() {
-            Some(libc::EINTR) => continue,
+            // EINTR: retry. The loop continues on its own, so no `continue`.
+            Some(libc::EINTR) => {}
             Some(libc::EIO) => return Ok(0),
             _ => return Err(e),
         }
@@ -297,7 +303,7 @@ pub fn wait(pid: libc::pid_t) -> Outcome {
 /// read as obviously right, and wrong: a signalled child has to be reported as
 /// signalled, not as "exited 0", or a killed upgrade is announced as a success.
 #[must_use]
-pub fn decode_status(status: libc::c_int) -> Outcome {
+pub const fn decode_status(status: libc::c_int) -> Outcome {
     if libc::WIFSIGNALED(status) {
         return Outcome {
             code: 128 + libc::WTERMSIG(status),

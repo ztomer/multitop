@@ -209,43 +209,43 @@ pub const PLAIN: Palette = Palette {
 impl Palette {
     /// Primary accent color for headers, main metrics, and titles.
     #[must_use]
-    pub fn primary(&self) -> &'static str {
+    pub const fn primary(&self) -> &'static str {
         self.cyan
     }
 
     /// Secondary accent color for rule dividers, subtitles, and secondary metrics.
     #[must_use]
-    pub fn secondary(&self) -> &'static str {
+    pub const fn secondary(&self) -> &'static str {
         self.purple
     }
 
     /// Muted color for PIDs, total limits, indents, and secondary text.
     #[must_use]
-    pub fn muted(&self) -> &'static str {
+    pub const fn muted(&self) -> &'static str {
         self.gray
     }
 
     /// Text color for process names, container names, and primary values.
     #[must_use]
-    pub fn text(&self) -> &'static str {
+    pub const fn text(&self) -> &'static str {
         self.white
     }
 
     /// Meter color for low resource usage (0-50% CPU, normal temps).
     #[must_use]
-    pub fn meter_low(&self) -> &'static str {
+    pub const fn meter_low(&self) -> &'static str {
         self.green
     }
 
     /// Meter color for medium resource usage (50-80% CPU, warm temps).
     #[must_use]
-    pub fn meter_mid(&self) -> &'static str {
+    pub const fn meter_mid(&self) -> &'static str {
         self.yellow
     }
 
     /// Meter color for high/critical resource usage (>80% CPU, hot temps).
     #[must_use]
-    pub fn meter_high(&self) -> &'static str {
+    pub const fn meter_high(&self) -> &'static str {
         self.red
     }
 
