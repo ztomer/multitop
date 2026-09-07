@@ -1,3 +1,9 @@
+//! CASTS AT THE libc BOUNDARY. The `*_macos` functions carry narrow `#[expect]`
+//! lists: the syscall signatures fix these widths and every return is
+//! range-checked first (`num_pids <= 0`, `bytes_got <= 0` both bail). Per
+//! function, not per module — `expect` errors when a declared lint does NOT
+//! fire, which narrowed these lists and stops a blanket suppression.
+
 #![allow(deprecated)]
 //! Platform-specific sampling fallback for non-Linux hosts (e.g. macOS).
 
@@ -102,6 +108,11 @@ pub fn get_cpu_stat_macos() -> CpuStat {
 
 #[cfg(target_os = "macos")]
 #[must_use]
+#[expect(
+    clippy::cast_possible_truncation,
+    clippy::cast_sign_loss,
+    reason = "libc FFI widths — see the CASTS note at the top of this file"
+)]
 pub fn get_memory_macos() -> Usage {
     let mut total: u64 = 0;
     let mut size = std::mem::size_of::<u64>();
@@ -157,6 +168,10 @@ pub fn get_memory_macos() -> Usage {
 
 #[cfg(target_os = "macos")]
 #[must_use]
+#[expect(
+    clippy::cast_possible_truncation,
+    reason = "libc FFI widths — see the CASTS note at the top of this file"
+)]
 pub fn get_net_macos() -> NetTotals {
     let mut totals = NetTotals::default();
     unsafe {
@@ -198,6 +213,12 @@ pub fn get_net_macos() -> NetTotals {
 
 #[cfg(target_os = "macos")]
 #[must_use]
+#[expect(
+    clippy::cast_possible_truncation,
+    clippy::cast_sign_loss,
+    clippy::cast_possible_wrap,
+    reason = "libc FFI widths — see the CASTS note at the top of this file"
+)]
 pub fn scan_macos() -> Vec<RawProcStat> {
     let mut out = Vec::with_capacity(crate::consts::IOKIT_SENSOR_CAPACITY);
     let num_pids = unsafe { libc::proc_listallpids(std::ptr::null_mut(), 0) };
@@ -307,6 +328,11 @@ extern "C" {
 
 #[cfg(target_os = "macos")]
 #[must_use]
+#[expect(
+    clippy::cast_possible_wrap,
+    clippy::cast_precision_loss,
+    reason = "libc FFI widths — see the CASTS note at the top of this file"
+)]
 pub fn get_core_temps() -> HashMap<usize, f64> {
     let mut temps = HashMap::new();
     let mut die_temps: HashMap<usize, f64> = HashMap::new();
