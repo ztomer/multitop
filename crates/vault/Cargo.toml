@@ -28,7 +28,6 @@ serde_bytes = "0.11"
 dirs = "5.0"
 thiserror = "2.0"
 tokio = { version = "1", features = ["macros", "rt-multi-thread", "time"] }
-rpassword = "7.0"
 hex = "0.4"
 fs2 = "0.4"
 libc = "0.2"
@@ -40,7 +39,6 @@ keyring = { version = "3", features = ["apple-native", "sync-secret-service"] }
 #[cfg(target_os = "macos")]
 security-framework = "3.7"
 security-framework-sys = "2.17"
-core-foundation = "0.9"
 
 #[cfg(target_os = "linux")]
 zbus = { version = "4", features = ["tokio"] }
@@ -52,3 +50,11 @@ hex = "0.4"
 # tpm2-tss on macOS, which has the Secure Enclave instead.
 [target.'cfg(target_os = "linux")'.dependencies]
 tss-esapi = "7.7"
+
+# cargo-machete scans for the crate's IDENT, so a dependency reached only
+# through a STRING is invisible to it. `serde_bytes` is used exactly that way --
+# `#[serde(with = "serde_bytes")]` on the fixed-size key and signature arrays,
+# which is what makes them serialize as bytes rather than as 32- and 64-element
+# sequences. Removing it changes the on-disk vault format.
+[package.metadata.cargo-machete]
+ignored = ["serde_bytes"]

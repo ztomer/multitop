@@ -33,7 +33,6 @@ serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1", features = ["std"] }
 axum = { version = "0.7", features = ["json"] }
 tower = { version = "0.4", features = ["util"] }
-tower-http = { version = "0.5", features = ["cors", "fs", "trace"] }
 http-body-util = "0.1"
 
 [[bench]]
