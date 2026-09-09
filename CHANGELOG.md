@@ -7,6 +7,21 @@ This file starts at v0.47.0 — earlier history is in git (`git log`), and the
 per-defect record is `docs/detection-record.md`, which is the more useful
 document for anything before this point.
 
+## v0.47.1 — unbreak Linux CI, keep chunked markers _(2026-09-09)_
+
+### Fixed
+- **Linux CI compiled nothing since the lint opt-in.** Opting the agent into
+  the workspace lints tripped `unsafe_code = "deny"` on the pre-existing
+  Linux-only `malloc_trim` block, which had never been named in the
+  module-attribute policy — so clippy, test, coverage and fuzz all failed to
+  build. `monitor` (and the already-attributed but unlisted `proc_disk`) join
+  the FFI module list.
+- **A marker split across two reads after a progress bar was lost.** The
+  sieve's hold-back length budget measured the whole partial instead of the
+  post-`\r` state, so `…\r__multitop_sudo_failed__` arriving in pieces was
+  flushed as output. The budget now measures the carriage-return state, with
+  deterministic `sieve_test.rs` regression tests.
+
 ## v0.47.0 — two advisories, a lint policy, and a crate that was linting nothing _(2026-09-07)_
 
 ### Security
