@@ -1,5 +1,12 @@
 //! The sampling loop's state: what one tick needs to remember from the last.
 
+#![allow(
+    unsafe_code,
+    reason = "malloc_trim FFI, and `cfg(linux)`-gated: on macOS the unsafe \
+              vanishes and an `expect` would be unfulfilled, i.e. an error. \
+              See the unsafe_code note in lib.rs"
+)]
+
 use crate::consts::AGENT_VERSION;
 use crate::proc::{self, CpuStat, NetTotals, ProcSampler};
 use crate::render::{Chrome, Snapshot};

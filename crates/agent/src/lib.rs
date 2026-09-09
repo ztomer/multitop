@@ -12,9 +12,11 @@
 //! deny crate-wide, each module that reaches for libc names itself with a
 //! module-level attribute, so a NEW module still cannot add unsafe silently.
 //! The FFI modules are `exec/lock`, `exec/pty`, `exec/run`, `proc`, `proc_sys`,
-//! `fetch`, `sys` and `sys_temps`. The last three use `allow` rather than
-//! `expect` because their unsafe is `cfg(target_os = "macos")`: on Linux it
-//! disappears, and an unfulfilled `expect` under `-D warnings` is an error.
+//! `proc_disk`, `fetch`, `sys`, `sys_temps` and `monitor`. The last five use
+//! `allow` rather than `expect`: `fetch`, `sys` and `sys_temps` because their
+//! unsafe is `cfg`-gated for the other OS (where it disappears, an unfulfilled
+//! `expect` under `-D warnings` is an error); `monitor` for the mirror reason
+//! on Linux; `proc_disk` holds one unconditional syscall.
 
 use std::os::unix::fs::FileTypeExt;
 
