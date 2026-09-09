@@ -148,13 +148,18 @@ fn could_become_marker(partial: &[u8]) -> bool {
     // A marker line is short; anything longer cannot become one, and this stops
     // a tool that writes a megabyte without a newline from being buffered.
     let longest = MARKERS.iter().map(|(s, _)| s.len()).max().unwrap_or(0);
-    if partial.len() > longest {
-        return false;
-    }
     let text = String::from_utf8_lossy(partial);
     let Some(state) = text.split('\r').next_back() else {
         return false;
     };
+    // Measure the carriage-return state, not the whole partial: a marker
+    // printed onto a line a progress bar had already written to arrives as
+    // `…\r__multitop_sudo…`, and the progress text must not count against the
+    // marker's length budget — otherwise a marker split across two reads is
+    // flushed as output and lost.
+    if state.len() > longest {
+        return false;
+    }
     let state = state.trim_start();
     if state.is_empty() {
         return false;
