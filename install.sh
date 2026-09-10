@@ -11,6 +11,10 @@ set -euo pipefail
 
 cd "$(dirname "$0")"
 
+[ -d "/opt/homebrew/bin" ] && PATH="/opt/homebrew/bin:$PATH"
+[ -d "$HOME/.cargo/bin" ] && PATH="$HOME/.cargo/bin:$PATH"
+export PATH
+
 if [ -t 1 ] && [ -z "${NO_COLOR:-}" ]; then
     DIM=$'\033[2m'; BOLD=$'\033[1m'; RED=$'\033[0;31m'; GRN=$'\033[0;32m'
     YEL=$'\033[0;33m'; RST=$'\033[0m'

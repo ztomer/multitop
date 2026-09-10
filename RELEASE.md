@@ -16,20 +16,20 @@ so a plain `gh auth login` (keyring, no env var) is enough.
 
 ## Procedure
 
-One command — bump, commit, tag, push, release, and update the tap:
+### Recommended: `./release.sh`
+The primary release tool is `./release.sh`. It gates, cross-compiles both Linux agents, tags, pushes, creates the GitHub release with agent binary assets attached, bumps `Formula/multitop.rb` in `ztomer/homebrew-tap` (both source tarball and agent resources), and verifies the formula via `brew update` and `brew fetch`:
 
 ```bash
-python3 scripts/release.py v0.32.0 --cut
+# 1. Commit the version bump in Cargo.toml and the CHANGELOG.md stanza
+# 2. Run the release:
+./release.sh v0.47.1
 ```
 
-Do not perform these steps by hand. Hand-running them is how `v0.21.0` and
-`v0.22.0` ended up tagged but never released, leaving Homebrew serving
-`v0.20.10` while the repo claimed two newer versions.
-
-To release a tag that was already pushed, omit `--cut`:
+### Alternative: `python3 scripts/release.py`
+For automated bump-and-release:
 
 ```bash
-python3 scripts/release.py v0.32.0
+python3 scripts/release.py v0.47.1 --cut
 ```
 
 ## What the script does (`scripts/release.py`)

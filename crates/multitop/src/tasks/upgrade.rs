@@ -93,8 +93,8 @@ async fn run_upgrade(
         // host-wide lock would block each other for reasons that have nothing
         // to do with what they are testing.
         use_lock: !crate::password_store::is_mock_enabled(),
-        cols: 0,
-        rows: 0,
+        cols: 80,
+        rows: 24,
     };
 
     let _ = tx
@@ -396,8 +396,6 @@ async fn send_paint(idx: usize, gen: u64, paint: &Paint, tx: &Sender<Msg>) {
         .await;
 }
 
-/// Buffer size for reading unprivileged dry-run check output.
-const UPGRADABLE_CHECK_READ_BUF_LEN: usize = 4096;
 /// Maximum bytes of dry-run check output captured before truncation.
 const UPGRADABLE_CHECK_MAX_OUTPUT_BYTES: usize = 64 * 1024;
 
@@ -412,7 +410,9 @@ pub fn spawn_upgradable_check(
     let handle = tokio::runtime::Handle::try_current().ok()?;
     Some(handle.spawn(async move {
         let request = ExecFrame::Request {
-            command: "apt list --upgradable 2>/dev/null || true".to_string(),
+            command:
+                "PAGER=cat DEBIAN_FRONTEND=noninteractive apt list --upgradable 2>/dev/null || true"
+                    .to_string(),
             password: None,
             use_lock: false,
             cols: 80,
@@ -421,14 +421,42 @@ pub fn spawn_upgradable_check(
         if let Ok(mut child) = ssh::spawn_exec(&server, &request).await {
             let mut out = String::new();
             if let Some(mut stdout) = child.stdout.take() {
-                let mut buf = vec![0u8; UPGRADABLE_CHECK_READ_BUF_LEN];
-                while let Ok(n) = stdout.read(&mut buf).await {
-                    if n == 0 {
+                let mut header = [0u8; HEADER_LEN];
+                loop {
+                    let read =
+                        tokio::time::timeout(STALL_AFTER, stdout.read_exact(&mut header)).await;
+                    let Ok(read) = read else {
+                        break;
+                    };
+                    if read.is_err() {
                         break;
                     }
-                    out.push_str(&String::from_utf8_lossy(&buf[..n]));
-                    if out.len() > UPGRADABLE_CHECK_MAX_OUTPUT_BYTES {
+                    if &header[..4] != MAGIC {
                         break;
+                    }
+                    let len = u16::from_le_bytes([header[HEADER_LEN - 2], header[HEADER_LEN - 1]])
+                        as usize;
+                    let mut body = vec![0u8; len];
+                    if stdout.read_exact(&mut body).await.is_err() {
+                        break;
+                    }
+                    let mut packet = header.to_vec();
+                    packet.append(&mut body);
+                    if let Some(Payload::Exec(frame)) = decode_packet(&packet) {
+                        match frame {
+                            ExecFrame::Out {
+                                stream: Stream::Stdout,
+                                bytes,
+                                ..
+                            } => {
+                                out.push_str(&String::from_utf8_lossy(&bytes));
+                                if out.len() > UPGRADABLE_CHECK_MAX_OUTPUT_BYTES {
+                                    break;
+                                }
+                            }
+                            ExecFrame::Exit { .. } => break,
+                            _ => {}
+                        }
                     }
                 }
             }

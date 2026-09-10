@@ -83,8 +83,8 @@ pub fn spawn(argv: &[CString], cols: u16, rows: u16) -> io::Result<Child> {
     let mut master: libc::c_int = -1;
     let mut slave: libc::c_int = -1;
     let ws = libc::winsize {
-        ws_row: rows.max(1),
-        ws_col: cols.max(1),
+        ws_row: if rows == 0 { 24 } else { rows },
+        ws_col: if cols == 0 { 80 } else { cols },
         ws_xpixel: 0,
         ws_ypixel: 0,
     };

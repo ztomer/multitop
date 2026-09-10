@@ -34,6 +34,7 @@
 
 pub mod lock;
 pub mod pty;
+pub mod pump;
 pub mod run;
 pub mod script;
 pub mod serve;

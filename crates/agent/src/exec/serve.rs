@@ -55,11 +55,19 @@ pub fn serve<W: Write>(host: &str, cols: usize, lines: usize, out: &mut W) {
         command: &command,
         password: password.as_deref(),
         use_lock,
-        cols: if want_cols == 0 { fit(cols) } else { want_cols },
-        rows: if want_rows == 0 {
+        cols: if want_cols != 0 {
+            want_cols
+        } else if cols != 0 {
+            fit(cols)
+        } else {
+            80
+        },
+        rows: if want_rows != 0 {
+            want_rows
+        } else if lines != 0 {
             fit(lines)
         } else {
-            want_rows
+            24
         },
         host,
         lock_path: None,

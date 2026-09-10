@@ -32,7 +32,7 @@ pub fn wrap(command: &str, with_password: bool) -> String {
     // success would become the run's -- every upgrade reported as having
     // worked, whatever it did.
     let bracket = format!(
-        "echo {STARTED_SENTINEL}; eval {inner}; __mt_rc=$?; echo {DONE_SENTINEL}; exit $__mt_rc"
+        "export PAGER=cat; echo {STARTED_SENTINEL}; eval {inner}; __mt_rc=$?; echo {DONE_SENTINEL}; exit $__mt_rc"
     );
     let body = format!(
         "if command -v zsh >/dev/null 2>&1; then \

@@ -7,9 +7,28 @@ This file starts at v0.47.0 — earlier history is in git (`git log`), and the
 per-defect record is `docs/detection-record.md`, which is the more useful
 document for anything before this point.
 
-## v0.47.1 — unbreak Linux CI, keep chunked markers _(2026-09-09)_
+## v0.47.1 — unbreak Linux CI, keep chunked markers, fix upgrade hangs & PTY sizing _(2026-09-09)_
 
 ### Fixed
+- **Lingering agent processes and stuck upgrade view on remote hosts.**
+  Commands like `us;ud` that launch Docker containers or subshells leave open
+  descriptors (PTY slave, stderr) inherited across forks. The agent's `pump()`
+  loop previously waited indefinitely for descriptor EOF without checking if
+  the parent shell had exited. `pump()` now actively polls `try_wait(child.pid)`,
+  drains queued bytes, closes descriptors, and emits `ExecFrame::Exit`
+  promptly when the shell process completes.
+- **Double lines on `update-local` and live-rendered tables.**
+  `run_upgrade` passed `cols: 0, rows: 0` in `ExecFrame::Request`, which clamped
+  to `ws_col: 1, ws_row: 1` in the PTY. Terminal tools like `rich.live.Live`
+  detected a 1-column terminal and wrapped character-by-character, breaking
+  ANSI cursor rewinds (`\x1b[1A`) and duplicating every row in the log. PTY
+  dimensions now default to standard 80×24 when 0, and `run_upgrade` sets 80×24
+  explicitly.
+- **Interactive pager hangs and unframed reads during upgradable package check.**
+  On Ubuntu 24.04/26.04, `apt list --upgradable` run inside a PTY spawned
+  `/usr/bin/pager` (`less`), hanging forever waiting for input. The command wrapper
+  now exports `PAGER=cat`, and `spawn_upgradable_check` sets `DEBIAN_FRONTEND=noninteractive`
+  and properly decodes binary framed packets rather than attempting raw stdout reads.
 - **Linux CI compiled nothing since the lint opt-in.** Opting the agent into
   the workspace lints tripped `unsafe_code = "deny"` on the pre-existing
   Linux-only `malloc_trim` block, which had never been named in the

@@ -11,41 +11,16 @@
 //!
 //! So `run` has exactly one exit, and the terminal frame is written there.
 
-#![expect(
-    unsafe_code,
-    reason = "FFI boundary; see the unsafe_code note in lib.rs"
-)]
-
 use std::ffi::CString;
 use std::io::{Read, Write};
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use super::script::{shell_argv, wrap};
-use super::sieve::{Piece, Sieve};
 use super::{
     chunks, lock, pty, ExecFrame, MarkerKind, Stream, LOCK_HELD_CODE, NO_SHELL_CODE,
     SUDO_FAILED_CODE,
 };
 use crate::proto::{decode_packet, encode_packet, Payload, HEADER_LEN};
-
-/// How long a poll waits before looking at the clock. Also the worst case
-/// latency of a heartbeat, and of noticing a child that has exited without
-/// closing its pty.
-const POLL_MS: i32 = 100;
-/// How often a heartbeat goes out while the child is alive.
-const ALIVE_EVERY: Duration = Duration::from_secs(1);
-/// One read from either descriptor.
-const READ_BUF: usize = 8192;
-/// How much output may be held back waiting for the shell to say it has
-/// started.
-///
-/// The hold exists to drop an interactive login shell's startup noise. It is
-/// bounded because the alternative is a run whose output never appears: a shell
-/// that dies during its own rc files never prints the marker, and the thing it
-/// printed instead is the only explanation the operator will get. Past this
-/// much, the suppression gives up and everything held is released -- a little
-/// noise is a far smaller failure than a silent log.
-const STARTUP_HOLD_LIMIT: usize = 64 * 1024;
 
 /// What to run, already parsed off the wire.
 pub struct Request<'a> {
@@ -64,7 +39,7 @@ pub struct Request<'a> {
 
 /// Write one frame. Errors are dropped: the only failure is the client having
 /// gone, and there is nowhere left to report that to.
-fn send<W: Write>(out: &mut W, frame: &ExecFrame) {
+pub(crate) fn send<W: Write>(out: &mut W, frame: &ExecFrame) {
     let pkt = encode_packet(&Payload::Exec(frame.clone()));
     let _ = out.write_all(&pkt);
     let _ = out.flush();
@@ -72,7 +47,7 @@ fn send<W: Write>(out: &mut W, frame: &ExecFrame) {
 
 /// Send raw output, split so no frame can exceed what its length field can
 /// describe.
-fn send_out<W: Write>(out: &mut W, stream: Stream, seq: &mut u32, bytes: &[u8]) {
+pub(crate) fn send_out<W: Write>(out: &mut W, stream: Stream, seq: &mut u32, bytes: &[u8]) {
     for chunk in chunks(bytes) {
         send(
             out,
@@ -224,9 +199,9 @@ fn execute<W: Write>(req: &Request, out: &mut W, seq: &mut u32) -> pty::Outcome 
         },
     );
 
-    let sudo_rejected = pump(req, out, seq, &mut child);
+    let (reaped, sudo_rejected) = super::pump::pump(req, out, seq, &mut child);
     child.close();
-    let mut outcome = pty::wait(child.pid);
+    let mut outcome = reaped.unwrap_or_else(|| pty::wait(child.pid));
     // The marker is the authority when it fired: a shell can lose an exit
     // status through a login profile, and reporting a refused password as
     // "exited 1" is what sent operators to read a correct upgrade script.
@@ -235,105 +210,6 @@ fn execute<W: Write>(req: &Request, out: &mut W, seq: &mut u32) -> pty::Outcome 
         outcome.signalled = false;
     }
     outcome
-}
-
-/// Read both descriptors until they close. Returns whether sudo refused.
-fn pump<W: Write>(req: &Request, out: &mut W, seq: &mut u32, child: &mut pty::Child) -> bool {
-    let started = Instant::now();
-    let mut last_alive = Instant::now();
-    let mut sieve = Sieve::new();
-    // Its own sieve, because a marker must be recognised on whichever stream it
-    // arrives on. One scanner per stream and not one *rule* per stream: the
-    // rule was written twice once before, each half looking at a different
-    // stream, and that is how `__multitop_lock_held__` came to be printed into
-    // an operator's log verbatim while its detection sat on the stream it never
-    // arrived on.
-    let mut err_sieve = Sieve::new();
-    let mut buf = [0u8; READ_BUF];
-    let mut sudo_rejected = false;
-    let mut password_sent = false;
-    // Everything stdout produced before the shell said it had finished
-    // starting. Released, not dropped, if the marker never comes.
-    let mut held: Option<Vec<u8>> = Some(Vec::new());
-    // Set once the command itself has finished. What a login shell writes on
-    // its way out is never the operator's output.
-    let mut done = false;
-
-    while child.master >= 0 || child.errpipe >= 0 {
-        let (m_ready, e_ready) = pty::poll_both(child.master, child.errpipe, POLL_MS);
-
-        if m_ready {
-            match pty::read_fd(child.master, &mut buf) {
-                Ok(0) | Err(_) => {
-                    let tail = sieve.finish();
-                    consume(
-                        &tail,
-                        out,
-                        seq,
-                        &mut Suppress {
-                            held: &mut held,
-                            done: &mut done,
-                        },
-                        child.master,
-                        req,
-                        &mut password_sent,
-                        &mut sudo_rejected,
-                    );
-                    // The shell never said it started, so what it did say is
-                    // all the explanation there is. Release it.
-                    release(&mut held, out, seq);
-                    // SAFETY: opened by `pty::spawn`, closed once here; the
-                    // sentinel keeps `poll` from being handed a stale number.
-                    unsafe { libc::close(child.master) };
-                    child.master = -1;
-                }
-                Ok(n) => {
-                    let sifted = sieve.feed(&buf[..n]);
-                    consume(
-                        &sifted,
-                        out,
-                        seq,
-                        &mut Suppress {
-                            held: &mut held,
-                            done: &mut done,
-                        },
-                        child.master,
-                        req,
-                        &mut password_sent,
-                        &mut sudo_rejected,
-                    );
-                }
-            }
-        }
-
-        if e_ready {
-            match pty::read_fd(child.errpipe, &mut buf) {
-                Ok(0) | Err(_) => {
-                    let tail = err_sieve.finish();
-                    emit_stderr(&tail, out, seq, &mut sudo_rejected);
-                    // SAFETY: as above.
-                    unsafe { libc::close(child.errpipe) };
-                    child.errpipe = -1;
-                }
-                Ok(n) => {
-                    let sifted = err_sieve.feed(&buf[..n]);
-                    emit_stderr(&sifted, out, seq, &mut sudo_rejected);
-                }
-            }
-        }
-
-        if last_alive.elapsed() >= ALIVE_EVERY {
-            last_alive = Instant::now();
-            #[allow(clippy::cast_possible_truncation)]
-            send(
-                out,
-                &ExecFrame::Alive {
-                    elapsed_ms: started.elapsed().as_millis().min(u128::from(u32::MAX)) as u32,
-                },
-            );
-        }
-    }
-    sudo_rejected
 }
 
 /// Start the child, retrying a failure that may be transient.
@@ -368,112 +244,4 @@ fn spawn_with_retry(argv: &[CString], cols: u16, rows: u16) -> std::io::Result<p
     Err(last.unwrap_or_else(|| {
         std::io::Error::other("could not start a shell, and no reason was reported")
     }))
-}
-
-/// Act on one feed's pieces **in order**.
-///
-/// Order is the whole reason this takes a sequence rather than two lists. A
-/// single 8 KiB read routinely contains the shell's startup noise, the
-/// `Started` marker, and the first lines of real output; handled out of order,
-/// the real output is dropped with the noise. That is not hypothetical -- it is
-/// what the first version of this did.
-#[allow(clippy::too_many_arguments)]
-fn consume<W: Write>(
-    pieces: &[Piece],
-    out: &mut W,
-    seq: &mut u32,
-    sup: &mut Suppress,
-    master: std::os::fd::RawFd,
-    req: &Request,
-    password_sent: &mut bool,
-    sudo_rejected: &mut bool,
-) {
-    for piece in pieces {
-        match piece {
-            Piece::Out(bytes) => {
-                if !*sup.done {
-                    stash(sup.held, out, seq, bytes);
-                }
-            }
-            // The two boundaries. Neither is news for the client: they say
-            // which side of the command a byte fell on, and the bytes outside
-            // it were the shell talking to itself.
-            Piece::Mark(MarkerKind::Started) => *sup.held = None,
-            Piece::Mark(MarkerKind::Done) => *sup.done = true,
-            Piece::Mark(k) => {
-                send(out, &ExecFrame::Marker(*k));
-                match k {
-                    MarkerKind::PwReady if !*password_sent => {
-                        // Echo is off on the far side now; before this point
-                        // the pty would print the password straight back into
-                        // the operator's log.
-                        if let Some(p) = req.password {
-                            let mut line = p.as_bytes().to_vec();
-                            line.push(b'\n');
-                            let _ = pty::write_fd(master, &line);
-                            *password_sent = true;
-                        }
-                    }
-                    MarkerKind::SudoFailed => *sudo_rejected = true,
-                    _ => {}
-                }
-            }
-        }
-    }
-}
-
-/// Forward stderr, with the agent's own markers taken out of it.
-///
-/// `Started` and `Done` bracket stdout only -- they are printed by the wrapper
-/// to the pty -- so on this stream they are ordinary text and would be a marker
-/// the operator typed. They are dropped either way: a line that is exactly one
-/// of our sentinels is ours by definition, and showing it would be showing an
-/// internal marker.
-fn emit_stderr<W: Write>(pieces: &[Piece], out: &mut W, seq: &mut u32, sudo_rejected: &mut bool) {
-    for piece in pieces {
-        match piece {
-            Piece::Out(bytes) => send_out(out, Stream::Stderr, seq, bytes),
-            Piece::Mark(MarkerKind::Started | MarkerKind::Done) => {}
-            Piece::Mark(k) => {
-                if *k == MarkerKind::SudoFailed {
-                    *sudo_rejected = true;
-                }
-                send(out, &ExecFrame::Marker(*k));
-            }
-        }
-    }
-}
-
-/// Which side of the operator's command the reader is on.
-struct Suppress<'a> {
-    /// Output held while the login shell is still starting, or `None` once the
-    /// command has begun.
-    held: &'a mut Option<Vec<u8>>,
-    /// Set once the command has finished.
-    done: &'a mut bool,
-}
-
-/// Hold output back while the shell is still starting, or forward it.
-///
-/// The hold is bounded: past [`STARTUP_HOLD_LIMIT`] it is abandoned and
-/// everything since the start of the run is forwarded. A quiet log is a worse
-/// failure than a noisy one.
-fn stash<W: Write>(held: &mut Option<Vec<u8>>, out: &mut W, seq: &mut u32, bytes: &[u8]) {
-    let Some(buf) = held.as_mut() else {
-        send_out(out, Stream::Stdout, seq, bytes);
-        return;
-    };
-    buf.extend_from_slice(bytes);
-    if buf.len() >= STARTUP_HOLD_LIMIT {
-        release(held, out, seq);
-    }
-}
-
-/// Forward whatever is still held and stop holding.
-fn release<W: Write>(held: &mut Option<Vec<u8>>, out: &mut W, seq: &mut u32) {
-    if let Some(buf) = held.take() {
-        if !buf.is_empty() {
-            send_out(out, Stream::Stdout, seq, &buf);
-        }
-    }
 }

@@ -105,8 +105,8 @@ pub async fn attempt_once(action: &ExecAction<'_>) -> Result<String, Option<Stri
         command: action.command.to_string(),
         password: credential.map(str::to_string),
         use_lock: false,
-        cols: 0,
-        rows: 0,
+        cols: 80,
+        rows: 24,
     };
     let mut child = match ssh::spawn_exec(action.server, &request).await {
         Ok(c) => c,
