@@ -143,6 +143,9 @@ for line in lines:
     out.append(line)
 assert pending is None, 'agent sha line not found after agent url'
 s = '\n'.join(out)
+# Command substitution strips trailing newlines; the formula must end with one.
+if not s.endswith('\n'):
+    s += '\n'
 assert old_tag not in [l for l in out if 'multitop-agent-' in l or 'archive/refs/tags' in l], 'stale tag left behind'
 sys.stdout.write(s)
 ")"
