@@ -36,6 +36,7 @@ Usage:
 
 from __future__ import annotations
 
+import concurrent.futures
 import os
 import subprocess
 import sys
@@ -145,7 +146,13 @@ def structural_gates() -> bool:
     return True
 
 
-def rust_gates() -> bool:
+def rust_checks() -> bool:
+    """Everything that shares the workspace target dir, in order.
+
+    fmt, the three clippy passes and the test suite all compile in the same
+    directory, so cargo's target-dir lock would serialize them anyway — run
+    them sequentially and let the heavy, isolated phases fan out below.
+    """
     section("rust")
     return (
         run("formatting", ["cargo", "fmt", "--all", "--", "--check"])
@@ -170,8 +177,6 @@ def rust_gates() -> bool:
         )
         and clippy_on_ci_toolchain()
         and run("tests", ["cargo", "test", "--workspace", "--all-features"])
-        and end_to_end_suites()
-        and run("coverage (95% floor)", ["bash", "tools/coverage_check.sh"])
     )
 
 
@@ -193,7 +198,7 @@ def end_to_end_suites() -> bool:
     allowed to pass silently, which is the whole reason they are named here
     rather than left to whoever remembers to run them.
     """
-    env = dict(os.environ, MULTITOP_LIVE="1")
+    env = dict(os.environ, MULTITOP_LIVE="1", CARGO_BUILD_JOBS="6")
     return run("build for e2e", ["cargo", "build", "-p", "multitop"]) and run(
         "end-to-end suites", ["python3", "-m", "pytest", "tests/", "-q"], env=env
     )
@@ -267,7 +272,7 @@ def fuzz_targets() -> list[str]:
     return sorted(p.stem for p in d.glob("*.rs")) if d.is_dir() else []
 
 
-def check_fuzz() -> bool:
+def check_fuzz(env: dict[str, str] | None = None) -> bool:
     """Build every fuzz target.
 
     Building, not running: a fuzz run has no natural end, and this gate exists
@@ -312,7 +317,15 @@ def check_fuzz() -> bool:
         warn("cargo-fuzz is not installed -- skipping (cargo install cargo-fuzz)")
         return True
     for target in targets:
-        if not run(f"build {target}", ["cargo", "+nightly", "fuzz", "build", target]):
+        # One build for all targets would also work (`cargo fuzz build` with
+        # no target builds everything), but a single shared invocation hides
+        # WHICH target broke behind one log. Per-target commands cost one
+        # shared dep build; the bins are small.
+        if not run(
+            f"build {target}",
+            ["cargo", "+nightly", "fuzz", "build", target],
+            env=env,
+        ):
             return False
     return True
 
@@ -323,7 +336,7 @@ MAX_DECODE_NS = 5_000.0
 MAX_RENDER_NS = 50_000.0
 
 
-def check_benchmarks() -> bool:
+def check_benchmarks(env: dict[str, str] | None = None) -> bool:
     section("benchmarks")
     info("client_bench")
     proc = subprocess.run(
@@ -332,6 +345,7 @@ def check_benchmarks() -> bool:
         capture_output=True,
         text=True,
         errors="replace",
+        env=env,
     )
     if proc.returncode != 0:
         err("the benchmark did not run")
@@ -372,6 +386,11 @@ def main() -> int:
     # enforces this.
     os.environ["MULTITOP_MOCK_KEYCHAIN"] = "1"
     os.environ["CI"] = "1"
+    # Incremental compilation defeats sccache (it cannot cache incremental
+    # builds), and gate runs never reuse incremental state anyway — every
+    # phase below is a different profile or a clean rebuild. Off, so repeated
+    # runs restore from cache instead of recompiling the world.
+    os.environ["CARGO_INCREMENTAL"] = "0"
     fast = "--fast" in sys.argv
 
     # One gate run per clone: a second suite alongside this one contends the
@@ -388,16 +407,70 @@ def main() -> int:
         subprocess.run([*gate_lock, "release", me], cwd=REPO)
 
 
-def run_steps(fast: bool) -> int:
-    steps = [structural_gates, check_file_length, rust_gates]
-    if not fast:
-        steps += [check_fuzz, check_benchmarks]
+def run_fan_out(legs: list) -> bool:
+    """Run independent heavy phases concurrently.
 
-    for step in steps:
+    Each leg compiles in its own target dir — coverage in target/llvm-cov,
+    fuzz in fuzz/target, benchmarks under target/bench (see below), e2e in
+    the shared dir once the test suite is done — so cargo's directory lock
+    never serializes them back. Output is captured per leg (see run()) and
+    only failures print, so four concurrent logs stay readable.
+    """
+    section("heavy phases (concurrent)")
+    results = {}
+    with concurrent.futures.ThreadPoolExecutor(max_workers=len(legs)) as pool:
+        future_of = {pool.submit(leg): name for name, leg in legs}
+        for future in concurrent.futures.as_completed(future_of):
+            results[future_of[future]] = future.result()
+    failed = sorted(name for name, ok_ in results.items() if not ok_)
+    if failed:
+        print()
+        err(f"local CI failed: {', '.join(failed)}")
+        return False
+    return True
+
+
+def coverage_leg() -> bool:
+    env = dict(os.environ, CARGO_BUILD_JOBS="6")
+    return run("coverage (95% floor)", ["bash", "tools/coverage_check.sh"], env=env)
+
+
+def e2e_leg() -> bool:
+    return end_to_end_suites()
+
+
+def fuzz_leg() -> bool:
+    return check_fuzz(dict(os.environ, CARGO_BUILD_JOBS="6"))
+
+
+def bench_leg() -> bool:
+    # Its own target dir: a release-profile bench build in the shared dir
+    # would evict the dev artifacts the next sequential run wants, and cargo's
+    # directory lock would serialize it against nothing here but itself.
+    # Isolation keeps both directions fast.
+    env = dict(
+        os.environ,
+        CARGO_TARGET_DIR=str(REPO / "target" / "bench"),
+        CARGO_BUILD_JOBS="6",
+    )
+    return check_benchmarks(env)
+
+
+def run_steps(fast: bool) -> int:
+    for step in (structural_gates, check_file_length, rust_checks):
         if not step():
             print()
             err("local CI failed")
             return 1
+
+    legs = [
+        ("coverage", coverage_leg),
+        ("end-to-end", e2e_leg),
+    ]
+    if not fast:
+        legs += [("fuzz", fuzz_leg), ("benchmarks", bench_leg)]
+    if not run_fan_out(legs):
+        return 1
 
     print()
     ok("all gates green" + (" (fuzz and benchmarks skipped)" if fast else ""))
