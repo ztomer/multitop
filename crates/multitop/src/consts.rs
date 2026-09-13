@@ -41,11 +41,6 @@ pub const PACKET_HEADER_LEN: usize = 8;
 /// keys and never acts on them. The next pass drains the rest.
 pub const MSG_DRAIN_BUDGET: usize = 32;
 
-/// Lines of an upgrade's stderr kept for the failure message. apt writes its
-/// progress display there too, so a bound is what stops a hundred rewrites of
-/// one bar evicting the actual error.
-pub const MAX_UPGRADE_ERR_LINES: usize = 100;
-
 /// Below this width the Upgrade pane drops its closing rule: a rule is the
 /// first thing worth losing when there is no room.
 pub const UPGRADE_RULE_MIN_WIDTH: usize = 20;

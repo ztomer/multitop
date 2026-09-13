@@ -41,12 +41,6 @@ pub struct Report {
     /// connection that was never opened.
     pub preamble: Option<String>,
     pub stalled: bool,
-    /// The last few stderr lines, which is where the reason usually is.
-    ///
-    /// Bounded and shown at the end rather than interleaved, because `apt`
-    /// writes its progress display to stderr too and a hundred rewrites of one
-    /// bar would otherwise push the actual error message out of the buffer.
-    pub errbuf: Vec<String>,
 }
 
 /// How the run ended, in the operator's terms.

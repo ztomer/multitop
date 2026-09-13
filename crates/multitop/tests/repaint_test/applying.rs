@@ -202,6 +202,103 @@ async fn a_repaint_for_a_run_that_is_not_this_panels_is_dropped() {
 // ------------------------------------------------------------------ end to end
 
 #[tokio::test]
+async fn upgrade_stderr_progress_collapses_to_one_line() {
+    // H1: the shape `apt` progress arrives in on stderr -- one rewrite per
+    // tick, each a separate write (hence a separate frame), no newline until
+    // the end. Separate writes with sleeps, because a single write carrying
+    // the whole sequence would collapse inside one paint even before the fix
+    // and prove nothing. No inner quotes, so the whole thing survives
+    // `sh_quote`.
+    let _g = isolate().await;
+    let script = concat!(
+        "i=1; while [ $i -le 5 ]; do ",
+        r"printf 'pct %s\r' $i >&2; ",
+        r"sleep 0.05; ",
+        "i=$((i+1)); done; ",
+        r"printf 'pct done\n' >&2; ",
+        "exit 0"
+    );
+
+    let (tx, mut rx) = mpsc::channel::<Msg>(512);
+    let handle = spawn_upgrade(0, 1, local_server(script), None, tx);
+
+    let mut app = app_mid_upgrade();
+    app.panels[0].upgrade_gen = 1;
+    let collect = async {
+        while let Some(msg) = rx.recv().await {
+            let done = matches!(msg, Msg::AuxDone { .. });
+            app.apply(msg);
+            if done {
+                break;
+            }
+        }
+    };
+    tokio::time::timeout(Duration::from_secs(60), collect)
+        .await
+        .expect("the run must finish");
+    handle.abort();
+
+    let log: Vec<String> = app.panels[0].last_upgrade.iter().cloned().collect();
+    let pct = log.iter().filter(|l| l.contains("pct")).count();
+    assert_eq!(
+        pct,
+        1,
+        "five stderr rewrites left {pct} copies behind:\n{}",
+        log.join("\n")
+    );
+    assert!(
+        log.iter().any(|l| l.contains("pct done")),
+        "the log kept an earlier tick instead of the last one:\n{}",
+        log.join("\n")
+    );
+    assert!(
+        !log.iter().any(|l| l.contains('\r')),
+        "raw carriage returns leaked into the log:\n{}",
+        log.join("\n")
+    );
+}
+
+#[tokio::test]
+async fn upgrade_stderr_sudo_failure_is_still_diagnosed() {
+    // Guard for the H1 fix: `keep_stderr` also owned sudo_help detection on
+    // stderr. Routing stderr through the painter must not lose the diagnosis.
+    let _g = isolate().await;
+    // sudo_help matches e.g. "are you root" (non-root upgrade_cmd shape).
+    let script = r"printf 'are you root?\n' >&2; exit 1";
+
+    let (tx, mut rx) = mpsc::channel::<Msg>(512);
+    let handle = spawn_upgrade(0, 1, local_server(script), None, tx);
+
+    let mut app = app_mid_upgrade();
+    app.panels[0].upgrade_gen = 1;
+    let collect = async {
+        while let Some(msg) = rx.recv().await {
+            let done = matches!(msg, Msg::AuxDone { .. });
+            app.apply(msg);
+            if done {
+                break;
+            }
+        }
+    };
+    tokio::time::timeout(Duration::from_secs(60), collect)
+        .await
+        .expect("the run must finish");
+    handle.abort();
+
+    let log: Vec<String> = app.panels[0].last_upgrade.iter().cloned().collect();
+    assert!(
+        log.iter().any(|l| l.contains("are you root")),
+        "stderr reason lost from the log:\n{}",
+        log.join("\n")
+    );
+    assert!(
+        log.iter().any(|l| l.contains("Tip")),
+        "sudo tips missing after the run:\n{}",
+        log.join("\n")
+    );
+}
+
+#[tokio::test]
 async fn a_block_repainted_ten_times_stays_one_block_in_the_log() {
     // The complaint, in the shape it arrives: a two-line block, rewritten with
     // a cursor-up between each pass. Ten passes used to be twenty lines.

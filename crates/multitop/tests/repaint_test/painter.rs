@@ -143,6 +143,28 @@ fn erasing_a_line_needs_no_reporting_because_the_write_replaces_it() {
     assert_eq!(paint.back, 1);
 }
 
+/// The `apt`-on-stderr shape, delivered the way separate ticks arrive: one
+/// rewrite per `feed_bytes` call, no newline until the end. The first paint
+/// claims the append point; every later tick overwrites it.
+#[test]
+fn stderr_progress_ticks_across_feeds_overwrite_one_line() {
+    let mut p = Painter::new();
+    let first = p.feed_bytes(b"pct 1\r");
+    assert_eq!(first.len(), 1);
+    assert_eq!(first[0].text, "pct 1");
+    assert_eq!(first[0].back, 0, "nothing there yet, so it appends");
+    for expected in ["pct 2", "pct 3"] {
+        let paints = p.feed_bytes(format!("{expected}\r").as_bytes());
+        assert_eq!(paints.len(), 1);
+        assert_eq!(paints[0].text, expected);
+        assert_eq!(paints[0].back, 1, "rewrites the line it already painted");
+    }
+    let last = p.feed_bytes(b"pct done\r\n");
+    assert_eq!(last.len(), 1);
+    assert_eq!(last[0].text, "pct done");
+    assert_eq!(last[0].back, 1);
+}
+
 #[test]
 fn carriage_returns_still_collapse_within_the_line_being_painted() {
     let mut p = Painter::new();

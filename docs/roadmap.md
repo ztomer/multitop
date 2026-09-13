@@ -12,12 +12,6 @@ finished, delete it rather than ticking it off.
 | **Post-quantum KEM** | Not warranted for device-local file threat model. |
 | **Plugin SDK (WASM)** | Custom `exec` panels cover 80% without sandbox. |
 
-## Deferred (pre-existing)
-
-| Item | Why |
-|------|-----|
-| Post-quantum KEM | Not warranted for a device-local file threat model. |
-
 ## Recent learnings (pruned 2026-09-03)
 
 History that was here (Layers 1-3, 40+ defect rows) pruned to `git log` and `docs/detection-record.md` per house rule. What was learned is captured as skills:

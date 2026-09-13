@@ -127,16 +127,6 @@ async fn run_upgrade(
         }
     }
 
-    for line in std::mem::take(&mut report.errbuf) {
-        let _ = tx
-            .send(Msg::AuxLine {
-                panel: idx,
-                gen,
-                line: error_line(line),
-            })
-            .await;
-    }
-
     // The tips go into the log, not into the closing status line. They are
     // three lines of instruction and the note is one line the panel truncates;
     // more to the point, an operator reads them where the failure is.
@@ -347,7 +337,39 @@ async fn apply_frame(
             stream: Stream::Stderr,
             bytes,
             ..
-        } => keep_stderr(&String::from_utf8_lossy(bytes), report),
+        } => {
+            // Through the same painter, not around it: `\r` progress on
+            // stderr rewrites one line exactly like stdout does, and the old
+            // per-line buffer appended a copy per tick. One cursor serves both
+            // streams -- the remote pty has only one -- so the painter is
+            // shared, and only the styling differs.
+            //
+            // Two properties the old buffer owned move here with the bytes.
+            // `sudo` explaining itself on stderr still sets `sudo_help`, so a
+            // refused password keeps its diagnosis; `ssh` narrating its own
+            // teardown is still dropped, as is a colour wrapper around
+            // nothing -- a blank stderr paint is a row of nothing, while a
+            // blank stdout line is output and still appends.
+            if is_sudo_help(&String::from_utf8_lossy(bytes).to_lowercase()) {
+                report.sudo_help = true;
+            }
+            for paint in painter.feed_bytes(bytes) {
+                if paint.text.trim().is_empty() && paint.back == 0 && paint.erase_below == 0 {
+                    continue;
+                }
+                if is_connection_noise(&paint.text.trim().to_lowercase()) {
+                    continue;
+                }
+                let _ = tx
+                    .send(crate::tasks::paint_msg(
+                        idx,
+                        gen,
+                        &paint,
+                        error_line(paint.text.clone()),
+                    ))
+                    .await;
+            }
+        }
         ExecFrame::Marker(MarkerKind::SudoFailed) => report.sudo_rejected = true,
         ExecFrame::Marker(MarkerKind::LockHeld) => report.lock_held = true,
         ExecFrame::Exit { code, signalled } => {
@@ -364,30 +386,6 @@ async fn apply_frame(
         | ExecFrame::Request { .. } => {}
     }
     false
-}
-
-/// Remember the last few stderr lines, minus the parts that are not the
-/// operator's business.
-fn keep_stderr(chunk: &str, report: &mut Report) {
-    for line in chunk.split('\n') {
-        let trimmed = line.trim_end_matches('\r').trim();
-        if trimmed.is_empty() {
-            continue;
-        }
-        let lower = trimmed.to_lowercase();
-        if is_sudo_help(&lower) {
-            report.sudo_help = true;
-        }
-        // `ssh` narrating its own teardown. It is not the command's output and
-        // it is not the reason anything failed.
-        if is_connection_noise(&lower) {
-            continue;
-        }
-        if report.errbuf.len() >= crate::consts::MAX_UPGRADE_ERR_LINES {
-            report.errbuf.remove(0);
-        }
-        report.errbuf.push(trimmed.to_string());
-    }
 }
 
 async fn send_paint(idx: usize, gen: u64, paint: &Paint, tx: &Sender<Msg>) {

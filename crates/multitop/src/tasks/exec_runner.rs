@@ -2,7 +2,7 @@
 
 use std::time::Duration;
 use tokio::io::{AsyncBufReadExt, AsyncReadExt, BufReader};
-use tokio::process::{ChildStderr, ChildStdout};
+use tokio::process::ChildStderr;
 use tokio::sync::mpsc::Sender;
 
 use multitop_agent::exec::{ExecFrame, MarkerKind, Stream};
@@ -152,7 +152,10 @@ pub async fn attempt_once(action: &ExecAction<'_>) -> Result<String, Option<Stri
     }
 }
 
-async fn drain_stdout(stdout: ChildStdout, action: &ExecAction<'_>) -> (bool, Option<i32>) {
+async fn drain_stdout(
+    stdout: impl tokio::io::AsyncRead + Unpin,
+    action: &ExecAction<'_>,
+) -> (bool, Option<i32>) {
     let mut reader = BufReader::new(stdout);
     let mut header = [0u8; HEADER_LEN];
     let mut painter = Painter::new();
@@ -214,11 +217,12 @@ async fn drain_stdout(stdout: ChildStdout, action: &ExecAction<'_>) -> (bool, Op
     if let Some(paint) = painter.finish() {
         let _ = action
             .tx
-            .send(Msg::AuxLine {
-                panel: action.idx,
-                gen: action.gen,
-                line: paint.text,
-            })
+            .send(paint_msg(
+                action.idx,
+                action.gen,
+                &paint,
+                paint.text.clone(),
+            ))
             .await;
     }
     (stalled, exit_code)
@@ -308,117 +312,5 @@ async fn read_need_agent(stderr: ChildStderr) -> Option<String> {
 }
 
 #[cfg(test)]
-mod send_painted_tests {
-    #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
-    use super::*;
-    use crate::tasks::{Paint, Painter};
-
-    fn action<'a>(server: &'a Server, tx: &'a Sender<Msg>) -> ExecAction<'a> {
-        ExecAction {
-            idx: 0,
-            gen: 0,
-            server,
-            command: "cmd",
-            pass: None,
-            tx,
-            header: "header",
-            action_desc: "action",
-        }
-    }
-
-    fn server() -> Server {
-        Server {
-            host: "host".to_string(),
-            port: 0,
-            user: String::new(),
-            upgrade_cmd: None,
-            custom_command: None,
-        }
-    }
-
-    /// Placement is the painter's call: appends stay lines, rewinds become
-    /// repaints, and the caller's styling survives either way.
-    #[test]
-    fn paint_msg_routes_by_movement_and_keeps_styling() {
-        let append = Paint {
-            text: "plain".to_string(),
-            back: 0,
-            erase_below: 0,
-        };
-        assert!(matches!(
-            paint_msg(0, 0, &append, append.text.clone()),
-            Msg::AuxLine { .. }
-        ));
-        let repaint = Paint {
-            text: "red".to_string(),
-            back: 2,
-            erase_below: 0,
-        };
-        match paint_msg(0, 0, &repaint, error_line("red")) {
-            Msg::AuxRepaint { back, line, .. } => {
-                assert_eq!(back, 2);
-                assert!(line.contains("red"), "styling must survive: {line:?}");
-            }
-            other => panic!("a rewind must repaint, got {other:?}"),
-        }
-    }
-
-    /// `\r` progress on stderr rewrites one line exactly like stdout: before
-    /// the shared painter it arrived as one `AuxLine` per chunk and every
-    /// tick appended a copy.
-    #[tokio::test]
-    async fn stderr_progress_repaints_instead_of_appending() {
-        let (tx, mut rx) = tokio::sync::mpsc::channel(16);
-        let server = server();
-        let action = action(&server, &tx);
-        let mut painter = Painter::new();
-        send_painted(&action, &mut painter, b"10%\n", error_line, true).await;
-        send_painted(
-            &action,
-            &mut painter,
-            b"\r\x1b[2K\x1b[1A\x1b[2K100%\n",
-            error_line,
-            true,
-        )
-        .await;
-        drop(tx);
-        let mut msgs = Vec::new();
-        while let Some(msg) = rx.recv().await {
-            msgs.push(msg);
-        }
-        assert_eq!(msgs.len(), 2, "two paints, not three: {msgs:?}");
-        assert!(matches!(msgs[0], Msg::AuxLine { .. }));
-        match &msgs[1] {
-            Msg::AuxRepaint { back, line, .. } => {
-                assert_eq!(*back, 1, "rewrites the newest row: {msgs:?}");
-                assert!(line.contains("100%"), "styling kept: {line:?}");
-            }
-            other => panic!("the rewind must repaint, got {other:?}"),
-        }
-    }
-
-    /// Blank stderr paints are dropped, as before -- a colour wrapper around
-    /// nothing is a row of nothing -- while blank stdout lines still append.
-    #[tokio::test]
-    async fn blank_stderr_is_dropped_and_blank_stdout_is_kept() {
-        let (tx, mut rx) = tokio::sync::mpsc::channel(16);
-        let server = server();
-        let action = action(&server, &tx);
-        let mut painter = Painter::new();
-        send_painted(&action, &mut painter, b"  \n", error_line, true).await;
-        send_painted(
-            &action,
-            &mut painter,
-            b"  \n",
-            std::convert::identity,
-            false,
-        )
-        .await;
-        drop(tx);
-        let mut count = 0;
-        while rx.recv().await.is_some() {
-            count += 1;
-        }
-        assert_eq!(count, 1, "only the stdout blank survives");
-    }
-}
+#[path = "exec_runner_tests.rs"]
+mod send_painted_tests;

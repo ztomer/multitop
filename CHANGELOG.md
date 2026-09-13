@@ -7,6 +7,28 @@ This file starts at v0.47.0 — earlier history is in git (`git log`), and the
 per-defect record is `docs/detection-record.md`, which is the more useful
 document for anything before this point.
 
+## v0.47.2 — upgrade stderr through the painter, finish routing shared _(unreleased)_
+
+### Fixed
+- **Update screen showed progress text in duplicate.**
+  `tasks/upgrade.rs` sent stdout through the `Painter` (append vs repaint by
+  cursor movement) but buffered stderr per line in `Report::errbuf` and flushed
+  it as plain appends at end of run. `apt` writes its progress display to
+  stderr, so every tick appended one more near-identical line — and out of
+  order, after all stdout. Stderr now feeds the same shared `Painter` (one
+  cursor: the remote pty has only one), styled red and routed with `paint_msg`
+  exactly like `exec_runner`. `keep_stderr`, `Report::errbuf` and
+  `MAX_UPGRADE_ERR_LINES` are gone; the ring cap bounds memory. `sudo_help`
+  detection, connection-noise filtering and blank-stderr dropping moved with
+  the bytes, pinned by e2e tests that print progress to stderr.
+- **An unterminated final line was appended twice on the exec path.**
+  `exec_runner::drain_stdout` sent the painter's `finish()` as a bare
+  `AuxLine`, ignoring `back`/`erase_below` — a tool killed mid-write left its
+  last line on screen via the open-line paint and got a second copy at close.
+  The tail now routes through `paint_msg` like every other paint, and
+  `drain_stdout` is generic over the byte stream so the case is tested with
+  synthetic framed packets instead of a live run.
+
 ## v0.47.1 — unbreak Linux CI, keep chunked markers, fix upgrade hangs & PTY sizing _(2026-09-09)_
 
 ### Fixed
