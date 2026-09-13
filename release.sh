@@ -94,7 +94,7 @@ ok "pushed ${TAG}"
 
 info "creating the GitHub release ..."
 NOTES="$(mktemp)"
-trap 'rm -rf "${AGENTS}" "${NOTES}"' EXIT
+trap 'rm -rf "${AGENTS}" "${NOTES}" "${DL:-}"' EXIT
 python3 - "${VER}" CHANGELOG.md > "${NOTES}" <<'PY'
 import re, sys
 ver = sys.argv[1]
@@ -109,9 +109,26 @@ gh release create "${TAG}" \
 ok "release published with agent assets"
 
 info "computing the new shas (downloads = roundtrip proof) ..."
-TARBALL_SHA="$(curl -sL "https://github.com/${REPO}/archive/refs/tags/${TAG}.tar.gz" | shasum -a 256 | cut -d' ' -f1)"
-SHA_X64="$(curl -sL "https://github.com/${REPO}/releases/download/${TAG}/multitop-agent-x86_64-unknown-linux-musl" | shasum -a 256 | cut -d' ' -f1)"
-SHA_ARM="$(curl -sL "https://github.com/${REPO}/releases/download/${TAG}/multitop-agent-aarch64-unknown-linux-musl" | shasum -a 256 | cut -d' ' -f1)"
+DL="$(mktemp -d)"
+trap 'rm -rf "${AGENTS}" "${DL:-}"' EXIT
+# The release was created seconds ago; a 404/empty body from the CDN here
+# silently produced empty shas once, which the transform then misdiagnosed as
+# a formula layout bug. Fail on the real cause: HTTP errors, empty bodies, or
+# a digest that is not 64 hex digits.
+fetch_sha() {
+    local url="$1" out="$2"
+    curl -fsSL --retry 3 --retry-delay 2 "${url}" -o "${out}" \
+        || die "failed to download ${url}"
+    [ -s "${out}" ] || die "downloaded ${url} is empty"
+    shasum -a 256 "${out}" | cut -d' ' -f1
+}
+TARBALL_SHA="$(fetch_sha "https://github.com/${REPO}/archive/refs/tags/${TAG}.tar.gz" "${DL}/tarball.tar.gz")"
+SHA_X64="$(fetch_sha "https://github.com/${REPO}/releases/download/${TAG}/multitop-agent-x86_64-unknown-linux-musl" "${DL}/agent-x64")"
+SHA_ARM="$(fetch_sha "https://github.com/${REPO}/releases/download/${TAG}/multitop-agent-aarch64-unknown-linux-musl" "${DL}/agent-arm")"
+for v in "${TARBALL_SHA}" "${SHA_X64}" "${SHA_ARM}"; do
+    printf '%s' "${v}" | grep -Eq '^[0-9a-f]{64}$' \
+        || die "roundtrip download produced an invalid sha256: '${v}'"
+done
 
 info "bumping ${TAP}/${FORMULA_PATH} → ${VER} (tarball + both resources) ..."
 CUR_SHA="$(gh api "repos/${TAP}/contents/${FORMULA_PATH}" --jq .sha)"
