@@ -7,7 +7,7 @@ This file starts at v0.47.0 — earlier history is in git (`git log`), and the
 per-defect record is `docs/detection-record.md`, which is the more useful
 document for anything before this point.
 
-## v0.47.2 — upgrade stderr through the painter, finish routing shared _(unreleased)_
+## v0.47.2 — upgrade stderr through the painter, finish routing shared _(2026-09-13)_
 
 ### Fixed
 - **Update screen showed progress text in duplicate.**
