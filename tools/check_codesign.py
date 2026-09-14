@@ -126,7 +126,11 @@ def main() -> int:
     import platform
 
     if platform.system() != "Darwin":
-        print("check_codesign: clean (not macOS, no keychain prompt)")
+        # Not a pass and not a failure: codesign and the keychain prompt do
+        # not exist here. "not applicable" is the phrase the house empty-scope
+        # sweep reads as a named non-run, so this holds on every host without
+        # an excuse whose truth depends on which one ran it.
+        print("check_codesign: not applicable (not macOS -- no codesign, no keychain prompt)")
         return 0
     bins = find_binaries()
     # This gate runs after `cargo build` in every list that runs it; no binary
