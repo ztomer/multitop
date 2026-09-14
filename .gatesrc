@@ -9,3 +9,10 @@ GOH_LINE_BASELINE=tools/loc_baseline.txt   # ceilings for the LINE_EXCLUDE entri
 # GOH_SWIFT_SCHEME=MyAppTests
 # GOH_SWIFT_COV_MIN=95
 # GOH_MAX_SCRATCH_GB=25           # disk-hygiene ceiling (full runs only)
+
+# Every shipped configuration is linted, not just this machine's: the agent
+# crate ships as a musl binary for Linux hosts, and an #[expect] fulfilled
+# only on macOS is an error there (found 2026-09-14 by linting this target
+# by hand). vault/multitop need dbus/tss system libraries to build on Linux
+# and stay CI's.
+GOH_RUST_LINT_CONFIGS='--target x86_64-unknown-linux-musl -p multitop-agent'
