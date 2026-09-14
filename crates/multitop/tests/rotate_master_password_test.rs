@@ -9,7 +9,9 @@
 //! sequencing -- collecting two passwords in a row, carrying the first to the
 //! second, and not leaving a half-finished prompt behind.
 
-#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+// Integration-test crate: helper fns outside #[test] are not covered by
+// clippy.toml's test exemption, so the restriction lints are expected here.
+#![expect(clippy::unwrap_used)]
 
 use crossterm::event::KeyCode;
 use multitop::app::App;
@@ -24,7 +26,6 @@ use multitop::passwords::{handle_key, PasswordAction, PasswordManager};
 /// keychain: every rebuild changes the binary's code signature, so macOS raises
 /// an access dialog and the suite stops until a human dismisses it -- and a test
 /// can read, overwrite or delete credentials the user depends on.
-#[allow(dead_code)]
 fn isolate_keychain() -> tokio::sync::MutexGuard<'static, ()> {
     let guard = multitop::password_store::lock_for_test();
     multitop::password_store::enable_mock_store();
@@ -34,7 +35,6 @@ fn isolate_keychain() -> tokio::sync::MutexGuard<'static, ()> {
 
 /// `isolate_keychain` for `#[tokio::test]` bodies, which must not block the
 /// runtime thread to take the guard.
-#[allow(dead_code)]
 async fn isolate_keychain_async() -> tokio::sync::MutexGuard<'static, ()> {
     let guard = multitop::password_store::lock_for_test_async().await;
     multitop::password_store::enable_mock_store();

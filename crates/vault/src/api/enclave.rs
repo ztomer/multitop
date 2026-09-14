@@ -71,12 +71,9 @@ impl Vault {
     /// user toward the lockout backoff simply because their sensor was
     /// unavailable. `test_vault_biometric_failures_do_not_trigger_lockout`
     /// pins this.
-    // `unused_async_trait_impl` exists on nightly and not yet on stable, and CI
-    // runs stable: without `unknown_lints` the *name* is an error there, and
-    // without the allow the lint itself is an error here. Both are needed until
-    // it lands on stable, at which point the `unknown_lints` line can go.
-    #[allow(unknown_lints)]
-    #[allow(clippy::unused_async, clippy::unused_async_trait_impl)]
+    // `unused_async_trait_impl` landed on stable; the `unknown_lints` guard it
+    // once needed was retired as a stale expectation on 2026-09-14.
+    #[expect(clippy::unused_async, clippy::unused_async_trait_impl)]
     async fn try_unlock_biometric(&self) -> Result<UnlockedVault, VaultError> {
         // Load vault file
         let vault_file = format::read_vault_file(&self.config.vault_path)?;
@@ -195,13 +192,16 @@ impl Vault {
     /// Repair an orphaned Secure Enclave wrapper, if there is one and it can be
     /// repaired. Best-effort and silent: every failure leaves the vault exactly
     /// as it opened.
-    #[allow(
-        unused_variables,
-        clippy::unused_self,
-        clippy::needless_pass_by_ref_mut,
-        clippy::missing_const_for_fn,
-        reason = "the body is macOS-only; on every other platform this is empty \
-                  and the parameters are untouched"
+    #[cfg_attr(
+        not(target_os = "macos"),
+        expect(
+            unused_variables,
+            clippy::unused_self,
+            clippy::needless_pass_by_ref_mut,
+            clippy::missing_const_for_fn,
+            reason = "the body is macOS-only; on every other platform this is empty \
+                      and the parameters are untouched"
+        )
     )]
     pub(super) fn rebind_enclave_wrapper(&self, unlocked: &mut UnlockedVault) {
         // Repair an orphaned Secure Enclave wrapper.

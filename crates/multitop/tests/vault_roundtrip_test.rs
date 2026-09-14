@@ -6,7 +6,9 @@
 //! back out. Each of those steps used to be reachable only by a person typing
 //! a master password into a running TUI.
 
-#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+// Integration-test crate: helper fns outside #[test] are not covered by
+// clippy.toml's test exemption, so the restriction lints are expected here.
+#![expect(clippy::expect_used)]
 
 use std::sync::Arc;
 

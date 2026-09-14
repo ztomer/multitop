@@ -6,8 +6,9 @@
 //! keystrokes out of the event loop's input. `ssh` does exactly that for an
 //! unknown host key or a passphrase, whatever its stdin is connected to.
 
-#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
-
+// Integration-test crate: helper fns outside #[test] are not covered by
+// clippy.toml's test exemption, so the restriction lints are expected here.
+#![expect(clippy::expect_used)]
 use multitop::config::Server;
 use multitop::{password_store, ssh};
 

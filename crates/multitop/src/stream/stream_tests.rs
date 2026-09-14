@@ -1,7 +1,6 @@
 use crate::stream::prod::*;
 
 mod spawn_failure_tests {
-    #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
     use super::spawn_failure;
     use crate::config::Server;
@@ -54,7 +53,6 @@ mod spawn_failure_tests {
 
 #[cfg(test)]
 mod packet_tests {
-    #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
     use super::interpret_packet;
     use multitop_agent::proto;
@@ -191,7 +189,6 @@ mod packet_tests {
 
 #[cfg(test)]
 mod handshake_tests {
-    #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
     use super::{read_handshake, Handshake};
     use tokio::io::{AsyncRead, ReadBuf};

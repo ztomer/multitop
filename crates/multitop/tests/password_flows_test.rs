@@ -4,8 +4,6 @@
 //! the write landed, or "removed" when a copy is still in the vault and will
 //! come back, is worse than an error — they stop looking.
 
-#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
-
 use multitop::app::{App, Msg};
 use multitop::config::Server;
 use multitop::password_actions::apply;

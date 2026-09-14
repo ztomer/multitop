@@ -2,7 +2,6 @@ use super::*;
 
 #[cfg(test)]
 mod tests_module {
-    #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
     use super::*;
 
@@ -249,7 +248,6 @@ mod tests_module {
 
 #[cfg(test)]
 mod header_width_tests {
-    #![allow(clippy::unwrap_used, clippy::panic)]
 
     use super::{header, Credential, Status};
     use crate::config::Server;

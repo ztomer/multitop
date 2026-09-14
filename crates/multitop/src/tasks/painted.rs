@@ -25,7 +25,7 @@
 //!
 //! So: one entry point, fed bytes, idempotent in the only place it repeats.
 
-#![allow(clippy::must_use_candidate)]
+#![expect(clippy::must_use_candidate)]
 
 /// Every state a line passed through, in order, as carriage returns rewrote it.
 pub fn painted_states(line: &str) -> impl DoubleEndedIterator<Item = &str> {

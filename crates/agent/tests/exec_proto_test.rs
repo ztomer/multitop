@@ -5,8 +5,9 @@
 //! unaltered, and that a reader which cannot understand a frame says so instead
 //! of carrying on from the wrong offset.
 
-#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
-
+// Integration-test crate: helper fns outside #[test] are not covered by
+// clippy.toml's test exemption, so the restriction lints are expected here.
+#![expect(clippy::expect_used, clippy::panic)]
 use multitop_agent::exec::{chunks, ExecFrame, MarkerKind, Stream, MAX_EXEC_CHUNK};
 use multitop_agent::proto::{decode_packet, encode_packet, Payload};
 

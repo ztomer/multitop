@@ -4,8 +4,8 @@
 //! covers the Monitor and Fetch payloads and the decoder's behaviour on
 //! packets that arrive damaged, which is what a half-read pipe looks like.
 
-#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
-
+// Integration-test crate: helper fns outside #[test] are not covered by
+// clippy.toml's test exemption, so the restriction lints are expected here.
 use multitop_agent::docker::Row as DockerRow;
 use multitop_agent::fetch::FetchSnapshot;
 use multitop_agent::proc::{Proc, Usage};

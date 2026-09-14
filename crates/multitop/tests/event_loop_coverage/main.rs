@@ -5,8 +5,9 @@
 //! Everything here is a branch a person could previously only reach by sitting
 //! at a real terminal with a real mouse and a hand-damaged config file.
 
-#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
-
+// Integration-test crate: helper fns outside #[test] are not covered by
+// clippy.toml's test exemption, so the restriction lints are expected here.
+#![expect(clippy::expect_used)]
 use std::sync::atomic::{AtomicU16, Ordering};
 use std::time::Duration;
 

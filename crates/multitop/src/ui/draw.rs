@@ -86,7 +86,7 @@ fn draw_modals(f: &mut Frame, app: &App) {
     }
 }
 
-#[allow(clippy::too_many_lines)]
+#[expect(clippy::too_many_lines)]
 /// Draw one frame.
 ///
 /// Takes `&mut App` for one reason: the scroll offset is bounded here and

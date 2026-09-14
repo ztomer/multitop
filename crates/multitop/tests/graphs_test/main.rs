@@ -5,8 +5,8 @@
 //! of the byte. Every glyph asserted below was worked out from the Unicode dot
 //! numbering by hand, not read back off this implementation.
 
-#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
-
+// Integration-test crate: helper fns outside #[test] are not covered by
+// clippy.toml's test exemption, so the restriction lints are expected here.
 use crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 use multitop::app::{App, Msg};
 use multitop::config::Server;

@@ -5,8 +5,8 @@
 //! something is degenerate — which is exactly when a panic or a wrong answer
 //! is least welcome and least likely to be noticed.
 
-#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
-
+// Integration-test crate: helper fns outside #[test] are not covered by
+// clippy.toml's test exemption, so the restriction lints are expected here.
 use crossterm::event::KeyCode;
 use multitop::app::App;
 use multitop::config::Server;

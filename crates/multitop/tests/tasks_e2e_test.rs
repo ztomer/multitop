@@ -1,6 +1,5 @@
 //! Task spawning integration tests.
 
-#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 use multitop::app::{App, Mode, Msg};
 use multitop::config::Server;
 use multitop::panel::UpgradeState;

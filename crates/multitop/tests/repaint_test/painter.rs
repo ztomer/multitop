@@ -1,7 +1,5 @@
 //! The screen model alone: bytes in, paint operations out.
 
-#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
-
 use multitop::tasks::{Paint, Painter};
 
 /// Feed one complete line, terminated the way a pty terminates lines.

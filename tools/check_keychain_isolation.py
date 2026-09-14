@@ -24,6 +24,9 @@ import re
 import sys
 from pathlib import Path
 
+sys.path.insert(0, str(__import__('pathlib').Path(__file__).resolve().parent))
+from _scope import scope_is_empty  # noqa: E402
+
 ROOT = Path(__file__).resolve().parent.parent
 
 # Anything that can reach the credential store, directly or through the app.
@@ -361,9 +364,12 @@ def main() -> int:
     if "--self-test" in sys.argv:
         return self_test()
 
+    scanned = sorted(ROOT.rglob("*.rs"))
+    if scope_is_empty("keychain-isolation", len(scanned), "Rust files"):
+        return 1
     found = offenders(ROOT)
     if not found:
-        print("keychain-isolation: clean")
+        print(f"keychain-isolation: clean ({len(scanned)} files checked)")
         return 0
 
     print("keychain-isolation: these tests can reach the real OS keychain\n")

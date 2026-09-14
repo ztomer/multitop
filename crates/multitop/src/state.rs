@@ -222,7 +222,7 @@ pub fn load_state(config_path: &Path) -> StateLoad {
     }
 }
 
-#[allow(clippy::expect_used)]
+#[expect(clippy::expect_used)]
 fn insert_opt_u64(table: &mut toml::Table, key: &str, val: Option<u64>) {
     if let Some(v) = val {
         table.insert(
@@ -336,7 +336,6 @@ pub(crate) fn write_atomic(path: &Path, content: &str) -> Result<(), String> {
 
 #[cfg(test)]
 mod tests {
-    #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
     use super::*;
 
@@ -537,7 +536,6 @@ mod tests {
 
 #[cfg(test)]
 mod unreadable_state_tests {
-    #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
     use super::{load_state, state_file_path, AppState};
 

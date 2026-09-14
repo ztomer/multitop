@@ -31,7 +31,7 @@ fn clip(text: &str, width: usize) -> String {
     format!("{kept}\u{2026}")
 }
 
-#[allow(
+#[expect(
     clippy::missing_panics_doc,
     clippy::too_many_lines,
     clippy::expect_used

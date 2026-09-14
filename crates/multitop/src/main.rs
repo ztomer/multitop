@@ -177,7 +177,7 @@ fn resolve_servers(
     Ok((servers, initial_theme))
 }
 
-#[allow(clippy::too_many_lines)]
+#[expect(clippy::too_many_lines)]
 fn main() -> ExitCode {
     let opts = match parse_cli(std::env::args().skip(1)) {
         Startup::Run(opts) => opts,

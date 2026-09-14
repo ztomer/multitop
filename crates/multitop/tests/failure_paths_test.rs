@@ -4,8 +4,8 @@
 //! that cannot be written. Each one is a case where saying nothing looks
 //! identical to working, so the reporting is what is under test.
 
-#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
-
+// Integration-test crate: helper fns outside #[test] are not covered by
+// clippy.toml's test exemption, so the restriction lints are expected here.
 use std::os::unix::fs::PermissionsExt;
 
 use multitop::app::{App, Msg};

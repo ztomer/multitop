@@ -306,7 +306,6 @@ pub fn wrap_words(text: &str, width: usize) -> Vec<String> {
 
 #[cfg(test)]
 mod tests {
-    #![allow(clippy::unwrap_used)]
 
     use super::*;
 

@@ -46,6 +46,9 @@ import sys
 import tempfile
 from pathlib import Path
 
+sys.path.insert(0, str(__import__('pathlib').Path(__file__).resolve().parent))
+from _scope import scope_is_empty  # noqa: E402
+
 REPO = Path(__file__).resolve().parent.parent
 
 # Numbers that read as themselves wherever they appear. Anything larger is a
@@ -232,9 +235,12 @@ def main() -> int:
     if "--self-test" in sys.argv:
         return self_test()
 
+    files = rust_files()
+    if scope_is_empty("magic-numbers", len(files), "Rust files"):
+        return 1
     found = offenders(REPO)
     if not found:
-        print(f"magic-numbers: clean ({len(rust_files())} files checked)")
+        print(f"magic-numbers: clean ({len(files)} files checked)")
         return 0
 
     print("magic-numbers: literals whose meaning is not written down\n")

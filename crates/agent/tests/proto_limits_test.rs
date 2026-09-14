@@ -5,8 +5,8 @@
 //! rule, and the seam is real: everything here is about a frame that does not
 //! fit, which is a different question from whether a frame round-trips.
 
-#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
-
+// Integration-test crate: helper fns outside #[test] are not covered by
+// clippy.toml's test exemption, so the restriction lints are expected here.
 use multitop_agent::proc::{Proc, Usage};
 use multitop_agent::proto::{decode_packet, encode_packet, Payload};
 use multitop_agent::render::{Snapshot, TempUnit};

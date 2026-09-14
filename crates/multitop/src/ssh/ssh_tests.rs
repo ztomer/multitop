@@ -1,6 +1,5 @@
 #[cfg(test)]
 mod upload_failure_tests {
-    #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
     use crate::ssh::upload_failure;
 
@@ -71,7 +70,6 @@ mod upload_failure_tests {
 
 #[cfg(test)]
 mod upload_command_tests {
-    #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
     use crate::ssh::command::upload_command;
     use std::io::Write as _;

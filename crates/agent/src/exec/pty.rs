@@ -205,7 +205,7 @@ pub fn read_fd(fd: RawFd, buf: &mut [u8]) -> io::Result<usize> {
         // writes only within it.
         let n = unsafe { libc::read(fd, buf.as_mut_ptr().cast(), buf.len()) };
         if n >= 0 {
-            #[allow(clippy::cast_sign_loss)]
+            #[expect(clippy::cast_sign_loss)]
             return Ok(n as usize);
         }
         let e = io::Error::last_os_error();
@@ -228,7 +228,7 @@ pub fn write_fd(fd: RawFd, mut buf: &[u8]) -> io::Result<()> {
         // SAFETY: `buf` is a live slice and `n` is its length.
         let n = unsafe { libc::write(fd, buf.as_ptr().cast(), buf.len()) };
         if n > 0 {
-            #[allow(clippy::cast_sign_loss)]
+            #[expect(clippy::cast_sign_loss)]
             let n = n as usize;
             buf = &buf[n..];
             continue;

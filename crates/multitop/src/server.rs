@@ -401,7 +401,6 @@ pub async fn serve(addr: SocketAddr, state: AppState) -> Result<(), String> {
 
 #[cfg(test)]
 mod tests {
-    #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
     use super::*;
     use axum::body::Body;
     use axum::http::Request;

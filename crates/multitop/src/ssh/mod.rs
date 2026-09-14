@@ -5,7 +5,6 @@ mod spawn;
 
 #[cfg(test)]
 #[path = "ssh_tests.rs"]
-#[allow(clippy::module_inception)]
 mod ssh_tests;
 
 pub use crate::ssh_opts::*;

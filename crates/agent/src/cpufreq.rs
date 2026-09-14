@@ -26,7 +26,7 @@ pub fn parse_scaling_khz(readings: &[String]) -> Option<f64> {
     if mhz.is_empty() {
         return None;
     }
-    #[allow(clippy::cast_precision_loss)]
+    #[expect(clippy::cast_precision_loss)]
     Some(mhz.iter().sum::<f64>() / mhz.len() as f64)
 }
 
@@ -50,7 +50,7 @@ pub fn parse_cpuinfo_mhz(content: &str) -> Option<f64> {
     if values.is_empty() {
         return None;
     }
-    #[allow(clippy::cast_precision_loss)]
+    #[expect(clippy::cast_precision_loss)]
     Some(values.iter().sum::<f64>() / values.len() as f64)
 }
 

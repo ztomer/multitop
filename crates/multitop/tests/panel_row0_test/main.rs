@@ -10,8 +10,6 @@
 //! the layout functions in isolation. Only a real buffer can answer "is it on
 //! the screen".
 
-#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
-
 /// Divert credentials to the in-memory store, and hold the process-global guard.
 ///
 /// These two tests build a real `App` and render it, and the render path can

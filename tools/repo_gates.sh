@@ -12,7 +12,8 @@
 set -euo pipefail
 repo_root="$(git rev-parse --show-toplevel)"
 cd "$repo_root"
-. "$repo_root/tui/lib.sh"
+# shellcheck source=/Users/ztomer/Projects/gates_of_heck/tui/lib.sh
+. "${GOH_DIR:-${GOH:-$HOME/Projects/gates_of_heck}}/tui/lib.sh"
 
 log="$(mktemp -t multitop-repo-gates)"
 trap 'rm -f "$log"' EXIT
@@ -21,7 +22,6 @@ section "repo gates"
 
 for checker in \
     check_gate_parity \
-    check_no_emoji \
     check_test_only_code \
     check_key_hints \
     check_keychain_isolation \

@@ -5,8 +5,9 @@
 //! a code silently falling through to `_ => {}` shows up as text that lost its
 //! colour, which nobody reports as a bug.
 
-#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
-
+// Integration-test crate: helper fns outside #[test] are not covered by
+// clippy.toml's test exemption, so the restriction lints are expected here.
+#![expect(clippy::expect_used)]
 use multitop::ansi::line_to_spans;
 use ratatui::style::{Color, Modifier};
 

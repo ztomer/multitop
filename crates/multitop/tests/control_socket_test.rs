@@ -13,8 +13,9 @@
 //! missing, `ssh` prints `unix_listener: cannot bind to path ...` and the
 //! command never runs at all. Not the upgrade -- every channel, on every host.
 
-#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
-
+// Integration-test crate: helper fns outside #[test] are not covered by
+// clippy.toml's test exemption, so the restriction lints are expected here.
+#![expect(clippy::expect_used)]
 // ----------------------------------------------------- connection sharing
 
 /// The fallback that the old comment claimed and the code did not have.

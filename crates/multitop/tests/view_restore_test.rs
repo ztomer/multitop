@@ -8,8 +8,6 @@
 //! press poisoned all four panels *and* the state file, so every later launch
 //! restored the dead view.
 
-#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
-
 use multitop::panel::Mode;
 
 const ALL: [Mode; 6] = [

@@ -1,5 +1,4 @@
 //! Tests for the keychain-use policy.
-#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
 use crate::api::*;
 use crate::VaultConfig;

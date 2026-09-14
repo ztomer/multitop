@@ -1,6 +1,7 @@
 //! Regression tests for the full-screen configuration and password workflow.
 
-#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+// Integration-test crate: helper fns outside #[test] are not covered by
+// clippy.toml's test exemption, so the restriction lints are expected here.
 use crossterm::event::KeyCode;
 use multitop::app::App;
 use multitop::config::Server;

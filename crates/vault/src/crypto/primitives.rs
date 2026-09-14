@@ -30,7 +30,6 @@ pub fn now_ms() -> u64 {
 
 /// Convert a Duration to milliseconds as u64.
 /// Fits for billions of years — well beyond any practical concern.
-#[allow(clippy::cast_precision_loss)]
 #[must_use]
 fn duration_millis_to_u64(d: std::time::Duration) -> u64 {
     u64::try_from(d.as_millis()).unwrap_or(u64::MAX)

@@ -6,8 +6,6 @@
 //! both for every host it happens to mention, and dropping servers it does not
 //! mention would delete hosts the user configured by hand.
 
-#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
-
 use multitop::config::{merge_ssh_hosts, parse_ssh_config, Server};
 
 fn server(host: &str, user: &str, port: u16, cmd: Option<&str>) -> Server {

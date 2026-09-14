@@ -1,7 +1,5 @@
 //! Tests for the vault file format.
 
-#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
-
 use crate::crypto::*;
 use crate::format::*;
 use crate::VaultError;

@@ -132,7 +132,7 @@ fn span_width(spans: &[Span<'static>]) -> usize {
 /// rather than being clipped. `Q` is deliberately absent from the shed order --
 /// quit is the one thing a user stuck in a twelve-column terminal most needs to
 /// find, and it is the only binding here that cannot be discovered by trying.
-#[allow(clippy::needless_pass_by_value)]
+#[expect(clippy::needless_pass_by_value)]
 fn keybar_initials(
     keys: &[(&'static str, Style)],
     keybar_width: u16,

@@ -5,8 +5,6 @@
 //! the block again -- several times a second. Treated as new lines, a pull of
 //! five layers buries the whole run in its own progress display.
 
-#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
-
 use multitop::app::{App, Msg};
 use multitop::config::Server;
 use multitop::panel::{RingLines, UpgradeState};

@@ -1,7 +1,5 @@
 //! Tests for the rate limiter.
 
-#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
-
 use crate::lockout::{LockoutGuard, LockoutState};
 use crate::VaultError;
 use std::sync::Mutex;

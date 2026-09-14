@@ -4,8 +4,8 @@
 //! Getting that wrong is either a flickering idle TUI (redrawing for nothing)
 //! or a stale one (a frame that never lands), and neither shows up as a crash.
 
-#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
-
+// Integration-test crate: helper fns outside #[test] are not covered by
+// clippy.toml's test exemption, so the restriction lints are expected here.
 use multitop::app::{App, Mode, Msg, VaultState};
 use multitop::config::Server;
 use multitop::panel::UpgradeState;

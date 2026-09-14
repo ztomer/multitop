@@ -393,7 +393,6 @@ mod tests {
 
 #[cfg(test)]
 mod control_char_tests {
-    #![allow(clippy::unwrap_used, clippy::panic)]
     use super::{line_to_spans, to_text};
 
     /// An embedded newline is exempt from the control-character filter, and that

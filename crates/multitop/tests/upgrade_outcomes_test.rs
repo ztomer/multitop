@@ -6,7 +6,9 @@
 //! what an operator is told, and telling them the wrong thing is what sends
 //! them to read their upgrade script when the problem was the password.
 
-#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+// Integration-test crate: helper fns outside #[test] are not covered by
+// clippy.toml's test exemption, so the restriction lints are expected here.
+#![expect(clippy::expect_used)]
 
 use std::time::Duration;
 

@@ -1,0 +1,9 @@
+{
+  "_": "Gates excused from gates_of_heck's empty-scope rule (checks/check_empty_scope.py). `legitimate` = a gate that SHOULD pass over an empty tree on EVERY host, with the reason; `known_blind` = a defect awaiting a guard, shrink-only. The five checkers that reported 'clean (0 files checked)' on 2026-09-14 were guarded with tools/_scope.py rather than excused.",
+
+  "legitimate": {
+    "check_agent_version.py": "By design it fails only when a STALE agent binary would be embedded: it mirrors build.rs's discovery, and no agent at all is a pass because CI's gates job does not cross-build the musl agents (the release build gate covers that). Over an empty tree it either finds no agent (pass, on any host) or compares one against the tree's Cargo.toml version, which the sweep's skeleton carries as a shape file. Neither branch depends on what the host has installed, which is the test an excuse must meet (divoom-control's camoufox excuse failed it the same day)."
+  },
+
+  "known_blind": {}
+}

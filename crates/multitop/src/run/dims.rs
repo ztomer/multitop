@@ -36,10 +36,6 @@ use crate::ui;
 ///
 /// It is also redundant as a way of noticing the terminal is gone: that arrives
 /// as `Some(Err(_)) | None` from the event stream and is already an orderly quit.
-#[allow(
-    clippy::needless_pass_by_value,
-    reason = "takes the backend's own Result; E is generic and may not be Copy"
-)]
 pub(super) fn size_change<E>(
     query: Result<ratatui::layout::Size, E>,
     dims: &mut AgentDims,
@@ -76,7 +72,7 @@ impl AgentDims {
     /// already published, which is what the channel holds -- so that is what is
     /// kept, and `inputs` is left unmeasured so the next successful query
     /// recomputes rather than comparing against a size nobody ever read.
-    #[allow(
+    #[expect(
         clippy::needless_pass_by_value,
         reason = "takes the backend's own Result; E is generic and may not be Copy"
     )]
@@ -138,7 +134,6 @@ impl AgentDims {
 
 #[cfg(test)]
 mod tests {
-    #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
     use super::*;
     use ratatui::layout::Size;

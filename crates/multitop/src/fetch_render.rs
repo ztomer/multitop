@@ -19,7 +19,7 @@ struct LogoDb {
 
 static LOGO_DB: OnceLock<LogoDb> = OnceLock::new();
 
-#[allow(clippy::expect_used)]
+#[expect(clippy::expect_used)]
 fn load_db() -> &'static LogoDb {
     LOGO_DB.get_or_init(|| {
         let compressed = include_bytes!("../data/logos.bin.zst");

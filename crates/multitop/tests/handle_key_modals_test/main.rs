@@ -5,8 +5,6 @@
 //! swallowed while a biometric prompt hangs so the app can only be killed, a
 //! password field that silently eats what was typed into it.
 
-#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
-
 use std::sync::Arc;
 
 use crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyModifiers};

@@ -4,8 +4,8 @@
 //! parts worth pinning are the emitters and the loop: given a snapshot and a
 //! writer, what goes on the wire, and what makes the loop stop.
 
-#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
-
+// Integration-test crate: helper fns outside #[test] are not covered by
+// clippy.toml's test exemption, so the restriction lints are expected here.
 use std::io::{self, Write};
 
 use multitop_agent::color::{ANSI, PLAIN};

@@ -23,14 +23,14 @@ const PRESENT: u8 = 1;
 fn put_str(s: &str, buf: &mut Vec<u8>) {
     let bytes = s.as_bytes();
     let len = bytes.len().min(u16::MAX as usize);
-    #[allow(clippy::cast_possible_truncation)]
+    #[expect(clippy::cast_possible_truncation)]
     buf.extend_from_slice(&(len as u16).to_le_bytes());
     buf.extend_from_slice(&bytes[..len]);
 }
 
 fn put_blob(b: &[u8], buf: &mut Vec<u8>) {
     let len = b.len().min(u16::MAX as usize);
-    #[allow(clippy::cast_possible_truncation)]
+    #[expect(clippy::cast_possible_truncation)]
     buf.extend_from_slice(&(len as u16).to_le_bytes());
     buf.extend_from_slice(&b[..len]);
 }

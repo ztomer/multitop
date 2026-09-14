@@ -27,7 +27,7 @@ use crate::fmt::status_line;
 /// Five flags rather than an enum on purpose: they are not alternatives. A run
 /// can be refused by `sudo` *and* have printed the "no tty present" help, and
 /// which of those the operator is told about changes what they go and fix.
-#[allow(clippy::struct_excessive_bools)]
+#[expect(clippy::struct_excessive_bools)]
 #[derive(Default)]
 pub struct Report {
     pub exit: Option<(i32, bool)>,

@@ -6,7 +6,7 @@
 //! This module contains unsafe code for calling mlock/munlock system calls.
 //! The unsafe blocks are reviewed and contain only standard system call wrappers.
 
-#![allow(unsafe_code)]
+#![expect(unsafe_code)]
 
 use libc::{mlock, munlock};
 use zeroize::Zeroize;
@@ -118,7 +118,6 @@ impl Drop for LockedMemory {
 
 #[cfg(test)]
 mod tests {
-    #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
     use super::*;
 

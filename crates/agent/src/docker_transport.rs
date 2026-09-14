@@ -145,7 +145,6 @@ pub fn http_get_on(endpoint: &DockerEndpoint, path: &str) -> io::Result<Vec<u8>>
 
 #[cfg(test)]
 mod chunked_tests {
-    #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
     use super::decode_chunked;
 

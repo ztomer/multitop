@@ -7,8 +7,9 @@
 //! the stats table would give a different answer depending on where they had
 //! been, which is worse than not searching it at all.
 
-#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
-
+// Integration-test crate: helper fns outside #[test] are not covered by
+// clippy.toml's test exemption, so the restriction lints are expected here.
+#![expect(clippy::unwrap_used)]
 use crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 use multitop::app::{App, Msg};
 use multitop::config::Server;

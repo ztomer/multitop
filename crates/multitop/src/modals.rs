@@ -108,7 +108,7 @@ const PAD: u16 = 2;
 /// Keys table from `README.md:82`, rendered as the `?` overlay.
 ///
 /// The table is the one place the keys are named in English rather than as
-/// `tui/lib.sh` `→` glyphs, so a key that does nothing is visible immediately.
+/// the house TUI lib's (`gates_of_heck/tui/lib.sh`) `→` glyphs, so a key that does nothing is visible immediately.
 /// Drawn with `Rams` dim + `NO_COLOR` aware via `Palette`.
 pub fn draw_command_palette(f: &mut Frame, app: &App) {
     let area = f.area();
@@ -321,7 +321,7 @@ pub fn draw_help(f: &mut Frame) {
 /// The headline, the field and the footer naming both keys are never shed. An
 /// operator who cannot read what the password protects can still act; one who
 /// cannot see `Esc` is stuck.
-#[allow(clippy::too_many_lines)]
+#[expect(clippy::too_many_lines)]
 pub fn draw_vault_password_prompt(f: &mut Frame, app: &App) {
     let area = f.area();
     let popup_width = (64u16).min(area.width.saturating_sub(2));

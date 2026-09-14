@@ -35,6 +35,9 @@ import sys
 import tempfile
 from pathlib import Path
 
+sys.path.insert(0, str(__import__('pathlib').Path(__file__).resolve().parent))
+from _scope import scope_is_empty  # noqa: E402
+
 SRC = Path("crates/multitop/src")
 
 # The file that owns the field may assign it; that is where the helpers live.
@@ -91,9 +94,12 @@ def main() -> int:
     if not SRC.is_dir():
         print(f"row0-owner: {SRC} not found -- run from the repository root")
         return 1
+    scanned = sorted(SRC.rglob("*.rs"))
+    if scope_is_empty("row0-owner", len(scanned), "Rust files under src/"):
+        return 1
     hits = offenders(SRC)
     if not hits:
-        print("row0-owner: clean")
+        print(f"row0-owner: clean ({len(scanned)} files checked)")
         return 0
     print("row0-owner: a pane's `view` is assigned outside panel.rs\n")
     for path, lineno, line in hits:

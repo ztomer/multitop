@@ -289,7 +289,6 @@ mod imp {
 
 #[cfg(all(test, target_os = "linux"))]
 mod tests {
-    #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
     use super::imp::{seal, unseal};
     use super::MAX_SEALED_BYTES;

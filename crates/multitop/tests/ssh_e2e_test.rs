@@ -8,7 +8,10 @@
 //! could see a terminal. They are one path now, and these tests assert the
 //! properties that path is supposed to have.
 
-#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+// Integration-test crate: helper fns outside #[test] are not covered by
+// clippy.toml's test exemption, so the restriction lints are expected here.
+#![expect(clippy::unwrap_used, clippy::expect_used)]
+
 use multitop::config::Server;
 use multitop::password_store;
 use multitop::ssh;

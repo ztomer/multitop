@@ -6,7 +6,5 @@
 //! panel ends up holding. They fail for different reasons and are read at
 //! different times.
 
-#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
-
 mod applying;
 mod painter;

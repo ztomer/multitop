@@ -41,12 +41,24 @@ jobs:
 
       # Checks every tracked file, not just a diff: a gate that only looks at
       # what changed lets pre-existing violations sit forever.
+      # The house structural gates (emoji, markers, the 500-line cap with this
+      # repo's baseline, shell lint, secrets) run from the shared harness, by
+      # name -- the repo carried its own copy of the emoji checker until
+      # 2026-09-14, and a copy is a checker that drifts.
+      - name: Check out the shared gate harness
+        uses: actions/checkout@v4
+        with:
+          repository: ztomer/gates_of_heck
+          path: .gates_of_heck
+      - name: House structural gates
+        env:
+          GOH_DIR: ${{ github.workspace }}/.gates_of_heck
+        run: GOH_NO_NATIVE=1 bash .gates_of_heck/gates/structural.sh --full
+
       - name: Structural gates
         run: |
           python3 tools/check_gate_parity.py --self-test
           python3 tools/check_gate_parity.py
-          python3 tools/check_no_emoji.py --self-test
-          python3 tools/check_no_emoji.py
           python3 tools/check_test_only_code.py --self-test
           python3 tools/check_test_only_code.py
           python3 tools/check_key_hints.py --self-test

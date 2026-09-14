@@ -23,6 +23,9 @@ import subprocess
 import sys
 from pathlib import Path
 
+sys.path.insert(0, str(__import__('pathlib').Path(__file__).resolve().parent))
+from _scope import scope_is_empty  # noqa: E402
+
 REPO = Path(__file__).resolve().parent.parent
 EXPECTED_ID = "com.ztomer.multitop"
 
@@ -36,17 +39,24 @@ def find_binaries() -> list[Path]:
     bins: list[Path] = []
     if (explicit := os.environ.get("MULTITOP_BIN")) and Path(explicit).is_file():
         bins.append(Path(explicit))
-    # Cargo's bin dir
-    cargo_bin = Path.home() / ".cargo" / "bin" / "multitop"
-    if cargo_bin.is_file():
-        bins.append(cargo_bin)
+    # The artefacts of THIS tree: cargo's own answer for where it puts them,
+    # asked from the working directory. Until 2026-09-14 this also walked the
+    # machine-wide ~/.cache/cargo-target and ~/.cargo/bin, which made the gate
+    # pass over an EMPTY tree on any machine that had ever built multitop --
+    # the empty-scope sweep caught it. Host state is not this tree's subject;
+    # MULTITOP_BIN names an installed copy when that is what you mean.
+    import json
+    import subprocess
+
     roots: list[Path] = []
-    if (target := os.environ.get("CARGO_TARGET_DIR")):
-        roots.append(Path(target))
-    roots += [
-        Path.home() / ".cache" / "cargo-target",
-        REPO / "target",
-    ]
+    try:
+        meta = subprocess.run(
+            ["cargo", "metadata", "--format-version", "1", "--no-deps"],
+            capture_output=True, text=True, check=True, cwd=REPO,
+        )
+        roots.append(Path(json.loads(meta.stdout)["target_directory"]))
+    except (OSError, subprocess.CalledProcessError, KeyError, ValueError):
+        pass  # no workspace here: no artefacts of this tree exist
     for root in roots:
         for profile in ("release", "debug"):
             cand = root / profile / "multitop"
@@ -119,9 +129,10 @@ def main() -> int:
         print("check_codesign: clean (not macOS, no keychain prompt)")
         return 0
     bins = find_binaries()
-    if not bins:
-        print("check_codesign: clean (no multitop binary built yet — run cargo build -p multitop)")
-        return 0
+    # This gate runs after `cargo build` in every list that runs it; no binary
+    # means the scope is gone (or the build did not happen), never "clean".
+    if scope_is_empty("check_codesign", len(bins), "multitop binaries (run cargo build -p multitop)"):
+        return 1
     problems: list[Path] = []
     for binary in bins:
         ident = identifier_for(binary)

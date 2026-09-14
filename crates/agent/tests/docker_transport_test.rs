@@ -5,8 +5,8 @@
 //! chunked vs plain bodies, non-2xx replies, and a socket that is not there.
 //! The fake speaks just enough HTTP to answer the two paths the agent asks for.
 
-#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
-
+// Integration-test crate: helper fns outside #[test] are not covered by
+// clippy.toml's test exemption, so the restriction lints are expected here.
 use std::collections::HashMap;
 use std::io::{Read, Write};
 use std::net::TcpListener;

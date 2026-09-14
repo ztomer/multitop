@@ -94,7 +94,7 @@ fn prepend_notice(app: &mut App, before: Option<String>) {
     }
 }
 
-#[allow(clippy::too_many_lines)]
+#[expect(clippy::too_many_lines)]
 /// Carry out one [`PasswordAction`].
 ///
 /// # There is no `servers` parameter, and that is the point

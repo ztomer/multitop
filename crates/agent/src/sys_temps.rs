@@ -5,11 +5,13 @@
 //! are read on BOTH platforms -- through IOKit/HID on macOS and `/sys/class/hwmon`
 //! on Linux. Keeping them together also kept `sys` over the file-length cap.
 
-#![allow(
-    unsafe_code,
-    reason = "FFI boundary, and `cfg(macos)`-gated: on Linux the unsafe \
-              vanishes and an `expect` would be unfulfilled, i.e. an error. \
-              See the unsafe_code note in lib.rs"
+#![cfg_attr(
+    target_os = "macos",
+    expect(
+        unsafe_code,
+        reason = "FFI boundary on macOS only; scoped so the expectation is fulfilled \
+                  exactly where the unsafe exists (see the unsafe_code note in lib.rs)"
+    )
 )]
 
 #[cfg(target_os = "macos")]

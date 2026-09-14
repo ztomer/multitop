@@ -52,7 +52,7 @@ impl VaultKey {
         let mut okm = [0u8; KEY_LEN];
         // HKDF expand with SHA-256 and 32 bytes output should never fail
         // but we use expect for safety rather than changing the API
-        #[allow(clippy::expect_used)]
+        #[expect(clippy::expect_used)]
         hkdf.expand(b"multitop-vault-signing", &mut okm)
             .expect("HKDF expand failed (should never happen with SHA-256)");
         SigningKey::from_bytes(&okm)
@@ -76,7 +76,7 @@ impl VaultKey {
         let hkdf = Hkdf::<Sha256>::new(None, &self.0);
         let mut okm = [0u8; KEY_LEN];
         // HKDF expand with SHA-256 and 32 bytes output should never fail
-        #[allow(clippy::expect_used)]
+        #[expect(clippy::expect_used)]
         hkdf.expand(b"vault-aes-gcm-key", &mut okm)
             .expect("HKDF expand failed (should never happen with SHA-256)");
         okm

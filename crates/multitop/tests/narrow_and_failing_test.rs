@@ -4,8 +4,6 @@
 //! Both are silent failures if they are got wrong — a banner that vanishes, a
 //! vault that reports success and holds nothing — so both are pinned here.
 
-#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
-
 use std::sync::Arc;
 
 use crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyModifiers};

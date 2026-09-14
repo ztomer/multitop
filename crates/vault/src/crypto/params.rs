@@ -67,7 +67,6 @@ impl Argon2Params {
         // Building the struct here instead meant the clamps applied to a
         // constructor nothing called, while the values the vault actually used
         // went round them.
-        #[allow(clippy::cast_possible_truncation)]
         Self::from_config(t, target_mib as u32, DEFAULT_PARALLELISM)
     }
 

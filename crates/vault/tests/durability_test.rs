@@ -5,7 +5,9 @@
 //! writer holding the lock. Each one is silent when it goes wrong — the vault
 //! simply stops being able to save — so each one is pinned here.
 
-#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+// Integration-test crate: helper fns outside #[test] are not covered by
+// clippy.toml's test exemption, so the restriction lints are expected here.
+#![expect(clippy::unwrap_used, clippy::expect_used)]
 
 use std::os::unix::fs::PermissionsExt;
 

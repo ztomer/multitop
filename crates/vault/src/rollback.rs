@@ -202,7 +202,6 @@ pub fn parse_stored_counter(stored: &str) -> Option<(u32, u64)> {
 
 #[cfg(test)]
 mod tests {
-    #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
     use super::*;
 

@@ -11,7 +11,12 @@
 //! and the binary still builds — you just cannot monitor a host of that architecture,
 //! and the panel says so.
 
-#![allow(clippy::expect_used)]
+// A build script's `expect()` IS its error reporting: a failed expectation
+// fails the build with the message, which is the behaviour wanted.
+#![expect(
+    clippy::expect_used,
+    reason = "a build script fails the build by expecting"
+)]
 
 use std::fmt::Write;
 use std::path::{Path, PathBuf};
@@ -201,7 +206,7 @@ fn main() {
                     path.display()
                 );
                 if profile == "release" {
-                    #[allow(clippy::panic)]
+                    #[expect(clippy::panic)]
                     {
                         panic!("{msg}");
                     }

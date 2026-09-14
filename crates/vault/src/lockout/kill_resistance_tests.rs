@@ -1,7 +1,5 @@
 //! Tests that the limiter survives the process dying mid-attempt.
 
-#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
-
 use crate::lockout::state::MAX_ATTEMPTS_BEFORE_HARD_LOCKOUT;
 use crate::lockout::LockoutState;
 use tempfile::TempDir;

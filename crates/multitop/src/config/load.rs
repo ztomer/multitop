@@ -22,7 +22,7 @@ pub fn load(path: &Path) -> Result<Config, ConfigError> {
 /// Returns `ConfigError` naming the offending key, or the index of the server
 /// entry that is wrong — "invalid config" with three hosts in the file is not
 /// something an operator can act on.
-#[allow(clippy::too_many_lines)]
+#[expect(clippy::too_many_lines)]
 pub fn parse(text: &str) -> Result<Config, ConfigError> {
     let value: toml::Value = match toml::from_str(text) {
         Ok(v) => v,

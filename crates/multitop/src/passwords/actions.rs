@@ -40,7 +40,7 @@ pub fn handle_key(app: &mut App, key: KeyCode) -> PasswordAction {
 ///
 /// Anything other than an explicit yes cancels, so a stray keystroke can only
 /// ever be the safe answer.
-#[allow(clippy::expect_used)]
+#[expect(clippy::expect_used)]
 fn answer_pending_delete(app: &mut App, key: KeyCode) -> PasswordAction {
     let manager = app.password_manager.as_mut().expect("manager exists");
     let Some(idx) = manager.pending_delete.take() else {
@@ -84,7 +84,7 @@ fn answer_pending_delete(app: &mut App, key: KeyCode) -> PasswordAction {
 }
 
 /// Keys while a text prompt is open. The prompt owns every printable key.
-#[allow(clippy::expect_used)]
+#[expect(clippy::expect_used)]
 fn prompt_key(app: &mut App, key: KeyCode) -> PasswordAction {
     let manager = app.password_manager.as_mut().expect("manager exists");
     match key {
@@ -131,7 +131,7 @@ fn prompt_key(app: &mut App, key: KeyCode) -> PasswordAction {
 }
 
 /// Keys while a server row is open for editing.
-#[allow(clippy::expect_used)]
+#[expect(clippy::expect_used)]
 fn draft_key(app: &mut App, key: KeyCode) -> PasswordAction {
     let manager = app.password_manager.as_mut().expect("manager exists");
     let Some(draft) = manager.draft.as_mut() else {
@@ -185,7 +185,7 @@ fn draft_key(app: &mut App, key: KeyCode) -> PasswordAction {
     PasswordAction::None
 }
 
-#[allow(clippy::expect_used)]
+#[expect(clippy::expect_used)]
 fn row_key(app: &mut App, key: KeyCode) -> PasswordAction {
     let manager = app.password_manager.as_mut().expect("manager exists");
     if manager.edit.is_some() {

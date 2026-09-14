@@ -15,7 +15,7 @@ pub const MIN_AGENT_ROWS: u16 = 4;
 
 /// Split the screen into one region per panel plus the key bar.
 #[must_use]
-#[allow(clippy::unwrap_used, clippy::missing_panics_doc, clippy::expect_used)]
+#[expect(clippy::missing_panics_doc, clippy::expect_used)]
 pub fn regions(area: Rect, panels: usize) -> (Vec<Rect>, Rect) {
     let [body, keybar] =
         Layout::vertical([Constraint::Min(0), Constraint::Length(KEYBAR_H)]).areas(area);

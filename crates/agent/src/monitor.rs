@@ -1,10 +1,12 @@
 //! The sampling loop's state: what one tick needs to remember from the last.
 
-#![allow(
-    unsafe_code,
-    reason = "malloc_trim FFI, and `cfg(linux)`-gated: on macOS the unsafe \
-              vanishes and an `expect` would be unfulfilled, i.e. an error. \
-              See the unsafe_code note in lib.rs"
+#![cfg_attr(
+    all(target_os = "linux", target_env = "gnu"),
+    expect(
+        unsafe_code,
+        reason = "malloc_trim is glibc-only FFI; on macOS and musl the unsafe vanishes, \
+                  so the expectation is scoped to exactly where it is fulfilled"
+    )
 )]
 
 use crate::consts::AGENT_VERSION;

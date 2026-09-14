@@ -1,6 +1,7 @@
 //! Config & SSH config parsing integration tests.
 
-#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+// Integration-test crate: helper fns outside #[test] are not covered by
+// clippy.toml's test exemption, so the restriction lints are expected here.
 use multitop::config::{load, parse, parse_ssh_config, save_servers, Server};
 use multitop::ssh::is_local;
 use std::fs;

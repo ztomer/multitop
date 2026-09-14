@@ -61,7 +61,6 @@ pub(super) fn reconnect_wait(outcome: SessionOutcome, failures: &mut usize) -> u
 
 #[cfg(test)]
 mod reconnect_tests {
-    #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
     use super::*;
 

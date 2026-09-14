@@ -63,7 +63,6 @@ pub fn refit_line(line: &str, target_cols: usize) -> String {
 
 #[cfg(test)]
 mod tests {
-    #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
     use super::*;
 

@@ -1,4 +1,5 @@
-#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+// Integration-test crate: helper fns outside #[test] are not covered by
+// clippy.toml's test exemption, so the restriction lints are expected here.
 use multitop::fetch_render;
 use multitop_agent::color::{strip_ansi, ANSI};
 use multitop_agent::fetch::FetchSnapshot;

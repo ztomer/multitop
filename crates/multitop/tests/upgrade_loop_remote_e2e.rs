@@ -30,7 +30,6 @@
 //! file, and running them concurrently makes them flap between "ran" and
 //! "lock prevented execution".
 
-#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 use std::env;
 use std::time::Duration;
 

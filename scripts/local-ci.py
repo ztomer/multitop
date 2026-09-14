@@ -9,7 +9,7 @@ and each drift made the script *weaker* than the thing it was standing in for:
 
   * the emoji check matched only `[\\U00010000-\\U0010ffff]`, so it missed every
     emoji in the Basic Multilingual Plane and every escaped codepoint -- the
-    exact hole `check_no_emoji.py` documents having closed;
+    exact hole the house `check_no_emoji.py` (gates_of_heck) documents having closed;
   * clippy ran as `--all-targets` with no `--workspace` and no `--all-features`,
     against CI's `--workspace --all-targets --all-features`;
   * six of the eight real gates were simply absent;
@@ -122,7 +122,6 @@ def run(label: str, cmd: list[str], env: dict[str, str] | None = None) -> bool:
 CHECKERS = [
     # First: it is the one that notices this list has fallen behind the others.
     ("gate parity", "check_gate_parity.py"),
-    ("no emoji", "check_no_emoji.py"),
     ("test-only code", "check_test_only_code.py"),
     ("key hints", "check_key_hints.py"),
     ("keychain isolation", "check_keychain_isolation.py"),

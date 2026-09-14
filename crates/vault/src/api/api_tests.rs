@@ -1,5 +1,4 @@
 //! Tests for the vault API.
-#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
 use crate::api::*;
 use crate::crypto::Argon2Params;

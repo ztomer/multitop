@@ -40,7 +40,7 @@ pub struct LoopOutcome {
 }
 
 /// The terminal event loop.
-#[allow(clippy::too_many_lines)]
+#[expect(clippy::too_many_lines)]
 pub async fn event_loop<B, S>(
     terminal: &mut ratatui::Terminal<B>,
     events: &mut S,
@@ -476,7 +476,7 @@ pub fn panel_at_pos(x: u16, y: u16, total_area: Rect, shown: &[usize]) -> Option
         .and_then(|slot| shown.get(slot).copied())
 }
 
-#[allow(clippy::needless_pass_by_value)]
+#[expect(clippy::needless_pass_by_value)]
 pub(super) fn restart_all_agents(
     app: &App,
     dims_rx: Arc<watch::Receiver<(u16, u16)>>,

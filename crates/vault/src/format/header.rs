@@ -196,7 +196,6 @@ impl VaultHeader {
     ///
     /// # Errors
     /// Returns `std::io::Error` if writing to the buffer fails (never for Vec<u8>).
-    #[allow(clippy::unnecessary_wraps)]
     fn write_header_without_sig(&self, buf: &mut Vec<u8>) {
         buf.extend_from_slice(&self.magic);
         buf.push(self.version);
@@ -208,12 +207,12 @@ impl VaultHeader {
         buf.extend_from_slice(&self.argon2_params.m_kib.to_le_bytes());
         buf.push(self.argon2_params.p);
         // wrappers.len() <= 8 (enforced by add_wrapper/replace_wrapper)
-        #[allow(clippy::cast_possible_truncation)]
+        #[expect(clippy::cast_possible_truncation)]
         buf.push(self.wrappers.len() as u8);
         for w in &self.wrappers {
             buf.push(w.wrapper_type as u8);
             // w.data.len() <= 65535 (enforced by Wrapper::new)
-            #[allow(clippy::cast_possible_truncation)]
+            #[expect(clippy::cast_possible_truncation)]
             let len = w.data.len() as u16;
             buf.extend_from_slice(&len.to_le_bytes());
             buf.extend_from_slice(&w.data);
@@ -223,7 +222,7 @@ impl VaultHeader {
         // Write canary (length + string)
         let canary_bytes = self.canary.as_bytes();
         // canary is fixed format "multitop-vault-canary-" + 32 hex chars = 57 chars < 65535
-        #[allow(clippy::cast_possible_truncation)]
+        #[expect(clippy::cast_possible_truncation)]
         buf.extend_from_slice(&(canary_bytes.len() as u16).to_le_bytes());
         buf.extend_from_slice(canary_bytes);
     }
@@ -260,7 +259,7 @@ impl VaultHeader {
     /// Returns `VaultError::ParseError` if bytes cannot be parsed,
     /// `VaultError::InvalidFormat` if magic is incorrect,
     /// `VaultError::UnsupportedVersion` if version is not supported.
-    #[allow(clippy::too_many_lines)]
+    #[expect(clippy::too_many_lines)]
     fn from_cursor(cursor: &mut Cursor<&[u8]>) -> Result<Self, crate::VaultError> {
         let mut magic = [0u8; 4];
         cursor

@@ -92,7 +92,7 @@ pub fn spawn_biometric_unlock(
     })
 }
 
-#[allow(clippy::too_many_lines)]
+#[expect(clippy::too_many_lines)]
 #[must_use]
 pub fn spawn_monitor(
     idx: usize,
@@ -299,7 +299,6 @@ pub fn spawn_monitor(
 
 #[cfg(test)]
 mod replace_agent_tests {
-    #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
     use super::replace_agent;
     use crate::config::Server;

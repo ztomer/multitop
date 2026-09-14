@@ -7,8 +7,8 @@
 //! proves the fallback chain (read `/proc`, else ask the platform) terminates
 //! and produces a value on a host with no `/proc` at all.
 
-#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
-
+// Integration-test crate: helper fns outside #[test] are not covered by
+// clippy.toml's test exemption, so the restriction lints are expected here.
 use multitop_agent::fetch;
 use multitop_agent::proc::{self, CpuTimes, ProcSampler, Usage};
 use multitop_agent::SortBy;

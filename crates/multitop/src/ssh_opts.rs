@@ -299,7 +299,6 @@ mod tests {
 
 #[cfg(test)]
 mod control_path_tests {
-    #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
     use super::SSH_OPTS;
     use std::path::Path;

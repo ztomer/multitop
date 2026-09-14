@@ -5,7 +5,7 @@
 //! `/proc` pseudofile. The names stay reachable as `proc::*` (re-exported
 //! there) because that is the path every caller and test already uses.
 
-#![allow(
+#![expect(
     unsafe_code,
     reason = "`statvfs(2)` is the one syscall here; see the unsafe_code note in lib.rs"
 )]

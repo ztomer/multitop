@@ -118,7 +118,7 @@ pub fn pump<W: Write>(
 
         if last_alive.elapsed() >= ALIVE_EVERY {
             last_alive = Instant::now();
-            #[allow(clippy::cast_possible_truncation)]
+            #[expect(clippy::cast_possible_truncation)]
             send(
                 out,
                 &ExecFrame::Alive {
@@ -130,7 +130,7 @@ pub fn pump<W: Write>(
     (reaped, sudo_rejected)
 }
 
-#[allow(clippy::too_many_arguments)]
+#[expect(clippy::too_many_arguments)]
 fn drain_post_exit<W: Write>(
     child: &mut pty::Child,
     buf: &mut [u8],
@@ -191,7 +191,7 @@ fn drain_post_exit<W: Write>(
     }
 }
 
-#[allow(clippy::too_many_arguments)]
+#[expect(clippy::too_many_arguments)]
 fn read_master_chunk<W: Write>(
     child: &mut pty::Child,
     buf: &mut [u8],
@@ -266,7 +266,7 @@ fn read_errpipe_chunk<W: Write>(
 /// `Started` marker, and the first lines of real output; handled out of order,
 /// the real output is dropped with the noise. That is not hypothetical -- it is
 /// what the first version of this did.
-#[allow(clippy::too_many_arguments)]
+#[expect(clippy::too_many_arguments)]
 fn consume<W: Write>(
     pieces: &[Piece],
     out: &mut W,

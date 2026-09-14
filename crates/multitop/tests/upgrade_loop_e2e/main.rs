@@ -10,8 +10,6 @@
 //! Run local tests: `cargo test --test upgrade_loop_e2e`
 //! Run remote tests: `cargo test --test upgrade_loop_remote_e2e -- --ignored`
 
-#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
-
 use std::time::Duration;
 
 use multitop::app::{App, Msg, VaultState};
@@ -52,7 +50,6 @@ use tokio::sync::mpsc;
 /// `password_store` several calls down. Without this these tests query the real
 /// OS keychain: every rebuild changes the binary's code signature, so macOS
 /// raises an access dialog and the suite stops until a human dismisses it.
-#[allow(dead_code)]
 fn isolate_keychain() -> tokio::sync::MutexGuard<'static, ()> {
     let guard = multitop::password_store::lock_for_test();
     multitop::password_store::enable_mock_store();
@@ -60,7 +57,6 @@ fn isolate_keychain() -> tokio::sync::MutexGuard<'static, ()> {
     guard
 }
 
-#[allow(dead_code)]
 async fn isolate_keychain_async() -> tokio::sync::MutexGuard<'static, ()> {
     let guard = multitop::password_store::lock_for_test_async().await;
     multitop::password_store::enable_mock_store();

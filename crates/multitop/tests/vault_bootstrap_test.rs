@@ -7,8 +7,6 @@
 //! `sudo_password` key in config.toml was parsed by nothing at all, leaving a
 //! plaintext secret on disk that did not even work.
 
-#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
-
 use multitop::app::{App, VaultState};
 use multitop::config::{self, Server};
 
@@ -20,7 +18,6 @@ use multitop::config::{self, Server};
 /// keychain: every rebuild changes the binary's code signature, so macOS raises
 /// an access dialog and the suite stops until a human dismisses it -- and a test
 /// can read, overwrite or delete credentials the user depends on.
-#[allow(dead_code)]
 fn isolate_keychain() -> tokio::sync::MutexGuard<'static, ()> {
     let guard = multitop::password_store::lock_for_test();
     multitop::password_store::enable_mock_store();
@@ -30,7 +27,6 @@ fn isolate_keychain() -> tokio::sync::MutexGuard<'static, ()> {
 
 /// `isolate_keychain` for `#[tokio::test]` bodies, which must not block the
 /// runtime thread to take the guard.
-#[allow(dead_code)]
 async fn isolate_keychain_async() -> tokio::sync::MutexGuard<'static, ()> {
     let guard = multitop::password_store::lock_for_test_async().await;
     multitop::password_store::enable_mock_store();

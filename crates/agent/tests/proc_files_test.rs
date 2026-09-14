@@ -5,8 +5,9 @@
 //! side of `/proc/stat`, `/proc/meminfo`, `/proc/net/dev` and
 //! `/proc/self/mountinfo` is never executed until it is in production.
 
-#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
-
+// Integration-test crate: helper fns outside #[test] are not covered by
+// clippy.toml's test exemption, so the restriction lints are expected here.
+#![expect(clippy::unwrap_used)]
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicUsize, Ordering};
 

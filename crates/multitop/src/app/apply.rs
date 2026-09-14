@@ -12,7 +12,7 @@ impl App {
 
     // One arm per message, and splitting a dispatch table into halves puts
     // the guard for one message in a different file from the message.
-    #[allow(clippy::too_many_lines)]
+    #[expect(clippy::too_many_lines)]
     pub fn apply(&mut self, msg: Msg) -> bool {
         match msg {
             Msg::Packet {
@@ -65,7 +65,7 @@ impl App {
                         }
                         if !self.alert_targets.is_empty() {
                             if let Some(t) = self.alert_cpu {
-                                #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+                                #[expect(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
                                 let val = snap.cpu_pct.round() as u8;
                                 if val >= t {
                                     crate::notify::dispatch_breach_notification(

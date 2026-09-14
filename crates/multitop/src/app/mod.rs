@@ -1,6 +1,6 @@
 //! Application state.
 
-#![allow(clippy::missing_const_for_fn)]
+#![expect(clippy::missing_const_for_fn)]
 
 mod apply;
 mod render;
@@ -13,7 +13,7 @@ pub use crate::panel::{Mode, Panel};
 pub use crate::types::{Command, Msg};
 pub use types::{AppMode, Confirm, ExecConfirm, ExecKind, VaultState};
 
-#[allow(clippy::struct_excessive_bools)]
+#[expect(clippy::struct_excessive_bools)]
 pub struct App {
     pub panels: Vec<Panel>,
     pub selected_panel: usize,

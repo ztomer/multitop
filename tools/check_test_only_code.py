@@ -35,6 +35,9 @@ import re
 import sys
 from pathlib import Path
 
+sys.path.insert(0, str(__import__('pathlib').Path(__file__).resolve().parent))
+from _scope import scope_is_empty  # noqa: E402
+
 REPO = Path(__file__).resolve().parent.parent
 BASELINE = REPO / "tools" / "test_only_baseline.txt"
 ALLOW_RE = re.compile(r"//\s*reachability:\s*(\S.*)$")
@@ -193,6 +196,8 @@ def run_check() -> int:
             if entry:
                 baseline.add(entry)
 
+    if scope_is_empty("test-only-code", len(decls), "public fns"):
+        return 1
     current = {f"{path}:{name}" for path, _, name in flagged}
     new = sorted(current - baseline)
     fixed = sorted(baseline - current)

@@ -1,7 +1,6 @@
 //! Comprehensive integration tests for Server Settings Manager,
 //! keybar visual flare, hotkeys ('e'), and upgrade flow.
 
-#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 use crossterm::event::KeyCode;
 use multitop::app::{App, Mode, Msg};
 use multitop::config::Server;
@@ -16,7 +15,6 @@ use std::sync::atomic::{AtomicU16, Ordering};
 /// `password_store` several calls down. Without this these tests query the real
 /// OS keychain: every rebuild changes the binary's code signature, so macOS
 /// raises an access dialog and the suite stops until a human dismisses it.
-#[allow(dead_code)]
 fn isolate_keychain() -> tokio::sync::MutexGuard<'static, ()> {
     let guard = multitop::password_store::lock_for_test();
     multitop::password_store::enable_mock_store();
@@ -24,7 +22,7 @@ fn isolate_keychain() -> tokio::sync::MutexGuard<'static, ()> {
     guard
 }
 
-#[allow(dead_code)]
+#[expect(dead_code)]
 async fn isolate_keychain_async() -> tokio::sync::MutexGuard<'static, ()> {
     let guard = multitop::password_store::lock_for_test_async().await;
     multitop::password_store::enable_mock_store();

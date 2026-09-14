@@ -194,7 +194,7 @@ fn execute<W: Write>(req: &Request, out: &mut W, seq: &mut u32) -> pty::Outcome 
         &ExecFrame::Begin {
             host: req.host.to_string(),
             agent_version: crate::consts::AGENT_VERSION.to_string(),
-            #[allow(clippy::cast_sign_loss)]
+            #[expect(clippy::cast_sign_loss)]
             pid: child.pid as u32,
         },
     );

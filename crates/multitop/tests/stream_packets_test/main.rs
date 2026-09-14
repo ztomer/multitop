@@ -5,7 +5,9 @@
 //! shell that writes canned bytes is a child just the same, and it can be told
 //! to split a header, interleave stderr, or stop mid-payload on cue.
 
-#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+// Integration-test crate: helper fns outside #[test] are not covered by
+// clippy.toml's test exemption, so the restriction lints are expected here.
+#![expect(clippy::unwrap_used, clippy::expect_used)]
 
 use std::process::Stdio;
 

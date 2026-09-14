@@ -234,7 +234,6 @@ pub use exec_codec::{decode_exec, encode_exec};
 
 #[cfg(test)]
 mod framing_tests {
-    #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
     use super::*;
 

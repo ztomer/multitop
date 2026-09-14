@@ -3,20 +3,7 @@
 //! These drive the real event loop / App state machine end-to-end. Each test
 //! reproduces the exact failure the user reported, then verifies the fix holds.
 
-#![allow(
-    clippy::unwrap_used,
-    clippy::expect_used,
-    clippy::panic,
-    clippy::items_after_statements,
-    clippy::unnecessary_mut_passed,
-    clippy::redundant_clone,
-    clippy::needless_borrow,
-    clippy::range_plus_one,
-    clippy::no_effect_underscore_binding,
-    clippy::used_underscore_binding,
-    clippy::uninlined_format_args,
-    clippy::manual_range_contains
-)]
+#![expect(clippy::items_after_statements)]
 
 use crossterm::event::{Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 use multitop::app::{App, Msg, VaultState};
@@ -28,7 +15,7 @@ use multitop::password_store;
 // Helpers
 // ---------------------------------------------------------------------------
 
-#[allow(dead_code, clippy::missing_const_for_fn)]
+#[expect(dead_code, clippy::missing_const_for_fn)]
 fn key(code: KeyCode) -> Event {
     Event::Key(KeyEvent::new_with_kind(
         code,

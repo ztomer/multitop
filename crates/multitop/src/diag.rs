@@ -23,12 +23,6 @@
 //! view of a panel cannot include `sudo_password` or the vault; the compiler
 //! enforces that the write path reads only the digest.
 
-#![allow(
-    clippy::cast_possible_truncation,
-    clippy::must_use_candidate,
-    clippy::missing_panics_doc
-)]
-
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicU8, Ordering};
 use std::sync::{Arc, Mutex, Once};
@@ -114,7 +108,7 @@ pub struct PanelDigest {
 ///
 /// Four booleans on a purpose-built diagnostic cut is simpler to read than a
 /// nested state machine; the group is allowed wholesale.
-#[allow(clippy::struct_excessive_bools)]
+#[expect(clippy::struct_excessive_bools)]
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Snapshot {
     pub mode: String,
@@ -338,7 +332,7 @@ pub fn install(diag: &Arc<Diag>) {
     });
 }
 
-#[allow(clippy::needless_pass_by_value)]
+#[expect(clippy::needless_pass_by_value)]
 fn signal_thread(diag: Arc<Diag>) {
     use signal_hook::consts::{SIGUSR1, SIGUSR2};
     let mut sigs = match signal_hook::iterator::Signals::new([SIGUSR1, SIGUSR2]) {
@@ -490,7 +484,6 @@ fn fmt_opt(t: Option<u64>) -> String {
 
 #[cfg(test)]
 mod tests {
-    #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
     use super::*;
     use crate::config::Server;

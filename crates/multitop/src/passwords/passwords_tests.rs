@@ -1,8 +1,6 @@
-#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 use super::*;
 
 mod passwords_tests {
-    #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
     use super::*;
     use crate::app::App;

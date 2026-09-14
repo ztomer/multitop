@@ -16,7 +16,7 @@ use multitop_agent::SortBy;
 /// Public so integration tests can drive the real key path rather than calling
 /// the `App` methods it happens to reach today — the `u` flow is a sequence of
 /// presses, and testing the pieces would not catch the sequence regressing.
-#[allow(clippy::too_many_lines, clippy::needless_pass_by_value)]
+#[expect(clippy::too_many_lines)]
 pub fn handle_key(
     key: KeyEvent,
     app: &mut App,

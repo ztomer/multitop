@@ -5,8 +5,6 @@
 //! config that parses into the wrong hosts, a state file that overwrites what
 //! it could not read, a task list that grows out of step with the panels.
 
-#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
-
 use multitop::config::{self, Server, DEFAULT_PORT};
 use multitop::password_store;
 use multitop::state;

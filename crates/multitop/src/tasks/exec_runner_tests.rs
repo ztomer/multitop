@@ -2,7 +2,6 @@
 //! it — the same split `upgrade_view` uses (`#[path]` test module), for the
 //! same reason: the reader file stays under the 500-line cap.
 
-#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 use super::*;
 use crate::tasks::{Paint, Painter};
 

@@ -17,3 +17,6 @@ __pycache__/
 
 # rustc internal-compiler-error dumps (crash reports, not source)
 rustc-ice-*.txt
+
+# the shared gate harness CI checks out beside the tree
+/.gates_of_heck/

@@ -11,7 +11,6 @@
 //! not found" -- surviving here, in the metadata of the tests that exercise
 //! that very path.
 
-#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 use multitop::ssh::{spawn_local_agent, Mode};
 use multitop_agent::proto::{decode_packet, Payload};
 use multitop_agent::SortBy;

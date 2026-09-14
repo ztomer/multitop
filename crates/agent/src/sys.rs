@@ -6,23 +6,29 @@
 //! function, not per module — `expect` errors when a declared lint does NOT
 //! fire, which narrowed these lists and stops a blanket suppression.
 
-#![allow(
-    unsafe_code,
-    reason = "FFI boundary, and `cfg(macos)`-gated: on Linux the unsafe \
-              vanishes and an `expect` would be unfulfilled, i.e. an error. \
-              See the unsafe_code note in lib.rs"
+#![cfg_attr(
+    target_os = "macos",
+    expect(
+        unsafe_code,
+        reason = "FFI boundary on macOS only; scoped so the expectation is fulfilled \
+                  exactly where the unsafe exists (see the unsafe_code note in lib.rs)"
+    )
 )]
-#![allow(deprecated)]
 
 use crate::proc::{CpuStat, NetTotals, RawProcStat, Usage};
 // Only the macOS sampler builds `CpuTimes` values; on Linux the import is dead.
-// Naming that with a cfg is what let the blanket `#[allow(unused_imports)]`
+// Naming that with a cfg is what let the blanket `#[expect(unused_imports)]`
 // that used to sit here go away -- it was hiding exactly one real fact.
 #[cfg(target_os = "macos")]
 use crate::proc::CpuTimes;
 
+// libc deprecated its Mach bindings in favour of `mach2` (house rule: migrate
+// on sight). `mach_task_self` comes from mach2; `mach_host_self` is not in
+// mach2 0.4, so it is declared here beside `mach_port_deallocate` -- both are
+// plain libSystem symbols, and a local declaration is what libc did anyway.
 #[cfg(target_os = "macos")]
 extern "C" {
+    fn mach_host_self() -> libc::mach_port_t;
     fn mach_port_deallocate(
         target_task: libc::mach_port_t,
         name: libc::mach_port_t,
@@ -41,7 +47,7 @@ impl Drop for MachCpuInfoGuard {
     fn drop(&mut self) {
         unsafe {
             if !self.cpu_info.is_null() {
-                let vm_map = libc::mach_task_self();
+                let vm_map = mach2::traps::mach_task_self();
                 let size = self.msg_type as usize * std::mem::size_of::<libc::integer_t>();
                 libc::vm_deallocate(
                     vm_map,
@@ -50,7 +56,7 @@ impl Drop for MachCpuInfoGuard {
                 );
             }
             if self.host_port != 0 {
-                mach_port_deallocate(libc::mach_task_self(), self.host_port);
+                mach_port_deallocate(mach2::traps::mach_task_self(), self.host_port);
             }
         }
     }
@@ -64,7 +70,7 @@ pub fn get_cpu_stat_macos() -> CpuStat {
     let mut cpu_info: libc::processor_info_array_t = std::ptr::null_mut();
     let mut msg_type: libc::mach_msg_type_number_t = 0;
 
-    let host_port = unsafe { libc::mach_host_self() };
+    let host_port = unsafe { mach_host_self() };
     let ret = unsafe {
         libc::host_processor_info(
             host_port,
@@ -144,7 +150,7 @@ pub fn get_memory_macos() -> Usage {
     let mut count = (std::mem::size_of::<libc::vm_statistics64>()
         / std::mem::size_of::<libc::integer_t>())
         as libc::mach_msg_type_number_t;
-    let host_port = unsafe { libc::mach_host_self() };
+    let host_port = unsafe { mach_host_self() };
     let ret = unsafe {
         libc::host_statistics64(
             host_port,
@@ -154,7 +160,7 @@ pub fn get_memory_macos() -> Usage {
         )
     };
     unsafe {
-        mach_port_deallocate(libc::mach_task_self(), host_port);
+        mach_port_deallocate(mach2::traps::mach_task_self(), host_port);
     }
 
     if ret == libc::KERN_SUCCESS {

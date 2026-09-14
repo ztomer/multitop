@@ -16,7 +16,9 @@
 //! the run cannot actually elevate on someone's machine. It does cost one failed
 //! `sudo` authentication in the host's auth log.
 
-#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+// Integration-test crate: helper fns outside #[test] are not covered by
+// clippy.toml's test exemption, so the restriction lints are expected here.
+#![expect(clippy::expect_used)]
 
 use multitop::config::Server;
 use multitop::ssh;

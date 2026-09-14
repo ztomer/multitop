@@ -1,5 +1,4 @@
 //! Tests for the lazily-loaded lockout state.
-#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
 use crate::api::*;
 use crate::lockout::LockoutState;

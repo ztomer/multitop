@@ -6,8 +6,9 @@
 //! became the whole screen while the frame drawn into it stayed a quarter of
 //! it -- a small picture in a big box, with no error anywhere to explain it.
 
-#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
-
+// Integration-test crate: helper fns outside #[test] are not covered by
+// clippy.toml's test exemption, so the restriction lints are expected here.
+#![expect(clippy::expect_used)]
 use crossterm::event::{Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 use multitop::app::{App, Msg};
 use multitop::config::Server;

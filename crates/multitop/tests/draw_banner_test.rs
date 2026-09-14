@@ -6,8 +6,8 @@
 //! for a rule either side of it — and that the panel is skipped, not panicked
 //! on, when there is no room at all.
 
-#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
-
+// Integration-test crate: helper fns outside #[test] are not covered by
+// clippy.toml's test exemption, so the restriction lints are expected here.
 use multitop::app::{App, Mode};
 use multitop::config::Server;
 use multitop::password_store;

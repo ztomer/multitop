@@ -248,7 +248,7 @@ pub enum UpgradeState {
 }
 
 #[derive(Clone, Debug)]
-#[allow(clippy::struct_excessive_bools)]
+#[expect(clippy::struct_excessive_bools)]
 pub struct Panel {
     pub server: Server,
     pub mode: Mode,

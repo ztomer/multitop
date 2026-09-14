@@ -43,7 +43,8 @@ set -euo pipefail
 
 repo_root="$(git rev-parse --show-toplevel)"
 cd "$repo_root"
-. "$repo_root/tui/lib.sh"
+# shellcheck source=/Users/ztomer/Projects/gates_of_heck/tui/lib.sh
+. "${GOH_DIR:-${GOH:-$HOME/Projects/gates_of_heck}}/tui/lib.sh"
 
 log="$(mktemp -t multitop-precommit)"
 trap 'rm -f "$log"; python3 tools/gate_lock.py release "$hook_pid"' EXIT
@@ -66,19 +67,11 @@ if ! python3 tools/check_gate_parity.py >"$log" 2>&1; then
 fi
 ok "hook, CI and local-ci run the same gates"
 
-info "checking for emoji"
-# Verify the checker still detects before trusting it to report clean. It
-# missed escaped codepoints entirely until a padlock turned up in the config
-# panel, written as a unicode escape, in a repo this gate calls clean.
-if ! python3 tools/check_no_emoji.py --self-test >"$log" 2>&1; then
-    cat "$log" >&2
-    die "the emoji checker's own self-test failed -- it cannot be trusted to report clean"
-fi
-if ! python3 tools/check_no_emoji.py --staged >"$log" 2>&1; then
-    cat "$log" >&2
-    die "emoji are a failure state — remove them (permitted: → · ✓ ✗ ⚠ ↔ ↑ ↓)"
-fi
-ok "no emoji"
+# Emoji: the house structural gate at the top of this hook already ran the
+# shared checker over the index (gates_of_heck/checks/check_no_emoji.py,
+# whose own tests cover escaped codepoints -- the padlock this repo once
+# shipped as a unicode escape). The repo-local copy that used to run here
+# was retired 2026-09-14; a copy is a checker that drifts.
 
 info "checking for test-only code"
 if ! python3 tools/check_test_only_code.py --self-test >"$log" 2>&1; then

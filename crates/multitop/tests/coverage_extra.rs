@@ -4,13 +4,6 @@
 //! `coverage_pure.rs` because they call `App::new` which triggers the
 //! keychain-isolation gate for the whole file.
 
-#![allow(
-    clippy::unwrap_used,
-    clippy::expect_used,
-    clippy::panic,
-    clippy::items_after_statements
-)]
-
 use multitop::config::Server;
 use multitop::password_store;
 

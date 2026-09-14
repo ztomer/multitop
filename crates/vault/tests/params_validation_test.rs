@@ -11,7 +11,9 @@
 //! so asking for the documented maximum wrapped to zero and clamped up to the
 //! documented minimum: the strongest setting produced the weakest KDF.
 
-#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+// Integration-test crate: helper fns outside #[test] are not covered by
+// clippy.toml's test exemption, so the restriction lints are expected here.
+#![expect(clippy::unwrap_used)]
 
 use multitop_vault::crypto::Argon2Params;
 

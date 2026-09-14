@@ -3,8 +3,9 @@
 //! These exercise code paths that the regression tests don't reach, to push
 //! multitop crate line coverage toward the 95% floor.
 
-#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
-
+// Integration-test crate: helper fns outside #[test] are not covered by
+// clippy.toml's test exemption, so the restriction lints are expected here.
+#![expect(clippy::expect_used)]
 mod config_and_filter_keys;
 mod draw_and_frames;
 mod handle_key;
