@@ -6,7 +6,7 @@ and timing-sensitive suites flake under it -- an e2e upgrade going quiet
 for 5s, a coverage export timing out. The failures look like product
 defects for a while, and each one has now cost a debugging session.
 
-So the pre-commit hook, the pre-push hook (via local-ci.py) and local-ci.py
+So the pre-commit hook and the pre-push hook (via tools/gate.sh --full)
 itself all take this lock first. Blocking, not fail-fast: the second run's
 verdict is still needed, it just waits its turn.
 
@@ -17,7 +17,7 @@ Usage:
 The owner pid is explicit because the helper is short-lived: recording the
 helper's own pid would mark every lock stale the instant it exits (and
 release could then never match). Callers pass their own stable pid -- $$
-in shell, os.getpid() in python -- so pre-push execing local-ci under one
+in shell, os.getpid() in python -- so pre-push execing gate.sh under one
 pid is naturally re-entrant.
 
 The lock is a directory (mkdir is atomic) holding the holder's pid, under
@@ -85,7 +85,7 @@ def acquire(owner: int) -> None:
         except FileExistsError:
             holder = read_holder(path)
             if holder == owner:
-                return  # re-entrant: pre-push execs local-ci under one pid
+                return  # re-entrant: pre-push execs gate.sh under one pid
             if holder is not None and holder_alive(holder):
                 if waited == 0 or waited % HEARTBEAT_EVERY == 0:
                     print(

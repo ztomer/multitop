@@ -10,7 +10,7 @@ and the `replace_agent` loop uploads the same stale bytes forever.
 This is the same check `crates/multitop/build.rs` does at compile time for
 release builds, but that gate is silent for debug builds and never runs when
 someone does `cargo test` without rebuilding the agent. A standalone gate that
-runs in the hook, in CI and in `local-ci.py` catches the stale-agent case
+runs in the hook, in CI and in the pre-push list catches the stale-agent case
 wherever it happens.
 
 Usage:
