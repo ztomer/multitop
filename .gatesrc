@@ -16,3 +16,20 @@ GOH_LINE_BASELINE=tools/loc_baseline.txt   # ceilings for the LINE_EXCLUDE entri
 # by hand). vault/multitop need dbus/tss system libraries to build on Linux
 # and stay CI's.
 GOH_RUST_LINT_CONFIGS='--target x86_64-unknown-linux-musl -p multitop-agent'
+
+# ── The gate of record ──────────────────────────────────────────────────────
+# ONE list: tools/gate.sh --full (the pre-push hook) runs it through
+# gates_of_heck/gates/local_ci.sh. It replaced scripts/local-ci.py (481 lines
+# of orchestration: its own colours, its own fan-out, a second copy of the
+# checker list) and tools/repo_gates.sh (a THIRD list) on 2026-09-14; the
+# pre-commit hook and .github/workflows/ci.yml are the other two places gates
+# are named, and tools/check_gate_parity.py holds all three to the glob.
+# Steps are COLON-separated; none may contain a colon.
+export GOH_DIR="${GOH_DIR:-$HOME/Projects/gates_of_heck}"
+export MULTITOP_MOCK_KEYCHAIN=1   # the suites never reach the real keychain
+export CI=1
+export CARGO_INCREMENTAL=0
+# MULTITOP_LIVE=1 is set on the pytest step and nowhere else: the live exec suite
+# talks to real hosts for ~3.5 minutes, which is right before a push and a gate
+# people learn to --no-verify past on a commit.
+GOH_CI_STEPS='"$GOH_DIR/gates/structural.sh" --full:tools/checkers.sh:"$GOH_DIR/gates/rust_gate.sh":cargo audit --deny warnings --deny unmaintained --deny unsound --deny yanked:cargo test --workspace --all-features:cargo build -p multitop && MULTITOP_LIVE=1 python3 -m pytest tests/ -q:python3 tools/ratchet_check.py --self-test && python3 tools/ratchet_check.py:tools/fuzz_check.sh:python3 tools/bench_check.py --self-test && python3 tools/bench_check.py:bash tools/coverage_check.sh:tools/lint_linux.sh'

@@ -97,15 +97,16 @@ class LiveExecChannel(unittest.TestCase):
         # Opt-in, because this one talks to real machines over the network and
         # takes about three and a half minutes.
         #
-        # It is named in the same `pytest tests/` the hook, CI and local-ci all
-        # run, so it is never forgotten -- but a commit gate that costs three
-        # minutes of SSH is a gate people learn to `--no-verify` past, and a
-        # bypassed gate protects nothing. `scripts/local-ci.py` sets this before
-        # a push, which is where someone is deliberately waiting.
+        # It is named in the same `pytest tests/` the hook, CI and the pre-push
+        # list all run, so it is never forgotten -- but a commit gate that costs
+        # three minutes of SSH is a gate people learn to `--no-verify` past, and
+        # a bypassed gate protects nothing. The pre-push list (.gatesrc) sets
+        # MULTITOP_LIVE=1 on its pytest step, where someone is deliberately
+        # waiting.
         if not os.environ.get("MULTITOP_LIVE"):
             cls.skip_reason = (
                 "set MULTITOP_LIVE=1 to run against real hosts "
-                "(scripts/local-ci.py does; it takes ~3m of SSH)"
+                "(it takes ~3m of SSH)"
             )
             return
         if not shutil.which("ssh"):

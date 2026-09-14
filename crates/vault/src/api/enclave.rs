@@ -73,7 +73,12 @@ impl Vault {
     /// pins this.
     // `unused_async_trait_impl` landed on stable; the `unknown_lints` guard it
     // once needed was retired as a stale expectation on 2026-09-14.
-    #[expect(clippy::unused_async, clippy::unused_async_trait_impl)]
+    // On Linux the body awaits fprintd; on macOS the Secure Enclave call is
+    // synchronous, so the lint fires there only.
+    #[cfg_attr(
+        target_os = "macos",
+        expect(clippy::unused_async, clippy::unused_async_trait_impl)
+    )]
     async fn try_unlock_biometric(&self) -> Result<UnlockedVault, VaultError> {
         // Load vault file
         let vault_file = format::read_vault_file(&self.config.vault_path)?;

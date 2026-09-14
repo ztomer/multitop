@@ -1,17 +1,7 @@
 #!/usr/bin/env bash
-# Full local gate before anything leaves this machine.
-#
-#   scripts/local-ci.py -- the whole suite. It delegates: the gates live in
-#   tools/ and .githooks/pre-commit, and it runs those plus the two things
-#   neither covers, the fuzz targets and the benchmark thresholds.
-#
-# It used to run `tools/gate.sh --full` first and then local-ci.py. That is
-# almost entirely the same work twice -- `gate.sh --full` ends in
-# tools/repo_gates.sh, whose last step is the 95% coverage floor, and local-ci
-# runs the coverage floor again through the same tools/coverage_check.sh. A
-# push therefore paid for the coverage build twice, and it is the slowest thing
-# in the suite. Once is the whole point of local-ci delegating rather than
-# redefining.
+# pre-push: the whole suite, once, from the ONE list in .gatesrc (GOH_CI_STEPS)
+# via tools/gate.sh --full. Pushing a tag skips it: a tag names a commit that
+# is already on the remote and was already gated to get there.
 set -euo pipefail
 root="$(git rev-parse --show-toplevel)"
 
@@ -40,4 +30,4 @@ if [ "$non_tag_refs" = "0" ]; then
     exit 0
 fi
 
-exec python3 "$root/scripts/local-ci.py"
+exec "$root/tools/gate.sh" --full

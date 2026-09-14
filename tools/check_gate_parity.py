@@ -2,8 +2,11 @@
 """Keep the three lists of gates identical.
 
 The gates are named in three places -- the pre-commit hook, the CI workflow, and
-`scripts/local-ci.py` -- and each place is a list somebody has to remember to
-add to. They had already drifted, in the direction that matters:
+`GOH_CI_STEPS` in `.gatesrc` (what the pre-push hook runs) -- and two of them
+are lists somebody has to remember to add to. The third runs the checkers
+through `tools/checkers.sh`, which globs `tools/check_*.py`, so it is the set
+on disk by construction. They had already drifted once, in the direction that
+matters (when the third place was `scripts/local-ci.py`, retired 2026-09-14):
 
   * `DEVELOPMENT.md` said "three gates" and listed four; there were six;
   * `scripts/local-ci.py` ran two of them, one with a weaker command than CI's,
@@ -48,7 +51,7 @@ def _workflow() -> Path:
 
 
 WORKFLOW = _workflow()
-LOCAL_CI = REPO / "scripts" / "local-ci.py"
+GATESRC = REPO / ".gatesrc"
 
 # This checker cannot sensibly require itself to be listed the same way by the
 # thing that runs it, and `coverage_check.sh` is a shell script rather than one
@@ -62,8 +65,28 @@ EXEMPT = {"check_gate_parity.py"}
 # names it is looking for reports drift that is not there, which is the
 # fastest way to get a gate switched off.
 CHECKER = re.compile(r"tools/(check_[a-z0-9_]+\.py)")
-# `("label", "check_x.py")` -- how `local-ci.py` names them.
-LOCAL_CI_CHECKER = re.compile(r'"(check_[a-z0-9_]+\.py)"')
+
+
+def gatesrc_steps() -> str:
+    """The evaluated GOH_CI_STEPS: sourced the way local_ci.sh sources it, so
+    quoting and `$GOH_DIR` read as the runner sees them, not as file text."""
+    import subprocess
+    proc = subprocess.run(
+        ["bash", "-c", f"set -euo pipefail; source '{GATESRC}'; printf '%s' \"$GOH_CI_STEPS\""],
+        capture_output=True, text=True,
+    )
+    if proc.returncode != 0:
+        return ""
+    return proc.stdout
+
+
+def steps_run_every_checker(steps: str, existing: set[str]) -> set[str]:
+    """The step list runs the checkers through tools/checkers.sh, which globs
+    tools/check_*.py -- so naming that script means every checker on disk.
+    A step list that names individual checkers instead is matched literally."""
+    if "tools/checkers.sh" in steps:
+        return set(existing)
+    return named_in(steps, CHECKER)
 
 # The end-to-end suites are matched as a *directory*, not as a list of files.
 #
@@ -96,7 +119,7 @@ RATCHET_RUN = re.compile(r"ratchet_check\.py")
 FUZZ_RUN = re.compile(
     r"cargo\s+(?:\+\S+\s+)?fuzz\s+build"          # shell: full sanitizer build
     r"|cargo\s+check[^\n]*fuzz/Cargo\.toml"          # shell: cheap compile check
-    r"|\"fuzz\",\s*\"build\""                        # python argv list
+    r"|tools/fuzz_check\.sh"                         # the gate script (both layers)
 )
 
 
@@ -108,7 +131,7 @@ def gates() -> dict[str, set[str]]:
     return {
         "pre-commit hook": named_in(HOOK.read_text(encoding="utf-8"), CHECKER),
         "CI workflow": named_in(WORKFLOW.read_text(encoding="utf-8"), CHECKER),
-        "local-ci.py": named_in(LOCAL_CI.read_text(encoding="utf-8"), LOCAL_CI_CHECKER),
+        ".gatesrc GOH_CI_STEPS": steps_run_every_checker(gatesrc_steps(), on_disk()),
     }
 
 
@@ -137,12 +160,13 @@ def always_run_problems() -> list[str]:
     places = (
         ("pre-commit hook", HOOK),
         ("CI workflow", WORKFLOW),
-        ("local-ci.py", LOCAL_CI),
+        (".gatesrc GOH_CI_STEPS", None),
     )
     for label, pattern in (("the line-count ratchet", RATCHET_RUN),
                            ("the fuzz targets", FUZZ_RUN)):
         for name, path in places:
-            if not pattern.search(path.read_text(encoding="utf-8")):
+            text = gatesrc_steps() if path is None else path.read_text(encoding="utf-8")
+            if not pattern.search(text):
                 problems.append(f"{name} does not run {label}")
     return problems
 
@@ -163,9 +187,9 @@ def suite_problems() -> list[str]:
         for name, path in (
             ("pre-commit hook", HOOK),
             ("CI workflow", WORKFLOW),
-            ("local-ci.py", LOCAL_CI),
+            (".gatesrc GOH_CI_STEPS", None),
         )
-        if not runs_pytest(path.read_text(encoding="utf-8"))
+        if not runs_pytest(gatesrc_steps() if path is None else path.read_text(encoding="utf-8"))
     ]
     return [f"{name} does not run the python suites under tests/" for name in missing]
 
@@ -216,8 +240,8 @@ def self_test() -> int:
     if not runs_pytest('python3 -m pytest tests/ -q'):
         print("gate-parity self-test: a real pytest invocation was NOT recognised", file=sys.stderr)
         return 1
-    if not runs_pytest('run("e2e", ["python3", "-m", "pytest", "tests/", "-q"])'):
-        print("gate-parity self-test: the local-ci form was NOT recognised", file=sys.stderr)
+    if not runs_pytest('cargo build -p multitop && python3 -m pytest tests/ -q'):
+        print("gate-parity self-test: the step-list form was NOT recognised", file=sys.stderr)
         return 1
     if runs_pytest("cargo test --workspace"):
         print("gate-parity self-test: a cargo run was mistaken for pytest", file=sys.stderr)
@@ -247,7 +271,7 @@ def main() -> int:
         "\nA checker in tools/ has to be named in all three:\n"
         "  .githooks/pre-commit      -- so it blocks the commit\n"
         "  .github/workflows/ci.yml  -- so it blocks the merge\n"
-        "  scripts/local-ci.py       -- so it can be run before pushing\n"
+        "  .gatesrc GOH_CI_STEPS     -- so the pre-push hook runs it (tools/checkers.sh globs them)\n"
         "\nA gate that only one of them runs is a gate that only sometimes runs.\n"
         "The python suites under tests/ are required the same way, as a\n"
         "directory rather than a list, so a new one cannot be forgotten."

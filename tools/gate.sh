@@ -1,21 +1,21 @@
 #!/usr/bin/env bash
-# Per-repo gate entry point. Declares which toolchains this repo contains and
-# delegates; it holds no gate logic of its own.
-#   --staged : pre-commit scope (fast) — layer 1 only
-#   --full   : pre-push scope — every layer
+# Per-repo gate entry point. Declares nothing of its own: the step list is
+# GOH_CI_STEPS in .gatesrc and the checks live in gates_of_heck and tools/.
+#   --staged : pre-commit scope (fast) -- structural gates over the index
+#   --full   : pre-push scope -- every layer, via gates/local_ci.sh, under the
+#              machine-wide gate lock (two full runs sharing the cargo target
+#              dir serialize each other into a wall-clock that looks like a hang)
 set -euo pipefail
 GOH="${GOH_DIR:-${GOH:-$HOME/Projects/gates_of_heck}}"
-
-"$GOH/gates/structural.sh" "$@"
-
+root="$(git rev-parse --show-toplevel)"
 case "${1:-}" in
   --full)
-    # This is a Rust workspace.
-    "$GOH/gates/rust_gate.sh" .
-    # Layer 3: this repo's own checkers and its 95% coverage floor. The six
-    # tools/check_*.py scripts and their self-tests; coverage comes through
-    # tools/coverage_check.sh, the one definition of the floor that both CI
-    # and the pre-commit hook call.
-    ./tools/repo_gates.sh
+    cd "$root"
+    python3 tools/gate_lock.py acquire "$$"
+    trap 'python3 tools/gate_lock.py release "$$"' EXIT
+    "$GOH/gates/local_ci.sh" "$root"
+    ;;
+  *)
+    exec "$GOH/gates/structural.sh" "$@"
     ;;
 esac

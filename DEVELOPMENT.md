@@ -69,11 +69,12 @@ red, which is how ten deprecations once shipped green.
 | Fuzz targets compile | `cargo check --manifest-path fuzz/Cargo.toml --all-targets` | A fuzz target that stopped compiling because what it fuzzes changed shape |
 | Coverage | `bash tools/coverage_check.sh` | Line coverage below 95% |
 
-The three lists -- the hook, `ci.yml` and `local-ci.py` -- are compared against
-each other by the first gate, and against what is actually in `tools/`. They had
-drifted before: this file itself said "three gates" while CI ran six and
-`local-ci.py` ran two. A comment asking people to keep lists in step is not a
-gate; that one is.
+The three places gates are named -- the hook, `ci.yml` and `GOH_CI_STEPS` in
+`.gatesrc` (what the pre-push hook runs, through `tools/checkers.sh`, which
+globs `tools/check_*.py`) -- are compared against each other by the first gate,
+and against what is actually in `tools/`. They had drifted before: this file
+itself said "three gates" while CI ran six and the old `local-ci.py` ran two.
+A comment asking people to keep lists in step is not a gate; that one is.
 
 Each checker has a `--self-test` that proves it still *detects* before it is
 trusted to report clean, and the hook runs it first. A checker that has quietly
@@ -84,12 +85,19 @@ repo it called clean.
 To run the whole set before pushing:
 
 ```bash
-python3 scripts/local-ci.py
+tools/gate.sh --full
 ```
 
-The pre-push hook runs exactly that, once. It used to run `tools/gate.sh --full`
-first and then this, which is nearly the same work twice -- both end in the 95%
-coverage floor, the slowest thing in the suite.
+The pre-push hook runs exactly that, once: the ONE step list in `.gatesrc`
+(`GOH_CI_STEPS`) through `gates_of_heck/gates/local_ci.sh` -- structural gates,
+every checker with its self-test, the house Rust gate (including the musl agent
+configuration), `cargo audit`, the tests, the python suites, the ratchet, the
+fuzz targets (`cargo check` always; the ASan build when nightly cargo-fuzz is
+installed), the benchmark thresholds (`tools/bench_check.py`), the 95% coverage
+floor, and the whole workspace's clippy on Linux in a container
+(`tools/lint_linux.sh`, needs Colima or Docker running). Until 2026-09-14 this
+was `scripts/local-ci.py`, a 481-line orchestrator with its own copy of the
+checker list -- the third list the gate-parity checker existed to police.
 
 **Pushing a tag skips it.** A tag names a commit that is already on the remote
 and was already gated to get there, so re-running the suite against it cannot
@@ -97,11 +105,11 @@ learn anything. Cutting v0.43.0 ran the full suite four times before this
 changed, and the tag run is the one a timeout killed halfway through the
 release.
 
-The only gate `local-ci.py` still adds over the hook and CI is the **benchmark
-thresholds**, which need a quiet machine to mean anything. The ratchet and the
-fuzz targets used to be here too, and both were moved after each caught
-something too late: the ratchet went red on a commit this hook passed, and a fuzz
-target stopped compiling and reached a release.
+The **benchmark thresholds** need a quiet machine to mean anything; they run
+in the pre-push list, not the commit hook. The ratchet and the fuzz targets run
+in all three places, each moved there after it caught something too late: the
+ratchet went red on a commit the hook passed, and a fuzz target stopped
+compiling and reached a release.
 
 ### When a push looks stuck
 
@@ -128,8 +136,9 @@ then contended the next attempt. Before killing anything:
    fail. `tools/push_probe.sh` checks the stages that matter --
    reachability, authed discovery, push permission -- each timed, each
    named, in seconds. Run it before theorizing about the transport.
-6. Backgrounded gate runs stay observable: `local-ci.py` line-buffers its
-   output, so `tail -f` the log instead of wondering whether it stalled.
+6. Backgrounded gate runs stay observable: `local_ci.sh` prints one line per
+   step as it starts and finishes, so `tail -f` the log instead of wondering
+   whether it stalled.
 
 ### The toolchain is pinned; only `cargo fuzz` steps outside it
 
@@ -143,34 +152,17 @@ which overrides a pin rather than being blocked by one. A doc that states a
 constraint the code does not have is the same defect as a comment that does; it
 is only harder to notice.
 
-Nightly is still reachable, and the two run different lint sets in both
-directions:
-
-* a lint nightly has and stable does not makes the *name* in an `#[allow]` an
-  error on stable, under `-D unknown-lints`;
-* and removing the allow to satisfy stable makes the lint itself an error here.
-
-`clippy::unused_async_trait_impl` is exactly that, in three files. Both are
-needed until it reaches stable:
-
-```rust
-#[allow(unknown_lints)]
-#[allow(clippy::unused_async, clippy::unused_async_trait_impl)]
-```
-
-`local-ci.py` runs clippy twice for this reason -- once on the default toolchain
-and once on `+stable`, which is what CI uses. Install it once and the round
-trips stop:
-
-```bash
-rustup toolchain install stable --component clippy
-```
-
-If clippy passes here and fails there, suspect the lint *name* before the code.
+Nightly is still reachable, and the two can run different lint sets. The gate
+runs on the pinned stable toolchain, which is what CI uses. The tree carries no
+`#[allow]` at all (the house Rust gate forbids it): a lint that must be
+suppressed gets `#[expect]`, which errors the day it stops firing, and a lint
+that fires on one platform only gets `#[cfg_attr(<that cfg>, expect(...))]` --
+`tools/lint_linux.sh` and the musl agent config in `.gatesrc` are how the
+other platform's half is linted from this machine.
 
 ### Hello + agent embedding
 
-Every stream starts with `Hello` (`agent_version` + `proto_version`/`min`) — see `crates/agent/src/proto/mod.rs:31`. The client validates `is_valid`/`is_compatible`, rejects duplicate Hello, and never downgrades a newer remote. `build.rs` panics for `release` when `CARGO_PKG_VERSION` not inside the musl binary (stale `0.44.0` inside `0.44.1` looped forever); `tools/check_agent_version.py` gates the same in hook/CI/local-ci. Always build the release with `./build.sh` — `cargo build -p multitop` alone embeds `missing` or stale.
+Every stream starts with `Hello` (`agent_version` + `proto_version`/`min`) — see `crates/agent/src/proto/mod.rs:31`. The client validates `is_valid`/`is_compatible`, rejects duplicate Hello, and never downgrades a newer remote. `build.rs` panics for `release` when `CARGO_PKG_VERSION` not inside the musl binary (stale `0.44.0` inside `0.44.1` looped forever); `tools/check_agent_version.py` gates the same in the hook, CI and the pre-push list. Always build the release with `./build.sh` — `cargo build -p multitop` alone embeds `missing` or stale.
 
 `build.sh` also `codesign --identifier com.ztomer.multitop` for `TARGET/*multitop` + `~/.cargo/bin/multitop`; `tools/check_codesign.py` (auto-fixes) keeps `Always Allow` in `login.keychain` from expiring on each ad-hoc build (`multitop-abc123`).
 
