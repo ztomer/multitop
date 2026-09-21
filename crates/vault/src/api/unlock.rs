@@ -102,7 +102,7 @@ impl Vault {
             params,
         )?;
 
-        let mut unlocked = self.decrypt_and_load(vault_key, &vault_file)?;
+        let unlocked = self.decrypt_and_load(vault_key, &vault_file)?;
 
         // The password was correct: decryption and the canary both passed.
         // Mark success BEFORE the rollback check, because a rollback is not a
@@ -124,7 +124,8 @@ impl Vault {
         // authorisation just presented -- the master password -- so it happens
         // here rather than waiting for a prompt that does not exist. The repair
         // itself lives with the rest of the enclave code.
-        self.rebind_enclave_wrapper(&mut unlocked);
+        #[cfg(target_os = "macos")]
+        let unlocked = self.rebind_enclave_wrapper(unlocked);
 
         Ok(unlocked)
     }

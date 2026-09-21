@@ -215,10 +215,11 @@ impl Vault {
     }
 
     /// Repair an orphaned Secure Enclave wrapper, if there is one and it can be
-    /// repaired. Best-effort and silent: every failure leaves the vault exactly
-    /// as it opened.
+    /// repaired. Best-effort and silent: every failure hands the vault back
+    /// exactly as it opened. macOS only -- the caller `cfg`s the call rather
+    /// than this carrying a stub that would use neither `self` nor the vault.
     #[cfg(target_os = "macos")]
-    pub(super) fn rebind_enclave_wrapper(&self, unlocked: &mut UnlockedVault) {
+    pub(super) fn rebind_enclave_wrapper(&self, mut unlocked: UnlockedVault) -> UnlockedVault {
         // Repair an orphaned Secure Enclave wrapper.
         //
         // `kSecAccessControlBiometryCurrentSet` is the right access control to
@@ -270,9 +271,6 @@ impl Vault {
                 }
             }
         }
+        unlocked
     }
-
-    /// No enclave on this platform: nothing to repair.
-    #[cfg(not(target_os = "macos"))]
-    pub(super) const fn rebind_enclave_wrapper(&self, _unlocked: &mut UnlockedVault) {}
 }
