@@ -10,6 +10,8 @@
 // clippy.toml's test exemption, so the restriction lints are expected here.
 #![expect(clippy::expect_used)]
 use std::sync::atomic::{AtomicU16, Ordering};
+#[path = "../common/mod.rs"]
+mod common;
 use std::time::Duration;
 
 use crossterm::event::{Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
@@ -23,6 +25,7 @@ use tokio_stream::StreamExt as _;
 /// ssh: `127.0.0.1` is `is_local`, so `spawn_command` uses `$SHELL -c` and the
 /// stream is real output, not a dying connection.
 fn local_server(port: u16, cmd: &str) -> Server {
+    common::use_this_builds_agent();
     Server {
         host: "127.0.0.1".to_string(),
         port,

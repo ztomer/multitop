@@ -6,6 +6,8 @@
 // Integration-test crate: helper fns outside #[test] are not covered by
 // clippy.toml's test exemption, so the restriction lints are expected here.
 #![expect(clippy::expect_used)]
+#[path = "../common/mod.rs"]
+mod common;
 mod config_and_filter_keys;
 mod draw_and_frames;
 mod handle_key;
@@ -45,6 +47,7 @@ use ratatui::style::{Color, Style};
 use secrecy::SecretString;
 
 fn test_server(host: &str) -> Server {
+    common::use_this_builds_agent();
     Server {
         host: host.to_string(),
         port: 0,

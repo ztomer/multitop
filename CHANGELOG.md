@@ -23,6 +23,27 @@ document for anything before this point.
   (`Entry::new`, `get_password`, `set_password`) are identical across the
   bump and the vault file format is untouched — existing vaults open as-is.
 
+### Fixed
+- **Tests name this build's agent through a seam instead of guessing where
+  it lives.** `spawn_exec` / `spawn_local_agent` used to look for a
+  `multitop-agent` beside or above the running executable — a guess that
+  held for exactly one build layout (`target/debug/deps/<test>` under
+  `target/debug/<bin>`) and broke silently on 2026-09-20 when cargo's
+  intermediates moved to a separate build-dir: ten integration-test crates
+  spawned nothing (`NotFound`, reported as if the agent had not been built)
+  and one of them parked forever, which is what a "10-minute commit" was.
+  The resolver now takes `MULTITOP_AGENT_EXE`, then this process when it is
+  a `multitop` build (`--agent`), then `multitop-agent` on `PATH`; the tests
+  set the seam to `CARGO_BIN_EXE_multitop` (`tests/common`), which cargo
+  hands every integration test in every layout. `local_agent_test`'s two
+  tests are un-ignored — they had never run and had rotted past the `Hello`
+  frame the stream opens with.
+- **`test_concurrent_upgrade_generations_isolated` cannot hang.** It looped
+  on the channel until both generations reported *success*, holding its own
+  sender, so a failed upgrade left it waiting forever. It records every
+  outcome and asserts on both (proven: fails in 0.00s when the agent cannot
+  spawn).
+
 ## v0.47.2 — upgrade stderr through the painter, finish routing shared _(2026-09-13)_
 
 ### Fixed

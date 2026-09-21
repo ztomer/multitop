@@ -2,6 +2,7 @@
 
 use multitop::app::{App, Mode, Msg};
 use multitop::config::Server;
+mod common;
 use multitop::panel::UpgradeState;
 use multitop::password_store;
 use multitop::state;
@@ -9,6 +10,7 @@ use multitop::tasks::spawn_upgrade;
 use tokio::sync::mpsc;
 
 fn test_server(host: &str) -> Server {
+    common::use_this_builds_agent();
     Server {
         host: host.to_string(),
         port: 0,
@@ -197,16 +199,24 @@ async fn test_concurrent_upgrade_generations_isolated() {
     // Spawn upgrade with gen=2 (simulates panel switch)
     let handle2 = spawn_upgrade(0, 2, server.clone(), None, tx.clone());
 
-    let mut gen1_done = false;
-    let mut gen2_done = false;
+    // Our own sender goes away so a channel with nothing left to say ends the
+    // loop below instead of parking it forever.
+    drop(tx);
+
+    // Every outcome is recorded, not only the good one: a generation that
+    // fails must fail the assertion, not leave the loop waiting for a success
+    // that will never come.
+    let mut outcomes: [Option<bool>; 2] = [None, None];
 
     while let Some(msg) = rx.recv().await {
-        match msg {
-            Msg::AuxDone { gen, success, .. } if gen == 1 && success => gen1_done = true,
-            Msg::AuxDone { gen, success, .. } if gen == 2 && success => gen2_done = true,
-            _ => {}
+        if let Msg::AuxDone { gen, success, .. } = msg {
+            match gen {
+                1 => outcomes[0] = Some(success),
+                2 => outcomes[1] = Some(success),
+                _ => {}
+            }
         }
-        if gen1_done && gen2_done {
+        if outcomes.iter().all(Option::is_some) {
             break;
         }
     }
@@ -214,8 +224,11 @@ async fn test_concurrent_upgrade_generations_isolated() {
     let _ = handle1.await;
     let _ = handle2.await;
 
-    assert!(gen1_done);
-    assert!(gen2_done);
+    assert_eq!(
+        outcomes,
+        [Some(true), Some(true)],
+        "[gen 1, gen 2] outcomes"
+    );
 }
 
 /// Switching views during an upgrade must not lose the upgrade's handle.
@@ -282,6 +295,7 @@ async fn a_view_switch_during_an_upgrade_keeps_the_upgrade_tracked() {
 #[tokio::test]
 async fn stderr_is_still_read_after_stdout_has_closed() {
     let _store_guard = enable_mock_store().await;
+    common::use_this_builds_agent();
     let server = Server {
         host: "localhost".to_string(),
         port: 0,

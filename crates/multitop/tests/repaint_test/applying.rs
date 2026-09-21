@@ -14,6 +14,7 @@ use std::time::Duration;
 use tokio::sync::mpsc;
 
 fn local_server(cmd: &str) -> Server {
+    crate::common::use_this_builds_agent();
     Server {
         host: "127.0.0.1".to_string(),
         port: 0,

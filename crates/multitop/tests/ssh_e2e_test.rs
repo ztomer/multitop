@@ -12,6 +12,8 @@
 // clippy.toml's test exemption, so the restriction lints are expected here.
 #![expect(clippy::unwrap_used, clippy::expect_used)]
 
+mod common;
+
 use multitop::config::Server;
 use multitop::password_store;
 use multitop::ssh;
@@ -63,6 +65,7 @@ struct Ran {
 /// inside a payload, so a reader that carries on is reading from the wrong
 /// offset and inventing output.
 async fn run(command: &str) -> Ran {
+    common::use_this_builds_agent();
     let server = local_server(command);
     let mut child = ssh::spawn_exec(&server, &request(command))
         .await

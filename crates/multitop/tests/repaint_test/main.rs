@@ -7,4 +7,6 @@
 //! different times.
 
 mod applying;
+#[path = "../common/mod.rs"]
+mod common;
 mod painter;

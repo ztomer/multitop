@@ -7,7 +7,7 @@ use crate::ssh_opts::{Arch, Mode, AGENT_AARCH64, AGENT_X86_64};
 use multitop_agent::exec::ExecFrame;
 use multitop_agent::SortBy;
 use std::io;
-use std::path::Path;
+use std::path::PathBuf;
 use std::process::Stdio;
 use tokio::io::AsyncWriteExt;
 use tokio::process::{Child, Command};
@@ -34,25 +34,31 @@ pub fn spawn_local_agent(mode: Mode, sort: SortBy) -> io::Result<Child> {
 /// One resolver rather than two: the streaming panel and the exec channel must
 /// run the *same* binary, or a local upgrade could be served by a different
 /// version from the one drawing the panel beside it.
+///
+/// Resolution, in order: `MULTITOP_AGENT_EXE` names the executable outright;
+/// otherwise this process, when it is a `multitop` build, serves as its own
+/// agent (`--agent`); otherwise `multitop-agent` on `PATH`. A `multitop-agent`
+/// binary is run as-is, anything else named `multitop*` gets `--agent`.
+///
+/// There used to be a third arm that looked for a sibling `multitop-agent`
+/// beside or above the running executable, for test binaries. It held for
+/// exactly one build layout (`target/debug/deps/<test>` under
+/// `target/debug/<bin>`) and broke silently the day cargo's intermediates
+/// moved to a separate build-dir: `NotFound`, reported as if the agent had not
+/// been built. Tests now name the binary through the seam instead
+/// (`CARGO_BIN_EXE_multitop`), which holds in every layout.
 fn local_agent_command() -> Command {
-    let (cmd, extra_args) = std::env::current_exe().map_or_else(
-        |_| (Command::new("multitop-agent"), vec![]),
+    let exe = std::env::var_os("MULTITOP_AGENT_EXE")
+        .map(PathBuf::from)
+        .or_else(|| std::env::current_exe().ok());
+    let (cmd, extra_args) = exe.map_or_else(
+        || (Command::new("multitop-agent"), vec![]),
         |exe| {
-            let parent = exe.parent().unwrap_or_else(|| Path::new(""));
-            let grand = parent.parent().unwrap_or_else(|| Path::new(""));
             let name = exe.file_name().and_then(|n| n.to_str()).unwrap_or("");
-
-            if name == "multitop" || (name.starts_with("multitop") && !name.contains("test")) {
+            if name == "multitop-agent" {
+                (Command::new(exe), vec![])
+            } else if name.starts_with("multitop") && !name.contains("test") {
                 (Command::new(exe), vec!["--agent".to_string()])
-            } else if parent.join("multitop-agent").is_file() {
-                (Command::new(parent.join("multitop-agent")), vec![])
-            } else if grand.join("multitop-agent").is_file() {
-                (Command::new(grand.join("multitop-agent")), vec![])
-            } else if grand.join("multitop").is_file() {
-                (
-                    Command::new(grand.join("multitop")),
-                    vec!["--agent".to_string()],
-                )
             } else {
                 (Command::new("multitop-agent"), vec![])
             }

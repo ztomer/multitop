@@ -9,6 +9,7 @@ async fn spawn_upgrade_streams_output_for_local_command() {
     let _g = password_store::lock_for_test_async().await;
     password_store::enable_mock_store();
     password_store::clear_mock_store();
+    crate::common::use_this_builds_agent();
     let server = Server {
         host: "127.0.0.1".into(),
         port: 0,
@@ -40,6 +41,7 @@ async fn spawn_upgrade_no_password_succeeds() {
     password_store::enable_mock_store();
     password_store::clear_mock_store();
     // A simple command that needs no password.
+    crate::common::use_this_builds_agent();
     let server = Server {
         host: "127.0.0.1".into(),
         port: 0,
@@ -69,6 +71,7 @@ async fn spawn_upgrade_collapses_carriage_returns() {
     password_store::enable_mock_store();
     password_store::clear_mock_store();
     // printf with \r simulates a progress bar rewriting itself.
+    crate::common::use_this_builds_agent();
     let server = Server {
         host: "127.0.0.1".into(),
         port: 0,

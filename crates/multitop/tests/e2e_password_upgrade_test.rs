@@ -10,6 +10,7 @@
 // clippy.toml's test exemption, so the restriction lints are expected here.
 use multitop::app::{App, Msg};
 use multitop::config::Server;
+mod common;
 use multitop::passwords::{self, PasswordAction};
 use multitop::tasks::spawn_upgrade;
 
@@ -52,6 +53,7 @@ async fn mock_store() -> tokio::sync::MutexGuard<'static, ()> {
 }
 
 fn test_server(host: &str, upgrade_cmd: Option<&str>) -> Server {
+    common::use_this_builds_agent();
     Server {
         host: host.to_string(),
         port: 0,

@@ -14,6 +14,7 @@ use std::time::Duration;
 
 use multitop::app::Msg;
 use multitop::config::Server;
+mod common;
 use multitop::password_store;
 // The sentinels are the agent's now: both ends need one definition and the end
 // that owns the pty is the one that can tell what a line is. What these tests
@@ -26,6 +27,7 @@ use tokio::sync::mpsc;
 /// Port 0 makes the server local, so `spawn_command` runs the script here
 /// rather than reaching for `ssh`.
 fn local_server(cmd: Option<&str>) -> Server {
+    common::use_this_builds_agent();
     Server {
         host: "localhost".to_string(),
         port: 0,

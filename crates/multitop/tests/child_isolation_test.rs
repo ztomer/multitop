@@ -9,6 +9,8 @@
 // Integration-test crate: helper fns outside #[test] are not covered by
 // clippy.toml's test exemption, so the restriction lints are expected here.
 #![expect(clippy::expect_used)]
+mod common;
+
 use multitop::config::Server;
 use multitop::{password_store, ssh};
 
@@ -46,6 +48,7 @@ async fn a_locally_spawned_upgrade_gets_its_own_process_group() {
     // Also skips the on-disk upgrade lock, which is not what is under test.
     password_store::enable_mock_store();
     password_store::clear_mock_store();
+    common::use_this_builds_agent();
 
     let request = multitop_agent::exec::ExecFrame::Request {
         command: "sleep 5".to_string(),
