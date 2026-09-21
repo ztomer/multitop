@@ -6,9 +6,14 @@
 //! merely pressing a settings toggle was enough to strip a hand-written
 //! config -- silently, and to a file the user maintains by hand.
 
+// A test crate, said where clippy reads it: the restriction lints
+// (`unwrap_used`, `expect_used`, `panic`) are policy for production code and
+// exempt for test code (clippy.toml), and an integration test is test code
+// through and through -- helpers included.
+#![cfg(test)]
+
 // Integration-test crate: helper fns outside #[test] are not covered by
 // clippy.toml's test exemption, so the restriction lints are expected here.
-#![expect(clippy::unwrap_used)]
 use multitop::config::{save_servers, strip_plaintext_passwords, Server};
 
 const ANNOTATED: &str = r#"# multitop configuration -- keep these notes.
@@ -29,10 +34,12 @@ port = 22
 user = "ztomer"
 "#;
 
-fn scratch(tag: &str) -> std::path::PathBuf {
+/// A fresh scratch config path; the `#[test]` callers unwrap (a helper is
+/// outside clippy's test exemption).
+fn scratch(tag: &str) -> std::io::Result<std::path::PathBuf> {
     let dir = std::env::temp_dir().join(format!("mt_cfg_{tag}_{}", std::process::id()));
-    std::fs::create_dir_all(&dir).unwrap();
-    dir.join("config.toml")
+    std::fs::create_dir_all(&dir)?;
+    Ok(dir.join("config.toml"))
 }
 
 fn server(host: &str, cmd: Option<&str>) -> Server {
@@ -47,7 +54,7 @@ fn server(host: &str, cmd: Option<&str>) -> Server {
 
 #[test]
 fn saving_servers_keeps_comments_and_other_settings() {
-    let path = scratch("save");
+    let path = scratch("save").expect("a scratch dir");
     std::fs::write(&path, ANNOTATED).unwrap();
 
     save_servers(
@@ -86,7 +93,7 @@ fn saving_servers_keeps_comments_and_other_settings() {
 
 #[test]
 fn removing_a_server_keeps_the_remaining_comments() {
-    let path = scratch("remove");
+    let path = scratch("remove").expect("a scratch dir");
     std::fs::write(&path, ANNOTATED).unwrap();
 
     save_servers(&path, &[server("192.168.0.90", None)]).unwrap();
@@ -105,7 +112,7 @@ fn removing_a_server_keeps_the_remaining_comments() {
 
 #[test]
 fn stripping_a_plaintext_password_keeps_comments() {
-    let path = scratch("strip");
+    let path = scratch("strip").expect("a scratch dir");
     let with_secret = ANNOTATED.replace(
         "upgrade_cmd = \"us;ud\"",
         "upgrade_cmd = \"us;ud\"\nsudo_password = \"hunter2\"",

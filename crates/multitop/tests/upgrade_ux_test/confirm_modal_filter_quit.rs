@@ -250,7 +250,7 @@ async fn ctrl_c_arms_the_same_confirmation_while_upgrades_are_running() {
         ctrl_c,
         &mut h.app,
         (80, 24),
-        Arc::clone(&h.dims_rx),
+        &Arc::clone(&h.dims_rx),
         &h.tx,
         &mut h.tasks,
     );

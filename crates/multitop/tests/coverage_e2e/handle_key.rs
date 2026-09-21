@@ -20,7 +20,7 @@ fn handle_key_filter_mode() {
         KeyEvent::new_with_kind(KeyCode::Char('w'), KeyModifiers::NONE, KeyEventKind::Press),
         &mut a,
         (80, 24),
-        Arc::new(dims_rx),
+        &Arc::new(dims_rx),
         &tx,
         &mut tasks,
     );
@@ -43,7 +43,7 @@ fn handle_key_filter_esc_clears() {
         KeyEvent::new_with_kind(KeyCode::Esc, KeyModifiers::NONE, KeyEventKind::Press),
         &mut a,
         (80, 24),
-        Arc::new(dims_rx),
+        &Arc::new(dims_rx),
         &tx,
         &mut tasks,
     );
@@ -68,7 +68,7 @@ fn handle_key_number_selects_panel() {
         KeyEvent::new_with_kind(KeyCode::Char('2'), KeyModifiers::NONE, KeyEventKind::Press),
         &mut a,
         (80, 24),
-        Arc::new(dims_rx),
+        &Arc::new(dims_rx),
         &tx,
         &mut tasks,
     );
@@ -90,7 +90,7 @@ async fn handle_key_sort_toggles() {
         KeyEvent::new_with_kind(KeyCode::Char('m'), KeyModifiers::NONE, KeyEventKind::Press),
         &mut a,
         (80, 24),
-        Arc::new(dims_rx),
+        &Arc::new(dims_rx),
         &tx,
         &mut tasks,
     );
@@ -113,7 +113,7 @@ fn handle_key_theme_cycle() {
         KeyEvent::new_with_kind(KeyCode::Char('t'), KeyModifiers::NONE, KeyEventKind::Press),
         &mut a,
         (80, 24),
-        Arc::new(dims_rx),
+        &Arc::new(dims_rx),
         &tx,
         &mut tasks,
     );
@@ -134,7 +134,7 @@ fn handle_key_scroll_up_down() {
         KeyEvent::new_with_kind(KeyCode::Up, KeyModifiers::NONE, KeyEventKind::Press),
         &mut a,
         (80, 24),
-        Arc::new(dims_rx.clone()),
+        &Arc::new(dims_rx.clone()),
         &tx,
         &mut tasks,
     );
@@ -144,7 +144,7 @@ fn handle_key_scroll_up_down() {
         KeyEvent::new_with_kind(KeyCode::Down, KeyModifiers::NONE, KeyEventKind::Press),
         &mut a,
         (80, 24),
-        Arc::new(dims_rx),
+        &Arc::new(dims_rx),
         &tx,
         &mut tasks,
     );
@@ -165,7 +165,7 @@ fn handle_key_page_up_down() {
         KeyEvent::new_with_kind(KeyCode::PageUp, KeyModifiers::NONE, KeyEventKind::Press),
         &mut a,
         (80, 24),
-        Arc::new(dims_rx),
+        &Arc::new(dims_rx),
         &tx,
         &mut tasks,
     );
@@ -186,7 +186,7 @@ fn handle_key_home_end() {
         KeyEvent::new_with_kind(KeyCode::Home, KeyModifiers::NONE, KeyEventKind::Press),
         &mut a,
         (80, 24),
-        Arc::new(dims_rx.clone()),
+        &Arc::new(dims_rx.clone()),
         &tx,
         &mut tasks,
     );
@@ -197,7 +197,7 @@ fn handle_key_home_end() {
         KeyEvent::new_with_kind(KeyCode::End, KeyModifiers::NONE, KeyEventKind::Press),
         &mut a,
         (80, 24),
-        Arc::new(dims_rx),
+        &Arc::new(dims_rx),
         &tx,
         &mut tasks,
     );
@@ -222,7 +222,7 @@ fn handle_key_ctrl_c_quits() {
         ),
         &mut a,
         (80, 24),
-        Arc::new(dims_rx),
+        &Arc::new(dims_rx),
         &tx,
         &mut tasks,
     );
@@ -242,7 +242,7 @@ fn handle_key_settings_opens() {
         KeyEvent::new_with_kind(KeyCode::Char('e'), KeyModifiers::NONE, KeyEventKind::Press),
         &mut a,
         (80, 24),
-        Arc::new(dims_rx),
+        &Arc::new(dims_rx),
         &tx,
         &mut tasks,
     );
@@ -263,7 +263,7 @@ fn handle_key_slash_starts_filter() {
         KeyEvent::new_with_kind(KeyCode::Char('/'), KeyModifiers::NONE, KeyEventKind::Press),
         &mut a,
         (80, 24),
-        Arc::new(dims_rx),
+        &Arc::new(dims_rx),
         &tx,
         &mut tasks,
     );

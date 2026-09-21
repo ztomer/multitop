@@ -53,9 +53,9 @@ pub fn dots_for(value: f64, max: f64, dot_rows: usize) -> usize {
     if dot_rows == 0 || max <= 0.0 || !value.is_finite() || value <= 0.0 {
         return 0;
     }
-    #[expect(clippy::cast_precision_loss, clippy::cast_possible_truncation)]
-    #[expect(clippy::cast_sign_loss)]
-    let scaled = ((value / max) * dot_rows as f64).ceil() as usize;
+    let scaled = multitop_agent::conv::whole_usize(
+        ((value / max) * multitop_agent::conv::count(dot_rows)).ceil(),
+    );
     scaled.clamp(1, dot_rows)
 }
 

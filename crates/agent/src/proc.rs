@@ -8,13 +8,9 @@
 //! (CPU ticks since boot, byte totals) in f64. Both are orders of magnitude
 //! below 2^53 and the result is rendered to one decimal, so f64 carries far
 //! more precision than the output shows; integer division would lose the
-//! fraction that IS the answer. That is what the one-line `#[expect]`s mean.
+//! fraction that IS the answer. `conv::unsigned` is that conversion, exact.
 
-#![expect(
-    unsafe_code,
-    reason = "FFI boundary; see the unsafe_code note in lib.rs"
-)]
-
+use crate::conv::unsigned;
 use std::fs;
 use std::path::Path;
 
@@ -71,17 +67,13 @@ pub struct CpuTimes {
 impl CpuTimes {
     /// Busy percentage over the window between two samples.
     #[must_use]
-    #[expect(
-        clippy::cast_precision_loss,
-        reason = "counter percentage; see module note"
-    )]
     pub fn pct_since(&self, prev: &Self) -> f64 {
         let total = self.total.saturating_sub(prev.total);
         let idle = self.idle.saturating_sub(prev.idle);
         if total == 0 {
             return 0.0;
         }
-        (total.saturating_sub(idle)) as f64 / total as f64 * 100.0
+        unsigned(total.saturating_sub(idle)) / unsigned(total) * 100.0
     }
 }
 
@@ -173,13 +165,9 @@ pub struct Usage {
 
 impl Usage {
     #[must_use]
-    #[expect(
-        clippy::cast_precision_loss,
-        reason = "counter percentage; see module note"
-    )]
     pub fn new(total: u64, used: u64) -> Self {
         let pct = if total > 0 {
-            used as f64 / total as f64 * 100.0
+            unsigned(used) / unsigned(total) * 100.0
         } else {
             0.0
         };
@@ -312,10 +300,6 @@ impl ProcSampler {
     }
 
     /// Top `n` processes over the last `elapsed` seconds, sorted by `sort_by`.
-    #[expect(
-        clippy::cast_precision_loss,
-        reason = "counter percentage; see module note"
-    )]
     pub fn top(&mut self, elapsed: f64, n: usize, sort_by: crate::SortBy) -> Vec<Proc> {
         self.scan();
         let scanned = std::mem::take(&mut self.scanned);
@@ -323,7 +307,7 @@ impl ProcSampler {
         for (i, s) in scanned.iter().enumerate() {
             let cpu = match self.prev.get(&s.pid) {
                 Some(p) if p.starttime == s.starttime && elapsed > 0.0 => {
-                    s.ticks.saturating_sub(p.ticks) as f64 / self.clk_tck / elapsed * 100.0
+                    unsigned(s.ticks.saturating_sub(p.ticks)) / self.clk_tck / elapsed * 100.0
                 }
                 _ => 0.0,
             };

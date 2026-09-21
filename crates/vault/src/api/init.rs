@@ -27,10 +27,7 @@ impl Vault {
     /// `VaultError::Io` if directory creation or file writing fails,
     /// `VaultError::Serialization` if contents cannot be serialized,
     /// or encryption-related errors.
-    // `unused_async_trait_impl` landed on stable; the `unknown_lints` guard it
-    // once needed was retired as a stale expectation on 2026-09-14.
-    #[expect(clippy::unused_async, clippy::unused_async_trait_impl)]
-    pub async fn initialize(&self, system_password: &str) -> Result<(), VaultError> {
+    pub fn initialize(&self, system_password: &str) -> Result<(), VaultError> {
         if self.exists() {
             return Err(VaultError::AlreadyExists("Vault already exists".into()));
         }
@@ -62,12 +59,15 @@ impl Vault {
         let argon2id_wrapper = crypto::wrap_argon2id(&vault_key, system_password, &salt, &params)?;
 
         // Try to create Secure Enclave wrapper (macOS)
-        // `mut` only on the platform that pushes a second wrapper below.
-        #[cfg_attr(not(any(target_os = "macos", target_os = "linux")), allow(unused_mut))]
-        let mut wrappers = vec![crypto::Wrapper::new(
+        // Bound `mut` only on the platforms that push a second wrapper below.
+        let argon2id_only = vec![crypto::Wrapper::new(
             WrapperType::Argon2id,
             argon2id_wrapper,
         )?];
+        #[cfg(any(target_os = "macos", target_os = "linux"))]
+        let mut wrappers = argon2id_only;
+        #[cfg(not(any(target_os = "macos", target_os = "linux")))]
+        let wrappers = argon2id_only;
 
         // The Secure Enclave key lives in the login keychain, so it is exactly
         // the "real credential storage" that `use_os_keychain` exists to keep

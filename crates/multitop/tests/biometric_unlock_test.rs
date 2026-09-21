@@ -7,9 +7,14 @@
 //! else. A biometric wait that was always going to fall through to typing is
 //! the defect this file exists to stop coming back.
 
+// A test crate, said where clippy reads it: the restriction lints
+// (`unwrap_used`, `expect_used`, `panic`) are policy for production code and
+// exempt for test code (clippy.toml), and an integration test is test code
+// through and through -- helpers included.
+#![cfg(test)]
+
 // Integration-test crate: helper fns outside #[test] are not covered by
 // clippy.toml's test exemption, so the restriction lints are expected here.
-#![expect(clippy::expect_used)]
 use std::sync::Arc;
 
 use crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
@@ -47,7 +52,7 @@ fn press(app: &mut App, code: KeyCode, tx: &mpsc::Sender<Msg>, tasks: &mut Tasks
         KeyEvent::new_with_kind(code, KeyModifiers::NONE, KeyEventKind::Press),
         app,
         (80, 24),
-        Arc::new(dims_rx),
+        &Arc::new(dims_rx),
         tx,
         tasks,
     );
@@ -69,11 +74,11 @@ fn drawn(app: &mut App) -> String {
 }
 
 /// A vault on disk with a password wrapper and nothing else.
-async fn password_only_vault(dir: &std::path::Path) -> Arc<Vault> {
+fn password_only_vault(dir: &std::path::Path) -> Result<Arc<Vault>, multitop_vault::VaultError> {
     let path = dir.join("vault.bin");
     let vault = Vault::new(multitop::vault::config_for(path));
-    vault.initialize(MASTER).await.expect("initialise");
-    Arc::new(vault)
+    vault.initialize(MASTER)?;
+    Ok(Arc::new(vault))
 }
 
 // ------------------------------------------------------------ can it be touched
@@ -85,7 +90,7 @@ async fn a_vault_kept_out_of_the_os_keychain_cannot_be_opened_by_touch() {
     // has.
     let _g = isolate().await;
     let dir = tempfile::tempdir().unwrap();
-    let vault = password_only_vault(dir.path()).await;
+    let vault = password_only_vault(dir.path()).expect("a vault on disk");
     assert!(!vault.biometric_available());
 }
 
@@ -99,7 +104,7 @@ async fn a_vault_with_no_enclave_wrapper_cannot_be_opened_by_touch_either() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("vault.bin");
     let made = Vault::new(multitop::vault::config_for(path.clone()));
-    made.initialize(MASTER).await.expect("initialise");
+    made.initialize(MASTER).expect("initialise");
 
     let reopened = Vault::new(VaultConfig {
         vault_path: path,
@@ -131,7 +136,7 @@ async fn a_vault_that_cannot_be_touched_asks_for_the_master_password_instead() {
     let dir = tempfile::tempdir().unwrap();
     let mut app = App::new(vec![test_server("alpha")]);
     app.config_path = Some(dir.path().join("config.toml"));
-    app.vault = Some(password_only_vault(dir.path()).await);
+    app.vault = Some(password_only_vault(dir.path()).expect("a vault on disk"));
     app.vault_state = VaultState::Locked;
 
     assert!(
@@ -150,7 +155,7 @@ async fn there_is_nothing_to_unlock_when_the_vault_is_not_locked() {
     let _g = isolate().await;
     let dir = tempfile::tempdir().unwrap();
     let mut app = App::new(vec![test_server("alpha")]);
-    app.vault = Some(password_only_vault(dir.path()).await);
+    app.vault = Some(password_only_vault(dir.path()).expect("a vault on disk"));
 
     // A vault already being opened is not started again.
     app.vault_state = VaultState::Unlocking {
@@ -191,7 +196,7 @@ async fn starting_an_unlock_retires_whatever_was_in_flight() {
     let _g = isolate().await;
     let dir = tempfile::tempdir().unwrap();
     let mut app = App::new(vec![test_server("alpha")]);
-    app.vault = Some(password_only_vault(dir.path()).await);
+    app.vault = Some(password_only_vault(dir.path()).expect("a vault on disk"));
     app.vault_state = VaultState::Locked;
     let before = app.vault_epoch;
 
@@ -211,7 +216,7 @@ async fn pressing_u_twice_asks_for_one_credential_and_only_one() {
     let dir = tempfile::tempdir().unwrap();
     let mut app = App::new(vec![test_server("alpha")]);
     app.config_path = Some(dir.path().join("config.toml"));
-    app.vault = Some(password_only_vault(dir.path()).await);
+    app.vault = Some(password_only_vault(dir.path()).expect("a vault on disk"));
     app.vault_state = VaultState::Locked;
 
     let (tx, _rx) = mpsc::channel::<Msg>(16);
@@ -343,7 +348,7 @@ async fn a_touch_attempt_against_a_vault_that_has_no_wrapper_reports_failure() {
     // way forward.
     let _g = isolate().await;
     let dir = tempfile::tempdir().unwrap();
-    let vault = password_only_vault(dir.path()).await;
+    let vault = password_only_vault(dir.path()).expect("a vault on disk");
     let (tx, mut rx) = mpsc::channel::<Msg>(4);
 
     spawn_biometric_unlock(vault, 7, tx)
@@ -385,7 +390,7 @@ async fn a_touch_failure_hands_the_user_to_the_password_prompt_end_to_end() {
     let _g = isolate().await;
     let dir = tempfile::tempdir().unwrap();
     let mut app = App::new(vec![test_server("alpha")]);
-    app.vault = Some(password_only_vault(dir.path()).await);
+    app.vault = Some(password_only_vault(dir.path()).expect("a vault on disk"));
     app.vault_state = VaultState::Unlocking {
         awaiting_biometric: true,
     };

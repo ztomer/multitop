@@ -7,9 +7,46 @@ This file starts at v0.47.0 — earlier history is in git (`git log`), and the
 per-defect record is `docs/detection-record.md`, which is the more useful
 document for anything before this point.
 
-## v0.47.3 — unify the vault on keyring 4 _(unreleased)_
+## v0.47.3 — no lint suppression, unsafe scope as a gate, keyring 4 _(unreleased)_
 
 ### Changed
+- **Every `#[expect]` and `#[allow]` is gone from the workspace; the house
+  gate (`gates_of_heck` `check_no_allow.py`, policy of 2026-09-20) now
+  refuses both.** About 150 sites across the three crates, each fixed at the
+  finding rather than annotated: lossy `as` casts became `try_from` +
+  `unwrap_or`, or go through the new `agent::conv` helpers (`unsigned`,
+  `count`, `signed`, `single`, `whole_*`) which convert exactly via
+  `num-traits`; exact float asserts compare with `partial_cmp`; functions
+  whose body differs per platform are defined once per `cfg` (a synchronous
+  Secure Enclave path returns `std::future::ready`, the Linux path stays
+  `async`), so neither `unused_async` nor `manual_async_fn` needs quieting;
+  `cfg_attr(..., allow(unused_mut))` became a per-`cfg` `let`; oversized
+  functions were split into named stages (`run/handle_key.rs`,
+  `run/event_loop.rs`, `app/apply.rs`, `config/load.rs`, `config_ui.rs`,
+  `exec/pump.rs`, `render_layout.rs`, `password_actions.rs`, `run/spawn.rs`);
+  bool clusters became small enums and structs (`Overlay`,
+  `CredentialLookup`, `QuitFlags`, `SudoSigns`, `Sections`, `Handshake`);
+  `vault::initialize` and `rebind_biometric` are synchronous (they never
+  awaited). Every integration-test and bench crate root carries
+  `#![cfg(test)]`, so clippy's `allow-expect-in-tests` applies to them as
+  it always did to unit tests; test helpers that could fail return `Result`.
+- **`unsafe_code` is no longer a workspace lint; its scope is a checker.**
+  The agent and the vault are FFI by nature and carried a per-module
+  `#[expect(unsafe_code)]` under a workspace-wide deny. `multitop` (no FFI)
+  keeps `#![deny(unsafe_code)]` at both crate roots; for the other two,
+  `tools/check_unsafe_scope.py` lists the eleven files that may contain
+  `unsafe` with the reason each needs it, fails on any other file, and fails
+  on a listed file that no longer has any (a ratchet both ways). Wired into
+  pre-commit and CI; `check_gate_parity` keeps the two in step.
+- **The host-wide `~/.cache/cargo-target` is no longer a root anything
+  looks in.** It was the shared target dir until the 2026-09-20 build-dir
+  layout; `build.rs` still searched it for an agent to embed (after the
+  checkout's own `target/`, before auto-compilation), the `./multitop`
+  wrapper and the tmux harness would run a binary from it, and
+  `check_agent_version.py` compared against one -- which is how the
+  empty-scope sweep found the checker failing on an empty tree with a
+  0.47.2 agent still parked there. Every site now resolves only this
+  checkout's target dir (`cargo metadata`, `CARGO_TARGET_DIR`, `target/`).
 - **Vault moves from `keyring` 3 to 4, matching `multitop`.**
   The workspace carried two majors of one crate: `multitop` on 4 since the
   August dependency refresh, `multitop-vault` still on 3 with the old

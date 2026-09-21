@@ -10,6 +10,12 @@
 //! the layout functions in isolation. Only a real buffer can answer "is it on
 //! the screen".
 
+// A test crate, said where clippy reads it: the restriction lints
+// (`unwrap_used`, `expect_used`, `panic`) are policy for production code and
+// exempt for test code (clippy.toml), and an integration test is test code
+// through and through -- helpers included.
+#![cfg(test)]
+
 /// Divert credentials to the in-memory store, and hold the process-global guard.
 ///
 /// These two tests build a real `App` and render it, and the render path can

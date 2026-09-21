@@ -5,11 +5,6 @@
 //! `/proc` pseudofile. The names stay reachable as `proc::*` (re-exported
 //! there) because that is the path every caller and test already uses.
 
-#![expect(
-    unsafe_code,
-    reason = "`statvfs(2)` is the one syscall here; see the unsafe_code note in lib.rs"
-)]
-
 use crate::proc::{read_proc_bytes, Usage};
 
 #[must_use]
@@ -30,14 +25,12 @@ pub fn statvfs_bytes(path: &str) -> Option<(u64, u64)> {
             return None;
         }
         let frsize = st.f_frsize as u64;
-        // `fsblkcnt_t` is u32 on macOS and u64 on Linux, so `u64::from` widens
-        // on one and is an identity on the other. The cfg is on the lint, not
-        // the code, so one expression stays correct on both.
-        #[cfg_attr(
-            not(target_os = "macos"),
-            expect(clippy::useless_conversion, reason = "u64 already")
-        )]
+        // `fsblkcnt_t` is u32 on macOS and u64 on Linux: widened on one,
+        // taken as-is on the other.
+        #[cfg(target_os = "macos")]
         let (blocks, bavail) = (u64::from(st.f_blocks), u64::from(st.f_bavail));
+        #[cfg(not(target_os = "macos"))]
+        let (blocks, bavail) = (st.f_blocks, st.f_bavail);
         Some((blocks * frsize, bavail * frsize))
     }
 }

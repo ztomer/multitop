@@ -2,6 +2,7 @@ use crate::app::App;
 use ratatui::style::{Color, Style};
 use ratatui::text::{Line, Span};
 
+#[derive(Clone, Copy, Debug)]
 pub enum FilterHint<'a> {
     /// No filter, nothing being typed.
     Off,
@@ -132,7 +133,6 @@ fn span_width(spans: &[Span<'static>]) -> usize {
 /// rather than being clipped. `Q` is deliberately absent from the shed order --
 /// quit is the one thing a user stuck in a twelve-column terminal most needs to
 /// find, and it is the only binding here that cannot be discovered by trying.
-#[expect(clippy::needless_pass_by_value)]
 fn keybar_initials(
     keys: &[(&'static str, Style)],
     keybar_width: u16,
@@ -518,7 +518,7 @@ pub fn keybar_content(
     let key_hi = Style::default()
         .fg(Color::White)
         .add_modifier(ratatui::style::Modifier::BOLD);
-    if app.help_visible {
+    if app.overlay.is_help() {
         return Line::from(vec![
             Span::styled("[", label),
             Span::styled("Esc", key_hi),
@@ -528,7 +528,7 @@ pub fn keybar_content(
             Span::styled("[q] quit", label),
         ]);
     }
-    if app.command_palette_visible {
+    if app.overlay.is_palette() {
         return Line::from(vec![
             Span::styled("[", label),
             Span::styled("Esc", key_hi),

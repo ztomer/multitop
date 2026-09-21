@@ -353,19 +353,19 @@ mod passwords_tests {
     fn credential_lookup_is_dispatched_once_and_cached_afterwards() {
         let mut panel = crate::panel::Panel::new(test_server("host1"));
         assert!(panel.needs_credential_load());
-        assert!(!panel.password_checked);
+        assert!(!panel.lookup.asked());
 
         // Dispatching marks the host as answered-so it can never be dispatched
         // twice while the lookup is in flight.
         panel.mark_credential_load_dispatched();
-        assert!(panel.password_checked);
-        assert!(panel.password_checking);
+        assert!(panel.lookup.asked());
+        assert!(panel.lookup.in_flight());
         assert!(!panel.needs_credential_load());
 
         // Nothing stored: the answer lands as "no password", still an answer.
         panel.answer_credential_load(Ok(None));
-        assert!(!panel.password_checking);
-        assert!(panel.password_checked);
+        assert!(!panel.lookup.in_flight());
+        assert!(panel.lookup.asked());
         assert_eq!(panel.sudo_password, None);
 
         // A stored answer is kept and shown as saved.
@@ -374,6 +374,6 @@ mod passwords_tests {
         panel2.answer_credential_load(Ok(Some("secret".to_string())));
         assert_eq!(panel2.sudo_password.as_deref(), Some("secret"));
         assert!(panel2.password_saved);
-        assert!(!panel2.password_checking);
+        assert!(!panel2.lookup.in_flight());
     }
 }

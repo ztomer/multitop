@@ -427,8 +427,10 @@ def find_binary():
     roots = []
     if (target := os.environ.get("CARGO_TARGET_DIR")):
         roots.append(target)
-    roots += [os.path.expanduser("~/.cache/cargo-target"),
-              os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "target")]
+    # This tree's target dir only. A host-wide cache root sat here until
+    # 2026-09-21 and "newest wins" would have picked a build of some other
+    # checkout out of it.
+    roots.append(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "target"))
     newest = None
     for root in roots:
         for profile in ("release", "debug"):

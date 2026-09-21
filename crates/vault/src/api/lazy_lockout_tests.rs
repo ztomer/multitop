@@ -27,7 +27,7 @@ async fn a_persisted_lockout_is_honoured_after_lazy_load() {
     let dir = TempDir::new().unwrap();
     let path = dir.path().join("vault.bin");
     let vault = Vault::new(fast(path.clone()));
-    vault.initialize("pw").await.unwrap();
+    vault.initialize("pw").unwrap();
 
     // Someone was locked out earlier in a previous run of the app.
     let mut state = LockoutState::load(&path, false);
@@ -54,7 +54,7 @@ async fn concurrent_first_use_cannot_bypass_the_limiter() {
     let dir = TempDir::new().unwrap();
     let path = dir.path().join("vault.bin");
     let vault = Vault::new(fast(path.clone()));
-    vault.initialize("pw").await.unwrap();
+    vault.initialize("pw").unwrap();
 
     let mut state = LockoutState::load(&path, false);
     for _ in 0..12 {

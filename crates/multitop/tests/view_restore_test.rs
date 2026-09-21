@@ -8,6 +8,12 @@
 //! press poisoned all four panels *and* the state file, so every later launch
 //! restored the dead view.
 
+// A test crate, said where clippy reads it: the restriction lints
+// (`unwrap_used`, `expect_used`, `panic`) are policy for production code and
+// exempt for test code (clippy.toml), and an integration test is test code
+// through and through -- helpers included.
+#![cfg(test)]
+
 use multitop::panel::Mode;
 
 const ALL: [Mode; 6] = [

@@ -8,9 +8,14 @@
 //! could see a terminal. They are one path now, and these tests assert the
 //! properties that path is supposed to have.
 
+// A test crate, said where clippy reads it: the restriction lints
+// (`unwrap_used`, `expect_used`, `panic`) are policy for production code and
+// exempt for test code (clippy.toml), and an integration test is test code
+// through and through -- helpers included.
+#![cfg(test)]
+
 // Integration-test crate: helper fns outside #[test] are not covered by
 // clippy.toml's test exemption, so the restriction lints are expected here.
-#![expect(clippy::unwrap_used, clippy::expect_used)]
 
 mod common;
 

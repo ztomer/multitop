@@ -4,6 +4,12 @@
 //! `coverage_pure.rs` because they call `App::new` which triggers the
 //! keychain-isolation gate for the whole file.
 
+// A test crate, said where clippy reads it: the restriction lints
+// (`unwrap_used`, `expect_used`, `panic`) are policy for production code and
+// exempt for test code (clippy.toml), and an integration test is test code
+// through and through -- helpers included.
+#![cfg(test)]
+
 use multitop::config::Server;
 use multitop::password_store;
 

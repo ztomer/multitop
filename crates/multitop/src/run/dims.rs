@@ -72,16 +72,12 @@ impl AgentDims {
     /// already published, which is what the channel holds -- so that is what is
     /// kept, and `inputs` is left unmeasured so the next successful query
     /// recomputes rather than comparing against a size nobody ever read.
-    #[expect(
-        clippy::needless_pass_by_value,
-        reason = "takes the backend's own Result; E is generic and may not be Copy"
-    )]
     pub(super) fn new<E>(
         tx: watch::Sender<(u16, u16)>,
-        query: Result<ratatui::layout::Size, E>,
+        query: &Result<ratatui::layout::Size, E>,
         panels: usize,
     ) -> Self {
-        let Ok(size) = query else {
+        let Ok(size) = *query else {
             let dims = *tx.borrow();
             return Self {
                 inputs: None,
@@ -151,7 +147,7 @@ mod tests {
     #[test]
     fn a_failed_first_query_keeps_what_was_already_published() {
         let (tx, rx) = watch::channel((100, 20));
-        let dims = AgentDims::new::<std::io::Error>(tx, Err(std::io::Error::other("no ioctl")), 3);
+        let dims = AgentDims::new::<std::io::Error>(tx, &Err(std::io::Error::other("no ioctl")), 3);
 
         assert_eq!(dims.current(), (100, 20), "the published size was replaced");
         assert_eq!(*rx.borrow(), (100, 20), "a value was published on failure");
@@ -166,7 +162,7 @@ mod tests {
     #[test]
     fn a_successful_first_query_publishes_and_records_it() {
         let (tx, rx) = watch::channel((0, 0));
-        let dims = AgentDims::new::<std::io::Error>(tx, Ok(size(120, 40)), 2);
+        let dims = AgentDims::new::<std::io::Error>(tx, &Ok(size(120, 40)), 2);
 
         assert_eq!(dims.last_size(), Some((120, 40)));
         assert_eq!(dims.current(), ui::agent_dims(size(120, 40), 2));
@@ -176,7 +172,7 @@ mod tests {
     #[test]
     fn recomputing_from_unchanged_inputs_publishes_nothing() {
         let (tx, mut rx) = watch::channel((0, 0));
-        let mut dims = AgentDims::new::<std::io::Error>(tx, Ok(size(120, 40)), 2);
+        let mut dims = AgentDims::new::<std::io::Error>(tx, &Ok(size(120, 40)), 2);
         rx.borrow_and_update();
 
         assert_eq!(dims.refresh(size(120, 40), 2), None);
@@ -191,7 +187,7 @@ mod tests {
     #[test]
     fn inputs_that_change_without_changing_the_render_size_publish_nothing() {
         let (tx, mut rx) = watch::channel((0, 0));
-        let mut dims = AgentDims::new::<std::io::Error>(tx, Ok(size(120, 40)), 2);
+        let mut dims = AgentDims::new::<std::io::Error>(tx, &Ok(size(120, 40)), 2);
         rx.borrow_and_update();
 
         // The grid quantises in principle, so a different terminal size can
@@ -217,7 +213,7 @@ mod tests {
     #[test]
     fn a_changed_panel_count_republishes_without_any_resize() {
         let (tx, rx) = watch::channel((0, 0));
-        let mut dims = AgentDims::new::<std::io::Error>(tx, Ok(size(120, 40)), 3);
+        let mut dims = AgentDims::new::<std::io::Error>(tx, &Ok(size(120, 40)), 3);
         let before = dims.current();
 
         let after = dims.refresh(size(120, 40), 2);
@@ -231,7 +227,7 @@ mod tests {
     #[test]
     fn a_failed_query_mid_session_is_survivable_rather_than_fatal() {
         let (tx, _rx) = watch::channel((0, 0));
-        let mut dims = AgentDims::new::<std::io::Error>(tx, Ok(size(120, 40)), 3);
+        let mut dims = AgentDims::new::<std::io::Error>(tx, &Ok(size(120, 40)), 3);
         let before = dims.current();
 
         assert_eq!(

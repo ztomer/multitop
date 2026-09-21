@@ -73,26 +73,31 @@ impl Vault {
     /// pins this.
     // `unused_async_trait_impl` landed on stable; the `unknown_lints` guard it
     // once needed was retired as a stale expectation on 2026-09-14.
-    // On Linux the body awaits fprintd; on macOS the Secure Enclave call is
-    // synchronous, so the lint fires there only.
-    #[cfg_attr(
-        target_os = "macos",
-        expect(clippy::unused_async, clippy::unused_async_trait_impl)
-    )]
-    async fn try_unlock_biometric(&self) -> Result<UnlockedVault, VaultError> {
-        // Load vault file
+    /// The vault file, with its signature verified BEFORE anything decrypts.
+    fn read_verified(&self) -> Result<format::VaultFile, VaultError> {
         let vault_file = format::read_vault_file(&self.config.vault_path)?;
-
-        // Verify signature BEFORE decrypting
         crypto::verify_vault_signature(
             &vault_file.header.ed25519_pk,
             &vault_file.header.signed_data(&vault_file.ciphertext),
             &vault_file.header.signature,
         )
         .map_err(|_| VaultError::Corrupted("signature verification failed".into()))?;
+        Ok(vault_file)
+    }
 
-        // Try Secure Enclave (macOS)
-        #[cfg(target_os = "macos")]
+    /// Biometric unlock through the Secure Enclave. The enclave call is
+    /// synchronous, so this returns a ready future; the trait-shaped
+    /// signature is shared with the Linux path, which awaits fprintd.
+    #[cfg(target_os = "macos")]
+    fn try_unlock_biometric(
+        &self,
+    ) -> impl std::future::Future<Output = Result<UnlockedVault, VaultError>> + Send {
+        std::future::ready(self.try_unlock_enclave())
+    }
+
+    #[cfg(target_os = "macos")]
+    fn try_unlock_enclave(&self) -> Result<UnlockedVault, VaultError> {
+        let vault_file = self.read_verified()?;
         if self.config.use_os_keychain {
             if let Some(se_wrapper) = vault_file.header.get_wrapper(WrapperType::SecureEnclave) {
                 // Load-only, never create. `get_secure_enclave` falls through to
@@ -142,7 +147,13 @@ impl Vault {
                 }
             }
         }
+        Err(VaultError::BiometricFailed)
+    }
 
+    /// Biometric unlock through fprintd, then the TPM.
+    #[cfg(target_os = "linux")]
+    async fn try_unlock_biometric(&self) -> Result<UnlockedVault, VaultError> {
+        let vault_file = self.read_verified()?;
         // Try fprintd, then the TPM (Linux).
         //
         // Only ask for a fingerprint if there is a wrapper a fingerprint can
@@ -157,7 +168,6 @@ impl Vault {
         // caveat in `tpm2` -- so the fingerprint is asked first because it is
         // what the *user* was promised, and a refusal must stop the unlock even
         // though nothing cryptographic enforces it.
-        #[cfg(target_os = "linux")]
         if let Some(tpm_wrapper) = vault_file.header.get_wrapper(WrapperType::Tpm2) {
             if let Ok(fv) = fprintd::FingerprintVerifier::new().await {
                 match fv.verify().await {
@@ -190,24 +200,24 @@ impl Vault {
                 }
             }
         }
-
         Err(VaultError::BiometricFailed)
+    }
+
+    /// No biometric path on this platform.
+    #[cfg(not(any(target_os = "macos", target_os = "linux")))]
+    fn try_unlock_biometric(
+        &self,
+    ) -> impl std::future::Future<Output = Result<UnlockedVault, VaultError>> + Send {
+        std::future::ready(
+            self.read_verified()
+                .and_then(|_| Err(VaultError::BiometricFailed)),
+        )
     }
 
     /// Repair an orphaned Secure Enclave wrapper, if there is one and it can be
     /// repaired. Best-effort and silent: every failure leaves the vault exactly
     /// as it opened.
-    #[cfg_attr(
-        not(target_os = "macos"),
-        expect(
-            unused_variables,
-            clippy::unused_self,
-            clippy::needless_pass_by_ref_mut,
-            clippy::missing_const_for_fn,
-            reason = "the body is macOS-only; on every other platform this is empty \
-                      and the parameters are untouched"
-        )
-    )]
+    #[cfg(target_os = "macos")]
     pub(super) fn rebind_enclave_wrapper(&self, unlocked: &mut UnlockedVault) {
         // Repair an orphaned Secure Enclave wrapper.
         //
@@ -261,4 +271,8 @@ impl Vault {
             }
         }
     }
+
+    /// No enclave on this platform: nothing to repair.
+    #[cfg(not(target_os = "macos"))]
+    pub(super) const fn rebind_enclave_wrapper(&self, _unlocked: &mut UnlockedVault) {}
 }

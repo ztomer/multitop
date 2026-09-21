@@ -1,10 +1,6 @@
 //! Low-level process sampling and stat parser functions.
 
-#![expect(
-    unsafe_code,
-    reason = "FFI boundary; see the unsafe_code note in lib.rs"
-)]
-
+use crate::conv::signed;
 use std::collections::{HashMap, HashSet};
 use std::fs;
 
@@ -34,12 +30,6 @@ pub struct RawProcStat {
 }
 
 #[must_use]
-#[expect(
-    clippy::cast_sign_loss,
-    reason = "/proc field widths: values parsed straight out of a pseudofile \
-              whose kernel-side types fix these ranges, converted for arithmetic \
-              that is then rendered."
-)]
 pub fn parse_pid_stat(data: &str) -> Option<RawProcStat> {
     let open = data.find('(')?;
     let close = data.rfind(')')?;
@@ -60,7 +50,7 @@ pub fn parse_pid_stat(data: &str) -> Option<RawProcStat> {
 
     let _skip20 = iter.next()?;
     let rss_str = iter.next()?;
-    let rss_pages: u64 = rss_str.parse::<i64>().unwrap_or(0).max(0) as u64;
+    let rss_pages: u64 = rss_str.parse::<u64>().unwrap_or(0);
 
     Some(RawProcStat {
         pid,
@@ -153,21 +143,14 @@ impl Default for ProcSampler {
 
 impl ProcSampler {
     #[must_use]
-    #[expect(
-        clippy::cast_precision_loss,
-        clippy::cast_sign_loss,
-        reason = "/proc field widths: values parsed straight out of a pseudofile \
-              whose kernel-side types fix these ranges, converted for arithmetic \
-              that is then rendered."
-    )]
     pub fn new() -> Self {
         let clk_tck = unsafe { libc::sysconf(libc::_SC_CLK_TCK) };
         let page_size = unsafe { libc::sysconf(libc::_SC_PAGESIZE) };
         Self {
             prev: HashMap::new(),
-            clk_tck: if clk_tck > 0 { clk_tck as f64 } else { 100.0 },
+            clk_tck: if clk_tck > 0 { signed(clk_tck) } else { 100.0 },
             page_size: if page_size > 0 {
-                page_size as u64
+                u64::try_from(page_size).unwrap_or(4096)
             } else {
                 4096
             },

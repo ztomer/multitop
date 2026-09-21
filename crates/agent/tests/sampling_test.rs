@@ -7,6 +7,12 @@
 //! proves the fallback chain (read `/proc`, else ask the platform) terminates
 //! and produces a value on a host with no `/proc` at all.
 
+// A test crate, said where clippy reads it: the restriction lints
+// (`unwrap_used`, `expect_used`, `panic`) are policy for production code and
+// exempt for test code (clippy.toml), and an integration test is test code
+// through and through -- helpers included.
+#![cfg(test)]
+
 // Integration-test crate: helper fns outside #[test] are not covered by
 // clippy.toml's test exemption, so the restriction lints are expected here.
 use multitop_agent::fetch;
@@ -277,15 +283,6 @@ fn the_primary_address_is_either_a_real_route_or_nothing() {
 // ------------------------------------------------------------ proc sampler
 
 #[test]
-#[expect(
-    clippy::float_cmp,
-    reason = "these assert EXACTLY zero, which is the property under test — see the \
-              function name. clippy suggests an epsilon comparison, which would \
-              accept 1e-300 and defeat the very cases these guard: a rate that \
-              saturates instead of dividing by zero, a counter that does not \
-              underflow, a percentage that is not a NaN. `expect` not `allow`, \
-              so it errors if the comparison ever stops being strict."
-)]
 fn the_sampler_ranks_this_hosts_processes() {
     let mut sampler = ProcSampler::new();
     sampler.prime();
@@ -304,7 +301,13 @@ fn the_sampler_ranks_this_hosts_processes() {
     // A zero window cannot produce a rate, so every process reads as idle
     // rather than as a division by zero.
     for p in sampler.top(0.0, 5, SortBy::Cpu) {
-        assert_eq!(p.cpu, 0.0);
+        assert_eq!(
+            (p.cpu).partial_cmp(&(0.0)),
+            Some(std::cmp::Ordering::Equal),
+            "{:?} vs {:?}",
+            p.cpu,
+            0.0
+        );
     }
 
     // Asking for none is not an error, and asking for more than exist just
@@ -314,21 +317,18 @@ fn the_sampler_ranks_this_hosts_processes() {
 }
 
 #[test]
-#[expect(
-    clippy::float_cmp,
-    reason = "these assert EXACTLY zero, which is the property under test — see the \
-              function name. clippy suggests an epsilon comparison, which would \
-              accept 1e-300 and defeat the very cases these guard: a rate that \
-              saturates instead of dividing by zero, a counter that does not \
-              underflow, a percentage that is not a NaN. `expect` not `allow`, \
-              so it errors if the comparison ever stops being strict."
-)]
 fn a_sampler_that_was_never_primed_still_reports() {
     // Without a baseline every rate is zero, which is the honest answer for a
     // first frame rather than a spike.
     let mut sampler = ProcSampler::new();
     for p in sampler.top(2.0, 3, SortBy::Cpu) {
-        assert_eq!(p.cpu, 0.0);
+        assert_eq!(
+            (p.cpu).partial_cmp(&(0.0)),
+            Some(std::cmp::Ordering::Equal),
+            "{:?} vs {:?}",
+            p.cpu,
+            0.0
+        );
     }
 }
 
@@ -348,43 +348,43 @@ fn busy_percentage_is_the_non_idle_share_of_the_window() {
 }
 
 #[test]
-#[expect(
-    clippy::float_cmp,
-    reason = "these assert EXACTLY zero, which is the property under test — see the \
-              function name. clippy suggests an epsilon comparison, which would \
-              accept 1e-300 and defeat the very cases these guard: a rate that \
-              saturates instead of dividing by zero, a counter that does not \
-              underflow, a percentage that is not a NaN. `expect` not `allow`, \
-              so it errors if the comparison ever stops being strict."
-)]
 fn a_window_in_which_nothing_moved_is_zero_percent_busy() {
     let t = CpuTimes {
         total: 1000,
         idle: 800,
     };
-    assert_eq!(t.pct_since(&t), 0.0);
+    assert_eq!(
+        (t.pct_since(&t)).partial_cmp(&(0.0)),
+        Some(std::cmp::Ordering::Equal),
+        "{:?} vs {:?}",
+        t.pct_since(&t),
+        0.0
+    );
     // Counters that went backwards (a reboot between samples) saturate to
     // zero rather than wrapping to a huge busy figure.
     let older = CpuTimes {
         total: 9999,
         idle: 9999,
     };
-    assert_eq!(t.pct_since(&older), 0.0);
+    assert_eq!(
+        (t.pct_since(&older)).partial_cmp(&(0.0)),
+        Some(std::cmp::Ordering::Equal),
+        "{:?} vs {:?}",
+        t.pct_since(&older),
+        0.0
+    );
 }
 
 #[test]
-#[expect(
-    clippy::float_cmp,
-    reason = "these assert EXACTLY zero, which is the property under test — see the \
-              function name. clippy suggests an epsilon comparison, which would \
-              accept 1e-300 and defeat the very cases these guard: a rate that \
-              saturates instead of dividing by zero, a counter that does not \
-              underflow, a percentage that is not a NaN. `expect` not `allow`, \
-              so it errors if the comparison ever stops being strict."
-)]
 fn usage_of_a_zero_sized_thing_is_zero_percent_not_a_nan() {
     let u = Usage::new(0, 0);
-    assert_eq!(u.pct, 0.0);
+    assert_eq!(
+        (u.pct).partial_cmp(&(0.0)),
+        Some(std::cmp::Ordering::Equal),
+        "{:?} vs {:?}",
+        u.pct,
+        0.0
+    );
     assert!(!u.pct.is_nan());
 }
 

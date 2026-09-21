@@ -5,17 +5,26 @@
 //! unaltered, and that a reader which cannot understand a frame says so instead
 //! of carrying on from the wrong offset.
 
+// A test crate, said where clippy reads it: the restriction lints
+// (`unwrap_used`, `expect_used`, `panic`) are policy for production code and
+// exempt for test code (clippy.toml), and an integration test is test code
+// through and through -- helpers included.
+#![cfg(test)]
+
 // Integration-test crate: helper fns outside #[test] are not covered by
 // clippy.toml's test exemption, so the restriction lints are expected here.
-#![expect(clippy::expect_used, clippy::panic)]
 use multitop_agent::exec::{chunks, ExecFrame, MarkerKind, Stream, MAX_EXEC_CHUNK};
 use multitop_agent::proto::{decode_packet, encode_packet, Payload};
 
-fn round_trip(frame: &ExecFrame) -> ExecFrame {
+/// Encode, decode, and hand back the frame -- or say what came back
+/// instead. A helper is outside clippy's test exemption, so it reports and
+/// the `#[test]` caller unwraps.
+fn round_trip(frame: &ExecFrame) -> Result<ExecFrame, String> {
     let pkt = encode_packet(&Payload::Exec(frame.clone()));
-    match decode_packet(&pkt).expect("a packet this build wrote must decode") {
-        Payload::Exec(got) => got,
-        other => panic!("wrong payload kind: {other:?}"),
+    match decode_packet(&pkt) {
+        Some(Payload::Exec(got)) => Ok(got),
+        Some(other) => Err(format!("wrong payload kind: {other:?}")),
+        None => Err("a packet this build wrote did not decode".to_string()),
     }
 }
 
@@ -65,7 +74,11 @@ fn every_frame_survives_the_round_trip() {
         },
     ];
     for f in &frames {
-        assert_eq!(&round_trip(f), f, "frame did not survive: {f:?}");
+        assert_eq!(
+            &round_trip(f).expect("round trip"),
+            f,
+            "frame did not survive: {f:?}"
+        );
     }
 }
 
@@ -89,9 +102,9 @@ fn an_absent_password_is_distinct_from_an_empty_one() {
         cols: 80,
         rows: 24,
     };
-    assert_eq!(round_trip(&absent), absent);
-    assert_eq!(round_trip(&empty), empty);
-    assert_ne!(round_trip(&absent), empty);
+    assert_eq!(round_trip(&absent).expect("round trip"), absent);
+    assert_eq!(round_trip(&empty).expect("round trip"), empty);
+    assert_ne!(round_trip(&absent).expect("round trip"), empty);
 }
 
 /// Terminal output is not guaranteed to be UTF-8 -- a `latin-1` locale, a
@@ -106,7 +119,7 @@ fn out_carries_bytes_that_are_not_utf8() {
         seq: 0,
         bytes: raw.clone(),
     };
-    match round_trip(&frame) {
+    match round_trip(&frame).expect("round trip") {
         ExecFrame::Out { bytes, .. } => assert_eq!(bytes, raw),
         other => panic!("wrong frame: {other:?}"),
     }
@@ -148,7 +161,7 @@ fn a_negative_exit_code_survives() {
             code,
             signalled: false,
         };
-        assert_eq!(round_trip(&f), f, "code {code}");
+        assert_eq!(round_trip(&f).expect("round trip"), f, "code {code}");
     }
 }
 

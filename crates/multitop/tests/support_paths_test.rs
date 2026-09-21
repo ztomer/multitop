@@ -5,6 +5,12 @@
 //! config that parses into the wrong hosts, a state file that overwrites what
 //! it could not read, a task list that grows out of step with the panels.
 
+// A test crate, said where clippy reads it: the restriction lints
+// (`unwrap_used`, `expect_used`, `panic`) are policy for production code and
+// exempt for test code (clippy.toml), and an integration test is test code
+// through and through -- helpers included.
+#![cfg(test)]
+
 use multitop::config::{self, Server, DEFAULT_PORT};
 use multitop::password_store;
 use multitop::state;

@@ -1,3 +1,7 @@
+// The one crate with no FFI: unsafe stays denied here (see the workspace
+// Cargo.toml note and tools/check_unsafe_scope.py).
+#![deny(unsafe_code)]
+
 // macOS is Apple Silicon only. A compile error, not a runtime check, because
 // Homebrew builds from source on the user's machine. The agent's x86-64 target
 // is a different axis and is unaffected.

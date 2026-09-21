@@ -62,11 +62,11 @@ fn draw_no_matches(f: &mut Frame, app: &App, theme: &multitop_agent::color::Pale
 /// show the vault-creation prompt -- the user pressed Enter on a row and landed
 /// back on the stats screen.
 fn draw_modals(f: &mut Frame, app: &App) {
-    if app.help_visible {
+    if app.overlay.is_help() {
         crate::modals::draw_help(f);
         return;
     }
-    if app.command_palette_visible {
+    if app.overlay.is_palette() {
         crate::modals::draw_command_palette(f, app);
         return;
     }
@@ -86,7 +86,6 @@ fn draw_modals(f: &mut Frame, app: &App) {
     }
 }
 
-#[expect(clippy::too_many_lines)]
 /// Draw one frame.
 ///
 /// Takes `&mut App` for one reason: the scroll offset is bounded here and
@@ -144,113 +143,8 @@ pub fn draw(f: &mut Frame, app: &mut App) {
             panel.scroll_offset,
         );
         effective_offsets.push((idx, badge_offset));
-        if !lines.is_empty() {
-            let host_name = panel
-                .last_monitor
-                .as_ref()
-                .and_then(|p| match p {
-                    multitop_agent::proto::Payload::Monitor(snap) => Some(snap.host.clone()),
-                    _ => None,
-                })
-                .unwrap_or_else(|| panel.server.host.clone());
-
-            // Row 0 is composed here, once, from everything that belongs on it:
-            // the banner and the scroll badge. `visible` used to write the badge
-            // here too and lose.
-            let badge = if badge_offset > 0 {
-                format!(" [\u{2191} -{badge_offset} lines] ")
-            } else {
-                String::new()
-            };
-            let badge_w = badge.chars().count();
-            let total_w = (inner.width as usize).saturating_sub(badge_w);
-            // Plain ASCII, fitted to the room there is. This was mapped into
-            // fullwidth codepoints, which doubled the cell cost and clipped the
-            // digits -- the only part that differs between hosts -- off the
-            // right, and drew the one label that must never be wrong in a
-            // fallback CJK font.
-            // The fitter reports the cells it drew. Measuring the returned
-            // string here would be a second width calculation beside the one
-            // that produced it, and the two disagree by a factor of two the
-            // moment the style changes -- which is how the rule either side of
-            // the name ends up computed against a width the name does not have.
-            let (server_target, disp_w) = crate::layout::fit_banner_styled(
-                &panel.server.user,
-                &host_name,
-                total_w.saturating_sub(2),
-                app.banner_style,
-            );
-            let space_needed = disp_w + 2;
-
-            // Alerts as panels — tint the banner amber→red when breaching.
-            let alert_color = panel.last_monitor.as_ref().and_then(|p| match p {
-                multitop_agent::proto::Payload::Monitor(snap) => {
-                    let cfg = crate::config::Config {
-                        servers: vec![],
-                        theme: None,
-                        upgrade_history_lines: 5000,
-                        history_lines_raised_from: None,
-                        banner_style: crate::layout::BannerStyle::default(),
-                        plaintext_passwords: vec![],
-                        alert_cpu: app.alert_cpu,
-                        alert_mem: app.alert_mem,
-                        alert_disk: app.alert_disk,
-                        alerts: app.alert_targets.clone(),
-                    };
-                    let vault_locked = app.vault.is_some()
-                        && matches!(app.vault_state, crate::app::VaultState::Locked);
-                    let h = crate::health::health_with_vault(snap, &cfg, vault_locked);
-                    if h < crate::health::HEALTH_RED_BELOW {
-                        Some(Color::Red)
-                    } else if h < crate::health::HEALTH_YELLOW_BELOW {
-                        Some(Color::Yellow)
-                    } else {
-                        None
-                    }
-                }
-                _ => None,
-            });
-
-            if total_w >= space_needed {
-                let rem = total_w - space_needed;
-                let left_rule_len = rem / 2;
-                let right_rule_len = rem - left_rule_len;
-
-                let fw = &server_target;
-                let (name_open, name_close) = header_name_color(alert_color, theme);
-
-                // A space either side of the name. `space_needed` has always
-                // budgeted two and only one was emitted, so the rule was a
-                // character longer on the left than the right -- invisible while
-                // the name was a wall of fullwidth glyphs, obvious once it is
-                // ordinary text.
-                lines[0] = format!(
-                    "{}{}{} {}{}{} {}{}{}{}",
-                    theme.secondary(),
-                    "\u{2500}".repeat(left_rule_len),
-                    theme.reset,
-                    name_open,
-                    fw,
-                    name_close,
-                    theme.secondary(),
-                    "\u{2500}".repeat(right_rule_len),
-                    theme.reset,
-                    badge_span(&badge),
-                );
-            } else {
-                // Not `center_header`: that is the agent's own helper and maps
-                // the name into fullwidth glyphs, which is the defect this
-                // branch also had.
-                let (name_open2, name_close2) = header_name_color(alert_color, theme);
-                lines[0] = format!(
-                    "{}{}{}{}{}",
-                    name_open2,
-                    server_target,
-                    name_close2,
-                    theme.reset,
-                    badge_span(&badge)
-                );
-            }
+        if let Some(first) = lines.first_mut() {
+            *first = banner_row(app, panel, theme, inner.width, badge_offset);
         }
         f.render_widget(Paragraph::new(ansi::to_text(&lines)), inner);
     }
@@ -276,6 +170,127 @@ pub fn draw(f: &mut Frame, app: &mut App) {
     );
 
     draw_modals(f, app);
+}
+
+/// Row 0 of a pane, composed once from everything that belongs on it: the
+/// banner (user@host fitted to the width, tinted when an alert is breaching)
+/// and the scroll badge.
+fn banner_row(
+    app: &App,
+    panel: &crate::panel::Panel,
+    theme: &multitop_agent::color::Palette,
+    width: u16,
+    badge_offset: usize,
+) -> String {
+    let host_name = panel
+        .last_monitor
+        .as_ref()
+        .and_then(|p| match p {
+            multitop_agent::proto::Payload::Monitor(snap) => Some(snap.host.clone()),
+            _ => None,
+        })
+        .unwrap_or_else(|| panel.server.host.clone());
+
+    // Row 0 is composed here, once, from everything that belongs on it:
+    // the banner and the scroll badge. `visible` used to write the badge
+    // here too and lose.
+    let badge = if badge_offset > 0 {
+        format!(" [\u{2191} -{badge_offset} lines] ")
+    } else {
+        String::new()
+    };
+    let badge_w = badge.chars().count();
+    let total_w = usize::from(width).saturating_sub(badge_w);
+    // Plain ASCII, fitted to the room there is. This was mapped into
+    // fullwidth codepoints, which doubled the cell cost and clipped the
+    // digits -- the only part that differs between hosts -- off the
+    // right, and drew the one label that must never be wrong in a
+    // fallback CJK font.
+    // The fitter reports the cells it drew. Measuring the returned
+    // string here would be a second width calculation beside the one
+    // that produced it, and the two disagree by a factor of two the
+    // moment the style changes -- which is how the rule either side of
+    // the name ends up computed against a width the name does not have.
+    let (server_target, disp_w) = crate::layout::fit_banner_styled(
+        &panel.server.user,
+        &host_name,
+        total_w.saturating_sub(2),
+        app.banner_style,
+    );
+    let space_needed = disp_w + 2;
+
+    // Alerts as panels -- tint the banner amber -> red when breaching.
+    let alert_color = panel.last_monitor.as_ref().and_then(|p| match p {
+        multitop_agent::proto::Payload::Monitor(snap) => alert_tint(app, snap),
+        _ => None,
+    });
+
+    if total_w >= space_needed {
+        let rem = total_w - space_needed;
+        let left_rule_len = rem / 2;
+        let right_rule_len = rem - left_rule_len;
+
+        let fw = &server_target;
+        let (name_open, name_close) = header_name_color(alert_color, theme);
+
+        // A space either side of the name. `space_needed` has always
+        // budgeted two and only one was emitted, so the rule was a
+        // character longer on the left than the right -- invisible while
+        // the name was a wall of fullwidth glyphs, obvious once it is
+        // ordinary text.
+        return format!(
+            "{}{}{} {}{}{} {}{}{}{}",
+            theme.secondary(),
+            "\u{2500}".repeat(left_rule_len),
+            theme.reset,
+            name_open,
+            fw,
+            name_close,
+            theme.secondary(),
+            "\u{2500}".repeat(right_rule_len),
+            theme.reset,
+            badge_span(&badge),
+        );
+    }
+    // Not `center_header`: that is the agent's own helper and maps
+    // the name into fullwidth glyphs, which is the defect this
+    // branch also had.
+    let (name_open2, name_close2) = header_name_color(alert_color, theme);
+    format!(
+        "{}{}{}{}{}",
+        name_open2,
+        server_target,
+        name_close2,
+        theme.reset,
+        badge_span(&badge)
+    )
+}
+
+/// Amber, red, or nothing: the banner tint for a host whose health has fallen
+/// below the alert thresholds.
+fn alert_tint(app: &App, snap: &multitop_agent::render::Snapshot) -> Option<Color> {
+    let cfg = crate::config::Config {
+        servers: vec![],
+        theme: None,
+        upgrade_history_lines: 5000,
+        history_lines_raised_from: None,
+        banner_style: crate::layout::BannerStyle::default(),
+        plaintext_passwords: vec![],
+        alert_cpu: app.alert_cpu,
+        alert_mem: app.alert_mem,
+        alert_disk: app.alert_disk,
+        alerts: app.alert_targets.clone(),
+    };
+    let vault_locked =
+        app.vault.is_some() && matches!(app.vault_state, crate::app::VaultState::Locked);
+    let h = crate::health::health_with_vault(snap, &cfg, vault_locked);
+    if h < crate::health::HEALTH_RED_BELOW {
+        Some(Color::Red)
+    } else if h < crate::health::HEALTH_YELLOW_BELOW {
+        Some(Color::Yellow)
+    } else {
+        None
+    }
 }
 
 fn header_name_color(

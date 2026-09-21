@@ -1,3 +1,9 @@
+// A test crate, said where clippy reads it: the restriction lints
+// (`unwrap_used`, `expect_used`, `panic`) are policy for production code and
+// exempt for test code (clippy.toml), and an integration test is test code
+// through and through -- helpers included.
+#![cfg(test)]
+
 use multitop::ui::{
     agent_dims, keybar_line, regions, visible, KEYBAR_H, MIN_AGENT_COLS, MIN_AGENT_ROWS,
 };

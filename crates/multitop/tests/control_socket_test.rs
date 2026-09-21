@@ -13,9 +13,14 @@
 //! missing, `ssh` prints `unix_listener: cannot bind to path ...` and the
 //! command never runs at all. Not the upgrade -- every channel, on every host.
 
+// A test crate, said where clippy reads it: the restriction lints
+// (`unwrap_used`, `expect_used`, `panic`) are policy for production code and
+// exempt for test code (clippy.toml), and an integration test is test code
+// through and through -- helpers included.
+#![cfg(test)]
+
 // Integration-test crate: helper fns outside #[test] are not covered by
 // clippy.toml's test exemption, so the restriction lints are expected here.
-#![expect(clippy::expect_used)]
 // ----------------------------------------------------- connection sharing
 
 /// The fallback that the old comment claimed and the code did not have.
@@ -35,11 +40,11 @@
 struct ShortHome(std::path::PathBuf);
 
 impl ShortHome {
-    fn new(tag: &str) -> Self {
+    fn new(tag: &str) -> std::io::Result<Self> {
         let path = std::path::PathBuf::from(format!("/tmp/mt-t-{}-{tag}", std::process::id()));
         let _ = std::fs::remove_dir_all(&path);
-        std::fs::create_dir_all(&path).expect("short home");
-        Self(path)
+        std::fs::create_dir_all(&path)?;
+        Ok(Self(path))
     }
     fn path(&self) -> &std::path::Path {
         &self.0
@@ -62,7 +67,7 @@ impl Drop for ShortHome {
 
 #[test]
 fn a_home_that_can_hold_the_socket_gets_connection_sharing() {
-    let dir = ShortHome::new("share");
+    let dir = ShortHome::new("share").expect("a short home");
     let opts = multitop::ssh::multiplex_opts(dir.path()).expect("a writable home must share");
     assert!(opts.iter().any(|o| o == "ControlMaster=auto"), "{opts:?}");
     assert!(
@@ -87,7 +92,7 @@ fn a_home_that_can_hold_the_socket_gets_connection_sharing() {
 #[test]
 fn the_socket_directory_is_owner_only() {
     use std::os::unix::fs::PermissionsExt;
-    let dir = ShortHome::new("mode");
+    let dir = ShortHome::new("mode").expect("a short home");
     multitop::ssh::multiplex_opts(dir.path()).expect("share");
     let mode = std::fs::metadata(dir.path().join(".ssh"))
         .unwrap()
@@ -105,7 +110,7 @@ fn the_socket_directory_is_owner_only() {
 #[test]
 fn a_home_that_cannot_hold_the_socket_gives_up_sharing_not_connecting() {
     use std::os::unix::fs::PermissionsExt;
-    let dir = ShortHome::new("nowrite");
+    let dir = ShortHome::new("nowrite").expect("a short home");
     let home = dir.path().to_path_buf();
     // Read and execute but not write, so `.ssh` cannot be created inside it.
     let mut perms = std::fs::metadata(&home).unwrap().permissions();

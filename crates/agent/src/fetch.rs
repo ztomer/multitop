@@ -3,18 +3,10 @@
 //! Data collection only — rendering (including logo lookup) lives in the
 //! monitor crate's `fetch_render` module to keep the agent binary small.
 
-#![cfg_attr(
-    target_os = "macos",
-    expect(
-        unsafe_code,
-        reason = "FFI boundary on macOS only; scoped so the expectation is fulfilled \
-                  exactly where the unsafe exists (see the unsafe_code note in lib.rs)"
-    )
-)]
-
 use std::path::Path;
 
 use crate::consts::AGENT_VERSION;
+use crate::conv::whole_u64;
 use crate::fmt::fmt_size;
 use crate::proc;
 
@@ -52,30 +44,12 @@ pub fn format_uptime(total_sec: u64) -> String {
 
 /// Seconds of uptime from the first field of `/proc/uptime`.
 #[must_use]
-#[expect(
-    clippy::cast_possible_truncation,
-    clippy::cast_sign_loss,
-    reason = "uptime seconds: /proc/uptime is a fractional-second f64 that \
-              converts to whole seconds for display. The magnitude is a machine \
-              uptime, so the truncation is the intended rounding."
-)]
 pub fn parse_proc_uptime(raw: &str) -> Option<u64> {
     let secs = raw.split_ascii_whitespace().next()?.parse::<f64>().ok()?;
-    Some(secs as u64)
+    Some(whole_u64(secs))
 }
 
 #[must_use]
-#[cfg_attr(
-    target_os = "macos",
-    expect(
-        clippy::cast_sign_loss,
-        reason = "uptime seconds: /proc/uptime is a fractional-second f64 that \
-              converts to whole seconds for display. The magnitude is a machine \
-                  uptime, so the truncation is the intended rounding. Only the \
-                  macOS branch below casts, so the expectation is conditional \
-                  too -- unconditional, it is unfulfilled (an error) on Linux."
-    )
-)]
 pub fn sample_uptime() -> String {
     if let Some(total_sec) = parse_proc_uptime(&proc::read_proc("/proc/uptime")) {
         return format_uptime(total_sec);
@@ -98,7 +72,8 @@ pub fn sample_uptime() -> String {
         };
         if res == 0 && boot_time.tv_sec > 0 {
             let now = unsafe { libc::time(std::ptr::null_mut()) };
-            let elapsed = now.saturating_sub(boot_time.tv_sec) as u64;
+            // Both are positive by the guard above, so the difference fits.
+            let elapsed = u64::try_from(now.saturating_sub(boot_time.tv_sec)).unwrap_or(0);
             return format_uptime(elapsed);
         }
     }
@@ -274,18 +249,6 @@ pub fn parse_cpuinfo(content: &str) -> Option<String> {
 }
 
 #[must_use]
-#[cfg_attr(
-    target_os = "macos",
-    expect(
-        clippy::option_if_let_else,
-        reason = "the `if let Ok(name) = CString::new(..)` below is an early \
-                  guard inside the macOS branch, followed by two more sysctl \
-                  probes. `map_or_else` would put the whole remaining body in a \
-                  closure to save one `if`. Conditional because only the macOS \
-                  branch contains the pattern -- unconditional, the expectation \
-                  is unfulfilled, and therefore an error, on Linux."
-    )
-)]
 pub fn sample_cpu_model() -> String {
     if let Some(cpu) = parse_cpuinfo(&proc::read_proc("/proc/cpuinfo")) {
         return cpu;
@@ -295,34 +258,33 @@ pub fn sample_cpu_model() -> String {
     {
         let mut cpu_buf = [0u8; crate::consts::SYSCTL_BUF];
         let mut size = cpu_buf.len();
-        if let Ok(name) = std::ffi::CString::new("machdep.cpu.brand_string") {
-            let _res = unsafe {
+        let Ok(name) = std::ffi::CString::new("machdep.cpu.brand_string") else {
+            return "Apple Silicon".to_string();
+        };
+        let _res = unsafe {
+            libc::sysctlbyname(
+                name.as_ptr(),
+                cpu_buf.as_mut_ptr().cast(),
+                &raw mut size,
+                std::ptr::null_mut(),
+                0,
+            )
+        };
+        let mut num_cores: libc::natural_t = 0;
+        let mut c_size = std::mem::size_of::<libc::natural_t>();
+        if let Ok(c_name) = std::ffi::CString::new("hw.logicalcpu") {
+            let _ = unsafe {
                 libc::sysctlbyname(
-                    name.as_ptr(),
-                    cpu_buf.as_mut_ptr().cast(),
-                    &raw mut size,
+                    c_name.as_ptr(),
+                    (&raw mut num_cores).cast(),
+                    &raw mut c_size,
                     std::ptr::null_mut(),
                     0,
                 )
             };
-            let mut num_cores: libc::natural_t = 0;
-            let mut c_size = std::mem::size_of::<libc::natural_t>();
-            if let Ok(c_name) = std::ffi::CString::new("hw.logicalcpu") {
-                let _ = unsafe {
-                    libc::sysctlbyname(
-                        c_name.as_ptr(),
-                        (&raw mut num_cores).cast(),
-                        &raw mut c_size,
-                        std::ptr::null_mut(),
-                        0,
-                    )
-                };
-            }
-            let c_str = if num_cores > 0 { num_cores } else { 1 };
-            format!("Apple Silicon ({c_str})")
-        } else {
-            "Apple Silicon".to_string()
         }
+        let c_str = if num_cores > 0 { num_cores } else { 1 };
+        format!("Apple Silicon ({c_str})")
     }
 
     #[cfg(not(target_os = "macos"))]

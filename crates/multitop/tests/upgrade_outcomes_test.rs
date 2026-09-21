@@ -6,9 +6,14 @@
 //! what an operator is told, and telling them the wrong thing is what sends
 //! them to read their upgrade script when the problem was the password.
 
+// A test crate, said where clippy reads it: the restriction lints
+// (`unwrap_used`, `expect_used`, `panic`) are policy for production code and
+// exempt for test code (clippy.toml), and an integration test is test code
+// through and through -- helpers included.
+#![cfg(test)]
+
 // Integration-test crate: helper fns outside #[test] are not covered by
 // clippy.toml's test exemption, so the restriction lints are expected here.
-#![expect(clippy::expect_used)]
 
 use std::time::Duration;
 
@@ -59,7 +64,7 @@ impl Run {
     }
 }
 
-async fn run_upgrade(cmd: Option<&str>, pass: Option<&str>) -> Run {
+async fn run_upgrade(cmd: Option<&str>, pass: Option<&str>) -> Result<Run, String> {
     let (tx, mut rx) = mpsc::channel::<Msg>(256);
     let handle = spawn_upgrade(0, 1, local_server(cmd), pass.map(str::to_string), tx);
 
@@ -95,14 +100,14 @@ async fn run_upgrade(cmd: Option<&str>, pass: Option<&str>) -> Run {
     };
     tokio::time::timeout(Duration::from_secs(60), collect)
         .await
-        .expect("an upgrade must always finish by reporting AuxDone");
+        .map_err(|_| "an upgrade must always finish by reporting AuxDone".to_string())?;
     handle.abort();
 
-    Run {
+    Ok(Run {
         lines,
-        note: note.expect("AuxDone must carry a note"),
+        note: note.ok_or_else(|| "AuxDone must carry a note".to_string())?,
         success,
-    }
+    })
 }
 
 // ------------------------------------------------------------- nothing to run
@@ -112,7 +117,7 @@ async fn a_server_with_no_upgrade_command_says_so_and_still_finishes() {
     // Returning without AuxDone would leave the panel reading "running"
     // forever and block every later upgrade.
     let _g = isolate().await;
-    let run = run_upgrade(None, None).await;
+    let run = run_upgrade(None, None).await.expect("the upgrade ran");
     assert!(!run.success);
     assert!(run.note.contains("no upgrade_cmd"), "{}", run.note);
 }
@@ -122,7 +127,9 @@ async fn a_server_with_no_upgrade_command_says_so_and_still_finishes() {
 #[tokio::test]
 async fn a_command_that_succeeds_reports_done() {
     let _g = isolate().await;
-    let run = run_upgrade(Some("echo 'Reading package lists...'; exit 0"), None).await;
+    let run = run_upgrade(Some("echo 'Reading package lists...'; exit 0"), None)
+        .await
+        .expect("the upgrade ran");
     assert!(run.success);
     assert!(run.note.contains("done"), "{}", run.note);
     assert!(run.log().contains("Reading package lists"), "{}", run.log());
@@ -137,7 +144,9 @@ async fn a_command_that_merely_fails_is_not_blamed_on_the_network() {
     // Reporting every failure as "disconnected" blamed the network for a
     // command that exited non-zero on a host the stats view was talking to.
     let _g = isolate().await;
-    let run = run_upgrade(Some("echo 'E: Broken packages' >&2; exit 100"), None).await;
+    let run = run_upgrade(Some("echo 'E: Broken packages' >&2; exit 100"), None)
+        .await
+        .expect("the upgrade ran");
     assert!(!run.success);
     assert!(run.note.contains("exited 100"), "{}", run.note);
     assert!(run.note.contains("host reachable"), "{}", run.note);
@@ -166,7 +175,9 @@ async fn a_command_that_merely_fails_is_not_blamed_on_the_network() {
 #[tokio::test]
 async fn a_command_killed_by_a_signal_says_which_signal() {
     let _g = isolate().await;
-    let run = run_upgrade(Some("sh -c 'kill -9 $$'"), None).await;
+    let run = run_upgrade(Some("sh -c 'kill -9 $$'"), None)
+        .await
+        .expect("the upgrade ran");
     assert!(!run.success, "a killed command is not a successful upgrade");
     assert!(
         run.note.contains("killed by signal 9"),
@@ -191,7 +202,8 @@ async fn a_refused_sudo_password_is_reported_as_that_not_as_a_failing_command() 
         Some(&format!(r"printf '\n{SUDO_FAILED_SENTINEL}\n'; exit 111")),
         None,
     )
-    .await;
+    .await
+    .expect("the upgrade ran");
 
     assert!(!run.success);
     assert!(run.note.contains("sudo refused"), "{}", run.note);
@@ -212,7 +224,8 @@ async fn the_sudo_sentinel_is_recognised_on_stderr_too() {
         Some(&format!("echo {SUDO_FAILED_SENTINEL} >&2; exit 1")),
         None,
     )
-    .await;
+    .await
+    .expect("the upgrade ran");
     assert!(run.note.contains("sudo refused"), "{}", run.note);
     assert!(!run.log().contains(SUDO_FAILED_SENTINEL), "{}", run.log());
 }
@@ -226,7 +239,8 @@ async fn a_held_lock_is_reported_with_the_file_to_remove() {
         Some(&format!("echo {LOCK_HELD_SENTINEL} >&2; exit 125")),
         None,
     )
-    .await;
+    .await
+    .expect("the upgrade ran");
 
     assert!(!run.success);
     assert!(run.note.contains("holds the lock"), "{}", run.note);
@@ -242,7 +256,8 @@ async fn the_lock_sentinel_is_recognised_on_stdout_too() {
         Some(&format!(r"printf '\n{LOCK_HELD_SENTINEL}\n'; exit 1")),
         None,
     )
-    .await;
+    .await
+    .expect("the upgrade ran");
     assert!(run.note.contains("holds the lock"), "{}", run.note);
     assert!(!run.log().contains(LOCK_HELD_SENTINEL), "{}", run.log());
 }
@@ -254,10 +269,12 @@ async fn the_distinct_exit_codes_are_enough_on_their_own() {
     let _g = isolate().await;
     assert!(run_upgrade(Some("exit 111"), None)
         .await
+        .expect("the upgrade ran")
         .note
         .contains("sudo refused"));
     assert!(run_upgrade(Some("exit 125"), None)
         .await
+        .expect("the upgrade ran")
         .note
         .contains("holds the lock"));
 }
@@ -270,7 +287,9 @@ async fn sudo_asking_for_a_terminal_earns_the_hint_that_fits() {
     let script = "echo 'sudo: no tty present and no askpass program specified' >&2; exit 1";
 
     // With no password stored, the hint is to set one.
-    let without = run_upgrade(Some(script), None).await;
+    let without = run_upgrade(Some(script), None)
+        .await
+        .expect("the upgrade ran");
     assert!(
         without.log().contains("Set password in settings"),
         "{}",
@@ -279,7 +298,9 @@ async fn sudo_asking_for_a_terminal_earns_the_hint_that_fits() {
     assert!(without.log().contains("NOPASSWD"), "{}", without.log());
 
     // With one stored, setting it again is not the advice — checking it is.
-    let with = run_upgrade(Some(script), Some("hunter2")).await;
+    let with = run_upgrade(Some(script), Some("hunter2"))
+        .await
+        .expect("the upgrade ran");
     assert!(
         with.log().contains("Check password in settings"),
         "{}",
@@ -300,7 +321,8 @@ async fn a_command_that_merely_forgot_sudo_still_gets_a_hint() {
         Some("echo 'E: Could not open lock file - are you root?' >&2; exit 100"),
         None,
     )
-    .await;
+    .await
+    .expect("the upgrade ran");
     assert!(
         run.log().contains("Tip:"),
         "no hint was offered:\n{}",
@@ -315,7 +337,9 @@ async fn a_repainting_progress_line_logs_only_what_it_ended_on() {
     // A tool that rewrites one line with carriage returns must contribute one
     // line, not one per tick.
     let _g = isolate().await;
-    let run = run_upgrade(Some(r"printf '10%%\r50%%\r100%% done\n'; exit 0"), None).await;
+    let run = run_upgrade(Some(r"printf '10%%\r50%%\r100%% done\n'; exit 0"), None)
+        .await
+        .expect("the upgrade ran");
 
     let body: Vec<&String> = run.lines.iter().filter(|l| l.contains('%')).collect();
     assert_eq!(
@@ -334,7 +358,8 @@ async fn ssh_s_own_closing_chatter_is_left_out_of_the_log() {
         Some("echo 'Shared connection to web-01 closed.' >&2; echo 'real problem' >&2; exit 1"),
         None,
     )
-    .await;
+    .await
+    .expect("the upgrade ran");
     assert!(run.log().contains("real problem"), "{}", run.log());
     assert!(
         !run.log().contains("Shared connection"),
@@ -351,7 +376,9 @@ async fn stderr_is_read_to_its_own_end_rather_than_stopping_with_stdout() {
     // half the time.
     let _g = isolate().await;
     for _ in 0..5 {
-        let run = run_upgrade(Some("echo out; echo 'the actual reason' >&2; exit 3"), None).await;
+        let run = run_upgrade(Some("echo out; echo 'the actual reason' >&2; exit 3"), None)
+            .await
+            .expect("the upgrade ran");
         assert!(
             run.log().contains("the actual reason"),
             "stderr was thrown away:\n{}",
@@ -369,7 +396,8 @@ async fn a_flood_of_stderr_keeps_the_most_recent_lines() {
         Some("for i in $(seq 1 200); do echo \"noise $i\" >&2; done; exit 1"),
         None,
     )
-    .await;
+    .await
+    .expect("the upgrade ran");
     let log = run.log();
     assert!(log.contains("noise 200"), "the newest line was dropped");
     assert!(

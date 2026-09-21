@@ -16,7 +16,7 @@ fn handle_key_quit_with_upgrade_arms_confirmation() {
     let mut tasks = Tasks::new(1);
 
     let key = KeyEvent::new_with_kind(KeyCode::Char('q'), KeyModifiers::NONE, KeyEventKind::Press);
-    handle_key(key, &mut a, (80, 24), Arc::new(dims_rx), &tx, &mut tasks);
+    handle_key(key, &mut a, (80, 24), &Arc::new(dims_rx), &tx, &mut tasks);
 
     // Quit with upgrade in flight arms the confirmation.
     assert!(a.quit_armed());

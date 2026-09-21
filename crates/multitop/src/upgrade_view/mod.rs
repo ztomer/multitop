@@ -3,7 +3,6 @@
 mod prod;
 pub mod upgradable;
 
-#[expect(clippy::module_inception)]
 #[cfg(test)]
 #[path = "upgrade_view_tests.rs"]
 mod tests_module;

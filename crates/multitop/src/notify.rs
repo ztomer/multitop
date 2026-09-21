@@ -58,6 +58,16 @@ pub fn dispatch_upgrade_notification(
 }
 
 /// Asynchronously dispatch metric breach notifications to all configured targets.
+/// A percentage as the whole `u8` a threshold is compared against.
+///
+/// Rounded, and clamped to 0..=100: a metric cannot exceed the scale it is
+/// on, and a negative or NaN reading is no breach.
+#[must_use]
+pub fn pct_u8(pct: f64) -> u8 {
+    let whole = multitop_agent::conv::whole_i64(pct.round()).clamp(0, 100);
+    u8::try_from(whole).unwrap_or(100)
+}
+
 pub fn dispatch_breach_notification(
     server: &Server,
     metric: &str,

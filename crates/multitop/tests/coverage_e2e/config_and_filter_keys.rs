@@ -82,7 +82,7 @@ fn handle_key_upgrade_confirm_u() {
         KeyEvent::new_with_kind(KeyCode::Char('u'), KeyModifiers::NONE, KeyEventKind::Press),
         &mut a,
         (80, 24),
-        Arc::new(dims_rx),
+        &Arc::new(dims_rx),
         &tx,
         &mut tasks,
     );
@@ -108,7 +108,7 @@ async fn handle_key_upgrade_modal_confirms() {
         KeyEvent::new_with_kind(KeyCode::Char('u'), KeyModifiers::NONE, KeyEventKind::Press),
         &mut a,
         (80, 24),
-        Arc::new(dims_rx),
+        &Arc::new(dims_rx),
         &tx,
         &mut tasks,
     );
@@ -132,7 +132,7 @@ fn handle_key_filter_enter_keeps_query() {
         KeyEvent::new_with_kind(KeyCode::Enter, KeyModifiers::NONE, KeyEventKind::Press),
         &mut a,
         (80, 24),
-        Arc::new(dims_rx),
+        &Arc::new(dims_rx),
         &tx,
         &mut tasks,
     );
@@ -157,7 +157,7 @@ fn handle_key_esc_clears_filter() {
         KeyEvent::new_with_kind(KeyCode::Esc, KeyModifiers::NONE, KeyEventKind::Press),
         &mut a,
         (80, 24),
-        Arc::new(dims_rx),
+        &Arc::new(dims_rx),
         &tx,
         &mut tasks,
     );
@@ -181,7 +181,7 @@ fn handle_key_esc_with_filter_clears_filter() {
         KeyEvent::new_with_kind(KeyCode::Esc, KeyModifiers::NONE, KeyEventKind::Press),
         &mut a,
         (80, 24),
-        Arc::new(dims_rx),
+        &Arc::new(dims_rx),
         &tx,
         &mut tasks,
     );
@@ -204,7 +204,7 @@ fn handle_key_q_quits_when_no_filter() {
         KeyEvent::new_with_kind(KeyCode::Char('q'), KeyModifiers::NONE, KeyEventKind::Press),
         &mut a,
         (80, 24),
-        Arc::new(dims_rx),
+        &Arc::new(dims_rx),
         &tx,
         &mut tasks,
     );

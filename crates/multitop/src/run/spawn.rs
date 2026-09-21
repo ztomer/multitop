@@ -92,7 +92,6 @@ pub fn spawn_biometric_unlock(
     })
 }
 
-#[expect(clippy::too_many_lines)]
 #[must_use]
 pub fn spawn_monitor(
     idx: usize,
@@ -104,7 +103,6 @@ pub fn spawn_monitor(
     tx: tokio::sync::mpsc::Sender<Msg>,
 ) -> JoinHandle<()> {
     tokio::spawn(async move {
-        let local_version = env!("CARGO_PKG_VERSION");
         let mut failures = 0usize;
         loop {
             let status_tx = tx.clone();
@@ -126,76 +124,18 @@ pub fn spawn_monitor(
                     while let Ok(Some(payload)) =
                         stream::next_packet(&mut stream, &mut errbuf).await
                     {
-                        if let Payload::Hello(hello) = &payload {
-                            // Foolproof: Hello must be first and only once.
-                            if hello_seen {
-                                let _ = tx
-                                    .send(Msg::Frame {
-                                        panel: idx,
-                                        epoch,
-                                        lines: vec![error_line(format!(
-                                            "protocol violation: duplicate Hello from {} (proto {} min {})",
-                                            hello.agent_version, hello.proto_version, hello.min_proto_version
-                                        ))],
-                                    })
-                                    .await;
+                        match handshake_verdict(
+                            &payload,
+                            &server.host,
+                            &mut hello_seen,
+                            &mut version_checked,
+                        ) {
+                            Handshake::Proceed => {}
+                            Handshake::Skip => continue,
+                            Handshake::End { line, mismatch } => {
+                                let _ = tx.send(frame(idx, epoch, line)).await;
+                                mismatched = mismatch;
                                 break;
-                            }
-                            hello_seen = true;
-                            if !hello.is_valid() {
-                                let _ = tx
-                                    .send(Msg::Frame {
-                                        panel: idx,
-                                        epoch,
-                                        lines: vec![error_line(format!(
-                                            "invalid Hello from {}: {}",
-                                            server.host,
-                                            hello.mismatch_reason(local_version)
-                                        ))],
-                                    })
-                                    .await;
-                                mismatched = true;
-                                break;
-                            }
-                            if !version_checked {
-                                version_checked = true;
-                                if hello.needs_replacement(local_version) {
-                                    let reason = hello.mismatch_reason(local_version);
-                                    let _ = tx
-                                        .send(Msg::Frame {
-                                            panel: idx,
-                                            epoch,
-                                            lines: vec![format!(
-                                                "\u{2192} agent version mismatch: {reason}, replacing..."
-                                            )],
-                                        })
-                                        .await;
-                                    mismatched = true;
-                                    break;
-                                }
-                            }
-                            continue;
-                        }
-                        if let Payload::Monitor(snap) = &payload {
-                            if !version_checked {
-                                version_checked = true;
-                                if !snap.agent_version.is_empty()
-                                    && snap.agent_version != local_version
-                                {
-                                    let _ = tx
-                                        .send(Msg::Frame {
-                                            panel: idx,
-                                            epoch,
-                                            lines: vec![format!(
-                                                "\u{2192} agent version mismatch: \
-                             remote {} vs local {}, replacing...",
-                                                snap.agent_version, local_version
-                                            )],
-                                        })
-                                        .await;
-                                    mismatched = true;
-                                    break;
-                                }
                             }
                         }
                         let dims = *dims_rx.borrow();
@@ -235,49 +175,8 @@ pub fn spawn_monitor(
                     }
 
                     if mismatched {
-                        // Circuit breaker: if the embedded agent is the same
-                        // version as the remote, re-uploading it will not fix
-                        // the mismatch — it will loop forever uploading the same
-                        // stale bytes. This is exactly what happened when
-                        // 0.44.1 was built without rebuilding the musl agents,
-                        // so the binary embedded 0.44.0 while itself was 0.44.1.
-                        let embedded_stale = {
-                            let v_x86 = crate::ssh_opts::VERSION_X86_64;
-                            let v_arm = crate::ssh_opts::VERSION_AARCH64;
-                            // Hello's agent_version is the remote's version.
-                            // If either embedded slot matches that version, the
-                            // embedded payload is stale.
-                            // We don't know the remote arch yet, so check both.
-                            // `errbuf` may contain the Hello that triggered the
-                            // mismatch, but we already sent the "mismatch" line
-                            // above, so we need the version from the Hello that
-                            // caused it. Re-read it from the last Hello we saw
-                            // is not stored, so we check the local version vs
-                            // the embedded versions: if the local version is
-                            // newer than the embedded, the embedded is stale.
-                            let local = env!("CARGO_PKG_VERSION");
-                            (v_x86 != "missing" && v_x86 != local)
-                                || (v_arm != "missing" && v_arm != local)
-                        };
-                        let line = if embedded_stale {
-                            error_line(format!(
-                                "embedded agent stale ({} vs local {}) — rebuild with ./build.sh to update it; not re-uploading the same bytes",
-                                crate::ssh_opts::VERSION_X86_64, // at least one is stale, show it
-                                env!("CARGO_PKG_VERSION")
-                            ))
-                        } else {
-                            match replace_agent(&server).await {
-                                Ok(note) => note,
-                                Err(reason) => error_line(reason),
-                            }
-                        };
-                        let _ = tx
-                            .send(Msg::Frame {
-                                panel: idx,
-                                epoch,
-                                lines: vec![line],
-                            })
-                            .await;
+                        let line = replacement_line(&server).await;
+                        let _ = tx.send(frame(idx, epoch, line)).await;
                     }
                     if delivered {
                         SessionOutcome::Delivered
@@ -295,6 +194,103 @@ pub fn spawn_monitor(
             sleep(Duration::from_secs(wait)).await;
         }
     })
+}
+
+/// What a packet means for the session's handshake.
+enum Handshake {
+    /// An ordinary packet: deliver it.
+    Proceed,
+    /// The Hello, accepted: nothing to deliver.
+    Skip,
+    /// The session ends here with `line` on the panel; `mismatch` when it
+    /// ended because the agent must be replaced (the caller then replaces it
+    /// rather than reporting a closed connection).
+    End { line: String, mismatch: bool },
+}
+
+/// The version handshake, foolproof: a Hello must be first and only once, must
+/// be valid, and its agent must match this build; a Monitor packet that
+/// arrives before any Hello (an old agent) is checked on its own version.
+fn handshake_verdict(
+    payload: &Payload,
+    host: &str,
+    hello_seen: &mut bool,
+    version_checked: &mut bool,
+) -> Handshake {
+    let local_version = env!("CARGO_PKG_VERSION");
+    match payload {
+        Payload::Hello(hello) => {
+            if *hello_seen {
+                return Handshake::End {
+                    line: error_line(format!(
+                        "protocol violation: duplicate Hello from {} (proto {} min {})",
+                        hello.agent_version, hello.proto_version, hello.min_proto_version
+                    )),
+                    mismatch: false,
+                };
+            }
+            *hello_seen = true;
+            if !hello.is_valid() {
+                return Handshake::End {
+                    line: error_line(format!(
+                        "invalid Hello from {host}: {}",
+                        hello.mismatch_reason(local_version)
+                    )),
+                    mismatch: true,
+                };
+            }
+            if !*version_checked {
+                *version_checked = true;
+                if hello.needs_replacement(local_version) {
+                    let reason = hello.mismatch_reason(local_version);
+                    return Handshake::End {
+                        line: format!("\u{2192} agent version mismatch: {reason}, replacing..."),
+                        mismatch: true,
+                    };
+                }
+            }
+            Handshake::Skip
+        }
+        Payload::Monitor(snap) if !*version_checked => {
+            *version_checked = true;
+            if !snap.agent_version.is_empty() && snap.agent_version != local_version {
+                return Handshake::End {
+                    line: format!(
+                        "\u{2192} agent version mismatch: remote {} vs local {}, replacing...",
+                        snap.agent_version, local_version
+                    ),
+                    mismatch: true,
+                };
+            }
+            Handshake::Proceed
+        }
+        _ => Handshake::Proceed,
+    }
+}
+
+/// Replace the remote agent after a version mismatch, or say why not.
+///
+/// Circuit breaker: if the embedded agent is the same version as the remote,
+/// re-uploading it will not fix the mismatch -- it will loop forever
+/// uploading the same stale bytes. This is exactly what happened when 0.44.1
+/// was built without rebuilding the musl agents, so the binary embedded
+/// 0.44.0 while itself was 0.44.1. The remote arch is not known here, so both
+/// embedded slots are checked against this build's version.
+async fn replacement_line(server: &Server) -> String {
+    let local = env!("CARGO_PKG_VERSION");
+    let v_x86 = crate::ssh_opts::VERSION_X86_64;
+    let v_arm = crate::ssh_opts::VERSION_AARCH64;
+    let embedded_stale =
+        (v_x86 != "missing" && v_x86 != local) || (v_arm != "missing" && v_arm != local);
+    if embedded_stale {
+        return error_line(format!(
+            "embedded agent stale ({v_x86} vs local {local}) — rebuild with ./build.sh to update it; not re-uploading the same bytes"
+        ));
+    }
+    match replace_agent(server).await {
+        Ok(note) => note,
+        Err(reason) => error_line(reason),
+    }
 }
 
 #[cfg(test)]

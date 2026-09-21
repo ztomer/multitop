@@ -6,9 +6,14 @@
 //! found that way. This drives the loop with an injected backend and an
 //! injected event stream instead.
 
+// A test crate, said where clippy reads it: the restriction lints
+// (`unwrap_used`, `expect_used`, `panic`) are policy for production code and
+// exempt for test code (clippy.toml), and an integration test is test code
+// through and through -- helpers included.
+#![cfg(test)]
+
 // Integration-test crate: helper fns outside #[test] are not covered by
 // clippy.toml's test exemption, so the restriction lints are expected here.
-#![expect(clippy::expect_used)]
 use std::sync::atomic::{AtomicU16, Ordering};
 #[path = "../common/mod.rs"]
 mod common;

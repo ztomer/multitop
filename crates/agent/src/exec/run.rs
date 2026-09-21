@@ -194,8 +194,8 @@ fn execute<W: Write>(req: &Request, out: &mut W, seq: &mut u32) -> pty::Outcome 
         &ExecFrame::Begin {
             host: req.host.to_string(),
             agent_version: crate::consts::AGENT_VERSION.to_string(),
-            #[expect(clippy::cast_sign_loss)]
-            pid: child.pid as u32,
+            // A spawned child's pid is positive; a negative one is no child.
+            pid: u32::try_from(child.pid).unwrap_or(0),
         },
     );
 

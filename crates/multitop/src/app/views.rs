@@ -1,4 +1,5 @@
 use crate::app::App;
+use crate::app::Overlay;
 use crate::app::{AppMode, Confirm, VaultState};
 use crate::config::Server;
 use crate::panel::{Mode, Panel};
@@ -30,9 +31,8 @@ impl App {
             should_quit: false,
             quit_armed: false,
             panels_epoch: 0,
-            help_visible: false,
+            overlay: Overlay::None,
             focused_panel: None,
-            command_palette_visible: false,
             command_input: String::new(),
             graph_zoom: 1,
             alert_cpu: None,
@@ -77,7 +77,7 @@ impl App {
                 panel.sudo_password.clone_from(&old.sudo_password);
                 panel.password_saved = old.password_saved;
                 panel.external_password = old.external_password;
-                panel.password_checked = old.password_checked;
+                panel.lookup = old.lookup;
             }
         }
         let count = panels.len();
@@ -111,7 +111,7 @@ impl App {
         matches!(self.mode, AppMode::Filtering)
     }
 
-    pub fn set_filtering(&mut self, filtering: bool) {
+    pub const fn set_filtering(&mut self, filtering: bool) {
         if filtering {
             self.mode = AppMode::Filtering;
         } else if matches!(self.mode, AppMode::Filtering) {
@@ -184,7 +184,7 @@ impl App {
         self.filtered_indices().len()
     }
 
-    pub fn toggle_focus(&mut self) {
+    pub const fn toggle_focus(&mut self) {
         if let Some(focused) = self.focused_panel {
             // Unfocus — restore selection to the focused host.
             self.selected_panel = focused;
@@ -382,7 +382,7 @@ impl App {
     }
 
     #[must_use]
-    pub fn active_confirm(&self) -> Option<Confirm> {
+    pub const fn active_confirm(&self) -> Option<Confirm> {
         if self.quit_armed {
             Some(Confirm::Quit)
         } else if self.kill_confirm.is_some() {

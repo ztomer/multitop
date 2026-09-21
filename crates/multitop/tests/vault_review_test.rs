@@ -4,6 +4,12 @@
 //! the integration seam between the vault crate and the TUI, which is where
 //! every vault bug in this project has actually lived.
 
+// A test crate, said where clippy reads it: the restriction lints
+// (`unwrap_used`, `expect_used`, `panic`) are policy for production code and
+// exempt for test code (clippy.toml), and an integration test is test code
+// through and through -- helpers included.
+#![cfg(test)]
+
 use std::sync::Arc;
 
 use crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyEventState, KeyModifiers};
@@ -12,21 +18,6 @@ use tokio::sync::{mpsc, watch};
 use multitop::app::{App, Msg, VaultState};
 use multitop::config::Server;
 use multitop::run::{handle_key, Tasks};
-
-/// Divert credentials to the in-memory store, and hold the process-global guard.
-///
-/// An integration binary is compiled without `cfg(test)`, so the mock store is
-/// not in force unless it is asked for, and anything holding an `App` reaches
-/// `password_store` several calls down. Without this these tests query the real
-/// OS keychain: every rebuild changes the binary's code signature, so macOS
-/// raises an access dialog and the suite stops until a human dismisses it.
-#[expect(dead_code)]
-fn isolate_keychain() -> tokio::sync::MutexGuard<'static, ()> {
-    let guard = multitop::password_store::lock_for_test();
-    multitop::password_store::enable_mock_store();
-    multitop::password_store::clear_mock_store();
-    guard
-}
 
 async fn isolate_keychain_async() -> tokio::sync::MutexGuard<'static, ()> {
     let guard = multitop::password_store::lock_for_test_async().await;
@@ -87,7 +78,7 @@ impl H {
             },
             &mut self.app,
             (80, 24),
-            Arc::clone(&self.drx),
+            &Arc::clone(&self.drx),
             &self.tx,
             &mut self.tasks,
         );

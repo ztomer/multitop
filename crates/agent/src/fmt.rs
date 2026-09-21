@@ -29,46 +29,29 @@ pub const SIZE_PAIR_W: usize = SIZE_W * 2 + 1;
 pub const SIZE_MAX: u64 = 9_999 * TI;
 
 #[must_use]
-#[expect(
-    clippy::cast_precision_loss,
-    reason = "the result is rendered at {:.1}, so f64's 53-bit mantissa carries \
-              orders of magnitude more precision than the output shows. The \
-              domain is capped at SIZE_MAX (9_999 TiB) besides, which is far \
-              below 2^53 bytes."
-)]
 pub fn fmt_size(b: u64) -> String {
     if b >= TI {
-        format!("{:.1}TiB", b as f64 / TI as f64)
+        format!("{:.1}TiB", unsigned(b) / unsigned(TI))
     } else if b >= GI {
-        format!("{:.1}GiB", b as f64 / GI as f64)
+        format!("{:.1}GiB", unsigned(b) / unsigned(GI))
     } else if b >= MI {
-        format!("{:.1}MiB", b as f64 / MI as f64)
+        format!("{:.1}MiB", unsigned(b) / unsigned(MI))
     } else if b >= KI {
-        format!("{:.1}KiB", b as f64 / KI as f64)
+        format!("{:.1}KiB", unsigned(b) / unsigned(KI))
     } else {
         format!("{b}B")
     }
 }
 
 #[must_use]
-#[expect(
-    clippy::cast_possible_truncation,
-    clippy::cast_precision_loss,
-    reason = "a human-readable transfer rate. `MI`/`KI` are the 2^20 / 2^10 \
-              literals, exact in f64, so the comparisons and divisions lose \
-              nothing. The `as i64` is reached only on the sub-KiB branch, \
-              where the value is under 1024 and the truncation toward zero is \
-              deliberate — it is what the Python original's `int()` did, and \
-              the byte-identical output is pinned by the render tests."
-)]
 pub fn fmt_rate(bytes_per_sec: f64) -> String {
-    if bytes_per_sec >= (MI as f64) {
-        format!("{:.1}M", bytes_per_sec / MI as f64)
-    } else if bytes_per_sec >= (KI as f64) {
-        format!("{:.1}K", bytes_per_sec / KI as f64)
+    if bytes_per_sec >= unsigned(MI) {
+        format!("{:.1}M", bytes_per_sec / unsigned(MI))
+    } else if bytes_per_sec >= unsigned(KI) {
+        format!("{:.1}K", bytes_per_sec / unsigned(KI))
     } else {
         // Python's int() truncates toward zero.
-        format!("{}", bytes_per_sec as i64)
+        format!("{}", whole_i64(bytes_per_sec))
     }
 }
 
@@ -78,20 +61,11 @@ pub fn fmt_rate(bytes_per_sec: f64) -> String {
 /// outside 0..=100 (which a bad /proc delta can produce) made it emit a bar
 /// wider than its own column and skew the whole panel. Clamping keeps the
 /// column fixed-width no matter what the kernel hands us.
-#[expect(
-    clippy::cast_possible_truncation,
-    clippy::cast_precision_loss,
-    clippy::cast_sign_loss,
-    reason = "a bar length in terminal cells: `length` is a column width \
-              (tens), `pct` is guarded non-finite and non-positive above, and the \
-              result is clamped with `.min(length)`. The truncation is the \
-              intended floor — a half-filled cell is not drawable."
-)]
 fn filled_cells(pct: f64, length: usize) -> usize {
     if !pct.is_finite() || pct <= 0.0 {
         return 0;
     }
-    let n = (pct / 100.0 * length as f64) as usize;
+    let n = whole_usize(pct / 100.0 * count(length));
     n.min(length)
 }
 
@@ -160,6 +134,7 @@ pub fn fullwidth_display_width(s: &str) -> usize {
 }
 
 use crate::color::Palette;
+use crate::conv::{count, unsigned, whole_i64, whole_usize};
 
 /// Center-aligned header line: `────── ｈｏｓｔｎａｍｅ ──────`
 #[must_use]

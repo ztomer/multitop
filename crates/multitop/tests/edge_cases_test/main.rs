@@ -5,6 +5,12 @@
 //! something is degenerate — which is exactly when a panic or a wrong answer
 //! is least welcome and least likely to be noticed.
 
+// A test crate, said where clippy reads it: the restriction lints
+// (`unwrap_used`, `expect_used`, `panic`) are policy for production code and
+// exempt for test code (clippy.toml), and an integration test is test code
+// through and through -- helpers included.
+#![cfg(test)]
+
 // Integration-test crate: helper fns outside #[test] are not covered by
 // clippy.toml's test exemption, so the restriction lints are expected here.
 use crossterm::event::KeyCode;

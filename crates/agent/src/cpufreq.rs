@@ -6,6 +6,7 @@
 //! is expected to say "not measured" rather than to substitute a zero. A clock
 //! of 0 MHz on screen is a measurement; this is the absence of one.
 
+use crate::conv::count;
 use crate::proc::read_proc;
 
 /// The clock a `cpufreq` reading is in: kilohertz.
@@ -26,8 +27,7 @@ pub fn parse_scaling_khz(readings: &[String]) -> Option<f64> {
     if mhz.is_empty() {
         return None;
     }
-    #[expect(clippy::cast_precision_loss)]
-    Some(mhz.iter().sum::<f64>() / mhz.len() as f64)
+    Some(mhz.iter().sum::<f64>() / count(mhz.len()))
 }
 
 /// Mean of the `cpu MHz` lines in `/proc/cpuinfo`.
@@ -50,8 +50,7 @@ pub fn parse_cpuinfo_mhz(content: &str) -> Option<f64> {
     if values.is_empty() {
         return None;
     }
-    #[expect(clippy::cast_precision_loss)]
-    Some(values.iter().sum::<f64>() / values.len() as f64)
+    Some(values.iter().sum::<f64>() / count(values.len()))
 }
 
 /// What the cores are clocked at right now, in MHz.

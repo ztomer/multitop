@@ -207,13 +207,11 @@ impl VaultHeader {
         buf.extend_from_slice(&self.argon2_params.m_kib.to_le_bytes());
         buf.push(self.argon2_params.p);
         // wrappers.len() <= 8 (enforced by add_wrapper/replace_wrapper)
-        #[expect(clippy::cast_possible_truncation)]
-        buf.push(self.wrappers.len() as u8);
+        buf.push(u8::try_from(self.wrappers.len()).unwrap_or(u8::MAX));
         for w in &self.wrappers {
             buf.push(w.wrapper_type as u8);
             // w.data.len() <= 65535 (enforced by Wrapper::new)
-            #[expect(clippy::cast_possible_truncation)]
-            let len = w.data.len() as u16;
+            let len = u16::try_from(w.data.len()).unwrap_or(u16::MAX);
             buf.extend_from_slice(&len.to_le_bytes());
             buf.extend_from_slice(&w.data);
         }
@@ -222,8 +220,8 @@ impl VaultHeader {
         // Write canary (length + string)
         let canary_bytes = self.canary.as_bytes();
         // canary is fixed format "multitop-vault-canary-" + 32 hex chars = 57 chars < 65535
-        #[expect(clippy::cast_possible_truncation)]
-        buf.extend_from_slice(&(canary_bytes.len() as u16).to_le_bytes());
+        let canary_len = u16::try_from(canary_bytes.len()).unwrap_or(u16::MAX);
+        buf.extend_from_slice(&canary_len.to_le_bytes());
         buf.extend_from_slice(canary_bytes);
     }
 
@@ -259,68 +257,46 @@ impl VaultHeader {
     /// Returns `VaultError::ParseError` if bytes cannot be parsed,
     /// `VaultError::InvalidFormat` if magic is incorrect,
     /// `VaultError::UnsupportedVersion` if version is not supported.
-    #[expect(clippy::too_many_lines)]
-    fn from_cursor(cursor: &mut Cursor<&[u8]>) -> Result<Self, crate::VaultError> {
-        let mut magic = [0u8; 4];
+    /// A fixed-size field off the cursor, or a parse error naming the cause.
+    fn read<const N: usize>(cursor: &mut Cursor<&[u8]>) -> Result<[u8; N], crate::VaultError> {
+        let mut bytes = [0u8; N];
         cursor
-            .read_exact(&mut magic)
+            .read_exact(&mut bytes)
             .map_err(|e| crate::VaultError::ParseError(e.to_string()))?;
+        Ok(bytes)
+    }
+
+    fn from_cursor(cursor: &mut Cursor<&[u8]>) -> Result<Self, crate::VaultError> {
+        let magic = Self::read::<4>(cursor)?;
         if magic != *b"MQV2" {
             return Err(crate::VaultError::InvalidFormat("invalid magic".into()));
         }
 
-        let mut version = [0u8; 1];
-        cursor
-            .read_exact(&mut version)
-            .map_err(|e| crate::VaultError::ParseError(e.to_string()))?;
+        let version = Self::read::<1>(cursor)?;
         if version[0] != CURRENT_VERSION {
             return Err(crate::VaultError::UnsupportedVersion(version[0]));
         }
 
-        let mut key_version = [0u8; 1];
-        cursor
-            .read_exact(&mut key_version)
-            .map_err(|e| crate::VaultError::ParseError(e.to_string()))?;
+        let key_version = Self::read::<1>(cursor)?;
 
-        let mut created_ts = [0u8; TIMESTAMP_LEN];
-        cursor
-            .read_exact(&mut created_ts)
-            .map_err(|e| crate::VaultError::ParseError(e.to_string()))?;
+        let created_ts = Self::read::<{ TIMESTAMP_LEN }>(cursor)?;
         let created_timestamp_ms = u64::from_le_bytes(created_ts);
 
-        let mut counter = [0u8; 4];
-        cursor
-            .read_exact(&mut counter)
-            .map_err(|e| crate::VaultError::ParseError(e.to_string()))?;
+        let counter = Self::read::<4>(cursor)?;
         let counter = u32::from_le_bytes(counter);
 
-        let mut salt = [0u8; crate::crypto::KEY_LEN];
-        cursor
-            .read_exact(&mut salt)
-            .map_err(|e| crate::VaultError::ParseError(e.to_string()))?;
+        let salt = Self::read::<{ crate::crypto::KEY_LEN }>(cursor)?;
 
-        let mut t = [0u8; 1];
-        cursor
-            .read_exact(&mut t)
-            .map_err(|e| crate::VaultError::ParseError(e.to_string()))?;
-        let mut m_kib = [0u8; 4];
-        cursor
-            .read_exact(&mut m_kib)
-            .map_err(|e| crate::VaultError::ParseError(e.to_string()))?;
-        let mut p = [0u8; 1];
-        cursor
-            .read_exact(&mut p)
-            .map_err(|e| crate::VaultError::ParseError(e.to_string()))?;
+        let t = Self::read::<1>(cursor)?;
+        let m_kib = Self::read::<4>(cursor)?;
+        let p = Self::read::<1>(cursor)?;
         let argon2_params = crate::crypto::Argon2Params {
             t: t[0],
             m_kib: u32::from_le_bytes(m_kib),
             p: p[0],
         };
 
-        let mut wrapper_count = [0u8; 1];
-        cursor
-            .read_exact(&mut wrapper_count)
-            .map_err(|e| crate::VaultError::ParseError(e.to_string()))?;
+        let wrapper_count = Self::read::<1>(cursor)?;
         let wrapper_count = wrapper_count[0] as usize;
 
         // Validate wrapper count (max 8 wrappers allowed)
@@ -357,21 +333,12 @@ impl VaultHeader {
             )?);
         }
 
-        let mut nonce = [0u8; crate::crypto::NONCE_LEN];
-        cursor
-            .read_exact(&mut nonce)
-            .map_err(|e| crate::VaultError::ParseError(e.to_string()))?;
+        let nonce = Self::read::<{ crate::crypto::NONCE_LEN }>(cursor)?;
 
-        let mut ed25519_pk = [0u8; crate::crypto::KEY_LEN];
-        cursor
-            .read_exact(&mut ed25519_pk)
-            .map_err(|e| crate::VaultError::ParseError(e.to_string()))?;
+        let ed25519_pk = Self::read::<{ crate::crypto::KEY_LEN }>(cursor)?;
 
         // Read canary string (written before signature in write_header_without_sig)
-        let mut canary_len = [0u8; 2];
-        cursor
-            .read_exact(&mut canary_len)
-            .map_err(|e| crate::VaultError::ParseError(e.to_string()))?;
+        let canary_len = Self::read::<2>(cursor)?;
         let canary_len = u16::from_le_bytes(canary_len) as usize;
         let mut canary_bytes = vec![0u8; canary_len];
         cursor
@@ -381,10 +348,7 @@ impl VaultHeader {
             .map_err(|_| crate::VaultError::ParseError("invalid canary utf-8".into()))?;
 
         // Read signature (appended after header in to_bytes)
-        let mut sig = [0u8; crate::crypto::SIGNATURE_LEN];
-        cursor
-            .read_exact(&mut sig)
-            .map_err(|e| crate::VaultError::ParseError(e.to_string()))?;
+        let sig = Self::read::<{ crate::crypto::SIGNATURE_LEN }>(cursor)?;
 
         Ok(Self {
             magic,

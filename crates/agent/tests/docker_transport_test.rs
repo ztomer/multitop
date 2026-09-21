@@ -5,9 +5,16 @@
 //! chunked vs plain bodies, non-2xx replies, and a socket that is not there.
 //! The fake speaks just enough HTTP to answer the two paths the agent asks for.
 
+// A test crate, said where clippy reads it: the restriction lints
+// (`unwrap_used`, `expect_used`, `panic`) are policy for production code and
+// exempt for test code (clippy.toml), and an integration test is test code
+// through and through -- helpers included.
+#![cfg(test)]
+
 // Integration-test crate: helper fns outside #[test] are not covered by
 // clippy.toml's test exemption, so the restriction lints are expected here.
 use std::collections::HashMap;
+use std::fmt::Write as _;
 use std::io::{Read, Write};
 use std::net::TcpListener;
 use std::os::unix::net::UnixListener;
@@ -71,19 +78,12 @@ fn plain_response(body: &str) -> Vec<u8> {
         .into_bytes()
 }
 
-#[expect(
-    clippy::format_push_string,
-    reason = "test fixture arithmetic: loop indices and small counts \
-              converted to build synthetic cores and processes. The magnitudes \
-              are the test's own literals — a handful to a few hundred — so \
-              nothing here can truncate. Kept as `expect` so it errors if the \
-              fixture ever stops casting."
-)]
 fn chunked_response(body: &str) -> Vec<u8> {
     let mut out = String::from(
         "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nTransfer-Encoding: chunked\r\nConnection: close\r\n\r\n",
     );
-    out.push_str(&format!("{:x}\r\n{body}\r\n0\r\n\r\n", body.len()));
+    // A `write!` into the String cannot fail; the Result is the trait's.
+    let _ = write!(out, "{:x}\r\n{body}\r\n0\r\n\r\n", body.len());
     out.into_bytes()
 }
 
@@ -341,15 +341,6 @@ fn an_unconstrained_container_shows_no_memory_limit() {
 }
 
 #[test]
-#[expect(
-    clippy::float_cmp,
-    reason = "these assert EXACTLY zero, which is the property under test — see the \
-              function name. clippy suggests an epsilon comparison, which would \
-              accept 1e-300 and defeat the very cases these guard: a rate that \
-              saturates instead of dividing by zero, a counter that does not \
-              underflow, a percentage that is not a NaN. `expect` not `allow`, \
-              so it errors if the comparison ever stops being strict."
-)]
 fn the_cli_fallback_joins_its_two_tables_on_the_container_name() {
     let ps = "web\tUp 3 days\tnginx\taaa111\ndb\tUp 1 hour\tpostgres\tbbb222\n";
     let stats = parse_cli_stats("web\t12.5%\t128MiB / 512MiB\n");
@@ -363,24 +354,27 @@ fn the_cli_fallback_joins_its_two_tables_on_the_container_name() {
     // A container the stats table did not mention reads as idle, not missing.
     assert_eq!(rows[1].name, "db");
     assert_eq!(rows[1].cpu, "0.0%");
-    assert_eq!(rows[1].cpu_pct, 0.0);
+    assert_eq!(
+        (rows[1].cpu_pct).partial_cmp(&(0.0)),
+        Some(std::cmp::Ordering::Equal),
+        "{:?} vs {:?}",
+        rows[1].cpu_pct,
+        0.0
+    );
     assert_eq!(rows[1].mem, "0B / 0B");
 }
 
 #[test]
-#[expect(
-    clippy::float_cmp,
-    reason = "these assert EXACTLY zero, which is the property under test — see the \
-              function name. clippy suggests an epsilon comparison, which would \
-              accept 1e-300 and defeat the very cases these guard: a rate that \
-              saturates instead of dividing by zero, a counter that does not \
-              underflow, a percentage that is not a NaN. `expect` not `allow`, \
-              so it errors if the comparison ever stops being strict."
-)]
 fn a_cli_percentage_that_will_not_parse_reads_as_zero() {
     let stats = parse_cli_stats("web\t--\t128MiB / 512MiB\n");
     let rows = rows_from_cli("web\tUp\tnginx\taaa\n", &stats);
-    assert_eq!(rows[0].cpu_pct, 0.0);
+    assert_eq!(
+        (rows[0].cpu_pct).partial_cmp(&(0.0)),
+        Some(std::cmp::Ordering::Equal),
+        "{:?} vs {:?}",
+        rows[0].cpu_pct,
+        0.0
+    );
     // The text is still shown verbatim rather than being replaced by 0.0%.
     assert_eq!(rows[0].cpu, "--");
 }

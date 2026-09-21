@@ -198,7 +198,7 @@ async fn vault_unlocked_sets_upgrade_modal() {
         use_os_keychain: false,
     };
     let vault = Vault::new(cfg);
-    vault.initialize("pw").await.unwrap();
+    vault.initialize("pw").unwrap();
     a.vault = Some(std::sync::Arc::new(vault));
     a.vault_state = VaultState::Locked;
 

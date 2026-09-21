@@ -7,18 +7,25 @@
 //! written at the moment an upgrade starts, so a power cut during the write
 //! erased exactly the record power-loss detection needs.
 
+// A test crate, said where clippy reads it: the restriction lints
+// (`unwrap_used`, `expect_used`, `panic`) are policy for production code and
+// exempt for test code (clippy.toml), and an integration test is test code
+// through and through -- helpers included.
+#![cfg(test)]
+
 // Integration-test crate: helper fns outside #[test] are not covered by
 // clippy.toml's test exemption, so the restriction lints are expected here.
-#![expect(clippy::unwrap_used)]
 
 use multitop::state::{load_state, save_state, AppState, HostUpdate};
 use std::collections::BTreeMap;
 
-fn scratch(tag: &str) -> std::path::PathBuf {
+/// A fresh scratch config path; the `#[test]` callers unwrap (a helper is
+/// outside clippy's test exemption).
+fn scratch(tag: &str) -> std::io::Result<std::path::PathBuf> {
     let dir = std::env::temp_dir().join(format!("mt_state_{tag}_{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);
-    std::fs::create_dir_all(&dir).unwrap();
-    dir.join("config.toml")
+    std::fs::create_dir_all(&dir)?;
+    Ok(dir.join("config.toml"))
 }
 
 fn populated() -> AppState {
@@ -45,7 +52,7 @@ fn populated() -> AppState {
 
 #[test]
 fn a_save_leaves_no_temporary_file_behind() {
-    let cfg = scratch("tmp");
+    let cfg = scratch("tmp").expect("a scratch dir");
     save_state(&cfg, &populated()).unwrap();
 
     let leftovers: Vec<String> = std::fs::read_dir(cfg.parent().unwrap())
@@ -64,7 +71,7 @@ fn a_save_leaves_no_temporary_file_behind() {
 
 #[test]
 fn a_leftover_temp_file_does_not_block_saving() {
-    let cfg = scratch("stale");
+    let cfg = scratch("stale").expect("a scratch dir");
     // Debris of the shape a killed process leaves.
     let stale = cfg.with_extension(format!("toml.{}.tmp", std::process::id()));
     std::fs::write(&stale, b"garbage from a killed run").unwrap();
@@ -77,7 +84,7 @@ fn a_leftover_temp_file_does_not_block_saving() {
 
 #[test]
 fn a_second_save_replaces_the_first_without_an_empty_window() {
-    let cfg = scratch("replace");
+    let cfg = scratch("replace").expect("a scratch dir");
     save_state(&cfg, &populated()).unwrap();
 
     let mut next = populated();
@@ -114,7 +121,7 @@ fn a_second_save_replaces_the_first_without_an_empty_window() {
 fn each_save_publishes_a_new_file_rather_than_truncating_in_place() {
     use std::os::unix::fs::MetadataExt;
 
-    let cfg = scratch("inode");
+    let cfg = scratch("inode").expect("a scratch dir");
     let state_file = cfg.parent().unwrap().join("state.toml");
 
     save_state(&cfg, &populated()).unwrap();

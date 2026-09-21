@@ -9,9 +9,14 @@
 //! sequencing -- collecting two passwords in a row, carrying the first to the
 //! second, and not leaving a half-finished prompt behind.
 
+// A test crate, said where clippy reads it: the restriction lints
+// (`unwrap_used`, `expect_used`, `panic`) are policy for production code and
+// exempt for test code (clippy.toml), and an integration test is test code
+// through and through -- helpers included.
+#![cfg(test)]
+
 // Integration-test crate: helper fns outside #[test] are not covered by
 // clippy.toml's test exemption, so the restriction lints are expected here.
-#![expect(clippy::unwrap_used)]
 
 use crossterm::event::KeyCode;
 use multitop::app::App;
@@ -82,22 +87,17 @@ fn finish(mut app: App, vault: multitop_vault::Vault) -> App {
 /// An app with a real vault file present, so rotation is offered.
 fn app_with_vault(tag: &str) -> (App, std::path::PathBuf) {
     let (app, vault, dir) = app_and_vault(tag);
-    tokio::runtime::Builder::new_current_thread()
-        .enable_all()
-        .build()
-        .unwrap()
-        .block_on(vault.initialize("old-master"))
-        .unwrap();
+    vault.initialize("old-master").unwrap();
     (finish(app, vault), dir)
 }
 
 /// The same fixture from inside a `#[tokio::test]`.
 ///
-/// `block_on` cannot be called from a thread already driving a runtime, so the
-/// synchronous version panics there rather than building the vault.
-async fn app_with_vault_async(tag: &str) -> (App, std::path::PathBuf) {
+/// The vault's `initialize` is synchronous, so this twin of `app_with_vault`
+/// exists only for `#[tokio::test]` bodies to call without `block_on`.
+fn app_with_vault_async(tag: &str) -> (App, std::path::PathBuf) {
     let (app, vault, dir) = app_and_vault(tag);
-    vault.initialize("old-master").await.unwrap();
+    vault.initialize("old-master").unwrap();
     (finish(app, vault), dir)
 }
 
@@ -250,7 +250,7 @@ fn r_is_ordinary_text_while_a_password_is_being_typed() {
 #[tokio::test]
 async fn a_second_rotation_cannot_start_while_one_is_running() {
     let _keychain = isolate_keychain_async().await;
-    let (mut app, dir) = app_with_vault_async("no-double-rotation").await;
+    let (mut app, dir) = app_with_vault_async("no-double-rotation");
     let (tx, mut rx) = tokio::sync::mpsc::channel::<multitop::app::Msg>(16);
     let mut tasks = multitop::run::Tasks::new(1);
 
@@ -317,7 +317,7 @@ async fn a_second_rotation_cannot_start_while_one_is_running() {
 #[tokio::test]
 async fn the_rotation_outcome_survives_the_panel_being_closed() {
     let _keychain = isolate_keychain_async().await;
-    let (mut app, dir) = app_with_vault_async("outcome-survives").await;
+    let (mut app, dir) = app_with_vault_async("outcome-survives");
 
     app.password_manager = None;
     app.apply(multitop::app::Msg::VaultPasswordRotated {

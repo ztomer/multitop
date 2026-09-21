@@ -16,9 +16,14 @@
 //! the run cannot actually elevate on someone's machine. It does cost one failed
 //! `sudo` authentication in the host's auth log.
 
+// A test crate, said where clippy reads it: the restriction lints
+// (`unwrap_used`, `expect_used`, `panic`) are policy for production code and
+// exempt for test code (clippy.toml), and an integration test is test code
+// through and through -- helpers included.
+#![cfg(test)]
+
 // Integration-test crate: helper fns outside #[test] are not covered by
 // clippy.toml's test exemption, so the restriction lints are expected here.
-#![expect(clippy::expect_used)]
 
 use multitop::config::Server;
 use multitop::ssh;

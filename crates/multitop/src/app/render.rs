@@ -4,12 +4,12 @@ use crate::app::{App, VaultState};
 use crate::panel::Mode;
 
 impl App {
-    pub fn cycle_theme(&mut self) {
+    pub const fn cycle_theme(&mut self) {
         self.theme_idx = (self.theme_idx + 1) % multitop_agent::color::THEMES.len();
     }
 
     #[must_use]
-    pub fn current_theme(&self) -> &'static multitop_agent::color::Palette {
+    pub const fn current_theme(&self) -> &'static multitop_agent::color::Palette {
         &multitop_agent::color::THEMES[self.theme_idx]
     }
 

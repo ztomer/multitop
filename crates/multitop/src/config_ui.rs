@@ -31,16 +31,11 @@ fn clip(text: &str, width: usize) -> String {
     format!("{kept}\u{2026}")
 }
 
-#[expect(
-    clippy::missing_panics_doc,
-    clippy::too_many_lines,
-    clippy::expect_used
-)]
+/// Nothing is drawn when configuration is not open (no manager).
 pub fn draw(f: &mut Frame, app: &App) {
-    let manager = app
-        .password_manager
-        .as_ref()
-        .expect("configuration is open");
+    let Some(manager) = app.password_manager.as_ref() else {
+        return;
+    };
     let theme = app.current_theme();
     let accent = Color::Rgb(
         theme.ratatui_accent.0,
@@ -67,48 +62,7 @@ pub fn draw(f: &mut Frame, app: &App) {
     // command share whatever the terminal actually gives. A short `user` hands
     // its surplus to a long command rather than hoarding it.
     let inner = usize::from(f.area().width.saturating_sub(2));
-    let rows: Vec<(String, String)> = app
-        .panels
-        .iter()
-        .map(|p| {
-            let user = if p.server.user.is_empty() {
-                "default".to_string()
-            } else {
-                p.server.user.clone()
-            };
-            (p.server.host.clone(), user)
-        })
-        .collect();
-    let want_host = rows
-        .iter()
-        .map(|(h, _)| h.chars().count())
-        .max()
-        .unwrap_or(6);
-    let want_user = rows
-        .iter()
-        .map(|(_, u)| u.chars().count())
-        .max()
-        .unwrap_or(4);
-    let want_cmd = app
-        .panels
-        .iter()
-        .map(|p| {
-            p.server
-                .upgrade_cmd
-                .as_deref()
-                .unwrap_or("-")
-                .chars()
-                .count()
-        })
-        .max()
-        .unwrap_or(3);
-    let cells = crate::layout::share_width(
-        STATE_W + PORT_W + GAPS,
-        &[6, 4, 3],
-        &[want_host.max(6), want_user.max(4), want_cmd.max(3)],
-        inner,
-    );
-    let (host_w, user_w, cmd_w) = (cells[0], cells[1], cells[2]);
+    let (host_w, user_w, cmd_w) = column_widths(app, inner);
 
     let mut hints: Vec<Line> = Vec::new();
     let mut lines = vec![Line::from(Span::styled(
@@ -167,134 +121,12 @@ pub fn draw(f: &mut Frame, app: &App) {
     lines.push(Line::from(""));
 
     if let Some(draft) = &manager.draft {
-        lines.push(Line::from(Span::styled(
-            "Editing server",
-            Style::default().fg(accent),
-        )));
-        let masked_pass = crate::fmt::mask_secret(&draft.password);
-        for (index, (label, value)) in [
-            ("Host", &draft.host),
-            ("User", &draft.user),
-            ("Port", &draft.port),
-            ("Upgrade command", &draft.upgrade_cmd),
-            ("Password", &masked_pass),
-        ]
-        .iter()
-        .enumerate()
-        {
-            lines.push(Line::from(format!(
-                "{} {label:<16}: {value}",
-                if index == draft.field { ">" } else { " " }
-            )));
-        }
-        lines.push(Line::from(Span::styled(
-            "  Leave Password empty to remove this host's own password.",
-            Style::default().fg(Color::DarkGray),
-        )));
-        lines.push(Line::from(Span::styled(
-            "[Tab/Up/Down] Field  [Enter] Save  [Esc] Cancel",
-            Style::default().fg(Color::DarkGray),
-        )));
+        draft_lines(draft, accent, &mut lines);
     } else if manager.editing() {
-        lines.push(Line::from("Changing the vault master password".to_string()));
-        lines.push(Line::from(vec![
-            Span::raw("Password: "),
-            Span::styled(
-                crate::fmt::mask_secret(&manager.input),
-                Style::default().fg(accent),
-            ),
-        ]));
-        // A rotation does not touch the OS credential store, so saying it does
-        // would be a plain lie about where the secret goes.
-        lines.push(Line::from(Span::styled(
-            "[Enter] Continue  [Esc] Cancel",
-            Style::default().fg(Color::DarkGray),
-        )));
+        master_password_lines(&manager.input, accent, &mut lines);
     } else {
-        // Appearance, ABOVE the hints. It is content -- a setting and its
-        // current value -- and the hints are signage about content. Below them
-        // it was the first thing to fall off the bottom of a 40x12 panel, so
-        // the screen showed `[B] Banner style` and not the row `B` changes:
-        // the same "a label is whole or it is absent" rule, met on the vertical
-        // axis, where a block with no budget pushes out the thing it describes.
-        lines.push(Line::from(Span::styled(
-            "Appearance",
-            Style::default().fg(accent),
-        )));
-        let style = app.banner_style;
-        let state = format!("[{}]", style.label());
-        // The caveat is the app admitting what it cannot check: no TUI can see
-        // the terminal's font. It is also the only sheddable part of the row --
-        // whole or absent, never half a sentence.
-        let caveat = "wide needs a font with fullwidth Latin glyphs";
-        let widths = [8, state.chars().count(), caveat.chars().count()];
-        let keep = crate::layout::fit_row(&widths, 2, inner, &[2]);
-        let mut spans = vec![
-            Span::raw("  Banner  "),
-            Span::styled(
-                state,
-                Style::default().fg(if style == crate::layout::BannerStyle::Wide {
-                    Color::Green
-                } else {
-                    Color::DarkGray
-                }),
-            ),
-        ];
-        if keep.contains(&2) {
-            spans.push(Span::styled(
-                format!("  {caveat}"),
-                Style::default().fg(Color::DarkGray),
-            ));
-        }
-        lines.push(Line::from(spans));
-        lines.push(Line::from(""));
-
-        // Wrapped by whole hints, never sliced.
-        //
-        // This was two hand-split lines sized for a wide terminal. At 40 columns
-        // `Paragraph` cut them where it liked, which left an orphaned `[` -- it
-        // reads as a rendering fault, not a hint -- and shed `[Esc/Q] Return`.
-        // The settings panel paints over the keybar, so that was the only exit
-        // signage on the screen.
-        //
-        // `[Esc/Q] Return` therefore goes FIRST (Kare): it is the only hint here
-        // a user cannot guess, so it must never be the one that falls off the
-        // end. The rest they will find by pressing things.
-        //
-        // Wrapped horizontally, shed vertically: these go into their own vector
-        // so the caller can take only the rows that fit. They wrap onto as many
-        // lines as the width needs, and a 12-row panel does not have as many
-        // lines as an 80-column terminal needs.
-        let mut row: Vec<&str> = Vec::new();
-        let mut used = 0usize;
-        for hint in [
-            "[Esc/Q] Return",
-            "[Enter/E] Edit",
-            "[A] Add",
-            "[D] Delete",
-            "[I] Import ~/.ssh/config",
-            "[R] Change vault master password",
-            "[B] Banner style",
-        ] {
-            let w = hint.chars().count();
-            let extra = if row.is_empty() { w } else { w + 2 };
-            if !row.is_empty() && used + extra > inner {
-                hints.push(Line::from(Span::styled(
-                    row.join("  "),
-                    Style::default().fg(Color::DarkGray),
-                )));
-                row.clear();
-                used = 0;
-            }
-            used += if row.is_empty() { w } else { w + 2 };
-            row.push(hint);
-        }
-        if !row.is_empty() {
-            hints.push(Line::from(Span::styled(
-                row.join("  "),
-                Style::default().fg(Color::DarkGray),
-            )));
-        }
+        appearance_lines(app, accent, inner, &mut lines);
+        hints = hint_lines(inner);
     }
     // The notice goes ABOVE the hints, and before them in the height budget.
     // It is the app answering something the user just did -- "Banner: Wide",
@@ -341,4 +173,199 @@ pub fn draw(f: &mut Frame, app: &App) {
         .border_style(Style::default().fg(border))
         .style(Style::default().bg(bg));
     f.render_widget(Paragraph::new(lines).block(block), f.area());
+}
+
+/// The Server / User / Upgrade-command column widths: the state cell and
+/// the port never shrink, and the three share whatever the terminal gives,
+/// a short `user` handing its surplus to a long command.
+fn column_widths(app: &App, inner: usize) -> (usize, usize, usize) {
+    let rows: Vec<(String, String)> = app
+        .panels
+        .iter()
+        .map(|p| {
+            let user = if p.server.user.is_empty() {
+                "default".to_string()
+            } else {
+                p.server.user.clone()
+            };
+            (p.server.host.clone(), user)
+        })
+        .collect();
+    let want_host = rows
+        .iter()
+        .map(|(h, _)| h.chars().count())
+        .max()
+        .unwrap_or(6);
+    let want_user = rows
+        .iter()
+        .map(|(_, u)| u.chars().count())
+        .max()
+        .unwrap_or(4);
+    let want_cmd = app
+        .panels
+        .iter()
+        .map(|p| {
+            p.server
+                .upgrade_cmd
+                .as_deref()
+                .unwrap_or("-")
+                .chars()
+                .count()
+        })
+        .max()
+        .unwrap_or(3);
+    let cells = crate::layout::share_width(
+        STATE_W + PORT_W + GAPS,
+        &[6, 4, 3],
+        &[want_host.max(6), want_user.max(4), want_cmd.max(3)],
+        inner,
+    );
+    (cells[0], cells[1], cells[2])
+}
+
+/// The server being edited: its fields, the cursor, and the keys.
+fn draft_lines(
+    draft: &crate::passwords::ServerDraft,
+    accent: Color,
+    lines: &mut Vec<Line<'static>>,
+) {
+    lines.push(Line::from(Span::styled(
+        "Editing server",
+        Style::default().fg(accent),
+    )));
+    let masked_pass = crate::fmt::mask_secret(&draft.password);
+    for (index, (label, value)) in [
+        ("Host", &draft.host),
+        ("User", &draft.user),
+        ("Port", &draft.port),
+        ("Upgrade command", &draft.upgrade_cmd),
+        ("Password", &masked_pass),
+    ]
+    .iter()
+    .enumerate()
+    {
+        lines.push(Line::from(format!(
+            "{} {label:<16}: {value}",
+            if index == draft.field { ">" } else { " " }
+        )));
+    }
+    lines.push(Line::from(Span::styled(
+        "  Leave Password empty to remove this host's own password.",
+        Style::default().fg(Color::DarkGray),
+    )));
+    lines.push(Line::from(Span::styled(
+        "[Tab/Up/Down] Field  [Enter] Save  [Esc] Cancel",
+        Style::default().fg(Color::DarkGray),
+    )));
+}
+
+/// The master-password change prompt.
+fn master_password_lines(input: &str, accent: Color, lines: &mut Vec<Line<'static>>) {
+    lines.push(Line::from("Changing the vault master password".to_string()));
+    lines.push(Line::from(vec![
+        Span::raw("Password: "),
+        Span::styled(crate::fmt::mask_secret(input), Style::default().fg(accent)),
+    ]));
+    // A rotation does not touch the OS credential store, so saying it does
+    // would be a plain lie about where the secret goes.
+    lines.push(Line::from(Span::styled(
+        "[Enter] Continue  [Esc] Cancel",
+        Style::default().fg(Color::DarkGray),
+    )));
+}
+
+/// Appearance, ABOVE the hints. It is content -- a setting and its current
+/// value -- and the hints are signage about content. Below them it was the
+/// first thing to fall off the bottom of a 40x12 panel.
+fn appearance_lines(app: &App, accent: Color, inner: usize, lines: &mut Vec<Line<'static>>) {
+    // Appearance, ABOVE the hints. It is content -- a setting and its
+    // current value -- and the hints are signage about content. Below them
+    // it was the first thing to fall off the bottom of a 40x12 panel, so
+    // the screen showed `[B] Banner style` and not the row `B` changes:
+    // the same "a label is whole or it is absent" rule, met on the vertical
+    // axis, where a block with no budget pushes out the thing it describes.
+    lines.push(Line::from(Span::styled(
+        "Appearance",
+        Style::default().fg(accent),
+    )));
+    let style = app.banner_style;
+    let state = format!("[{}]", style.label());
+    // The caveat is the app admitting what it cannot check: no TUI can see
+    // the terminal's font. It is also the only sheddable part of the row --
+    // whole or absent, never half a sentence.
+    let caveat = "wide needs a font with fullwidth Latin glyphs";
+    let widths = [8, state.chars().count(), caveat.chars().count()];
+    let keep = crate::layout::fit_row(&widths, 2, inner, &[2]);
+    let mut spans = vec![
+        Span::raw("  Banner  "),
+        Span::styled(
+            state,
+            Style::default().fg(if style == crate::layout::BannerStyle::Wide {
+                Color::Green
+            } else {
+                Color::DarkGray
+            }),
+        ),
+    ];
+    if keep.contains(&2) {
+        spans.push(Span::styled(
+            format!("  {caveat}"),
+            Style::default().fg(Color::DarkGray),
+        ));
+    }
+    lines.push(Line::from(spans));
+    lines.push(Line::from(""));
+}
+
+/// The key hints, wrapped by whole hints (never sliced) to `inner` columns,
+/// one `Line` per row so the caller can shed rows that do not fit.
+fn hint_lines(inner: usize) -> Vec<Line<'static>> {
+    let mut out: Vec<Line> = Vec::new();
+    // Wrapped by whole hints, never sliced.
+    //
+    // This was two hand-split lines sized for a wide terminal. At 40 columns
+    // `Paragraph` cut them where it liked, which left an orphaned `[` -- it
+    // reads as a rendering fault, not a hint -- and shed `[Esc/Q] Return`.
+    // The settings panel paints over the keybar, so that was the only exit
+    // signage on the screen.
+    //
+    // `[Esc/Q] Return` therefore goes FIRST (Kare): it is the only hint here
+    // a user cannot guess, so it must never be the one that falls off the
+    // end. The rest they will find by pressing things.
+    //
+    // Wrapped horizontally, shed vertically: these go into their own vector
+    // so the caller can take only the rows that fit. They wrap onto as many
+    // lines as the width needs, and a 12-row panel does not have as many
+    // lines as an 80-column terminal needs.
+    let mut row: Vec<&str> = Vec::new();
+    let mut used = 0usize;
+    for hint in [
+        "[Esc/Q] Return",
+        "[Enter/E] Edit",
+        "[A] Add",
+        "[D] Delete",
+        "[I] Import ~/.ssh/config",
+        "[R] Change vault master password",
+        "[B] Banner style",
+    ] {
+        let w = hint.chars().count();
+        let extra = if row.is_empty() { w } else { w + 2 };
+        if !row.is_empty() && used + extra > inner {
+            out.push(Line::from(Span::styled(
+                row.join("  "),
+                Style::default().fg(Color::DarkGray),
+            )));
+            row.clear();
+            used = 0;
+        }
+        used += if row.is_empty() { w } else { w + 2 };
+        row.push(hint);
+    }
+    if !row.is_empty() {
+        out.push(Line::from(Span::styled(
+            row.join("  "),
+            Style::default().fg(Color::DarkGray),
+        )));
+    }
+    out
 }

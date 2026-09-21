@@ -1,3 +1,9 @@
+// A test crate, said where clippy reads it: the restriction lints
+// (`unwrap_used`, `expect_used`, `panic`) are policy for production code and
+// exempt for test code (clippy.toml), and an integration test is test code
+// through and through -- helpers included.
+#![cfg(test)]
+
 use ratatui::backend::TestBackend;
 use ratatui::Terminal;
 
@@ -15,16 +21,6 @@ use multitop::ui::{agent_dims, draw, refit_header, refit_line};
 /// can read, overwrite or delete credentials the user depends on.
 fn isolate_keychain() -> tokio::sync::MutexGuard<'static, ()> {
     let guard = multitop::password_store::lock_for_test();
-    multitop::password_store::enable_mock_store();
-    multitop::password_store::clear_mock_store();
-    guard
-}
-
-/// `isolate_keychain` for `#[tokio::test]` bodies, which must not block the
-/// runtime thread to take the guard.
-#[expect(dead_code)]
-async fn isolate_keychain_async() -> tokio::sync::MutexGuard<'static, ()> {
-    let guard = multitop::password_store::lock_for_test_async().await;
     multitop::password_store::enable_mock_store();
     multitop::password_store::clear_mock_store();
     guard

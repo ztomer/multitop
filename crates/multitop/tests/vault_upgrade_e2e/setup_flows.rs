@@ -20,7 +20,7 @@ mod vault_upgrade_e2e_tests {
             "sudo-pass-2".to_string(),
         );
 
-        let (mut app, _temp_dir) = app_with_vault(test_servers(), master_pw, vault_passwords).await;
+        let (mut app, _temp_dir) = app_with_vault(test_servers(), master_pw, vault_passwords);
 
         // Verify vault is unlocked
         assert!(app.vault_unlocked().is_some());
@@ -50,7 +50,7 @@ mod vault_upgrade_e2e_tests {
         // guarded tests in this same binary, and the loser sees a store some
         // other test has just cleared.
         let _keychain = isolate_keychain_async().await;
-        let (mut app, _temp_dir) = app_with_vault(test_servers(), "unused", HashMap::new()).await;
+        let (mut app, _temp_dir) = app_with_vault(test_servers(), "unused", HashMap::new());
 
         // Remove vault
         app.vault = None;
@@ -100,7 +100,7 @@ mod vault_upgrade_e2e_tests {
             "vault-pass".to_string(),
         );
 
-        let (mut app, _temp_dir) = app_with_vault(test_servers(), master_pw, vault_passwords).await;
+        let (mut app, _temp_dir) = app_with_vault(test_servers(), master_pw, vault_passwords);
 
         // Also set password in keychain (lower priority)
         let _key = password_store::account(&app.panels[0].server);
@@ -126,7 +126,7 @@ mod vault_upgrade_e2e_tests {
             "sudo-pass-1".to_string(),
         );
 
-        let (mut app, _temp_dir) = app_with_vault(test_servers(), master_pw, vault_passwords).await;
+        let (mut app, _temp_dir) = app_with_vault(test_servers(), master_pw, vault_passwords);
 
         // Simulate pressing 'u' key (upgrade) - calls run_upgrade internally
         let cmds = app.run_upgrade();

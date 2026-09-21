@@ -1,8 +1,7 @@
 //! Application state.
 
-#![expect(clippy::missing_const_for_fn)]
-
 mod apply;
+mod apply_vault;
 mod render;
 mod types;
 mod upgrade;
@@ -11,9 +10,8 @@ mod views;
 
 pub use crate::panel::{Mode, Panel};
 pub use crate::types::{Command, Msg};
-pub use types::{AppMode, Confirm, ExecConfirm, ExecKind, VaultState};
+pub use types::{AppMode, Confirm, ExecConfirm, ExecKind, Overlay, VaultState};
 
-#[expect(clippy::struct_excessive_bools)]
 pub struct App {
     pub panels: Vec<Panel>,
     pub selected_panel: usize,
@@ -35,9 +33,9 @@ pub struct App {
     pub should_quit: bool,
     pub quit_armed: bool,
     pub panels_epoch: u64,
-    pub help_visible: bool,
+    /// The overlay in front of the panels: help, the command palette, or none.
+    pub overlay: Overlay,
     pub focused_panel: Option<usize>,
-    pub command_palette_visible: bool,
     pub command_input: String,
     pub graph_zoom: u8,
     pub alert_cpu: Option<u8>,

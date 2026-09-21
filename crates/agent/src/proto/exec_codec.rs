@@ -22,17 +22,15 @@ const PRESENT: u8 = 1;
 
 fn put_str(s: &str, buf: &mut Vec<u8>) {
     let bytes = s.as_bytes();
-    let len = bytes.len().min(u16::MAX as usize);
-    #[expect(clippy::cast_possible_truncation)]
-    buf.extend_from_slice(&(len as u16).to_le_bytes());
-    buf.extend_from_slice(&bytes[..len]);
+    let len = u16::try_from(bytes.len()).unwrap_or(u16::MAX);
+    buf.extend_from_slice(&len.to_le_bytes());
+    buf.extend_from_slice(&bytes[..usize::from(len)]);
 }
 
 fn put_blob(b: &[u8], buf: &mut Vec<u8>) {
-    let len = b.len().min(u16::MAX as usize);
-    #[expect(clippy::cast_possible_truncation)]
-    buf.extend_from_slice(&(len as u16).to_le_bytes());
-    buf.extend_from_slice(&b[..len]);
+    let len = u16::try_from(b.len()).unwrap_or(u16::MAX);
+    buf.extend_from_slice(&len.to_le_bytes());
+    buf.extend_from_slice(&b[..usize::from(len)]);
 }
 
 /// Serialise one frame's body. The header is written by `encode_packet`.

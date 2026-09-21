@@ -5,15 +5,8 @@
 //! are read on BOTH platforms -- through IOKit/HID on macOS and `/sys/class/hwmon`
 //! on Linux. Keeping them together also kept `sys` over the file-length cap.
 
-#![cfg_attr(
-    target_os = "macos",
-    expect(
-        unsafe_code,
-        reason = "FFI boundary on macOS only; scoped so the expectation is fulfilled \
-                  exactly where the unsafe exists (see the unsafe_code note in lib.rs)"
-    )
-)]
-
+#[cfg(target_os = "macos")]
+use crate::conv::count;
 #[cfg(target_os = "macos")]
 use std::collections::HashMap;
 
@@ -58,11 +51,6 @@ extern "C" {
 
 #[cfg(target_os = "macos")]
 #[must_use]
-#[expect(
-    clippy::cast_possible_wrap,
-    clippy::cast_precision_loss,
-    reason = "libc FFI widths — see the CASTS note at the top of this file"
-)]
 pub fn get_core_temps() -> HashMap<usize, f64> {
     let mut temps = HashMap::new();
     let mut die_temps: HashMap<usize, f64> = HashMap::new();
@@ -90,7 +78,8 @@ pub fn get_core_temps() -> HashMap<usize, f64> {
                             if CFStringGetCString(
                                 prop,
                                 buf.as_mut_ptr(),
-                                crate::consts::IOKIT_NAME_BUF as _,
+                                isize::try_from(crate::consts::IOKIT_NAME_BUF)
+                                    .unwrap_or(isize::MAX),
                                 0x0800_0100,
                             ) {
                                 let len = buf.iter().position(|&b| b == 0).unwrap_or(buf.len());
@@ -121,7 +110,7 @@ pub fn get_core_temps() -> HashMap<usize, f64> {
     let avg_temp = if all_tdie.is_empty() {
         0.0
     } else {
-        all_tdie.iter().sum::<f64>() / all_tdie.len() as f64
+        all_tdie.iter().sum::<f64>() / count(all_tdie.len())
     };
 
     if avg_temp > 0.0 {
@@ -151,7 +140,7 @@ fn macos_num_cpus() -> usize {
         }
     }
     if count > 0 {
-        count as usize
+        usize::try_from(count).unwrap_or(1)
     } else {
         1
     }

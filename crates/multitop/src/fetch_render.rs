@@ -19,12 +19,22 @@ struct LogoDb {
 
 static LOGO_DB: OnceLock<LogoDb> = OnceLock::new();
 
-#[expect(clippy::expect_used)]
+/// The embedded logo database, decompressed once.
+///
+/// The blob is a build asset (`data/logos.bin.zst`); one that does not
+/// decompress is a broken build, reported once on stderr and shown as a
+/// panel with no logo rather than a panic in the middle of a frame.
+/// `the_embedded_logo_db_decompresses` pins the asset in the test suite.
 fn load_db() -> &'static LogoDb {
     LOGO_DB.get_or_init(|| {
         let compressed = include_bytes!("../data/logos.bin.zst");
-        let raw = zstd::decode_all(&compressed[..]).expect("zstd decompress logo db");
-        parse_db(&raw)
+        match zstd::decode_all(&compressed[..]) {
+            Ok(raw) => parse_db(&raw),
+            Err(e) => {
+                eprintln!("multitop: embedded logo db does not decompress ({e}); no logos");
+                LogoDb { logos: Vec::new() }
+            }
+        }
     })
 }
 
@@ -342,5 +352,18 @@ mod tests {
         assert!(result
             .iter()
             .any(|l| l.contains("user@host") || l.contains("ｕｓｅｒ＠ｈｏｓｔ")));
+    }
+}
+
+#[cfg(test)]
+mod db_tests {
+    use super::*;
+
+    /// The asset the binary carries must be the asset the loader expects.
+    #[test]
+    fn the_embedded_logo_db_decompresses() {
+        let compressed = include_bytes!("../data/logos.bin.zst");
+        let raw = zstd::decode_all(&compressed[..]).expect("the shipped logo db decompresses");
+        assert!(!parse_db(&raw).logos.is_empty(), "the logo db has entries");
     }
 }

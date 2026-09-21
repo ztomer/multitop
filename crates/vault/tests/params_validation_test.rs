@@ -11,9 +11,14 @@
 //! so asking for the documented maximum wrapped to zero and clamped up to the
 //! documented minimum: the strongest setting produced the weakest KDF.
 
+// A test crate, said where clippy reads it: the restriction lints
+// (`unwrap_used`, `expect_used`, `panic`) are policy for production code and
+// exempt for test code (clippy.toml), and an integration test is test code
+// through and through -- helpers included.
+#![cfg(test)]
+
 // Integration-test crate: helper fns outside #[test] are not covered by
 // clippy.toml's test exemption, so the restriction lints are expected here.
-#![expect(clippy::unwrap_used)]
 
 use multitop_vault::crypto::Argon2Params;
 
@@ -107,12 +112,7 @@ fn every_save_draws_a_fresh_nonce() {
         }),
         use_os_keychain: false,
     });
-    tokio::runtime::Builder::new_current_thread()
-        .enable_all()
-        .build()
-        .unwrap()
-        .block_on(vault.initialize("master-pw"))
-        .unwrap();
+    vault.initialize("master-pw").unwrap();
 
     let mut seen = std::collections::HashSet::new();
     let mut unlocked = vault.unlock_with_password("master-pw").unwrap();
@@ -123,7 +123,7 @@ fn every_save_draws_a_fresh_nonce() {
                 &secrecy::SecretString::from(format!("pw-{i}")),
             )
             .unwrap();
-        let nonce = read_header_nonce(&vault_path);
+        let nonce = read_header_nonce(&vault_path).expect("a readable header");
         assert!(
             seen.insert(nonce),
             "save {i} reused an AES-GCM nonce under the same vault key"
@@ -141,8 +141,9 @@ fn every_save_draws_a_fresh_nonce() {
 /// Pull the 12-byte nonce out of the on-disk header by re-parsing it, rather
 /// than by hardcoding a byte offset that would silently drift if the header
 /// layout changed.
-fn read_header_nonce(path: &std::path::Path) -> [u8; 12] {
-    let bytes = std::fs::read(path).unwrap();
-    let header = multitop_vault::format::VaultHeader::from_bytes(&bytes).unwrap();
-    header.nonce
+fn read_header_nonce(path: &std::path::Path) -> Result<[u8; 12], String> {
+    let bytes = std::fs::read(path).map_err(|e| format!("read {}: {e}", path.display()))?;
+    let header = multitop_vault::format::VaultHeader::from_bytes(&bytes)
+        .map_err(|e| format!("parse header: {e}"))?;
+    Ok(header.nonce)
 }

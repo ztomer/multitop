@@ -22,17 +22,21 @@ const MAX_SIGNAL: i32 = 31;
 use crate::config::Server;
 use crate::fmt::status_line;
 
-/// What one attempt learned.
-///
-/// Five flags rather than an enum on purpose: they are not alternatives. A run
-/// can be refused by `sudo` *and* have printed the "no tty present" help, and
-/// which of those the operator is told about changes what they go and fix.
-#[expect(clippy::struct_excessive_bools)]
+/// What `sudo` said on the way: independent signs, not alternatives. A run
+/// can be refused *and* have printed the "no tty present" help, and which of
+/// those the operator is told about changes what they go and fix.
+#[derive(Default, Clone, Copy, Debug)]
+pub struct SudoSigns {
+    pub help: bool,
+    pub rejected: bool,
+}
+
+/// What one attempt learned. Flags rather than an enum on purpose: they are
+/// not alternatives.
 #[derive(Default)]
 pub struct Report {
     pub exit: Option<(i32, bool)>,
-    pub sudo_help: bool,
-    pub sudo_rejected: bool,
+    pub sudo: SudoSigns,
     pub lock_held: bool,
     /// The architecture a host named when it had no agent to run.
     pub need_agent: Option<String>,
@@ -73,7 +77,7 @@ pub fn verdict(server: &Server, report: &Report) -> Outcome {
     // Marker *or* exit code. The marker is the better signal -- it is a frame
     // and cannot be lost in a noisy shell -- but the code is what survives a
     // marker the agent never got to send, so both are honoured.
-    if report.sudo_rejected || code_says == Some(SUDO_FAILED_CODE) {
+    if report.sudo.rejected || code_says == Some(SUDO_FAILED_CODE) {
         return Outcome {
             note: status_line(format!(
                 "\u{26A0} sudo refused the stored password on {} \u{2014} the upgrade did not run. \

@@ -27,6 +27,12 @@
 //!   cargo test --test upgrade_view_live_e2e -- --ignored --test-threads=1
 //! ```
 
+// A test crate, said where clippy reads it: the restriction lints
+// (`unwrap_used`, `expect_used`, `panic`) are policy for production code and
+// exempt for test code (clippy.toml), and an integration test is test code
+// through and through -- helpers included.
+#![cfg(test)]
+
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -38,22 +44,6 @@ use multitop::app::{App, Mode, Msg};
 use multitop::config::Server;
 use multitop::panel::UpgradeState;
 use multitop::run::{handle_key, Tasks};
-
-/// Divert credentials to the in-memory store, and hold the process-global guard.
-///
-/// Driving an `App` reaches `password_store` several calls down, and an
-/// integration binary is compiled without `cfg(test)`, so the mock is not in
-/// force unless it is asked for. Without this these tests query the real OS
-/// keychain: every rebuild changes the binary's code signature, so macOS raises
-/// an access dialog and the suite stops until a human dismisses it -- and a test
-/// can read, overwrite or delete credentials the user depends on.
-#[expect(dead_code)]
-fn isolate_keychain() -> tokio::sync::MutexGuard<'static, ()> {
-    let guard = multitop::password_store::lock_for_test();
-    multitop::password_store::enable_mock_store();
-    multitop::password_store::clear_mock_store();
-    guard
-}
 
 /// `isolate_keychain` for `#[tokio::test]` bodies, which must not block the
 /// runtime thread to take the guard.
@@ -115,7 +105,7 @@ impl Live {
             },
             &mut self.app,
             (100, 30),
-            Arc::clone(&self.dims_rx),
+            &Arc::clone(&self.dims_rx),
             &self.tx,
             &mut self.tasks,
         );

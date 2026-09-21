@@ -288,6 +288,84 @@ pub fn draw_help(f: &mut Frame) {
     f.render_widget(para, rect);
 }
 
+/// What the vault password prompt says, in the arrangement that fits.
+struct PromptText<'a> {
+    creating: bool,
+    password_dots: &'a str,
+    error: Option<&'a str>,
+}
+
+impl PromptText<'_> {
+    /// The prompt's lines: `explain` adds the recovery-path sentence when
+    /// creating, `blanks` the spacing rows. The headline, the field and the
+    /// footer naming both keys are always present.
+    fn lines(&self, explain: bool, blanks: bool) -> Vec<Line<'static>> {
+        let creating = self.creating;
+        let password_dots = self.password_dots.to_string();
+        let error = self.error.map(str::to_string);
+        let mut lines: Vec<Line<'static>> = Vec::new();
+        if blanks {
+            lines.push(Line::from(""));
+        }
+        lines.push(Line::from(vec![Span::styled(
+            if creating {
+                "Choose a master password for your new vault:"
+            } else {
+                "Enter vault master password to unlock:"
+            },
+            Style::default().fg(Color::White),
+        )]));
+        if blanks {
+            lines.push(Line::from(""));
+        }
+        lines.push(Line::from(vec![
+            Span::styled("> ", Style::default().fg(Color::Cyan)),
+            Span::styled(password_dots, Style::default().fg(Color::White)),
+        ]));
+        if creating && explain {
+            lines.push(Line::from(vec![Span::styled(
+                "Encrypts sudo passwords. Touch ID unlocks it day to day; \
+             this password is the recovery path if that key is lost.",
+                Style::default().fg(Color::DarkGray),
+            )]));
+        }
+        if let Some(error) = &error {
+            lines.push(Line::from(vec![Span::styled(
+                error.clone(),
+                Style::default().fg(Color::Red),
+            )]));
+        }
+        if blanks {
+            lines.push(Line::from(""));
+        }
+        lines.push(Line::from(vec![
+            Span::styled("Press ", Style::default().fg(Color::DarkGray)),
+            Span::styled(
+                "Enter",
+                Style::default()
+                    .fg(Color::White)
+                    .add_modifier(ratatui::style::Modifier::BOLD),
+            ),
+            Span::styled(
+                if creating {
+                    " to create, "
+                } else {
+                    " to unlock, "
+                },
+                Style::default().fg(Color::DarkGray),
+            ),
+            Span::styled(
+                "Esc",
+                Style::default()
+                    .fg(Color::White)
+                    .add_modifier(ratatui::style::Modifier::BOLD),
+            ),
+            Span::styled(" to cancel", Style::default().fg(Color::DarkGray)),
+        ]));
+        lines
+    }
+}
+
 /// The prompt for unlocking an existing vault, or choosing a new master
 /// password.
 ///
@@ -321,7 +399,6 @@ pub fn draw_help(f: &mut Frame) {
 /// The headline, the field and the footer naming both keys are never shed. An
 /// operator who cannot read what the password protects can still act; one who
 /// cannot see `Esc` is stuck.
-#[expect(clippy::too_many_lines)]
 pub fn draw_vault_password_prompt(f: &mut Frame, app: &App) {
     let area = f.area();
     let popup_width = (64u16).min(area.width.saturating_sub(2));
@@ -362,68 +439,12 @@ pub fn draw_vault_password_prompt(f: &mut Frame, app: &App) {
         .or_else(|| app.vault_password_error())
         .map(ToString::to_string);
 
-    let compose = |explain: bool, blanks: bool| -> Vec<Line<'static>> {
-        let mut lines: Vec<Line<'static>> = Vec::new();
-        if blanks {
-            lines.push(Line::from(""));
-        }
-        lines.push(Line::from(vec![Span::styled(
-            if creating {
-                "Choose a master password for your new vault:"
-            } else {
-                "Enter vault master password to unlock:"
-            },
-            Style::default().fg(Color::White),
-        )]));
-        if blanks {
-            lines.push(Line::from(""));
-        }
-        lines.push(Line::from(vec![
-            Span::styled("> ", Style::default().fg(Color::Cyan)),
-            Span::styled(password_dots.clone(), Style::default().fg(Color::White)),
-        ]));
-        if creating && explain {
-            lines.push(Line::from(vec![Span::styled(
-                "Encrypts sudo passwords. Touch ID unlocks it day to day; \
-                 this password is the recovery path if that key is lost.",
-                Style::default().fg(Color::DarkGray),
-            )]));
-        }
-        if let Some(error) = &error {
-            lines.push(Line::from(vec![Span::styled(
-                error.clone(),
-                Style::default().fg(Color::Red),
-            )]));
-        }
-        if blanks {
-            lines.push(Line::from(""));
-        }
-        lines.push(Line::from(vec![
-            Span::styled("Press ", Style::default().fg(Color::DarkGray)),
-            Span::styled(
-                "Enter",
-                Style::default()
-                    .fg(Color::White)
-                    .add_modifier(ratatui::style::Modifier::BOLD),
-            ),
-            Span::styled(
-                if creating {
-                    " to create, "
-                } else {
-                    " to unlock, "
-                },
-                Style::default().fg(Color::DarkGray),
-            ),
-            Span::styled(
-                "Esc",
-                Style::default()
-                    .fg(Color::White)
-                    .add_modifier(ratatui::style::Modifier::BOLD),
-            ),
-            Span::styled(" to cancel", Style::default().fg(Color::DarkGray)),
-        ]));
-        lines
+    let prompt = PromptText {
+        creating,
+        password_dots: &password_dots,
+        error: error.as_deref(),
     };
+    let compose = |explain: bool, blanks: bool| prompt.lines(explain, blanks);
 
     // The rows the box can hold inside its border, at the width it will be
     // drawn at.

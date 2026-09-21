@@ -1,6 +1,13 @@
+// A test crate, said where clippy reads it: the restriction lints
+// (`unwrap_used`, `expect_used`, `panic`) are policy for production code and
+// exempt for test code (clippy.toml), and an integration test is test code
+// through and through -- helpers included.
+#![cfg(test)]
+
 // Integration-test crate: helper fns outside #[test] are not covered by
 // clippy.toml's test exemption, so the restriction lints are expected here.
 use multitop_agent::color::{strip_ansi, ANSI};
+use multitop_agent::conv::count;
 use multitop_agent::proc::{Proc, Usage};
 use multitop_agent::render::*;
 
@@ -72,17 +79,9 @@ fn dual_core_shows_per_core_cells() {
 }
 
 #[test]
-#[expect(
-    clippy::cast_precision_loss,
-    reason = "test fixture arithmetic: loop indices and small counts \
-              converted to build synthetic cores and processes. The magnitudes \
-              are the test's own literals — a handful to a few hundred — so \
-              nothing here can truncate. Kept as `expect` so it errors if the \
-              fixture ever stops casting."
-)]
 fn many_cores_wrap_to_multiple_rows() {
     let s = Snapshot {
-        cores: (0..8).map(|i| (i, i as f64 * 10.0, None)).collect(),
+        cores: (0..8).map(|i| (i, count(i) * 10.0, None)).collect(),
         ..snap()
     };
     let out = render(&s, 40, 0, 20, &ANSI);
@@ -277,15 +276,6 @@ fn percentage_is_right_aligned() {
 }
 
 #[test]
-#[expect(
-    clippy::cast_possible_truncation,
-    clippy::cast_precision_loss,
-    reason = "test fixture arithmetic: loop indices and small counts \
-              converted to build synthetic cores and processes. The magnitudes \
-              are the test's own literals — a handful to a few hundred — so \
-              nothing here can truncate. Kept as `expect` so it errors if the \
-              fixture ever stops casting."
-)]
 fn proc_rows_stay_aligned_across_all_size_magnitudes() {
     let sizes = [
         0u64,
@@ -302,7 +292,14 @@ fn proc_rows_stay_aligned_across_all_size_magnitudes() {
     let procs: Vec<Proc> = sizes
         .iter()
         .enumerate()
-        .map(|(i, &m)| proc(i as u32 + 1, "proc", i as f64, m))
+        .map(|(i, &m)| {
+            proc(
+                u32::try_from(i).expect("a small index") + 1,
+                "proc",
+                count(i),
+                m,
+            )
+        })
         .collect();
     let s = Snapshot { procs, ..snap() };
 

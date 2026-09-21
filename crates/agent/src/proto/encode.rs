@@ -8,6 +8,7 @@
 //! `Cursor` lives in `decode.rs`: it only ever reads.
 
 use super::{ProtoMode, HEADER_LEN, MAGIC, MAX_PAYLOAD, PROTO_VERSION};
+use crate::conv::single;
 use crate::docker::Row as DockerRow;
 use crate::fetch::FetchSnapshot;
 use crate::proto::Payload;
@@ -57,14 +58,8 @@ pub fn encode_packet(payload: &Payload) -> Vec<u8> {
     } else {
         payload_len
     };
-    // Cannot truncate: `payload_len` was clamped to MAX_PAYLOAD immediately
-    // above. `expect` rather than `allow`, so this errors if that clamp is ever
-    // removed and the cast becomes real.
-    #[expect(
-        clippy::cast_possible_truncation,
-        reason = "clamped to MAX_PAYLOAD above"
-    )]
-    let len_bytes = (payload_len as u16).to_le_bytes();
+    // `payload_len` was clamped to `MAX_PAYLOAD` (`u16::MAX`) just above.
+    let len_bytes = u16::try_from(payload_len).unwrap_or(u16::MAX).to_le_bytes();
     buf[6] = len_bytes[0];
     buf[7] = len_bytes[1];
 
@@ -78,28 +73,21 @@ fn encode_str(s: &str, buf: &mut Vec<u8>) {
     buf.extend_from_slice(&bytes[..len as usize]);
 }
 
-#[expect(
-    clippy::cast_possible_truncation,
-    reason = "wire-format widths the protocol fixes: a `u16` count and a \
-              `u16` length, both saturated with `try_from(..).unwrap_or(MAX)` or \
-              clamped to MAX_PAYLOAD before the cast, and both loops `.take` \
-              what they declared so the count and the items cannot disagree."
-)]
 fn encode_snapshot(snap: &Snapshot, buf: &mut Vec<u8>) {
     encode_str(&snap.host, buf);
     encode_str(&snap.agent_version, buf);
-    buf.extend_from_slice(&(snap.cpu_pct as f32).to_le_bytes());
+    buf.extend_from_slice(&single(snap.cpu_pct).to_le_bytes());
     // Same sentinel the per-core temperature uses a few lines down: a negative
     // is "not measured", because there is no such thing as a negative clock.
-    buf.extend_from_slice(&(snap.cpu_mhz.unwrap_or(-1.0) as f32).to_le_bytes());
+    buf.extend_from_slice(&single(snap.cpu_mhz.unwrap_or(-1.0)).to_le_bytes());
 
     let num_cores = u16::try_from(snap.cores.len()).unwrap_or(u16::MAX);
     buf.extend_from_slice(&num_cores.to_le_bytes());
     // `.take` so the declared count and the emitted items cannot disagree.
     for &(idx, cpu, temp) in snap.cores.iter().take(num_cores as usize) {
-        buf.extend_from_slice(&(idx as u16).to_le_bytes());
-        buf.extend_from_slice(&(cpu as f32).to_le_bytes());
-        let t = temp.unwrap_or(-1.0) as f32;
+        buf.extend_from_slice(&u16::try_from(idx).unwrap_or(u16::MAX).to_le_bytes());
+        buf.extend_from_slice(&single(cpu).to_le_bytes());
+        let t = single(temp.unwrap_or(-1.0));
         buf.extend_from_slice(&t.to_le_bytes());
     }
 
@@ -113,8 +101,8 @@ fn encode_snapshot(snap: &Snapshot, buf: &mut Vec<u8>) {
     buf.extend_from_slice(&snap.mem.used.to_le_bytes());
     buf.extend_from_slice(&snap.disk.total.to_le_bytes());
     buf.extend_from_slice(&snap.disk.used.to_le_bytes());
-    buf.extend_from_slice(&(snap.rx_rate as f32).to_le_bytes());
-    buf.extend_from_slice(&(snap.tx_rate as f32).to_le_bytes());
+    buf.extend_from_slice(&single(snap.rx_rate).to_le_bytes());
+    buf.extend_from_slice(&single(snap.tx_rate).to_le_bytes());
 
     let num_procs = u16::try_from(snap.procs.len()).unwrap_or(u16::MAX);
     buf.extend_from_slice(&num_procs.to_le_bytes());
@@ -126,7 +114,7 @@ fn encode_snapshot(snap: &Snapshot, buf: &mut Vec<u8>) {
     // this was the one loop that did not apply it.
     for p in snap.procs.iter().take(num_procs as usize) {
         buf.extend_from_slice(&p.pid.to_le_bytes());
-        buf.extend_from_slice(&(p.cpu as f32).to_le_bytes());
+        buf.extend_from_slice(&single(p.cpu).to_le_bytes());
         buf.extend_from_slice(&p.mem.to_le_bytes());
         encode_str(&p.name, buf);
     }
@@ -134,13 +122,6 @@ fn encode_snapshot(snap: &Snapshot, buf: &mut Vec<u8>) {
     encode_proc_names(&snap.proc_names, buf);
 }
 
-#[expect(
-    clippy::cast_possible_truncation,
-    reason = "wire-format widths the protocol fixes: a `u16` count and a \
-              `u16` length, both saturated with `try_from(..).unwrap_or(MAX)` or \
-              clamped to MAX_PAYLOAD before the cast, and both loops `.take` \
-              what they declared so the count and the items cannot disagree."
-)]
 fn encode_docker(host: &str, rows: &[DockerRow], buf: &mut Vec<u8>) {
     encode_str(host, buf);
     // The count is written after the rows, because how many fit is not known
@@ -158,7 +139,7 @@ fn encode_docker(host: &str, rows: &[DockerRow], buf: &mut Vec<u8>) {
         encode_str(&r.name, buf);
         encode_str(&r.status, buf);
         encode_str(&r.image, buf);
-        buf.extend_from_slice(&(r.cpu_pct as f32).to_le_bytes());
+        buf.extend_from_slice(&single(r.cpu_pct).to_le_bytes());
         encode_str(&r.cpu, buf);
         encode_str(&r.mem, buf);
         buf.extend_from_slice(&r.mem_bytes.to_le_bytes());

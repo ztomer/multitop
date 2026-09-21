@@ -1,15 +1,7 @@
 //! The sampling loop's state: what one tick needs to remember from the last.
 
-#![cfg_attr(
-    all(target_os = "linux", target_env = "gnu"),
-    expect(
-        unsafe_code,
-        reason = "malloc_trim is glibc-only FFI; on macOS and musl the unsafe vanishes, \
-                  so the expectation is scoped to exactly where it is fulfilled"
-    )
-)]
-
 use crate::consts::AGENT_VERSION;
+use crate::conv::unsigned;
 use crate::proc::{self, CpuStat, NetTotals, ProcSampler};
 use crate::render::{Chrome, Snapshot};
 
@@ -41,13 +33,6 @@ impl Monitor {
     }
 
     /// Sample everything once and return the frame to draw.
-    #[expect(
-        clippy::cast_precision_loss,
-        clippy::default_trait_access,
-        reason = "per-tick rates: byte and tick counters divided by an elapsed \
-              interval to produce a display figure. The counters are far below \
-              2^53 and the result is rendered, not accumulated."
-    )]
     pub fn tick(
         &mut self,
         interval: f64,
@@ -76,7 +61,7 @@ impl Monitor {
 
         let rate = |curr: u64, prev: u64| {
             if interval > 0.0 {
-                curr.saturating_sub(prev) as f64 / interval
+                unsigned(curr.saturating_sub(prev)) / interval
             } else {
                 0.0
             }
@@ -92,7 +77,7 @@ impl Monitor {
             cpu_pct,
             cpu_mhz: crate::cpufreq::get_cpu_mhz(),
             cores,
-            temp_unit: Default::default(),
+            temp_unit: crate::render::TempUnit::default(),
             mem,
             disk,
             rx_rate,
@@ -123,12 +108,6 @@ mod tests {
     use crate::proc::{Proc, Usage};
     use crate::render::{bar_len_for, render};
 
-    #[expect(
-        clippy::cast_possible_truncation,
-        reason = "per-tick rates: byte and tick counters divided by an elapsed \
-              interval to produce a display figure. The counters are far below \
-              2^53 and the result is rendered, not accumulated."
-    )]
     fn snapshot(cores: usize, procs: usize) -> Snapshot {
         Snapshot {
             host: "h".into(),
@@ -145,7 +124,7 @@ mod tests {
             },
             rx_rate: 100_000.0,
             tx_rate: 100_000.0,
-            procs: (0..procs as u32)
+            procs: (0..u32::try_from(procs).unwrap_or(u32::MAX))
                 .map(|i| Proc {
                     pid: i,
                     name: "p".into(),

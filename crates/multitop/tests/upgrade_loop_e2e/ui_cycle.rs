@@ -127,7 +127,7 @@ async fn test_ui_vault_locked_shows_prompt_not_modal() {
         use_os_keychain: false,
     };
     let vault = Vault::new(config);
-    let _ = vault.initialize("master-pass").await;
+    let _ = vault.initialize("master-pass");
 
     let mut app = App::new(vec![local_server("ls -l")]);
     app.vault = Some(std::sync::Arc::new(vault));
@@ -171,7 +171,7 @@ async fn test_ui_vault_unlocked_after_password_runs_upgrade() {
         use_os_keychain: false,
     };
     let vault = Vault::new(config);
-    let _ = vault.initialize("master-pass").await;
+    let _ = vault.initialize("master-pass");
 
     let mut app = App::new(vec![local_server("ls -l")]);
     app.vault = Some(std::sync::Arc::new(vault));

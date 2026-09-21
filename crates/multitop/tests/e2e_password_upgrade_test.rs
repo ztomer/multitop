@@ -6,6 +6,12 @@
 //! 3. Execution of upgrade tasks (`spawn_upgrade`) using stored passwords to stream command output.
 //! 4. In-stream guidance tip generation when sudo authentication is missing.
 
+// A test crate, said where clippy reads it: the restriction lints
+// (`unwrap_used`, `expect_used`, `panic`) are policy for production code and
+// exempt for test code (clippy.toml), and an integration test is test code
+// through and through -- helpers included.
+#![cfg(test)]
+
 // Integration-test crate: helper fns outside #[test] are not covered by
 // clippy.toml's test exemption, so the restriction lints are expected here.
 use multitop::app::{App, Msg};
@@ -13,21 +19,6 @@ use multitop::config::Server;
 mod common;
 use multitop::passwords::{self, PasswordAction};
 use multitop::tasks::spawn_upgrade;
-
-/// Divert credentials to the in-memory store, and hold the process-global guard.
-///
-/// An integration binary is compiled without `cfg(test)`, so the mock store is
-/// not in force unless it is asked for, and anything holding an `App` reaches
-/// `password_store` several calls down. Without this these tests query the real
-/// OS keychain: every rebuild changes the binary's code signature, so macOS
-/// raises an access dialog and the suite stops until a human dismisses it.
-#[expect(dead_code)]
-fn isolate_keychain() -> tokio::sync::MutexGuard<'static, ()> {
-    let guard = multitop::password_store::lock_for_test();
-    multitop::password_store::enable_mock_store();
-    multitop::password_store::clear_mock_store();
-    guard
-}
 
 async fn isolate_keychain_async() -> tokio::sync::MutexGuard<'static, ()> {
     let guard = multitop::password_store::lock_for_test_async().await;

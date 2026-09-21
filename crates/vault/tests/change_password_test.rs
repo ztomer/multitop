@@ -6,9 +6,14 @@
 //! and no new file written, so every stored password was gone with nothing to
 //! restore from.
 
+// A test crate, said where clippy reads it: the restriction lints
+// (`unwrap_used`, `expect_used`, `panic`) are policy for production code and
+// exempt for test code (clippy.toml), and an integration test is test code
+// through and through -- helpers included.
+#![cfg(test)]
+
 // Integration-test crate: helper fns outside #[test] are not covered by
 // clippy.toml's test exemption, so the restriction lints are expected here.
-#![expect(clippy::unwrap_used)]
 
 use multitop_vault::crypto::{Argon2Params, WrapperType};
 use multitop_vault::format::VaultHeader;
@@ -17,11 +22,14 @@ use secrecy::{ExposeSecret, SecretString};
 
 const HOST: &str = "ztomer@192.168.0.33:22";
 
-fn scratch(tag: &str) -> std::path::PathBuf {
+/// A fresh scratch path for the vault; the helpers here report through
+/// `Result` and the `#[test]` callers unwrap (a helper is outside clippy's
+/// test exemption).
+fn scratch(tag: &str) -> std::io::Result<std::path::PathBuf> {
     let dir = std::env::temp_dir().join(format!("mt_chpw_{tag}_{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);
-    std::fs::create_dir_all(&dir).unwrap();
-    dir.join("vault.bin")
+    std::fs::create_dir_all(&dir)?;
+    Ok(dir.join("vault.bin"))
 }
 
 fn vault_at(path: &std::path::Path) -> Vault {
@@ -36,31 +44,22 @@ fn vault_at(path: &std::path::Path) -> Vault {
     })
 }
 
-fn rt() -> tokio::runtime::Runtime {
-    tokio::runtime::Builder::new_current_thread()
-        .enable_all()
-        .build()
-        .unwrap()
-}
-
-fn seeded(path: &std::path::Path) -> Vault {
+fn seeded(path: &std::path::Path) -> Result<Vault, VaultError> {
     let vault = vault_at(path);
-    rt().block_on(vault.initialize("old-master")).unwrap();
-    let mut unlocked = vault.unlock_with_password("old-master").unwrap();
-    unlocked
-        .set_password(
-            HOST.to_string(),
-            &SecretString::from("sudo-secret".to_string()),
-        )
-        .unwrap();
+    vault.initialize("old-master")?;
+    let mut unlocked = vault.unlock_with_password("old-master")?;
+    unlocked.set_password(
+        HOST.to_string(),
+        &SecretString::from("sudo-secret".to_string()),
+    )?;
     unlocked.lock();
-    vault
+    Ok(vault)
 }
 
 #[test]
 fn the_new_password_works_and_the_old_one_stops() {
-    let path = scratch("swap");
-    let vault = seeded(&path);
+    let path = scratch("swap").expect("a scratch dir");
+    let vault = seeded(&path).expect("a seeded vault");
 
     vault.change_password("old-master", "new-master").unwrap();
 
@@ -86,8 +85,8 @@ fn the_new_password_works_and_the_old_one_stops() {
 
 #[test]
 fn a_wrong_current_password_leaves_the_vault_untouched() {
-    let path = scratch("wrong");
-    let vault = seeded(&path);
+    let path = scratch("wrong").expect("a scratch dir");
+    let vault = seeded(&path).expect("a seeded vault");
     let before = std::fs::read(&path).unwrap();
 
     let err = vault
@@ -111,8 +110,8 @@ fn a_wrong_current_password_leaves_the_vault_untouched() {
 
 #[test]
 fn the_vault_file_is_never_left_unreadable() {
-    let path = scratch("intact");
-    let vault = seeded(&path);
+    let path = scratch("intact").expect("a scratch dir");
+    let vault = seeded(&path).expect("a seeded vault");
 
     vault.change_password("old-master", "new-master").unwrap();
 
@@ -136,8 +135,8 @@ fn the_vault_file_is_never_left_unreadable() {
 
 #[test]
 fn rotation_advances_the_counter_so_a_restored_old_vault_is_detectable() {
-    let path = scratch("counter");
-    let vault = seeded(&path);
+    let path = scratch("counter").expect("a scratch dir");
+    let vault = seeded(&path).expect("a seeded vault");
     let before = VaultHeader::from_bytes(&std::fs::read(&path).unwrap())
         .unwrap()
         .counter;

@@ -4,6 +4,12 @@
 //! Both are silent failures if they are got wrong — a banner that vanishes, a
 //! vault that reports success and holds nothing — so both are pinned here.
 
+// A test crate, said where clippy reads it: the restriction lints
+// (`unwrap_used`, `expect_used`, `panic`) are policy for production code and
+// exempt for test code (clippy.toml), and an integration test is test code
+// through and through -- helpers included.
+#![cfg(test)]
+
 use std::sync::Arc;
 
 use crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
@@ -56,7 +62,7 @@ fn press(app: &mut App, code: KeyCode, tx: &mpsc::Sender<Msg>, tasks: &mut Tasks
         KeyEvent::new_with_kind(code, KeyModifiers::NONE, KeyEventKind::Press),
         app,
         (80, 24),
-        Arc::new(dims_rx),
+        &Arc::new(dims_rx),
         tx,
         tasks,
     );
@@ -183,8 +189,8 @@ async fn a_new_vault_that_cannot_hold_the_session_passwords_says_so() {
     let _g = isolate().await;
     let dir = tempfile::tempdir().unwrap();
     let vault_path = dir.path().join("vault.bin");
-    let vault = multitop_vault::Vault::new(multitop::vault::config_for(vault_path.clone()));
-    vault.initialize(MASTER).await.expect("initialise");
+    let vault = multitop_vault::Vault::new(multitop::vault::config_for(vault_path));
+    vault.initialize(MASTER).expect("initialise");
     let unlocked = vault.unlock_with_password(MASTER).expect("unlock");
 
     let mut app = App::new(vec![test_server("alpha"), test_server("beta")]);
@@ -247,7 +253,7 @@ async fn a_leading_notice_is_kept_whether_or_not_a_second_one_follows() {
     let dir = tempfile::tempdir().unwrap();
     let vault_path = dir.path().join("vault.bin");
     let vault = multitop_vault::Vault::new(multitop::vault::config_for(vault_path));
-    vault.initialize(MASTER).await.expect("initialise");
+    vault.initialize(MASTER).expect("initialise");
 
     let mut app = App::new(vec![test_server("alpha")]);
     app.config_path = Some(dir.path().join("config.toml"));
@@ -315,7 +321,7 @@ async fn a_password_the_vault_holds_is_marked_as_coming_from_outside() {
     let dir = tempfile::tempdir().unwrap();
     let vault_path = dir.path().join("vault.bin");
     let vault = multitop_vault::Vault::new(multitop::vault::config_for(vault_path));
-    vault.initialize(MASTER).await.expect("initialise");
+    vault.initialize(MASTER).expect("initialise");
 
     let server = test_server("alpha");
     let mut unlocked = vault.unlock_with_password(MASTER).expect("unlock");

@@ -6,8 +6,10 @@ use crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 use tokio::sync::mpsc::Sender;
 use tokio::sync::watch;
 
+use crate::app::Overlay;
 use crate::app::{App, Command, Confirm, Msg};
 
+use super::nav_keys::{clamp_selection_to_filter, focus_and_navigation_keys, yank_selected_host};
 use super::tasks::Tasks;
 use multitop_agent::SortBy;
 
@@ -16,12 +18,11 @@ use multitop_agent::SortBy;
 /// Public so integration tests can drive the real key path rather than calling
 /// the `App` methods it happens to reach today — the `u` flow is a sequence of
 /// presses, and testing the pieces would not catch the sequence regressing.
-#[expect(clippy::too_many_lines)]
 pub fn handle_key(
     key: KeyEvent,
     app: &mut App,
     dims: (u16, u16),
-    dims_rx: Arc<watch::Receiver<(u16, u16)>>,
+    dims_rx: &Arc<watch::Receiver<(u16, u16)>>,
     tx: &Sender<Msg>,
     tasks: &mut Tasks,
 ) {
@@ -51,601 +52,21 @@ pub fn handle_key(
         return;
     }
 
-    // Help overlay — `?` from anywhere, `Esc`/`?`/`q` to close. Checked before
-    // the confirm modal so help can be summoned even with a quit armed, and
-    // before the filter so `?` in the filter query doesn't open it.
-    if app.help_visible {
-        if matches!(
-            key.code,
-            KeyCode::Char('?' | 'h' | 'H' | 'q' | 'Q') | KeyCode::Esc
-        ) {
-            app.help_visible = false;
-        }
+    if overlay_keys(key, app, dims, tx, tasks) {
         return;
     }
-    if matches!(key.code, KeyCode::Char('?')) {
-        app.help_visible = true;
+    if confirmation_keys(key, app, dims, tx, tasks) {
         return;
     }
-
-    // Command palette — `:` from anywhere, `Esc` to close, `Enter` to execute.
-    if app.command_palette_visible {
-        match key.code {
-            KeyCode::Esc => {
-                app.command_palette_visible = false;
-                app.command_input.clear();
-                return;
-            }
-            KeyCode::Enter => {
-                let input = std::mem::take(&mut app.command_input);
-                app.command_palette_visible = false;
-                execute_palette_command(&input, app, dims, tx, tasks);
-                return;
-            }
-            KeyCode::Backspace => {
-                app.command_input.pop();
-                return;
-            }
-            KeyCode::Char(c) => {
-                app.command_input.push(c);
-                return;
-            }
-            _ => return,
-        }
-    }
-    if matches!(key.code, KeyCode::Char(':')) {
-        app.command_palette_visible = true;
-        app.command_input.clear();
+    if vault_and_password_keys(key, app, tx, tasks) {
         return;
     }
-
-    // Which confirmation is in force is `App::active_confirm`'s answer, not a
-    // second copy of the priority. This used to test `show_upgrade_modal` first
-    // while `ui::keybar_content` tested `quit_armed` first, so with both set the
-    // screen named one set of keys and this ran the other -- and the one that
-    // lost was the confirmation guarding a running dpkg.
-    match app.active_confirm() {
-        // A quit armed by Esc/q/Ctrl-C while upgrades were in flight. `q`
-        // confirms, Esc stands down. Every other key is ignored until one of the
-        // two: the row is a modal in all but shape, and letting stray keys
-        // through while it is up would be acting on a screen the user has asked
-        // a question of.
-        Some(Confirm::Quit) => {
-            match key.code {
-                // Only the keys the row names, plus Ctrl-C, which means the same
-                // thing everywhere. `Enter` and `y` used to confirm too, and they
-                // are exactly the wrong keys to accept here: this press kills a
-                // running dpkg transaction on N production hosts, and `Enter` is
-                // what an operator hits to dismiss something they have not read.
-                KeyCode::Char('q' | 'Q') => app.quit(),
-                KeyCode::Char('c') if key.modifiers.contains(KeyModifiers::CONTROL) => app.quit(),
-                KeyCode::Esc => app.cancel_quit(),
-                _ => {}
-            }
-            return;
-        }
-        Some(Confirm::Kill) => {
-            match key.code {
-                // Same discipline as Upgrade: only the advertised key kills.
-                // `Enter` is what an operator hits to dismiss, not to authorize
-                // `kill -9` on a production pid.
-                KeyCode::Char('k' | 'K' | 'x' | 'X') => {
-                    if let Some(ec) = app.kill_confirm.take() {
-                        if ec.kind == crate::app::ExecKind::Kill && ec.panel < app.panels.len() {
-                            let gen = app.bump(ec.panel);
-                            let server = app.panels[ec.panel].server.clone();
-                            let pass = app.panels[ec.panel].sudo_password.clone();
-                            let handle = crate::tasks::spawn_kill(
-                                ec.panel,
-                                gen,
-                                server,
-                                ec.pid,
-                                ec.name,
-                                pass,
-                                tx.clone(),
-                            );
-                            tasks.set_aux(ec.panel, handle);
-                        } else {
-                            // Wrong key for armed action — re-arm.
-                            app.kill_confirm = Some(ec);
-                        }
-                    }
-                }
-                KeyCode::Char('o' | 'O') => {
-                    if let Some(ec) = app.kill_confirm.take() {
-                        if ec.kind == crate::app::ExecKind::Journal && ec.panel < app.panels.len() {
-                            let gen = app.bump(ec.panel);
-                            let server = app.panels[ec.panel].server.clone();
-                            let pass = app.panels[ec.panel].sudo_password.clone();
-                            let handle = crate::tasks::spawn_journal(
-                                ec.panel,
-                                gen,
-                                server,
-                                ec.pid,
-                                ec.name,
-                                pass,
-                                tx.clone(),
-                            );
-                            tasks.set_aux(ec.panel, handle);
-                        } else {
-                            app.kill_confirm = Some(ec);
-                        }
-                    }
-                }
-                KeyCode::Char('r' | 'R') => {
-                    if let Some(ec) = app.kill_confirm.take() {
-                        if ec.kind == crate::app::ExecKind::Renice && ec.panel < app.panels.len() {
-                            let gen = app.bump(ec.panel);
-                            let server = app.panels[ec.panel].server.clone();
-                            let pass = app.panels[ec.panel].sudo_password.clone();
-                            let handle = crate::tasks::spawn_renice(
-                                ec.panel,
-                                gen,
-                                server,
-                                ec.pid,
-                                ec.name,
-                                pass,
-                                tx.clone(),
-                            );
-                            tasks.set_aux(ec.panel, handle);
-                        } else {
-                            app.kill_confirm = Some(ec);
-                        }
-                    }
-                }
-                KeyCode::Esc | KeyCode::Char('q' | 'Q' | 'n' | 'N') => {
-                    app.kill_confirm = None;
-                }
-                _ => {}
-            }
-            return;
-        }
-        Some(Confirm::Upgrade) => {
-            match key.code {
-                // Only the key the row names. It reads `[U] go  [Esc] cancel`, and
-                // `y`, `Y` and `Enter` confirmed as well -- three keys that start
-                // `apt upgrade` on every visible host without appearing anywhere on
-                // the screen that asked. `Enter` is the worst of them: it is what an
-                // operator hits to dismiss a row they have not read, which is the
-                // reason the quit confirmation dropped it, and the reason the server
-                // removal dropped it in this same pass.
-                //
-                // Extra *cancel* keys below are not the same thing and stay: a stray
-                // key that cancels can only ever be the safe answer.
-                KeyCode::Char('u' | 'U') => {
-                    if app.any_password_checking() {
-                        // A credential-store lookup is still in flight (it can
-                        // block on a system dialog). Starting now would run on
-                        // passwords the app has not actually read; the header
-                        // says `Checking` and this press is deferred until the
-                        // last answer lands.
-                        return;
-                    }
-                    let cmds = app.confirm_upgrade();
-                    execute_cmds(cmds, app, dims, tx, tasks);
-                }
-                KeyCode::Esc | KeyCode::Char('q' | 'Q' | 'n' | 'N') => {
-                    app.set_show_upgrade_modal(false);
-                }
-                KeyCode::Char('s' | 'S') => {
-                    app.set_show_upgrade_modal(false);
-                    let cmds = app.switch_stats();
-                    execute_cmds(cmds, app, dims, tx, tasks);
-                }
-                KeyCode::Char('d' | 'D') => {
-                    app.set_show_upgrade_modal(false);
-                    let cmds = app.toggle_docker(dims);
-                    execute_cmds(cmds, app, dims, tx, tasks);
-                }
-                KeyCode::Char('f' | 'F') => {
-                    app.set_show_upgrade_modal(false);
-                    let cmds = app.toggle_fetch(dims);
-                    execute_cmds(cmds, app, dims, tx, tasks);
-                }
-                KeyCode::Char('g' | 'G') => {
-                    app.set_show_upgrade_modal(false);
-                    let cmds = app.toggle_graphs(dims);
-                    execute_cmds(cmds, app, dims, tx, tasks);
-                }
-                _ => {}
-            }
-            return;
-        }
-        None => {}
-    }
-
-    if app.vault_creating() {
-        // While the creation is in flight the prompt is a progress message, not
-        // a field: Argon2id is running and there is nothing to type into. Only
-        // Esc, which gives up on waiting, still means anything.
-        if app.vault_create_in_flight() {
-            if matches!(key.code, KeyCode::Esc) {
-                app.cancel_vault_creation();
-            }
-            return;
-        }
-        match key.code {
-            KeyCode::Enter => {
-                let Some(master) = app.begin_vault_create_attempt() else {
-                    return;
-                };
-                let epoch = app.vault_epoch;
-                let Some(path) = app.vault_path() else {
-                    app.fail_vault_creation("No config directory to create the vault in".into());
-                    return;
-                };
-                let tx2 = tx.clone();
-                let vault_config = crate::vault::config_for(path);
-                tokio::spawn(async move {
-                    let vault = multitop_vault::Vault::new(vault_config);
-                    let msg = match vault.initialize(&master).await {
-                        // Unlock with the same password we just set, so the
-                        // vault is immediately usable and can take the password
-                        // whose save started all this.
-                        Ok(()) => match vault.unlock_with_password(&master) {
-                            Ok(unlocked) => Msg::VaultCreated {
-                                epoch,
-                                unlocked: Box::new(unlocked),
-                            },
-                            Err(e) => Msg::VaultCreateFailed {
-                                epoch,
-                                error: e.to_string(),
-                            },
-                        },
-                        Err(e) => Msg::VaultCreateFailed {
-                            epoch,
-                            error: e.to_string(),
-                        },
-                    };
-                    let _ = tx2.send(msg).await;
-                });
-            }
-            KeyCode::Esc => {
-                // Declining leaves the password in the OS credential store,
-                // which still works; only the encrypted vault is skipped.
-                app.cancel_vault_creation();
-            }
-            KeyCode::Backspace => {
-                app.vault_password_input_mut().pop();
-            }
-            KeyCode::Char(c) => app.vault_password_input_mut().push(c),
-            _ => {}
-        }
+    if filter_keys(key, app) {
         return;
     }
-
-    if app.show_vault_password_prompt() {
-        match key.code {
-            KeyCode::Enter => {
-                let password = std::mem::take(app.vault_password_input_mut());
-                if !password.is_empty() {
-                    if let Some(vault) = app.vault.clone() {
-                        // Argon2id is tuned to a quarter of system RAM, capped at
-                        // 1 GiB, so unwrapping the key takes real time. Running it
-                        // here froze the entire UI -- no redraw, no keys, no
-                        // messages -- until it finished. Hand it to a blocking
-                        // thread and let the result come back as a message.
-                        let epoch = app.set_vault_unlocking();
-                        let tx2 = tx.clone();
-                        tokio::task::spawn_blocking(move || {
-                            let msg = match vault.unlock_with_password(&password) {
-                                Ok(unlocked) => Msg::VaultUnlocked {
-                                    epoch,
-                                    unlocked: Box::new(unlocked),
-                                },
-                                Err(e) => Msg::VaultUnlockFailed {
-                                    epoch,
-                                    error: e.to_string(),
-                                },
-                            };
-                            let _ = tx2.blocking_send(msg);
-                        });
-                    }
-                }
-            }
-            KeyCode::Esc => {
-                app.set_show_vault_password_prompt(false);
-                app.vault_password_input_mut().clear();
-                app.set_vault_password_error(None);
-            }
-            KeyCode::Backspace => {
-                app.vault_password_input_mut().pop();
-            }
-            KeyCode::Char(c) => app.vault_password_input_mut().push(c),
-            _ => {}
-        }
+    if focus_and_navigation_keys(key, app, dims, dims_rx, tx, tasks) {
         return;
     }
-
-    if app.password_manager.is_some() {
-        let action = crate::passwords::handle_key(app, key.code);
-        crate::password_actions::apply(action, app, tx, tasks);
-        return;
-    }
-
-    // Typing a query owns every printable key, so this is checked before the
-    // single-letter bindings below -- otherwise a host called "docker" could
-    // not be typed without switching views half way through.
-    if app.is_filtering() {
-        // Ctrl-S saves the current query into the 1..3 slots.
-        if key.code == KeyCode::Char('s') && key.modifiers.contains(KeyModifiers::CONTROL) {
-            let q = app.filter_query.trim().to_string();
-            if !q.is_empty() && !app.saved_filters.contains(&q) {
-                if app.saved_filters.len() >= 3 {
-                    app.saved_filters.remove(0);
-                }
-                app.saved_filters.push(q);
-                app.persist_state();
-            }
-            return;
-        }
-        match key.code {
-            KeyCode::Esc => {
-                app.filter_query.clear();
-                app.set_filtering(false);
-            }
-            // Keep what was typed and hand the keys back. Clearing here instead
-            // would make the feature useless: the filter would only ever exist
-            // while a key was held down.
-            KeyCode::Enter => app.set_filtering(false),
-            KeyCode::Backspace => {
-                app.filter_query.pop();
-            }
-            KeyCode::Char(c) => app.filter_query.push(c),
-            _ => {}
-        }
-        clamp_selection_to_filter(app);
-        app.persist_state();
-        return;
-    }
-    // Ctrl-S outside filtering also saves the applied query.
-    if key.code == KeyCode::Char('s') && key.modifiers.contains(KeyModifiers::CONTROL) {
-        let q = app.filter_query.trim().to_string();
-        if !q.is_empty() && !app.saved_filters.contains(&q) {
-            if app.saved_filters.len() >= 3 {
-                app.saved_filters.remove(0);
-            }
-            app.saved_filters.push(q);
-            app.persist_state();
-        }
-        return;
-    }
-    // Ctrl-1..3 recalls a saved filter (1 is most recent when only one).
-    if key.modifiers.contains(KeyModifiers::CONTROL) {
-        if let KeyCode::Char(c @ '1'..='3') = key.code {
-            let idx = (c as usize) - ('1' as usize);
-            if let Some(q) = app.saved_filters.get(idx).cloned() {
-                app.filter_query = q;
-                clamp_selection_to_filter(app);
-                app.persist_state();
-            }
-            return;
-        }
-    }
-
-    match key.code {
-        // Focus first — `Esc` while zoomed should unzoom, not clear the filter
-        // underneath or quit. The focused host is the one the user asked to see
-        // alone, and the filter they left behind is still there when they return.
-        KeyCode::Esc if app.is_focused() => {
-            app.toggle_focus();
-            app.rerender_all(dims);
-            return;
-        }
-        // Esc clears an applied filter before it quits. Quitting on the same
-        // key that got you here reads as the app dying, and the panels are
-        // already hidden, so there is nothing on screen to explain it.
-        KeyCode::Esc if !app.filter_query.trim().is_empty() => {
-            app.filter_query.clear();
-            clamp_selection_to_filter(app);
-            app.persist_state();
-            return;
-        }
-        KeyCode::Char('/') => {
-            app.set_filtering(true);
-            app.filter_query.clear();
-            return;
-        }
-        KeyCode::Esc | KeyCode::Char('q' | 'Q') => {
-            app.request_quit();
-            return;
-        }
-        KeyCode::Char('c') if key.modifiers.contains(KeyModifiers::CONTROL) => {
-            app.request_quit();
-            return;
-        }
-        KeyCode::Char('e' | 'E') => {
-            let load = crate::passwords::open(app, app.selected_panel, false);
-            app.dispatch_credential_loads(load, tx);
-            return;
-        }
-        // The number keys count panes on screen, not entries in the config.
-        //
-        // They used to index the unfiltered list and clamp to its end, so with
-        // `/db` showing one pane, `2` selected a host that was not on screen
-        // and every view key after it acted on that host instead. Out of range
-        // now does nothing, which is the same answer a click on no pane gets:
-        // the two ways of choosing a pane agree.
-        KeyCode::Char(c @ '1'..='9') => {
-            let slot = (c as usize) - ('1' as usize);
-            if let Some(&panel) = app.filtered_indices().get(slot) {
-                app.selected_panel = panel;
-                app.persist_state();
-            }
-            return;
-        }
-        KeyCode::Char('c' | 'C') => {
-            let old_sort = app.sort;
-            app.sort = SortBy::Cpu;
-            if old_sort != app.sort {
-                app.persist_state();
-                super::event_loop::restart_all_agents(app, dims_rx, tx, tasks);
-            }
-            return;
-        }
-        KeyCode::Char('m' | 'M') => {
-            let old_sort = app.sort;
-            app.sort = SortBy::Mem;
-            if old_sort != app.sort {
-                app.persist_state();
-                super::event_loop::restart_all_agents(app, dims_rx, tx, tasks);
-            }
-            return;
-        }
-        KeyCode::Char('t' | 'T') => {
-            app.cycle_theme();
-            if let Some(ref path) = app.config_path {
-                crate::config::save_theme(path, app.current_theme().name);
-            }
-            app.rerender_all(dims);
-            return;
-        }
-        KeyCode::Char('+' | '=') => {
-            if app.in_graphs() || app.in_alerts() {
-                // 4096 samples ≈2.2 h; 80 cols*2*16=2560 ≈1.4 h, 1..16 covers
-                // ~10 s to ~1 h at 80 cols, validated against bench.
-                app.graph_zoom = (app.graph_zoom + 1).clamp(1, 16);
-                app.rerender_all(dims);
-            }
-            return;
-        }
-        KeyCode::Char('-' | '_') => {
-            if app.in_graphs() || app.in_alerts() {
-                app.graph_zoom = app.graph_zoom.saturating_sub(1).max(1);
-                app.rerender_all(dims);
-            }
-            return;
-        }
-        KeyCode::Char('y' | 'Y') => {
-            yank_selected_host(app);
-            return;
-        }
-        KeyCode::Char('H') if !app.is_filtering() => {
-            let cmds = app.toggle_alerts(dims);
-            for cmd in cmds {
-                let _ = cmd;
-            }
-            app.persist_state();
-            return;
-        }
-        KeyCode::Char('x' | 'X') => {
-            // Top process on the selected host, per current sort, as `host:pid:name`
-            // guarded by the same Confirm pattern as Upgrade (`Confirm::Kill`).
-            if let Some(panel) = app.panels.get(app.selected_panel) {
-                if let Some(multitop_agent::proto::Payload::Monitor(snap)) = &panel.last_monitor {
-                    let mut procs = snap.procs.clone();
-                    match app.sort {
-                        SortBy::Cpu => procs.sort_by(|a, b| {
-                            b.cpu
-                                .partial_cmp(&a.cpu)
-                                .unwrap_or(std::cmp::Ordering::Equal)
-                        }),
-                        SortBy::Mem => procs.sort_by_key(|a| std::cmp::Reverse(a.mem)),
-                    }
-                    if let Some(top) = procs.first() {
-                        app.kill_confirm = Some(crate::app::ExecConfirm {
-                            panel: app.selected_panel,
-                            pid: top.pid,
-                            name: top.name.clone(),
-                            kind: crate::app::ExecKind::Kill,
-                        });
-                    }
-                }
-            }
-            return;
-        }
-        KeyCode::Char('o' | 'O') => {
-            if let Some(panel) = app.panels.get(app.selected_panel) {
-                if let Some(multitop_agent::proto::Payload::Monitor(snap)) = &panel.last_monitor {
-                    let mut procs = snap.procs.clone();
-                    match app.sort {
-                        SortBy::Cpu => procs.sort_by(|a, b| {
-                            b.cpu
-                                .partial_cmp(&a.cpu)
-                                .unwrap_or(std::cmp::Ordering::Equal)
-                        }),
-                        SortBy::Mem => procs.sort_by_key(|a| std::cmp::Reverse(a.mem)),
-                    }
-                    if let Some(top) = procs.first() {
-                        app.kill_confirm = Some(crate::app::ExecConfirm {
-                            panel: app.selected_panel,
-                            pid: top.pid,
-                            name: top.name.clone(),
-                            kind: crate::app::ExecKind::Journal,
-                        });
-                    }
-                }
-            }
-            return;
-        }
-        KeyCode::Char('r' | 'R') => {
-            if let Some(panel) = app.panels.get(app.selected_panel) {
-                if let Some(multitop_agent::proto::Payload::Monitor(snap)) = &panel.last_monitor {
-                    let mut procs = snap.procs.clone();
-                    match app.sort {
-                        SortBy::Cpu => procs.sort_by(|a, b| {
-                            b.cpu
-                                .partial_cmp(&a.cpu)
-                                .unwrap_or(std::cmp::Ordering::Equal)
-                        }),
-                        SortBy::Mem => procs.sort_by_key(|a| std::cmp::Reverse(a.mem)),
-                    }
-                    if let Some(top) = procs.first() {
-                        app.kill_confirm = Some(crate::app::ExecConfirm {
-                            panel: app.selected_panel,
-                            pid: top.pid,
-                            name: top.name.clone(),
-                            kind: crate::app::ExecKind::Renice,
-                        });
-                    }
-                }
-            }
-            return;
-        }
-        KeyCode::Char('l' | 'L') => {
-            // `tail -n 200 -F /var/log/syslog` as framed Exec — Painter+RingLines reuse.
-            if app.selected_panel < app.panels.len() {
-                let panel = app.selected_panel;
-                let gen = app.bump(panel);
-                let server = app.panels[panel].server.clone();
-                let pass = app.panels[panel].sudo_password.clone();
-                let handle = crate::tasks::spawn_tail(panel, gen, server, pass, tx.clone());
-                tasks.set_aux(panel, handle);
-            }
-            return;
-        }
-        KeyCode::Enter | KeyCode::Char('z' | 'Z') => {
-            app.toggle_focus();
-            app.rerender_all(dims);
-            return;
-        }
-        KeyCode::Up | KeyCode::Char('k' | 'K') => {
-            app.scroll_up(1);
-            return;
-        }
-        KeyCode::Down | KeyCode::Char('j' | 'J') => {
-            app.scroll_down(1);
-            return;
-        }
-        KeyCode::PageUp => {
-            app.scroll_up(15);
-            return;
-        }
-        KeyCode::PageDown => {
-            app.scroll_down(15);
-            return;
-        }
-        KeyCode::Home => {
-            app.scroll_to_top();
-            return;
-        }
-        KeyCode::End => {
-            app.scroll_to_bottom();
-            return;
-        }
-        _ => {}
-    }
-
     let cmds = match key.code {
         KeyCode::Char('f' | 'F') => app.toggle_fetch(dims),
         KeyCode::Char('d' | 'D') => app.toggle_docker(dims),
@@ -727,6 +148,507 @@ pub fn handle_key(
     }
 
     execute_cmds(cmds, app, dims, tx, tasks);
+}
+
+/// Help and the command palette: the overlays own every key while up.
+fn overlay_keys(
+    key: KeyEvent,
+    app: &mut App,
+    dims: (u16, u16),
+    tx: &Sender<Msg>,
+    tasks: &mut Tasks,
+) -> bool {
+    // Help overlay — `?` from anywhere, `Esc`/`?`/`q` to close. Checked before
+    // the confirm modal so help can be summoned even with a quit armed, and
+    // before the filter so `?` in the filter query doesn't open it.
+    if let Overlay::Help { palette_open } = app.overlay {
+        if matches!(
+            key.code,
+            KeyCode::Char('?' | 'h' | 'H' | 'q' | 'Q') | KeyCode::Esc
+        ) {
+            app.overlay = if palette_open {
+                Overlay::CommandPalette
+            } else {
+                Overlay::None
+            };
+        }
+        return true;
+    }
+    if matches!(key.code, KeyCode::Char('?')) {
+        app.overlay = Overlay::Help {
+            palette_open: app.overlay.is_palette(),
+        };
+        return true;
+    }
+
+    // Command palette — `:` from anywhere, `Esc` to close, `Enter` to execute.
+    if app.overlay.is_palette() {
+        match key.code {
+            KeyCode::Esc => {
+                app.overlay = Overlay::None;
+                app.command_input.clear();
+                return true;
+            }
+            KeyCode::Enter => {
+                let input = std::mem::take(&mut app.command_input);
+                app.overlay = Overlay::None;
+                execute_palette_command(&input, app, dims, tx, tasks);
+                return true;
+            }
+            KeyCode::Backspace => {
+                app.command_input.pop();
+                return true;
+            }
+            KeyCode::Char(c) => {
+                app.command_input.push(c);
+                return true;
+            }
+            _ => return true,
+        }
+    }
+    if matches!(key.code, KeyCode::Char(':')) {
+        app.overlay = Overlay::CommandPalette;
+        app.command_input.clear();
+        return true;
+    }
+
+    false
+}
+
+/// The confirmation in force (quit, upgrade, ...) owns every key while up.
+fn confirmation_keys(
+    key: KeyEvent,
+    app: &mut App,
+    dims: (u16, u16),
+    tx: &Sender<Msg>,
+    tasks: &mut Tasks,
+) -> bool {
+    // Which confirmation is in force is `App::active_confirm`'s answer, not a
+    // second copy of the priority. This used to test `show_upgrade_modal` first
+    // while `ui::keybar_content` tested `quit_armed` first, so with both set the
+    // screen named one set of keys and this ran the other -- and the one that
+    // lost was the confirmation guarding a running dpkg.
+    match app.active_confirm() {
+        // A quit armed by Esc/q/Ctrl-C while upgrades were in flight. `q`
+        // confirms, Esc stands down. Every other key is ignored until one of the
+        // two: the row is a modal in all but shape, and letting stray keys
+        // through while it is up would be acting on a screen the user has asked
+        // a question of.
+        Some(Confirm::Quit) => {
+            match key.code {
+                // Only the keys the row names, plus Ctrl-C, which means the same
+                // thing everywhere. `Enter` and `y` used to confirm too, and they
+                // are exactly the wrong keys to accept here: this press kills a
+                // running dpkg transaction on N production hosts, and `Enter` is
+                // what an operator hits to dismiss something they have not read.
+                KeyCode::Char('q' | 'Q') => app.quit(),
+                KeyCode::Char('c') if key.modifiers.contains(KeyModifiers::CONTROL) => app.quit(),
+                KeyCode::Esc => app.cancel_quit(),
+                _ => {}
+            }
+            return true;
+        }
+        Some(Confirm::Kill) => {
+            kill_confirm_keys(key, app, tx, tasks);
+            return true;
+        }
+        Some(Confirm::Upgrade) => {
+            match key.code {
+                // Only the key the row names. It reads `[U] go  [Esc] cancel`, and
+                // `y`, `Y` and `Enter` confirmed as well -- three keys that start
+                // `apt upgrade` on every visible host without appearing anywhere on
+                // the screen that asked. `Enter` is the worst of them: it is what an
+                // operator hits to dismiss a row they have not read, which is the
+                // reason the quit confirmation dropped it, and the reason the server
+                // removal dropped it in this same pass.
+                //
+                // Extra *cancel* keys below are not the same thing and stay: a stray
+                // key that cancels can only ever be the safe answer.
+                KeyCode::Char('u' | 'U') => {
+                    if app.any_password_checking() {
+                        // A credential-store lookup is still in flight (it can
+                        // block on a system dialog). Starting now would run on
+                        // passwords the app has not actually read; the header
+                        // says `Checking` and this press is deferred until the
+                        // last answer lands.
+                        return true;
+                    }
+                    let cmds = app.confirm_upgrade();
+                    execute_cmds(cmds, app, dims, tx, tasks);
+                }
+                KeyCode::Esc | KeyCode::Char('q' | 'Q' | 'n' | 'N') => {
+                    app.set_show_upgrade_modal(false);
+                }
+                KeyCode::Char('s' | 'S') => {
+                    app.set_show_upgrade_modal(false);
+                    let cmds = app.switch_stats();
+                    execute_cmds(cmds, app, dims, tx, tasks);
+                }
+                KeyCode::Char('d' | 'D') => {
+                    app.set_show_upgrade_modal(false);
+                    let cmds = app.toggle_docker(dims);
+                    execute_cmds(cmds, app, dims, tx, tasks);
+                }
+                KeyCode::Char('f' | 'F') => {
+                    app.set_show_upgrade_modal(false);
+                    let cmds = app.toggle_fetch(dims);
+                    execute_cmds(cmds, app, dims, tx, tasks);
+                }
+                KeyCode::Char('g' | 'G') => {
+                    app.set_show_upgrade_modal(false);
+                    let cmds = app.toggle_graphs(dims);
+                    execute_cmds(cmds, app, dims, tx, tasks);
+                }
+                _ => {}
+            }
+            return true;
+        }
+        None => {}
+    }
+
+    false
+}
+
+/// Vault creation, the vault password prompt and the password manager own every key while up.
+fn vault_and_password_keys(
+    key: KeyEvent,
+    app: &mut App,
+    tx: &Sender<Msg>,
+    tasks: &mut Tasks,
+) -> bool {
+    if app.vault_creating() {
+        // While the creation is in flight the prompt is a progress message, not
+        // a field: Argon2id is running and there is nothing to type into. Only
+        // Esc, which gives up on waiting, still means anything.
+        if app.vault_create_in_flight() {
+            if matches!(key.code, KeyCode::Esc) {
+                app.cancel_vault_creation();
+            }
+            return true;
+        }
+        match key.code {
+            KeyCode::Enter => {
+                let Some(master) = app.begin_vault_create_attempt() else {
+                    return true;
+                };
+                let epoch = app.vault_epoch;
+                let Some(path) = app.vault_path() else {
+                    app.fail_vault_creation("No config directory to create the vault in".into());
+                    return true;
+                };
+                let tx2 = tx.clone();
+                let vault_config = crate::vault::config_for(path);
+                tokio::spawn(async move {
+                    let vault = multitop_vault::Vault::new(vault_config);
+                    let msg = match vault.initialize(&master) {
+                        // Unlock with the same password we just set, so the
+                        // vault is immediately usable and can take the password
+                        // whose save started all this.
+                        Ok(()) => match vault.unlock_with_password(&master) {
+                            Ok(unlocked) => Msg::VaultCreated {
+                                epoch,
+                                unlocked: Box::new(unlocked),
+                            },
+                            Err(e) => Msg::VaultCreateFailed {
+                                epoch,
+                                error: e.to_string(),
+                            },
+                        },
+                        Err(e) => Msg::VaultCreateFailed {
+                            epoch,
+                            error: e.to_string(),
+                        },
+                    };
+                    let _ = tx2.send(msg).await;
+                });
+            }
+            KeyCode::Esc => {
+                // Declining leaves the password in the OS credential store,
+                // which still works; only the encrypted vault is skipped.
+                app.cancel_vault_creation();
+            }
+            KeyCode::Backspace => {
+                app.vault_password_input_mut().pop();
+            }
+            KeyCode::Char(c) => app.vault_password_input_mut().push(c),
+            _ => {}
+        }
+        return true;
+    }
+
+    if app.show_vault_password_prompt() {
+        match key.code {
+            KeyCode::Enter => {
+                let password = std::mem::take(app.vault_password_input_mut());
+                if !password.is_empty() {
+                    if let Some(vault) = app.vault.clone() {
+                        // Argon2id is tuned to a quarter of system RAM, capped at
+                        // 1 GiB, so unwrapping the key takes real time. Running it
+                        // here froze the entire UI -- no redraw, no keys, no
+                        // messages -- until it finished. Hand it to a blocking
+                        // thread and let the result come back as a message.
+                        let epoch = app.set_vault_unlocking();
+                        let tx2 = tx.clone();
+                        tokio::task::spawn_blocking(move || {
+                            let msg = match vault.unlock_with_password(&password) {
+                                Ok(unlocked) => Msg::VaultUnlocked {
+                                    epoch,
+                                    unlocked: Box::new(unlocked),
+                                },
+                                Err(e) => Msg::VaultUnlockFailed {
+                                    epoch,
+                                    error: e.to_string(),
+                                },
+                            };
+                            let _ = tx2.blocking_send(msg);
+                        });
+                    }
+                }
+            }
+            KeyCode::Esc => {
+                app.set_show_vault_password_prompt(false);
+                app.vault_password_input_mut().clear();
+                app.set_vault_password_error(None);
+            }
+            KeyCode::Backspace => {
+                app.vault_password_input_mut().pop();
+            }
+            KeyCode::Char(c) => app.vault_password_input_mut().push(c),
+            _ => {}
+        }
+        return true;
+    }
+
+    if app.password_manager.is_some() {
+        let action = crate::passwords::handle_key(app, key.code);
+        crate::password_actions::apply(action, app, tx, tasks);
+        return true;
+    }
+
+    false
+}
+
+/// The filter query, and the Ctrl-S / Ctrl-1..3 saved-filter bindings.
+fn filter_keys(key: KeyEvent, app: &mut App) -> bool {
+    // Typing a query owns every printable key, so this is checked before the
+    // single-letter bindings below -- otherwise a host called "docker" could
+    // not be typed without switching views half way through.
+    if app.is_filtering() {
+        // Ctrl-S saves the current query into the 1..3 slots.
+        if key.code == KeyCode::Char('s') && key.modifiers.contains(KeyModifiers::CONTROL) {
+            let q = app.filter_query.trim().to_string();
+            if !q.is_empty() && !app.saved_filters.contains(&q) {
+                if app.saved_filters.len() >= 3 {
+                    app.saved_filters.remove(0);
+                }
+                app.saved_filters.push(q);
+                app.persist_state();
+            }
+            return true;
+        }
+        match key.code {
+            KeyCode::Esc => {
+                app.filter_query.clear();
+                app.set_filtering(false);
+            }
+            // Keep what was typed and hand the keys back. Clearing here instead
+            // would make the feature useless: the filter would only ever exist
+            // while a key was held down.
+            KeyCode::Enter => app.set_filtering(false),
+            KeyCode::Backspace => {
+                app.filter_query.pop();
+            }
+            KeyCode::Char(c) => app.filter_query.push(c),
+            _ => {}
+        }
+        clamp_selection_to_filter(app);
+        app.persist_state();
+        return true;
+    }
+    // Ctrl-S outside filtering also saves the applied query.
+    if key.code == KeyCode::Char('s') && key.modifiers.contains(KeyModifiers::CONTROL) {
+        let q = app.filter_query.trim().to_string();
+        if !q.is_empty() && !app.saved_filters.contains(&q) {
+            if app.saved_filters.len() >= 3 {
+                app.saved_filters.remove(0);
+            }
+            app.saved_filters.push(q);
+            app.persist_state();
+        }
+        return true;
+    }
+    // Ctrl-1..3 recalls a saved filter (1 is most recent when only one).
+    if key.modifiers.contains(KeyModifiers::CONTROL) {
+        if let KeyCode::Char(c @ '1'..='3') = key.code {
+            let idx = (c as usize) - ('1' as usize);
+            if let Some(q) = app.saved_filters.get(idx).cloned() {
+                app.filter_query = q;
+                clamp_selection_to_filter(app);
+                app.persist_state();
+            }
+            return true;
+        }
+    }
+
+    false
+}
+
+/// The per-process actions on the selected host's top process (`x`, `o`,
+/// `r`): each arms a confirmation or dispatches its own command, and the
+/// key is consumed either way.
+pub(super) fn process_keys(key: KeyEvent, app: &mut App) {
+    match key.code {
+        KeyCode::Char('x' | 'X') => {
+            // Top process on the selected host, per current sort, as `host:pid:name`
+            // guarded by the same Confirm pattern as Upgrade (`Confirm::Kill`).
+            if let Some(panel) = app.panels.get(app.selected_panel) {
+                if let Some(multitop_agent::proto::Payload::Monitor(snap)) = &panel.last_monitor {
+                    let mut procs = snap.procs.clone();
+                    match app.sort {
+                        SortBy::Cpu => procs.sort_by(|a, b| {
+                            b.cpu
+                                .partial_cmp(&a.cpu)
+                                .unwrap_or(std::cmp::Ordering::Equal)
+                        }),
+                        SortBy::Mem => procs.sort_by_key(|a| std::cmp::Reverse(a.mem)),
+                    }
+                    if let Some(top) = procs.first() {
+                        app.kill_confirm = Some(crate::app::ExecConfirm {
+                            panel: app.selected_panel,
+                            pid: top.pid,
+                            name: top.name.clone(),
+                            kind: crate::app::ExecKind::Kill,
+                        });
+                    }
+                }
+            }
+        }
+        KeyCode::Char('o' | 'O') => {
+            if let Some(panel) = app.panels.get(app.selected_panel) {
+                if let Some(multitop_agent::proto::Payload::Monitor(snap)) = &panel.last_monitor {
+                    let mut procs = snap.procs.clone();
+                    match app.sort {
+                        SortBy::Cpu => procs.sort_by(|a, b| {
+                            b.cpu
+                                .partial_cmp(&a.cpu)
+                                .unwrap_or(std::cmp::Ordering::Equal)
+                        }),
+                        SortBy::Mem => procs.sort_by_key(|a| std::cmp::Reverse(a.mem)),
+                    }
+                    if let Some(top) = procs.first() {
+                        app.kill_confirm = Some(crate::app::ExecConfirm {
+                            panel: app.selected_panel,
+                            pid: top.pid,
+                            name: top.name.clone(),
+                            kind: crate::app::ExecKind::Journal,
+                        });
+                    }
+                }
+            }
+        }
+        KeyCode::Char('r' | 'R') => {
+            if let Some(panel) = app.panels.get(app.selected_panel) {
+                if let Some(multitop_agent::proto::Payload::Monitor(snap)) = &panel.last_monitor {
+                    let mut procs = snap.procs.clone();
+                    match app.sort {
+                        SortBy::Cpu => procs.sort_by(|a, b| {
+                            b.cpu
+                                .partial_cmp(&a.cpu)
+                                .unwrap_or(std::cmp::Ordering::Equal)
+                        }),
+                        SortBy::Mem => procs.sort_by_key(|a| std::cmp::Reverse(a.mem)),
+                    }
+                    if let Some(top) = procs.first() {
+                        app.kill_confirm = Some(crate::app::ExecConfirm {
+                            panel: app.selected_panel,
+                            pid: top.pid,
+                            name: top.name.clone(),
+                            kind: crate::app::ExecKind::Renice,
+                        });
+                    }
+                }
+            }
+        }
+        _ => {}
+    }
+}
+
+/// The keys while a kill is awaiting confirmation: only the advertised key
+/// kills, Esc stands down, everything else is swallowed.
+fn kill_confirm_keys(key: KeyEvent, app: &mut App, tx: &Sender<Msg>, tasks: &mut Tasks) {
+    match key.code {
+        // Same discipline as Upgrade: only the advertised key kills.
+        // `Enter` is what an operator hits to dismiss, not to authorize
+        // `kill -9` on a production pid.
+        KeyCode::Char('k' | 'K' | 'x' | 'X') => {
+            if let Some(ec) = app.kill_confirm.take() {
+                if ec.kind == crate::app::ExecKind::Kill && ec.panel < app.panels.len() {
+                    let gen = app.bump(ec.panel);
+                    let server = app.panels[ec.panel].server.clone();
+                    let pass = app.panels[ec.panel].sudo_password.clone();
+                    let handle = crate::tasks::spawn_kill(
+                        ec.panel,
+                        gen,
+                        server,
+                        ec.pid,
+                        ec.name,
+                        pass,
+                        tx.clone(),
+                    );
+                    tasks.set_aux(ec.panel, handle);
+                } else {
+                    // Wrong key for armed action — re-arm.
+                    app.kill_confirm = Some(ec);
+                }
+            }
+        }
+        KeyCode::Char('o' | 'O') => {
+            if let Some(ec) = app.kill_confirm.take() {
+                if ec.kind == crate::app::ExecKind::Journal && ec.panel < app.panels.len() {
+                    let gen = app.bump(ec.panel);
+                    let server = app.panels[ec.panel].server.clone();
+                    let pass = app.panels[ec.panel].sudo_password.clone();
+                    let handle = crate::tasks::spawn_journal(
+                        ec.panel,
+                        gen,
+                        server,
+                        ec.pid,
+                        ec.name,
+                        pass,
+                        tx.clone(),
+                    );
+                    tasks.set_aux(ec.panel, handle);
+                } else {
+                    app.kill_confirm = Some(ec);
+                }
+            }
+        }
+        KeyCode::Char('r' | 'R') => {
+            if let Some(ec) = app.kill_confirm.take() {
+                if ec.kind == crate::app::ExecKind::Renice && ec.panel < app.panels.len() {
+                    let gen = app.bump(ec.panel);
+                    let server = app.panels[ec.panel].server.clone();
+                    let pass = app.panels[ec.panel].sudo_password.clone();
+                    let handle = crate::tasks::spawn_renice(
+                        ec.panel,
+                        gen,
+                        server,
+                        ec.pid,
+                        ec.name,
+                        pass,
+                        tx.clone(),
+                    );
+                    tasks.set_aux(ec.panel, handle);
+                } else {
+                    app.kill_confirm = Some(ec);
+                }
+            }
+        }
+        KeyCode::Esc | KeyCode::Char('q' | 'Q' | 'n' | 'N') => {
+            app.kill_confirm = None;
+        }
+        _ => {}
+    }
 }
 
 /// Carry out the commands an `App` method produced.
@@ -888,60 +810,5 @@ fn execute_palette_command(
         }
     } else if input == "yank" || input.starts_with("yank ") || input == "y" || input == "copy" {
         yank_selected_host(app);
-    }
-}
-
-fn yank_selected_host(app: &App) {
-    let Some(panel) = app.panels.get(app.selected_panel) else {
-        return;
-    };
-    let target = panel.server.target();
-    let text = target.as_ref().to_string();
-    // Try pbcopy (macOS) then xclip/xsel (Linux), best effort.
-    #[cfg(target_os = "macos")]
-    {
-        let _ = std::process::Command::new("pbcopy")
-            .stdin(std::process::Stdio::piped())
-            .spawn()
-            .and_then(|mut child| {
-                use std::io::Write as _;
-                if let Some(stdin) = child.stdin.as_mut() {
-                    let _ = stdin.write_all(text.as_bytes());
-                }
-                child.wait()
-            });
-    }
-    #[cfg(target_os = "linux")]
-    {
-        for prog in ["xclip", "xsel"] {
-            let mut cmd = std::process::Command::new(prog);
-            if prog == "xclip" {
-                cmd.args(["-selection", "clipboard"]);
-            }
-            if let Ok(mut child) = cmd.stdin(std::process::Stdio::piped()).spawn() {
-                use std::io::Write as _;
-                if let Some(stdin) = child.stdin.as_mut() {
-                    let _ = stdin.write_all(text.as_bytes());
-                }
-                let _ = child.wait();
-                break;
-            }
-        }
-    }
-    #[cfg(not(any(target_os = "macos", target_os = "linux")))]
-    {
-        let _ = text;
-    }
-}
-
-/// Keep the selection on a panel the user can actually see.
-///
-/// The selected panel drives the keybar's mode badge and every view-switching
-/// key. Left pointing at a filtered-out host, those keys act on a panel that is
-/// not on screen.
-fn clamp_selection_to_filter(app: &mut App) {
-    let shown = app.filtered_indices();
-    if !shown.is_empty() && !shown.contains(&app.selected_panel) {
-        app.selected_panel = shown[0];
     }
 }

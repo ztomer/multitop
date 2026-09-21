@@ -42,44 +42,35 @@ impl VaultKey {
         &self.0
     }
 
-    /// Derive Ed25519 signing key from vault key via HKDF.
+    /// One HKDF-SHA256 sub-key of `info` from the vault key.
     ///
-    /// # Panics
-    /// Panics if HKDF expand fails (should never happen with SHA-256 and 32-byte output).
-    #[must_use]
-    pub fn derive_signing_key(&self) -> SigningKey {
+    /// Infallible by construction: `expand` refuses only an output longer
+    /// than `255 * HashLen` (8160 bytes for SHA-256), and the output here is
+    /// `KEY_LEN` (32) -- so the error arm is unreachable, and says so.
+    fn subkey(&self, info: &[u8]) -> [u8; KEY_LEN] {
         let hkdf = Hkdf::<Sha256>::new(None, &self.0);
         let mut okm = [0u8; KEY_LEN];
-        // HKDF expand with SHA-256 and 32 bytes output should never fail
-        // but we use expect for safety rather than changing the API
-        #[expect(clippy::expect_used)]
-        hkdf.expand(b"multitop-vault-signing", &mut okm)
-            .expect("HKDF expand failed (should never happen with SHA-256)");
-        SigningKey::from_bytes(&okm)
+        hkdf.expand(info, &mut okm)
+            .unwrap_or_else(|_| unreachable!("HKDF-SHA256 expand to {KEY_LEN} bytes (limit 8160)"));
+        okm
+    }
+
+    /// Derive Ed25519 signing key from vault key via HKDF.
+    #[must_use]
+    pub fn derive_signing_key(&self) -> SigningKey {
+        SigningKey::from_bytes(&self.subkey(b"multitop-vault-signing"))
     }
 
     /// Derive Ed25519 verifying key from vault key.
-    ///
-    /// # Panics
-    /// Panics if HKDF expand fails in `derive_signing_key`.
     #[must_use]
     pub fn derive_verifying_key(&self) -> VerifyingKey {
         self.derive_signing_key().verifying_key()
     }
 
     /// Derive AES-256-GCM encryption sub-key via HKDF (key separation from signing key).
-    ///
-    /// # Panics
-    /// Panics if HKDF expand fails (should never happen with SHA-256 and 32-byte output).
     #[must_use]
     pub fn encryption_key(&self) -> [u8; KEY_LEN] {
-        let hkdf = Hkdf::<Sha256>::new(None, &self.0);
-        let mut okm = [0u8; KEY_LEN];
-        // HKDF expand with SHA-256 and 32 bytes output should never fail
-        #[expect(clippy::expect_used)]
-        hkdf.expand(b"vault-aes-gcm-key", &mut okm)
-            .expect("HKDF expand failed (should never happen with SHA-256)");
-        okm
+        self.subkey(b"vault-aes-gcm-key")
     }
 }
 

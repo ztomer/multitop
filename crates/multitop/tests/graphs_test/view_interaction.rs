@@ -9,7 +9,7 @@ fn press(app: &mut App, code: KeyCode, tx: &mpsc::Sender<Msg>, tasks: &mut Tasks
         KeyEvent::new_with_kind(code, KeyModifiers::NONE, KeyEventKind::Press),
         app,
         (80, 24),
-        Arc::new(dims_rx),
+        &Arc::new(dims_rx),
         tx,
         tasks,
     );

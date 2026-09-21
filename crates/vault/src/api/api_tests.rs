@@ -43,11 +43,11 @@ fn fast_vault_config(path: std::path::PathBuf) -> VaultConfig {
 async fn test_vault_init_unlock() {
     let dir = TempDir::new().unwrap();
     let path = dir.path().join("test_vault.bin");
-    let config = fast_vault_config(path.clone());
+    let config = fast_vault_config(path);
     let vault = Vault::new(config);
 
     let password = "test-sudo-password-123";
-    vault.initialize(password).await.unwrap();
+    vault.initialize(password).unwrap();
     assert!(vault.exists());
 
     let mut unlocked = vault.unlock_with_password(password).unwrap();
@@ -75,13 +75,13 @@ async fn test_vault_init_unlock() {
 async fn test_vault_change_password() {
     let dir = TempDir::new().unwrap();
     let path = dir.path().join("test_vault.bin");
-    let config = fast_vault_config(path.clone());
+    let config = fast_vault_config(path);
     let vault = Vault::new(config);
 
     let old_pass = "old-password";
     let new_pass = "new-password-456";
 
-    vault.initialize(old_pass).await.unwrap();
+    vault.initialize(old_pass).unwrap();
     vault.change_password(old_pass, new_pass).unwrap();
 
     assert!(vault.unlock_with_password(old_pass).is_err());
@@ -94,7 +94,7 @@ async fn test_vault_change_password() {
 async fn test_rate_limiting_lockout() {
     let dir = TempDir::new().unwrap();
     let path = dir.path().join("test_vault.bin");
-    let config = fast_vault_config(path.clone());
+    let config = fast_vault_config(path);
 
     // Drive time explicitly. A real attempt costs an Argon2 KDF plus a
     // keychain write — together often more than the 1s first backoff tier —
@@ -104,7 +104,7 @@ async fn test_rate_limiting_lockout() {
     set_clock(1_000_000);
 
     let password = "correct-password";
-    vault.initialize(password).await.unwrap();
+    vault.initialize(password).unwrap();
 
     for _ in 0..3 {
         assert!(vault.unlock_with_password("wrong").is_err());
@@ -138,7 +138,7 @@ async fn test_vault_exists_and_path() {
     assert!(!vault.exists());
     assert_eq!(vault.path(), &path);
 
-    vault.initialize("password").await.unwrap();
+    vault.initialize("password").unwrap();
     assert!(vault.exists());
 }
 
@@ -146,11 +146,11 @@ async fn test_vault_exists_and_path() {
 async fn test_vault_initialize_already_exists() {
     let dir = TempDir::new().unwrap();
     let path = dir.path().join("test_vault.bin");
-    let config = fast_vault_config(path.clone());
+    let config = fast_vault_config(path);
     let vault = Vault::new(config);
 
-    vault.initialize("password").await.unwrap();
-    let result = vault.initialize("password").await;
+    vault.initialize("password").unwrap();
+    let result = vault.initialize("password");
     assert!(result.is_err());
     assert!(matches!(result, Err(VaultError::AlreadyExists(_))));
 }
@@ -159,10 +159,10 @@ async fn test_vault_initialize_already_exists() {
 async fn test_vault_unlock_wrong_password() {
     let dir = TempDir::new().unwrap();
     let path = dir.path().join("test_vault.bin");
-    let config = fast_vault_config(path.clone());
+    let config = fast_vault_config(path);
     let vault = Vault::new(config);
 
-    vault.initialize("correct-password").await.unwrap();
+    vault.initialize("correct-password").unwrap();
     let result = vault.unlock_with_password("wrong-password");
     assert!(result.is_err());
 }
@@ -171,10 +171,10 @@ async fn test_vault_unlock_wrong_password() {
 async fn test_vault_unlock_biometric_fallback() {
     let dir = TempDir::new().unwrap();
     let path = dir.path().join("test_vault.bin");
-    let config = fast_vault_config(path.clone());
+    let config = fast_vault_config(path);
     let vault = Vault::new(config);
 
-    vault.initialize("password").await.unwrap();
+    vault.initialize("password").unwrap();
 
     // Biometric will fail, should fall back to password prompt
     // Since we can't mock stdin, this will fail with IO error
@@ -186,10 +186,10 @@ async fn test_vault_unlock_biometric_fallback() {
 async fn test_vault_unlock_biometric_no_fallback() {
     let dir = TempDir::new().unwrap();
     let path = dir.path().join("test_vault.bin");
-    let config = fast_vault_config(path.clone());
+    let config = fast_vault_config(path);
     let vault = Vault::new(config);
 
-    vault.initialize("password").await.unwrap();
+    vault.initialize("password").unwrap();
 
     // Biometric will fail, no fallback
     let result = vault.unlock_biometric().await;
@@ -229,10 +229,10 @@ fn the_vault_holds_no_second_copy_of_an_unlocked_one() {
 async fn test_vault_delete() {
     let dir = TempDir::new().unwrap();
     let path = dir.path().join("test_vault.bin");
-    let config = fast_vault_config(path.clone());
+    let config = fast_vault_config(path);
     let vault = Vault::new(config);
 
-    vault.initialize("password").await.unwrap();
+    vault.initialize("password").unwrap();
     assert!(vault.exists());
 
     vault.delete().unwrap();
@@ -254,10 +254,10 @@ async fn test_vault_delete_nonexistent() {
 async fn test_unlocked_vault_remove_password() {
     let dir = TempDir::new().unwrap();
     let path = dir.path().join("test_vault.bin");
-    let config = fast_vault_config(path.clone());
+    let config = fast_vault_config(path);
     let vault = Vault::new(config);
 
-    vault.initialize("password").await.unwrap();
+    vault.initialize("password").unwrap();
     let mut unlocked = vault.unlock_with_password("password").unwrap();
 
     unlocked
@@ -274,10 +274,10 @@ async fn test_unlocked_vault_remove_password() {
 async fn test_unlocked_vault_remove_nonexistent_password() {
     let dir = TempDir::new().unwrap();
     let path = dir.path().join("test_vault.bin");
-    let config = fast_vault_config(path.clone());
+    let config = fast_vault_config(path);
     let vault = Vault::new(config);
 
-    vault.initialize("password").await.unwrap();
+    vault.initialize("password").unwrap();
     let mut unlocked = vault.unlock_with_password("password").unwrap();
 
     let removed = unlocked.remove_password("nonexistent").unwrap();
@@ -288,10 +288,10 @@ async fn test_unlocked_vault_remove_nonexistent_password() {
 async fn test_unlocked_vault_hosts() {
     let dir = TempDir::new().unwrap();
     let path = dir.path().join("test_vault.bin");
-    let config = fast_vault_config(path.clone());
+    let config = fast_vault_config(path);
     let vault = Vault::new(config);
 
-    vault.initialize("password").await.unwrap();
+    vault.initialize("password").unwrap();
     let mut unlocked = vault.unlock_with_password("password").unwrap();
 
     assert_eq!(unlocked.hosts(), [] as [String; 0]);
@@ -312,10 +312,10 @@ async fn test_unlocked_vault_hosts() {
 async fn test_unlocked_vault_persists_after_save() {
     let dir = TempDir::new().unwrap();
     let path = dir.path().join("test_vault.bin");
-    let config = fast_vault_config(path.clone());
+    let config = fast_vault_config(path);
     let vault = Vault::new(config);
 
-    vault.initialize("password").await.unwrap();
+    vault.initialize("password").unwrap();
 
     {
         let mut unlocked = vault.unlock_with_password("password").unwrap();
@@ -336,10 +336,10 @@ async fn test_unlocked_vault_persists_after_save() {
 async fn test_vault_multiple_servers() {
     let dir = TempDir::new().unwrap();
     let path = dir.path().join("test_vault.bin");
-    let config = fast_vault_config(path.clone());
+    let config = fast_vault_config(path);
     let vault = Vault::new(config);
 
-    vault.initialize("password").await.unwrap();
+    vault.initialize("password").unwrap();
     let mut unlocked = vault.unlock_with_password("password").unwrap();
 
     // Add multiple server passwords
@@ -367,10 +367,10 @@ async fn test_vault_concurrent_access() {
 
     let dir = TempDir::new().unwrap();
     let path = dir.path().join("test_vault.bin");
-    let config = fast_vault_config(path.clone());
+    let config = fast_vault_config(path);
     let vault = Arc::new(Vault::new(config));
 
-    vault.initialize("password").await.unwrap();
+    vault.initialize("password").unwrap();
 
     let mut handles = vec![];
     for i in 0..5 {

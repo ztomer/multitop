@@ -22,7 +22,6 @@ pub fn load(path: &Path) -> Result<Config, ConfigError> {
 /// Returns `ConfigError` naming the offending key, or the index of the server
 /// entry that is wrong — "invalid config" with three hosts in the file is not
 /// something an operator can act on.
-#[expect(clippy::too_many_lines)]
 pub fn parse(text: &str) -> Result<Config, ConfigError> {
     let value: toml::Value = match toml::from_str(text) {
         Ok(v) => v,
@@ -53,73 +52,8 @@ pub fn parse(text: &str) -> Result<Config, ConfigError> {
         ));
     }
 
-    let mut out = Vec::with_capacity(servers.len());
-    let mut plaintext = Vec::new();
-    for (idx, entry) in servers.iter().enumerate() {
-        let Some(table) = entry.as_table() else {
-            return Err(ConfigError(format!(
-                "Server entry at index {idx} is not a table"
-            )));
-        };
-        let host = match table.get("host").and_then(|v| v.as_str()) {
-            Some(h) if !h.is_empty() => h.to_string(),
-            _ => {
-                return Err(ConfigError(format!(
-                    "Server entry at index {idx} missing 'host' field"
-                )))
-            }
-        };
-        validate_host(&host)?;
+    let (mut out, plaintext) = parse_servers(servers)?;
 
-        let user = table
-            .get("user")
-            .and_then(|v| v.as_str())
-            .map_or_else(String::new, String::from);
-        validate_user(&user)?;
-
-        let port = match table.get("port") {
-            None => DEFAULT_PORT,
-            Some(v) => match v.as_integer().and_then(|p| u16::try_from(p).ok()) {
-                Some(p) if p > 0 => p,
-                _ => {
-                    return Err(ConfigError(format!(
-                        "Server entry at index {idx} has an invalid 'port'"
-                    )))
-                }
-            },
-        };
-
-        let upgrade_cmd = table
-            .get("upgrade_cmd")
-            .and_then(|v| v.as_str())
-            .map(str::to_string)
-            .filter(|s| !s.trim().is_empty());
-
-        let custom_command = table
-            .get("command")
-            .or_else(|| table.get("custom_command"))
-            .and_then(|v| v.as_str())
-            .map(str::to_string)
-            .filter(|s| !s.trim().is_empty());
-
-        let server = Server {
-            host,
-            port,
-            user,
-            upgrade_cmd,
-            custom_command,
-        };
-
-        if let Some(secret) = table
-            .get("sudo_password")
-            .and_then(|v| v.as_str())
-            .filter(|s| !s.is_empty())
-        {
-            plaintext.push((server.clone(), secret.to_string()));
-        }
-
-        out.push(server);
-    }
     // `[[panels]] command="nvidia-smi …"` per roadmap Phase 3 — treated as
     // additional servers whose panel runs the command every 250 ms via Exec
     // and is rendered as a Fetch card (`crates/multitop/src/render_payload.rs:20`).
@@ -134,23 +68,7 @@ pub fn parse(text: &str) -> Result<Config, ConfigError> {
                 Some(h) if !h.is_empty() => h.to_string(),
                 _ => continue,
             };
-            validate_host(&host)?;
-            let user = table
-                .get("user")
-                .and_then(|v| v.as_str())
-                .map_or_else(String::new, String::from);
-            validate_user(&user)?;
-            let port = match table.get("port") {
-                None => DEFAULT_PORT,
-                Some(v) => match v.as_integer().and_then(|p| u16::try_from(p).ok()) {
-                    Some(p) if p > 0 => p,
-                    _ => {
-                        return Err(ConfigError(format!(
-                            "Panel entry at index {idx} has an invalid 'port'"
-                        )))
-                    }
-                },
-            };
+            let (host, user, port) = endpoint(table, host, "Panel", idx)?;
             let command = table
                 .get("command")
                 .and_then(|v| v.as_str())
@@ -199,36 +117,7 @@ pub fn parse(text: &str) -> Result<Config, ConfigError> {
         .and_then(|v| u8::try_from(v).ok())
         .filter(|&v| v <= MAX_ALERT_PCT);
 
-    let mut alert_targets = Vec::new();
-    if let Some(toml::Value::Array(arr)) = value.get("alerts") {
-        for entry in arr {
-            if let Some(tbl) = entry.as_table() {
-                let webhook = tbl
-                    .get("webhook")
-                    .and_then(toml::Value::as_str)
-                    .map(String::from);
-                let desktop = tbl
-                    .get("desktop")
-                    .and_then(toml::Value::as_bool)
-                    .unwrap_or(false);
-                if webhook.is_some() || desktop {
-                    alert_targets.push(crate::config::AlertTarget { webhook, desktop });
-                }
-            }
-        }
-    } else if let Some(toml::Value::Table(tbl)) = value.get("alerts") {
-        let webhook = tbl
-            .get("webhook")
-            .and_then(toml::Value::as_str)
-            .map(String::from);
-        let desktop = tbl
-            .get("desktop")
-            .and_then(toml::Value::as_bool)
-            .unwrap_or(false);
-        if webhook.is_some() || desktop {
-            alert_targets.push(crate::config::AlertTarget { webhook, desktop });
-        }
-    }
+    let alert_targets = alert_targets(&value);
 
     Ok(Config {
         servers: out,
@@ -267,6 +156,122 @@ pub fn validate_user(user: &str) -> Result<(), ConfigError> {
         ))
     } else {
         Ok(())
+    }
+}
+
+/// A plaintext `sudo_password` found beside its server in the file, kept
+/// aside so it can be moved into the vault.
+type PlaintextSecret = (Server, String);
+
+/// What `[[servers]]` yields: the servers, and the plaintext passwords any
+/// of them carried.
+type ParsedServers = (Vec<Server>, Vec<PlaintextSecret>);
+
+/// The `[[servers]]` entries.
+fn parse_servers(servers: &[toml::Value]) -> Result<ParsedServers, ConfigError> {
+    let mut out = Vec::with_capacity(servers.len());
+    let mut plaintext = Vec::new();
+    for (idx, entry) in servers.iter().enumerate() {
+        let Some(table) = entry.as_table() else {
+            return Err(ConfigError(format!(
+                "Server entry at index {idx} is not a table"
+            )));
+        };
+        let host = match table.get("host").and_then(|v| v.as_str()) {
+            Some(h) if !h.is_empty() => h.to_string(),
+            _ => {
+                return Err(ConfigError(format!(
+                    "Server entry at index {idx} missing 'host' field"
+                )))
+            }
+        };
+        let (host, user, port) = endpoint(table, host, "Server", idx)?;
+
+        let upgrade_cmd = table
+            .get("upgrade_cmd")
+            .and_then(|v| v.as_str())
+            .map(str::to_string)
+            .filter(|s| !s.trim().is_empty());
+
+        let custom_command = table
+            .get("command")
+            .or_else(|| table.get("custom_command"))
+            .and_then(|v| v.as_str())
+            .map(str::to_string)
+            .filter(|s| !s.trim().is_empty());
+
+        let server = Server {
+            host,
+            port,
+            user,
+            upgrade_cmd,
+            custom_command,
+        };
+
+        if let Some(secret) = table
+            .get("sudo_password")
+            .and_then(|v| v.as_str())
+            .filter(|s| !s.is_empty())
+        {
+            plaintext.push((server.clone(), secret.to_string()));
+        }
+
+        out.push(server);
+    }
+    Ok((out, plaintext))
+}
+
+/// The validated `host`, `user` and `port` of a `[[servers]]` or `[[panels]]`
+/// table; `what` names the table kind in errors, with its index.
+fn endpoint(
+    table: &toml::Table,
+    host: String,
+    what: &str,
+    idx: usize,
+) -> Result<(String, String, u16), ConfigError> {
+    validate_host(&host)?;
+    let user = table
+        .get("user")
+        .and_then(|v| v.as_str())
+        .map_or_else(String::new, String::from);
+    validate_user(&user)?;
+    let port = match table.get("port") {
+        None => DEFAULT_PORT,
+        Some(v) => match v.as_integer().and_then(|p| u16::try_from(p).ok()) {
+            Some(p) if p > 0 => p,
+            _ => {
+                return Err(ConfigError(format!(
+                    "{what} entry at index {idx} has an invalid 'port'"
+                )))
+            }
+        },
+    };
+    Ok((host, user, port))
+}
+
+/// One alert target from its table: a webhook, a desktop flag, or nothing
+/// when it names neither.
+fn alert_target(tbl: &toml::Table) -> Option<crate::config::AlertTarget> {
+    let webhook = tbl
+        .get("webhook")
+        .and_then(toml::Value::as_str)
+        .map(String::from);
+    let desktop = tbl
+        .get("desktop")
+        .and_then(toml::Value::as_bool)
+        .unwrap_or(false);
+    (webhook.is_some() || desktop).then_some(crate::config::AlertTarget { webhook, desktop })
+}
+
+/// `[[alerts]]` (an array of targets) or `[alerts]` (one target).
+fn alert_targets(value: &toml::Value) -> Vec<crate::config::AlertTarget> {
+    match value.get("alerts") {
+        Some(toml::Value::Array(arr)) => arr
+            .iter()
+            .filter_map(|entry| entry.as_table().and_then(alert_target))
+            .collect(),
+        Some(toml::Value::Table(tbl)) => alert_target(tbl).into_iter().collect(),
+        _ => Vec::new(),
     }
 }
 

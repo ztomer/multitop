@@ -3,9 +3,6 @@
 //! Provides secure storage for sudo passwords with biometric unlock
 //! (Touch ID on macOS, fprintd on Linux) and password fallback.
 
-#![expect(missing_docs)]
-#![deny(unsafe_code)]
-
 pub mod api;
 pub mod crypto;
 pub mod format;

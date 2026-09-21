@@ -62,7 +62,7 @@ impl App {
         matches!(self.mode, AppMode::ShowUpgradeModal)
     }
 
-    pub fn set_show_upgrade_modal(&mut self, show: bool) {
+    pub const fn set_show_upgrade_modal(&mut self, show: bool) {
         if show {
             self.mode = AppMode::ShowUpgradeModal;
         } else if matches!(self.mode, AppMode::ShowUpgradeModal) {
@@ -112,7 +112,7 @@ impl App {
         }
     }
 
-    pub fn bump_vault_epoch(&mut self) -> u64 {
+    pub const fn bump_vault_epoch(&mut self) -> u64 {
         self.vault_epoch = self.vault_epoch.wrapping_add(1);
         self.vault_epoch
     }
@@ -270,7 +270,7 @@ impl App {
         &self.vault_password_input
     }
 
-    pub fn vault_password_input_mut(&mut self) -> &mut String {
+    pub const fn vault_password_input_mut(&mut self) -> &mut String {
         &mut self.vault_password_input
     }
 

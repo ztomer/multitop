@@ -40,9 +40,10 @@ pub fn handle_key(app: &mut App, key: KeyCode) -> PasswordAction {
 ///
 /// Anything other than an explicit yes cancels, so a stray keystroke can only
 /// ever be the safe answer.
-#[expect(clippy::expect_used)]
 fn answer_pending_delete(app: &mut App, key: KeyCode) -> PasswordAction {
-    let manager = app.password_manager.as_mut().expect("manager exists");
+    let Some(manager) = app.password_manager.as_mut() else {
+        return PasswordAction::None;
+    };
     let Some(idx) = manager.pending_delete.take() else {
         return PasswordAction::None;
     };
@@ -84,9 +85,10 @@ fn answer_pending_delete(app: &mut App, key: KeyCode) -> PasswordAction {
 }
 
 /// Keys while a text prompt is open. The prompt owns every printable key.
-#[expect(clippy::expect_used)]
 fn prompt_key(app: &mut App, key: KeyCode) -> PasswordAction {
-    let manager = app.password_manager.as_mut().expect("manager exists");
+    let Some(manager) = app.password_manager.as_mut() else {
+        return PasswordAction::None;
+    };
     match key {
         KeyCode::Esc => {
             manager.edit = None;
@@ -131,9 +133,10 @@ fn prompt_key(app: &mut App, key: KeyCode) -> PasswordAction {
 }
 
 /// Keys while a server row is open for editing.
-#[expect(clippy::expect_used)]
 fn draft_key(app: &mut App, key: KeyCode) -> PasswordAction {
-    let manager = app.password_manager.as_mut().expect("manager exists");
+    let Some(manager) = app.password_manager.as_mut() else {
+        return PasswordAction::None;
+    };
     let Some(draft) = manager.draft.as_mut() else {
         return PasswordAction::None;
     };
@@ -146,7 +149,9 @@ fn draft_key(app: &mut App, key: KeyCode) -> PasswordAction {
         }
         KeyCode::Char(character) => draft.active_field().push(character),
         KeyCode::Enter => {
-            let draft = manager.draft.take().expect("draft exists");
+            let Some(draft) = manager.draft.take() else {
+                return PasswordAction::None;
+            };
             let typed = draft.password.clone();
             let original_idx = draft.original;
             match draft.clone().into_server() {
@@ -185,9 +190,10 @@ fn draft_key(app: &mut App, key: KeyCode) -> PasswordAction {
     PasswordAction::None
 }
 
-#[expect(clippy::expect_used)]
 fn row_key(app: &mut App, key: KeyCode) -> PasswordAction {
-    let manager = app.password_manager.as_mut().expect("manager exists");
+    let Some(manager) = app.password_manager.as_mut() else {
+        return PasswordAction::None;
+    };
     if manager.edit.is_some() {
         return prompt_key(app, key);
     }

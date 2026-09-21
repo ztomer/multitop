@@ -15,7 +15,6 @@ pub const MIN_AGENT_ROWS: u16 = 4;
 
 /// Split the screen into one region per panel plus the key bar.
 #[must_use]
-#[expect(clippy::missing_panics_doc, clippy::expect_used)]
 pub fn regions(area: Rect, panels: usize) -> (Vec<Rect>, Rect) {
     let [body, keybar] =
         Layout::vertical([Constraint::Min(0), Constraint::Length(KEYBAR_H)]).areas(area);
@@ -33,9 +32,9 @@ pub fn regions(area: Rect, panels: usize) -> (Vec<Rect>, Rect) {
     // For panels >= 3, use a 2-column grid layout
     let grid_cols: u32 = 2;
     // One row per PAIR of panels, not one row per panel.
-    let grid_rows: u32 = u32::try_from(panels.div_ceil(2)).expect("too many panels");
-    let v_chunks =
-        Layout::vertical(vec![Constraint::Ratio(1, grid_rows); grid_rows as usize]).split(body);
+    let rows = panels.div_ceil(2);
+    let grid_rows: u32 = u32::try_from(rows).unwrap_or(u32::MAX);
+    let v_chunks = Layout::vertical(vec![Constraint::Ratio(1, grid_rows); rows]).split(body);
     let mut rects = Vec::with_capacity(panels);
     for (r_idx, row_rect) in v_chunks.iter().enumerate() {
         let h_chunks = Layout::horizontal([

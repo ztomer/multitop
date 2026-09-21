@@ -4,6 +4,12 @@
 //! (`working...\r__multitop_sudo_failed__\n`), and reads split anywhere —
 //! including mid-marker. These drive [`Sieve`] directly so they do not depend
 //! on pty chunk timing the way the end-to-end exec tests do.
+// A test crate, said where clippy reads it: the restriction lints
+// (`unwrap_used`, `expect_used`, `panic`) are policy for production code and
+// exempt for test code (clippy.toml), and an integration test is test code
+// through and through -- helpers included.
+#![cfg(test)]
+
 use multitop_agent::exec::sieve::{Piece, Sieve};
 use multitop_agent::exec::MarkerKind;
 

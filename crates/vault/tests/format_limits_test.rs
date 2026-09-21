@@ -4,9 +4,14 @@
 //! build, or a corrupted disk may have written, so each one has to fail as an
 //! error rather than as a panic or an over-large allocation.
 
+// A test crate, said where clippy reads it: the restriction lints
+// (`unwrap_used`, `expect_used`, `panic`) are policy for production code and
+// exempt for test code (clippy.toml), and an integration test is test code
+// through and through -- helpers included.
+#![cfg(test)]
+
 // Integration-test crate: helper fns outside #[test] are not covered by
 // clippy.toml's test exemption, so the restriction lints are expected here.
-#![expect(clippy::expect_used)]
 
 use multitop_vault::crypto::{Argon2Params, Ed25519PublicKey, Wrapper, WrapperType};
 use multitop_vault::format::VaultHeader;
@@ -27,8 +32,10 @@ const fn params() -> Argon2Params {
     }
 }
 
-fn wrapper(kind: WrapperType, len: usize) -> Wrapper {
-    Wrapper::new(kind, vec![0u8; len]).expect("a wrapper of this size must be constructible")
+/// A zero-filled wrapper of `len` bytes; the `#[test]` callers unwrap it
+/// (a helper is outside clippy's test exemption).
+fn wrapper(kind: WrapperType, len: usize) -> Result<Wrapper, multitop_vault::VaultError> {
+    Wrapper::new(kind, vec![0u8; len])
 }
 
 /// A wrapper past the on-disk limit, built by hand.
@@ -46,7 +53,7 @@ fn oversized(kind: WrapperType) -> Wrapper {
 
 /// A full header. Only three wrapper types exist, so filling the eight slots
 /// means repeating one — which is what the count check counts.
-fn eight_wrappers() -> Vec<Wrapper> {
+fn eight_wrappers() -> Result<Vec<Wrapper>, multitop_vault::VaultError> {
     (0..MAX_WRAPPERS)
         .map(|i| wrapper(WrapperType::Argon2id, 32 + i))
         .collect()
@@ -56,11 +63,16 @@ fn eight_wrappers() -> Vec<Wrapper> {
 
 #[test]
 fn a_header_takes_up_to_eight_wrappers_and_no_more() {
-    let ok = VaultHeader::new(key(), [1u8; 32], params(), eight_wrappers());
+    let ok = VaultHeader::new(
+        key(),
+        [1u8; 32],
+        params(),
+        eight_wrappers().expect("eight wrappers"),
+    );
     assert!(ok.is_ok(), "eight wrappers is the documented cap");
 
-    let mut too_many = eight_wrappers();
-    too_many.push(wrapper(WrapperType::Argon2id, 32));
+    let mut too_many = eight_wrappers().expect("eight wrappers");
+    too_many.push(wrapper(WrapperType::Argon2id, 32).expect("constructible"));
     assert!(matches!(
         VaultHeader::new(key(), [1u8; 32], params(), too_many),
         Err(VaultError::TooManyWrappers)
@@ -92,8 +104,8 @@ fn the_same_limits_apply_when_the_canary_is_supplied() {
     // fresh vault goes through.
     let canary = VaultHeader::generate_canary();
 
-    let mut too_many = eight_wrappers();
-    too_many.push(wrapper(WrapperType::Argon2id, 32));
+    let mut too_many = eight_wrappers().expect("eight wrappers");
+    too_many.push(wrapper(WrapperType::Argon2id, 32).expect("constructible"));
     assert!(matches!(
         VaultHeader::new_with_canary(key(), [1u8; 32], params(), too_many, canary.clone()),
         Err(VaultError::TooManyWrappers)
@@ -113,18 +125,24 @@ fn the_same_limits_apply_when_the_canary_is_supplied() {
 
 #[test]
 fn adding_a_wrapper_respects_the_cap_unless_it_replaces_one() {
-    let mut header = VaultHeader::new(key(), [1u8; 32], params(), eight_wrappers()).unwrap();
+    let mut header = VaultHeader::new(
+        key(),
+        [1u8; 32],
+        params(),
+        eight_wrappers().expect("eight wrappers"),
+    )
+    .unwrap();
 
     // Full, and this type is not among them: there is nowhere to put it.
     assert!(matches!(
-        header.add_wrapper(wrapper(WrapperType::SecureEnclave, 32)),
+        header.add_wrapper(wrapper(WrapperType::SecureEnclave, 32).expect("constructible")),
         Err(VaultError::TooManyWrappers)
     ));
 
     // Full, but this type is already present: it replaces rather than adds, so
     // the cap is not reached.
     assert!(header
-        .add_wrapper(wrapper(WrapperType::Argon2id, 48))
+        .add_wrapper(wrapper(WrapperType::Argon2id, 48).expect("constructible"))
         .is_ok());
     assert_eq!(
         header
@@ -146,7 +164,7 @@ fn replacing_a_wrapper_still_refuses_one_that_is_too_large() {
         key(),
         [1u8; 32],
         params(),
-        vec![wrapper(WrapperType::Argon2id, 32)],
+        vec![wrapper(WrapperType::Argon2id, 32).expect("constructible")],
     )
     .unwrap();
 
@@ -171,7 +189,7 @@ fn a_header_round_trips_through_its_own_bytes() {
         key(),
         [9u8; 32],
         params(),
-        vec![wrapper(WrapperType::Argon2id, 64)],
+        vec![wrapper(WrapperType::Argon2id, 64).expect("constructible")],
     )
     .unwrap();
 
@@ -188,7 +206,7 @@ fn a_file_claiming_more_wrappers_than_the_cap_is_refused_not_allocated_for() {
         key(),
         [9u8; 32],
         params(),
-        vec![wrapper(WrapperType::Argon2id, 32)],
+        vec![wrapper(WrapperType::Argon2id, 32).expect("constructible")],
     )
     .unwrap();
     let mut bytes = header.to_bytes();
@@ -223,7 +241,7 @@ fn a_truncated_file_is_refused_rather_than_read_past_its_end() {
         key(),
         [9u8; 32],
         params(),
-        vec![wrapper(WrapperType::Argon2id, 32)],
+        vec![wrapper(WrapperType::Argon2id, 32).expect("constructible")],
     )
     .unwrap();
     let bytes = header.to_bytes();
@@ -242,7 +260,7 @@ fn a_file_that_is_not_a_vault_is_refused_on_its_magic() {
         key(),
         [9u8; 32],
         params(),
-        vec![wrapper(WrapperType::Argon2id, 32)],
+        vec![wrapper(WrapperType::Argon2id, 32).expect("constructible")],
     )
     .unwrap();
     let mut bytes = header.to_bytes();
@@ -325,7 +343,7 @@ fn a_vault_file_with_a_header_but_no_body_is_refused() {
         key(),
         [9u8; 32],
         params(),
-        vec![wrapper(WrapperType::Argon2id, 32)],
+        vec![wrapper(WrapperType::Argon2id, 32).expect("constructible")],
     )
     .unwrap();
     let bytes = header.to_bytes();
@@ -342,7 +360,7 @@ fn a_wrapper_type_no_build_knows_is_refused_rather_than_guessed_at() {
         key(),
         [9u8; 32],
         params(),
-        vec![wrapper(WrapperType::Argon2id, 32)],
+        vec![wrapper(WrapperType::Argon2id, 32).expect("constructible")],
     )
     .unwrap();
     let mut bytes = header.to_bytes();

@@ -6,6 +6,12 @@
 //! panel ends up holding. They fail for different reasons and are read at
 //! different times.
 
+// A test crate, said where clippy reads it: the restriction lints
+// (`unwrap_used`, `expect_used`, `panic`) are policy for production code and
+// exempt for test code (clippy.toml), and an integration test is test code
+// through and through -- helpers included.
+#![cfg(test)]
+
 mod applying;
 #[path = "../common/mod.rs"]
 mod common;

@@ -4,6 +4,12 @@
 //! that cannot be written. Each one is a case where saying nothing looks
 //! identical to working, so the reporting is what is under test.
 
+// A test crate, said where clippy reads it: the restriction lints
+// (`unwrap_used`, `expect_used`, `panic`) are policy for production code and
+// exempt for test code (clippy.toml), and an integration test is test code
+// through and through -- helpers included.
+#![cfg(test)]
+
 // Integration-test crate: helper fns outside #[test] are not covered by
 // clippy.toml's test exemption, so the restriction lints are expected here.
 use std::os::unix::fs::PermissionsExt;
@@ -133,7 +139,7 @@ async fn a_leftover_temp_file_from_a_killed_write_is_reclaimed() {
     let dir = tempfile::tempdir().unwrap();
     let vault_path = dir.path().join("vault.bin");
     let vault = multitop_vault::Vault::new(multitop::vault::config_for(vault_path.clone()));
-    vault.initialize(MASTER).await.expect("initialise");
+    vault.initialize(MASTER).expect("initialise");
 
     std::fs::write(vault_path.with_extension("bin.tmp"), b"half a vault").unwrap();
 
@@ -169,7 +175,7 @@ async fn saving_with_the_vault_open_puts_the_password_in_both_places() {
     let dir = tempfile::tempdir().unwrap();
     let vault_path = dir.path().join("vault.bin");
     let vault = multitop_vault::Vault::new(multitop::vault::config_for(vault_path));
-    vault.initialize(MASTER).await.expect("initialise");
+    vault.initialize(MASTER).expect("initialise");
 
     let mut app = App::new(vec![test_server("alpha")]);
     app.config_path = Some(dir.path().join("config.toml"));
@@ -221,7 +227,7 @@ async fn removing_with_the_vault_open_clears_it_from_both_places() {
     let dir = tempfile::tempdir().unwrap();
     let vault_path = dir.path().join("vault.bin");
     let vault = multitop_vault::Vault::new(multitop::vault::config_for(vault_path));
-    vault.initialize(MASTER).await.expect("initialise");
+    vault.initialize(MASTER).expect("initialise");
 
     let mut app = App::new(vec![test_server("alpha")]);
     app.config_path = Some(dir.path().join("config.toml"));
@@ -276,7 +282,7 @@ async fn starting_an_upgrade_with_a_locked_vault_asks_for_the_master_password() 
     let dir = tempfile::tempdir().unwrap();
     let vault_path = dir.path().join("vault.bin");
     let vault = multitop_vault::Vault::new(multitop::vault::config_for(vault_path));
-    vault.initialize(MASTER).await.expect("initialise");
+    vault.initialize(MASTER).expect("initialise");
 
     let mut app = App::new(vec![test_server("alpha")]);
     app.config_path = Some(dir.path().join("config.toml"));
@@ -297,7 +303,7 @@ async fn starting_an_upgrade_with_a_locked_vault_asks_for_the_master_password() 
             ),
             app,
             (80, 24),
-            dims_rx.clone(),
+            &dims_rx,
             &tx,
             tasks,
         );

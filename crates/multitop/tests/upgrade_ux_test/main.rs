@@ -10,6 +10,12 @@
 //! straight to the confirm modal on a fresh start but show the pane once an
 //! upgrade had happened.
 
+// A test crate, said where clippy reads it: the restriction lints
+// (`unwrap_used`, `expect_used`, `panic`) are policy for production code and
+// exempt for test code (clippy.toml), and an integration test is test code
+// through and through -- helpers included.
+#![cfg(test)]
+
 use std::sync::Arc;
 
 use crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
@@ -19,21 +25,6 @@ use multitop::app::{App, Mode, Msg};
 use multitop::config::Server;
 use multitop::run::{handle_key, Tasks};
 use multitop::state::HostUpdate;
-
-/// Divert credentials to the in-memory store, and hold the process-global guard.
-///
-/// An integration binary is compiled without `cfg(test)`, so the mock store is
-/// not in force unless it is asked for, and anything holding an `App` reaches
-/// `password_store` several calls down. Without this these tests query the real
-/// OS keychain: every rebuild changes the binary's code signature, so macOS
-/// raises an access dialog and the suite stops until a human dismisses it.
-#[expect(dead_code)]
-fn isolate_keychain() -> tokio::sync::MutexGuard<'static, ()> {
-    let guard = multitop::password_store::lock_for_test();
-    multitop::password_store::enable_mock_store();
-    multitop::password_store::clear_mock_store();
-    guard
-}
 
 async fn isolate_keychain_async() -> tokio::sync::MutexGuard<'static, ()> {
     let guard = multitop::password_store::lock_for_test_async().await;
@@ -98,7 +89,7 @@ impl Harness {
             },
             &mut self.app,
             (80, 24),
-            Arc::clone(&self.dims_rx),
+            &Arc::clone(&self.dims_rx),
             &self.tx,
             &mut self.tasks,
         );
@@ -109,7 +100,7 @@ impl Harness {
         // answered, and the first press would race a message it can see but
         // never act on.
         for _ in 0..25 {
-            if self.app.panels.iter().all(|p| !p.password_checking) {
+            if self.app.panels.iter().all(|p| !p.lookup.in_flight()) {
                 return;
             }
             if let Ok(m) = self.rx.try_recv() {

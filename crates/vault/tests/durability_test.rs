@@ -5,14 +5,20 @@
 //! writer holding the lock. Each one is silent when it goes wrong — the vault
 //! simply stops being able to save — so each one is pinned here.
 
+// A test crate, said where clippy reads it: the restriction lints
+// (`unwrap_used`, `expect_used`, `panic`) are policy for production code and
+// exempt for test code (clippy.toml), and an integration test is test code
+// through and through -- helpers included.
+#![cfg(test)]
+
 // Integration-test crate: helper fns outside #[test] are not covered by
 // clippy.toml's test exemption, so the restriction lints are expected here.
-#![expect(clippy::unwrap_used, clippy::expect_used)]
 
 use std::os::unix::fs::PermissionsExt;
 
 use multitop_vault::crypto::{Argon2Params, Ed25519PublicKey, Wrapper, WrapperType};
 use multitop_vault::format::{atomic_write_vault, read_vault_file, VaultHeader};
+use multitop_vault::VaultError;
 use multitop_vault::{Vault, VaultConfig};
 
 const MASTER: &str = "correct horse battery staple";
@@ -35,14 +41,15 @@ const fn config(vault_path: std::path::PathBuf) -> VaultConfig {
     }
 }
 
-fn header() -> VaultHeader {
+/// A well-formed header; the `#[test]` callers unwrap (a helper is outside
+/// clippy's test exemption).
+fn header() -> Result<VaultHeader, VaultError> {
     VaultHeader::new(
         Ed25519PublicKey([7u8; 32]),
         [9u8; 32],
         params(),
-        vec![Wrapper::new(WrapperType::Argon2id, vec![0u8; 64]).unwrap()],
+        vec![Wrapper::new(WrapperType::Argon2id, vec![0u8; 64])?],
     )
-    .unwrap()
 }
 
 // ------------------------------------------------------------ atomic writes
@@ -53,7 +60,8 @@ fn a_written_vault_reads_back_exactly() {
     let path = dir.path().join("vault.bin");
     let ciphertext = b"not really ciphertext, but bytes all the same".to_vec();
 
-    atomic_write_vault(&path, &header(), &ciphertext).expect("the write must land");
+    atomic_write_vault(&path, &header().expect("a well-formed header"), &ciphertext)
+        .expect("the write must land");
 
     let read = read_vault_file(&path).expect("and read back");
     assert_eq!(read.ciphertext, ciphertext);
@@ -72,7 +80,8 @@ fn the_vault_directory_is_created_and_kept_to_the_owner() {
     let nested = dir.path().join("cfg").join("multitop");
     let path = nested.join("vault.bin");
 
-    atomic_write_vault(&path, &header(), b"body").expect("the directory must be created");
+    atomic_write_vault(&path, &header().expect("a well-formed header"), b"body")
+        .expect("the directory must be created");
 
     let mode = std::fs::metadata(&nested).unwrap().permissions().mode() & 0o777;
     assert_eq!(
@@ -94,7 +103,8 @@ fn a_leftover_temp_file_from_a_dead_writer_is_cleared_away() {
     )
     .unwrap();
 
-    atomic_write_vault(&path, &header(), b"body").expect("debris must not block the write");
+    atomic_write_vault(&path, &header().expect("a well-formed header"), b"body")
+        .expect("debris must not block the write");
 
     assert_eq!(read_vault_file(&path).unwrap().ciphertext, b"body");
     assert!(
@@ -115,7 +125,7 @@ fn a_temp_file_a_live_writer_holds_is_left_alone() {
     let held = std::fs::File::create(&tmp).unwrap();
     held.lock_exclusive().unwrap();
 
-    let err = atomic_write_vault(&path, &header(), b"body")
+    let err = atomic_write_vault(&path, &header().expect("a well-formed header"), b"body")
         .expect_err("a locked temp file means another writer is live");
     assert!(
         err.to_string().contains("another process"),
@@ -134,8 +144,12 @@ fn a_directory_that_cannot_exist_is_an_error_rather_than_a_silent_no_op() {
     let blocker = dir.path().join("cfg");
     std::fs::write(&blocker, b"a file, not a directory").unwrap();
 
-    let err = atomic_write_vault(&blocker.join("vault.bin"), &header(), b"body")
-        .expect_err("a vault cannot be written inside a file");
+    let err = atomic_write_vault(
+        &blocker.join("vault.bin"),
+        &header().expect("a well-formed header"),
+        b"body",
+    )
+    .expect_err("a vault cannot be written inside a file");
     assert_ne!(err.to_string(), "");
 }
 
@@ -234,12 +248,7 @@ fn a_vault_survives_being_closed_and_reopened() {
     let vault = Vault::new(config(dir.path().join("vault.bin")));
     assert!(!vault.exists(), "a vault exists before it is created");
 
-    tokio::runtime::Builder::new_current_thread()
-        .enable_all()
-        .build()
-        .unwrap()
-        .block_on(vault.initialize(MASTER))
-        .expect("initialise");
+    vault.initialize(MASTER).expect("initialise");
     assert!(vault.exists());
 
     let mut unlocked = vault.unlock_with_password(MASTER).expect("unlock");
@@ -264,21 +273,16 @@ fn a_vault_survives_being_closed_and_reopened() {
 // ------------------------------------------------------- a vault that was edited
 
 /// A real vault, then the same file with one byte of its ciphertext flipped.
-fn tampered_vault(dir: &std::path::Path) -> Vault {
+fn tampered_vault(dir: &std::path::Path) -> Result<Vault, VaultError> {
     let path = dir.join("vault.bin");
     let vault = Vault::new(config(path.clone()));
-    tokio::runtime::Builder::new_current_thread()
-        .enable_all()
-        .build()
-        .unwrap()
-        .block_on(vault.initialize(MASTER))
-        .expect("initialise");
+    vault.initialize(MASTER)?;
 
-    let read = read_vault_file(&path).expect("read back");
+    let read = read_vault_file(&path)?;
     let mut ciphertext = read.ciphertext.clone();
     ciphertext[0] ^= 0xff;
-    atomic_write_vault(&path, &read.header, &ciphertext).expect("rewrite");
-    vault
+    atomic_write_vault(&path, &read.header, &ciphertext)?;
+    Ok(vault)
 }
 
 #[test]
@@ -288,7 +292,7 @@ fn a_vault_whose_ciphertext_was_edited_is_refused_before_it_is_decrypted() {
     // The message has to name the reason, or a corrupted vault and a wrong
     // password are indistinguishable to whoever is looking at the screen.
     let dir = tempfile::tempdir().unwrap();
-    let vault = tampered_vault(dir.path());
+    let vault = tampered_vault(dir.path()).expect("a tampered vault");
 
     let err = vault
         .unlock_with_password(MASTER)
@@ -304,7 +308,7 @@ fn an_edited_vault_refuses_the_biometric_path_as_well() {
     // Both doors check the signature. A path that skipped it would be the one
     // an attacker uses.
     let dir = tempfile::tempdir().unwrap();
-    let vault = tampered_vault(dir.path());
+    let vault = tampered_vault(dir.path()).expect("a tampered vault");
 
     let outcome = tokio::runtime::Builder::new_current_thread()
         .enable_all()
@@ -329,11 +333,6 @@ fn a_vault_kept_out_of_the_keychain_never_offers_a_touch() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("vault.bin");
     let vault = Vault::new(config(path));
-    tokio::runtime::Builder::new_current_thread()
-        .enable_all()
-        .build()
-        .unwrap()
-        .block_on(vault.initialize(MASTER))
-        .expect("initialise");
+    vault.initialize(MASTER).expect("initialise");
     assert!(!vault.biometric_available());
 }

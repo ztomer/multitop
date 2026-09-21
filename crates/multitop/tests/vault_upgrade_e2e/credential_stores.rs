@@ -17,7 +17,7 @@ use super::*;
 #[tokio::test]
 async fn entering_the_upgrade_view_does_not_read_the_credential_store_when_a_vault_exists() {
     let _keychain = isolate_keychain_async().await;
-    let (mut app, _temp_dir) = app_with_vault(test_servers(), "test-master", HashMap::new()).await;
+    let (mut app, _temp_dir) = app_with_vault(test_servers(), "test-master", HashMap::new());
     // Only the credential store knows this one.
     password_store::save(&app.panels[0].server, "only-in-the-keychain").unwrap();
     // A fresh start: the vault exists and is locked.
@@ -90,7 +90,7 @@ async fn entering_the_upgrade_view_still_reads_the_credential_store_without_a_va
 #[tokio::test]
 async fn deleting_a_password_removes_it_from_the_vault_too() {
     let _keychain = isolate_keychain_async().await;
-    let (mut app, _temp_dir) = app_with_vault(test_servers(), "test-master", HashMap::new()).await;
+    let (mut app, _temp_dir) = app_with_vault(test_servers(), "test-master", HashMap::new());
     let key = password_store::account(&app.panels[0].server);
 
     // Saved the way the app saves it: both stores.

@@ -14,6 +14,12 @@
 //! "ssh command not found" -- surviving here, in the metadata of the tests
 //! that exercise that very path.
 
+// A test crate, said where clippy reads it: the restriction lints
+// (`unwrap_used`, `expect_used`, `panic`) are policy for production code and
+// exempt for test code (clippy.toml), and an integration test is test code
+// through and through -- helpers included.
+#![cfg(test)]
+
 mod common;
 
 use multitop::ssh::{spawn_local_agent, Mode};

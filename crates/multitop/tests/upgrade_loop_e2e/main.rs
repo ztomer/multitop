@@ -10,6 +10,12 @@
 //! Run local tests: `cargo test --test upgrade_loop_e2e`
 //! Run remote tests: `cargo test --test upgrade_loop_remote_e2e -- --ignored`
 
+// A test crate, said where clippy reads it: the restriction lints
+// (`unwrap_used`, `expect_used`, `panic`) are policy for production code and
+// exempt for test code (clippy.toml), and an integration test is test code
+// through and through -- helpers included.
+#![cfg(test)]
+
 use std::time::Duration;
 
 use multitop::app::{App, Msg, VaultState};
@@ -35,7 +41,7 @@ fn press(app: &mut App, code: crossterm::event::KeyCode) {
         KeyEvent::new_with_kind(code, KeyModifiers::NONE, KeyEventKind::Press),
         app,
         (80, 24),
-        std::sync::Arc::new(dims_rx),
+        &std::sync::Arc::new(dims_rx),
         &tx,
         &mut tasks,
     );

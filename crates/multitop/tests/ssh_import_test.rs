@@ -6,6 +6,12 @@
 //! both for every host it happens to mention, and dropping servers it does not
 //! mention would delete hosts the user configured by hand.
 
+// A test crate, said where clippy reads it: the restriction lints
+// (`unwrap_used`, `expect_used`, `panic`) are policy for production code and
+// exempt for test code (clippy.toml), and an integration test is test code
+// through and through -- helpers included.
+#![cfg(test)]
+
 use multitop::config::{merge_ssh_hosts, parse_ssh_config, Server};
 
 fn server(host: &str, user: &str, port: u16, cmd: Option<&str>) -> Server {

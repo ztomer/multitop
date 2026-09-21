@@ -25,9 +25,8 @@
 //!
 //! So: one entry point, fed bytes, idempotent in the only place it repeats.
 
-#![expect(clippy::must_use_candidate)]
-
 /// Every state a line passed through, in order, as carriage returns rewrote it.
+#[must_use]
 pub fn painted_states(line: &str) -> impl DoubleEndedIterator<Item = &str> {
     line.trim_end_matches('\n')
         .split('\r')
@@ -40,6 +39,7 @@ pub fn painted_states(line: &str) -> impl DoubleEndedIterator<Item = &str> {
 /// root?" and dpkg's "permission denied" on its own lock files contain no
 /// "sudo", so without these arms a command that merely forgot the `sudo` prefix
 /// was reported as a failing command with no hint why.
+#[must_use]
 pub fn is_sudo_help(lower: &str) -> bool {
     lower.contains("sudo")
         && (lower.contains("terminal")
@@ -94,6 +94,7 @@ pub struct Painter {
 }
 
 impl Painter {
+    #[must_use]
     pub const fn new() -> Self {
         Self {
             up: 0,

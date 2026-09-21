@@ -10,12 +10,12 @@ async fn test_command_palette_keys_and_execution() {
 
     // Open palette
     keys.press(&mut app, KeyCode::Char(':'));
-    assert!(app.command_palette_visible);
+    assert!(app.overlay.is_palette());
 
     // Type filter web and Enter
     keys.type_str(&mut app, "filter web");
     keys.press(&mut app, KeyCode::Enter);
-    assert!(!app.command_palette_visible);
+    assert!(!app.overlay.is_palette());
     assert_eq!(app.filter_query, "web");
 
     // Clear filter
@@ -68,7 +68,7 @@ async fn test_command_palette_keys_and_execution() {
     keys.press(&mut app, KeyCode::Backspace);
     assert_eq!(app.command_input, "fo");
     keys.press(&mut app, KeyCode::Esc);
-    assert!(!app.command_palette_visible);
+    assert!(!app.overlay.is_palette());
 }
 
 #[tokio::test]
@@ -78,7 +78,7 @@ async fn test_draw_all_modals() {
     let mut term = Terminal::new(backend).unwrap();
 
     let mut app = App::new(vec![test_server("srv-alpha")]);
-    app.command_palette_visible = true;
+    app.overlay = multitop::app::Overlay::CommandPalette;
     app.command_input = "fil".to_string();
 
     term.draw(|f| {

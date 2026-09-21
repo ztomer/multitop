@@ -21,9 +21,14 @@
 //! fixed depth and draws each resulting frame, so an unrenderable state fails
 //! here instead of on somebody's terminal.
 
+// A test crate, said where clippy reads it: the restriction lints
+// (`unwrap_used`, `expect_used`, `panic`) are policy for production code and
+// exempt for test code (clippy.toml), and an integration test is test code
+// through and through -- helpers included.
+#![cfg(test)]
+
 // Integration-test crate: helper fns outside #[test] are not covered by
 // clippy.toml's test exemption, so the restriction lints are expected here.
-#![expect(clippy::unwrap_used)]
 use std::sync::Arc;
 
 use crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyEventState, KeyModifiers};
@@ -117,7 +122,7 @@ impl Harness {
             },
             &mut self.app,
             (80, 24),
-            Arc::clone(&self.dims_rx),
+            &Arc::clone(&self.dims_rx),
             &self.tx,
             &mut self.tasks,
         );

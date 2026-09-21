@@ -78,3 +78,28 @@ pub enum VaultState {
         in_flight: bool,
     },
 }
+
+/// The full-screen overlay in front of the panels, if any. Help can be
+/// summoned from the command palette; closing it returns to the palette,
+/// which is what `palette_open` remembers.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+pub enum Overlay {
+    #[default]
+    None,
+    Help {
+        palette_open: bool,
+    },
+    CommandPalette,
+}
+
+impl Overlay {
+    #[must_use]
+    pub const fn is_help(self) -> bool {
+        matches!(self, Self::Help { .. })
+    }
+
+    #[must_use]
+    pub const fn is_palette(self) -> bool {
+        matches!(self, Self::CommandPalette)
+    }
+}

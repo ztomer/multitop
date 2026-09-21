@@ -130,7 +130,7 @@ async fn run_upgrade(
     // The tips go into the log, not into the closing status line. They are
     // three lines of instruction and the note is one line the panel truncates;
     // more to the point, an operator reads them where the failure is.
-    if report.sudo_help {
+    if report.sudo.help {
         for tip in sudo_tips(pass) {
             let _ = tx
                 .send(Msg::AuxLine {
@@ -327,7 +327,7 @@ async fn apply_frame(
             // was given one: two streams disagreeing about what counts is how
             // one of them stops recognising it.
             if is_sudo_help(&String::from_utf8_lossy(bytes).to_lowercase()) {
-                report.sudo_help = true;
+                report.sudo.help = true;
             }
             for paint in painter.feed_bytes(bytes) {
                 send_paint(idx, gen, &paint, tx).await;
@@ -351,7 +351,7 @@ async fn apply_frame(
             // nothing -- a blank stderr paint is a row of nothing, while a
             // blank stdout line is output and still appends.
             if is_sudo_help(&String::from_utf8_lossy(bytes).to_lowercase()) {
-                report.sudo_help = true;
+                report.sudo.help = true;
             }
             for paint in painter.feed_bytes(bytes) {
                 if paint.text.trim().is_empty() && paint.back == 0 && paint.erase_below == 0 {
@@ -370,7 +370,7 @@ async fn apply_frame(
                     .await;
             }
         }
-        ExecFrame::Marker(MarkerKind::SudoFailed) => report.sudo_rejected = true,
+        ExecFrame::Marker(MarkerKind::SudoFailed) => report.sudo.rejected = true,
         ExecFrame::Marker(MarkerKind::LockHeld) => report.lock_held = true,
         ExecFrame::Exit { code, signalled } => {
             report.exit = Some((*code, *signalled));

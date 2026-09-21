@@ -7,21 +7,19 @@
 //!
 //! # `unsafe_code`
 //!
-//! The workspace denies it. This crate is the one that cannot honour that: its
-//! entire job is `/proc`, `sysctl`, `openpty`, `flock`. Rather than lift the
-//! deny crate-wide, each module that reaches for libc names itself with a
-//! module-level attribute, so a NEW module still cannot add unsafe silently.
-//! The FFI modules are `exec/lock`, `exec/pty`, `exec/run`, `proc`, `proc_sys`,
-//! `proc_disk`, `fetch`, `sys`, `sys_temps` and `monitor`. The last five use
-//! `allow` rather than `expect`: `fetch`, `sys` and `sys_temps` because their
-//! unsafe is `cfg`-gated for the other OS (where it disappears, an unfulfilled
-//! `expect` under `-D warnings` is an error); `monitor` for the mirror reason
-//! on Linux; `proc_disk` holds one unconditional syscall.
+//! This crate's entire job is `/proc`, `sysctl`, `openpty`, `flock`, so it
+//! cannot deny `unsafe_code` the way `multitop` does. The scope is held
+//! structurally instead: `tools/check_unsafe_scope.py` lists every file
+//! that may contain `unsafe` and fails on any other, so a NEW module still
+//! cannot add unsafe silently. The FFI modules are `exec/lock`, `exec/pty`,
+//! `exec/pump`, `proc`, `proc_sys`, `proc_disk`, `fetch`, `sys`, `sys_temps`
+//! and `monitor`.
 
 use std::os::unix::fs::FileTypeExt;
 
 pub mod color;
 pub mod consts;
+pub mod conv;
 pub mod cpufreq;
 pub mod docker;
 pub mod docker_cli;

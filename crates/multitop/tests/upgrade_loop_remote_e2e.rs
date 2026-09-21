@@ -30,6 +30,12 @@
 //! file, and running them concurrently makes them flap between "ran" and
 //! "lock prevented execution".
 
+// A test crate, said where clippy reads it: the restriction lints
+// (`unwrap_used`, `expect_used`, `panic`) are policy for production code and
+// exempt for test code (clippy.toml), and an integration test is test code
+// through and through -- helpers included.
+#![cfg(test)]
+
 use std::env;
 use std::time::Duration;
 

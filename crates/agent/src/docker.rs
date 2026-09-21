@@ -15,6 +15,7 @@ use std::time::Duration;
 
 use serde_json::Value;
 
+use crate::conv::unsigned;
 use crate::fmt::{fmt_size, SIZE_MAX, SIZE_PAIR_W};
 
 /// Window between the two CPU samples. Long enough for the counters to move,
@@ -125,19 +126,13 @@ pub fn parse_stat_sample(json: &str) -> Option<StatSample> {
 
 /// CPU percentage between two samples, using Docker's own formula.
 #[must_use]
-#[expect(
-    clippy::cast_precision_loss,
-    reason = "container CPU accounting: nanosecond counters and an online-CPU \
-              count, all far below 2^53, divided to produce a percentage that is \
-              rendered to one decimal."
-)]
 pub fn cpu_pct_between(prev: &StatSample, curr: &StatSample) -> f64 {
-    let cpu_delta = curr.cpu_total.saturating_sub(prev.cpu_total) as f64;
-    let sys_delta = curr.system_total.saturating_sub(prev.system_total) as f64;
+    let cpu_delta = unsigned(curr.cpu_total.saturating_sub(prev.cpu_total));
+    let sys_delta = unsigned(curr.system_total.saturating_sub(prev.system_total));
     if sys_delta <= 0.0 || cpu_delta <= 0.0 {
         return 0.0;
     }
-    cpu_delta / sys_delta * curr.online_cpus as f64 * 100.0
+    cpu_delta / sys_delta * unsigned(curr.online_cpus) * 100.0
 }
 
 // ---------------------------------------------------------------- collection
@@ -164,30 +159,18 @@ fn collect_stats_via_socket(
     let sample_all = |ids: &[&str]| -> Vec<Option<StatSample>> {
         let chunk = ids.len().div_ceil(MAX_WORKERS).max(1);
         std::thread::scope(|scope| {
-            // THIS COLLECT IS LOAD-BEARING; clippy::needless_collect is wrong
-            // here. It is what forces every `scope.spawn` to happen before the
-            // first `join()`. Feed the lazy iterator straight into `flat_map`
-            // and each chunk is spawned and immediately joined, so the workers
-            // run one after another — MAX_WORKERS threads doing strictly serial
-            // work, with a SAMPLE_WINDOW sleep between the two passes to make
-            // the cost visible. The lint reads only the collect-then-consume
-            // shape and cannot see that the element type is a thread handle.
-            #[expect(
-                clippy::needless_collect,
-                reason = "the collect is what makes the spawns concurrent; \
-                          removing it serialises every Docker stats worker"
-            )]
-            let handles: Vec<_> = ids
-                .chunks(chunk)
-                .map(|group| {
-                    scope.spawn(move || {
-                        group
-                            .iter()
-                            .map(|id| fetch_sample(endpoint, id))
-                            .collect::<Vec<_>>()
-                    })
-                })
-                .collect();
+            // Every worker is spawned BEFORE any is joined -- that is the
+            // parallelism -- so the handles are gathered first, in a loop
+            // that says so, and joined after.
+            let mut handles = Vec::with_capacity(ids.len().div_ceil(chunk));
+            for group in ids.chunks(chunk) {
+                handles.push(scope.spawn(move || {
+                    group
+                        .iter()
+                        .map(|id| fetch_sample(endpoint, id))
+                        .collect::<Vec<_>>()
+                }));
+            }
             handles
                 .into_iter()
                 .flat_map(|h| h.join().unwrap_or_default())
@@ -256,13 +239,10 @@ pub struct Row {
 /// container the stats pass could not read shows zeroes rather than being
 /// dropped from the table.
 #[must_use]
-#[expect(
-    clippy::implicit_hasher,
-    reason = "container CPU accounting: nanosecond counters and an online-CPU \
-              count, all far below 2^53, divided to produce a percentage that is \
-              rendered to one decimal."
-)]
-pub fn rows_from_stats(containers: Vec<Container>, stats: &HashMap<String, Stats>) -> Vec<Row> {
+pub fn rows_from_stats<S: std::hash::BuildHasher>(
+    containers: Vec<Container>,
+    stats: &HashMap<String, Stats, S>,
+) -> Vec<Row> {
     containers
         .into_iter()
         .map(|c| {
@@ -289,13 +269,10 @@ pub fn rows_from_stats(containers: Vec<Container>, stats: &HashMap<String, Stats
 /// The CLI reports memory as text it has already formatted, so `mem_bytes` is
 /// unknown here — sorting by memory falls back to the printed string's order.
 #[must_use]
-#[expect(
-    clippy::implicit_hasher,
-    reason = "container CPU accounting: nanosecond counters and an online-CPU \
-              count, all far below 2^53, divided to produce a percentage that is \
-              rendered to one decimal."
-)]
-pub fn rows_from_cli(ps: &str, stats: &HashMap<String, (String, String)>) -> Vec<Row> {
+pub fn rows_from_cli<S: std::hash::BuildHasher>(
+    ps: &str,
+    stats: &HashMap<String, (String, String), S>,
+) -> Vec<Row> {
     parse_cli_ps(ps)
         .into_iter()
         .map(|c| {

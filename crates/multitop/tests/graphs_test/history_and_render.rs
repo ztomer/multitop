@@ -1,12 +1,12 @@
 use super::*;
+use multitop_agent::conv::count;
 
 #[test]
 fn a_series_keeps_the_newest_samples_and_drops_the_oldest() {
     let mut s = Series::default();
     assert!(s.is_empty());
-    #[expect(clippy::cast_precision_loss)]
     for i in 0..(SAMPLES + 10) {
-        s.push(i as f64);
+        s.push(count(i));
     }
     let want_first = 10.0f64;
     assert_eq!(s.tail(SAMPLES).len(), SAMPLES, "the ring changed size");
@@ -15,8 +15,7 @@ fn a_series_keeps_the_newest_samples_and_drops_the_oldest() {
         Some(want_first),
         "the oldest sample was not the one evicted"
     );
-    #[expect(clippy::cast_precision_loss)]
-    let want_last = (SAMPLES + 9) as f64;
+    let want_last = count(SAMPLES + 9);
     assert_eq!(s.latest(), Some(want_last));
 }
 

@@ -5,6 +5,12 @@
 //! of the byte. Every glyph asserted below was worked out from the Unicode dot
 //! numbering by hand, not read back off this implementation.
 
+// A test crate, said where clippy reads it: the restriction lints
+// (`unwrap_used`, `expect_used`, `panic`) are policy for production code and
+// exempt for test code (clippy.toml), and an integration test is test code
+// through and through -- helpers included.
+#![cfg(test)]
+
 // Integration-test crate: helper fns outside #[test] are not covered by
 // clippy.toml's test exemption, so the restriction lints are expected here.
 use crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyModifiers};

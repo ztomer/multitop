@@ -50,15 +50,9 @@ pub enum Tier {
 
 impl Tier {
     #[must_use]
-    #[expect(
-        clippy::match_same_arms,
-        reason = "the tiers are ordered bands and two of them legitimately \
-              map to the same layout; merging the arms would hide which band a \
-              reader is in, which is the thing this match exists to show."
-    )]
     pub const fn for_lines(lines: usize) -> Self {
+        // Ordered bands; 0 (no height known) and 12+ both get the full layout.
         match lines {
-            0 => Self::Full,
             1..=2 => Self::TooSmall,
             3..=4 => Self::Micro,
             5..=7 => Self::Minimal,
@@ -68,21 +62,21 @@ impl Tier {
     }
 }
 
+/// Which optional sections a frame has room for: three independent
+/// yes-or-no answers about one layout, varying freely with the tier.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-#[expect(
-    clippy::struct_excessive_bools,
-    reason = "these are not configuration flags, they are which SECTIONS a \
-              frame has room for — has_temps / has_mem / has_disk / has_net are \
-              four independent yes-or-no answers about one layout, and folding \
-              them into an enum or bitflags would obscure that they vary freely."
-)]
+pub struct Sections {
+    pub mem: bool,
+    pub disk: bool,
+    pub net: bool,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Chrome {
     pub num_cores: usize,
     pub has_temps: bool,
     pub cols: usize,
-    pub has_mem: bool,
-    pub has_disk: bool,
-    pub has_net: bool,
+    pub sections: Sections,
     pub tier: Tier,
     /// Rows the frame was asked to fit into. Only the smallest tier varies
     /// with it — see `height`.
@@ -118,9 +112,11 @@ impl Chrome {
             num_cores,
             has_temps,
             cols,
-            has_mem,
-            has_disk,
-            has_net,
+            sections: Sections {
+                mem: has_mem,
+                disk: has_disk,
+                net: has_net,
+            },
             tier,
             lines,
         }
@@ -156,9 +152,9 @@ impl Chrome {
             Tier::Micro => 2,
             Tier::Minimal | Tier::Compact | Tier::Full => {
                 1 + self.cpu_rows()
-                    + usize::from(self.has_mem)
-                    + usize::from(self.has_disk)
-                    + usize::from(self.has_net)
+                    + usize::from(self.sections.mem)
+                    + usize::from(self.sections.disk)
+                    + usize::from(self.sections.net)
             }
         }
     }

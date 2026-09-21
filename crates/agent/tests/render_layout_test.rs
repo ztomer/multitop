@@ -1,4 +1,11 @@
+// A test crate, said where clippy reads it: the restriction lints
+// (`unwrap_used`, `expect_used`, `panic`) are policy for production code and
+// exempt for test code (clippy.toml), and an integration test is test code
+// through and through -- helpers included.
+#![cfg(test)]
+
 use multitop_agent::color::{strip_ansi, ANSI};
+use multitop_agent::conv::count;
 use multitop_agent::proc::{Proc, Usage};
 use multitop_agent::render::*;
 
@@ -30,14 +37,6 @@ fn snap() -> Snapshot {
     }
 }
 
-#[expect(
-    clippy::cast_possible_truncation,
-    reason = "test fixture arithmetic: loop indices and small counts \
-              converted to build synthetic cores and processes. The magnitudes \
-              are the test's own literals — a handful to a few hundred — so \
-              nothing here can truncate. Kept as `expect` so it errors if the \
-              fixture ever stops casting."
-)]
 fn full(cores: usize, procs: usize, cols: usize) -> Snapshot {
     let _ = cols;
     Snapshot {
@@ -55,7 +54,8 @@ fn full(cores: usize, procs: usize, cols: usize) -> Snapshot {
         },
         rx_rate: 100_000.0,
         tx_rate: 100_000.0,
-        procs: (0..procs as u32)
+        procs: (0u32..)
+            .take(procs)
             .map(|i| proc(i, "proc", 1.0, 1000))
             .collect(),
         ..Default::default()
@@ -102,17 +102,9 @@ fn two_column_rows_align() {
 }
 
 #[test]
-#[expect(
-    clippy::cast_precision_loss,
-    reason = "test fixture arithmetic: loop indices and small counts \
-              converted to build synthetic cores and processes. The magnitudes \
-              are the test's own literals — a handful to a few hundred — so \
-              nothing here can truncate. Kept as `expect` so it errors if the \
-              fixture ever stops casting."
-)]
 fn core_grid_cells_are_fixed_width() {
     let s = Snapshot {
-        cores: (0..16).map(|i| (i, (i * 7 % 100) as f64, None)).collect(),
+        cores: (0..16).map(|i| (i, count(i * 7 % 100), None)).collect(),
         ..snap()
     };
     let out = render(&s, 100, 0, 48, &ANSI);

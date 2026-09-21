@@ -6,9 +6,14 @@
 //! back out. Each of those steps used to be reachable only by a person typing
 //! a master password into a running TUI.
 
+// A test crate, said where clippy reads it: the restriction lints
+// (`unwrap_used`, `expect_used`, `panic`) are policy for production code and
+// exempt for test code (clippy.toml), and an integration test is test code
+// through and through -- helpers included.
+#![cfg(test)]
+
 // Integration-test crate: helper fns outside #[test] are not covered by
 // clippy.toml's test exemption, so the restriction lints are expected here.
-#![expect(clippy::expect_used)]
 
 use std::sync::Arc;
 
@@ -42,15 +47,14 @@ async fn isolate() -> tokio::sync::MutexGuard<'static, ()> {
 }
 
 /// Create a vault on disk and hand back its path plus a handle to it.
-async fn make_vault(dir: &tempfile::TempDir) -> (std::path::PathBuf, Arc<multitop_vault::Vault>) {
+fn make_vault(
+    dir: &tempfile::TempDir,
+) -> Result<(std::path::PathBuf, Arc<multitop_vault::Vault>), multitop_vault::VaultError> {
     let config_path = dir.path().join("config.toml");
     let vault_path = dir.path().join("vault.bin");
     let vault = multitop_vault::Vault::new(multitop::vault::config_for(vault_path));
-    vault
-        .initialize(MASTER)
-        .await
-        .expect("initialise the vault");
-    (config_path, Arc::new(vault))
+    vault.initialize(MASTER)?;
+    Ok((config_path, Arc::new(vault)))
 }
 
 fn press(app: &mut App, code: KeyCode, tx: &mpsc::Sender<Msg>, tasks: &mut Tasks) {
@@ -60,7 +64,7 @@ fn press(app: &mut App, code: KeyCode, tx: &mpsc::Sender<Msg>, tasks: &mut Tasks
         KeyEvent::new_with_kind(code, KeyModifiers::NONE, KeyEventKind::Press),
         app,
         (80, 24),
-        Arc::new(dims_rx),
+        &Arc::new(dims_rx),
         tx,
         tasks,
     );
@@ -124,7 +128,7 @@ async fn the_creation_prompt_makes_a_vault_that_opens_with_what_was_typed() {
 async fn the_unlock_prompt_opens_the_vault_and_reports_the_result() {
     let _g = isolate().await;
     let dir = tempfile::tempdir().unwrap();
-    let (config_path, vault) = make_vault(&dir).await;
+    let (config_path, vault) = make_vault(&dir).expect("a vault on disk");
 
     let mut app = App::new(vec![test_server("alpha")]);
     app.config_path = Some(config_path);
@@ -155,7 +159,7 @@ async fn the_unlock_prompt_opens_the_vault_and_reports_the_result() {
 async fn a_wrong_master_password_is_reported_and_leaves_the_prompt_up() {
     let _g = isolate().await;
     let dir = tempfile::tempdir().unwrap();
-    let (config_path, vault) = make_vault(&dir).await;
+    let (config_path, vault) = make_vault(&dir).expect("a vault on disk");
 
     let mut app = App::new(vec![test_server("alpha")]);
     app.config_path = Some(config_path);
@@ -190,7 +194,7 @@ async fn a_password_written_to_the_vault_comes_back_out_by_the_same_key() {
     // unreachable, so the write and the read go through the app's own helper.
     let _g = isolate().await;
     let dir = tempfile::tempdir().unwrap();
-    let (_config_path, vault) = make_vault(&dir).await;
+    let (_config_path, vault) = make_vault(&dir).expect("a vault on disk");
 
     let server = test_server("alpha");
     let key = password_store::account(&server);
@@ -228,7 +232,7 @@ async fn a_new_vault_is_seeded_with_the_passwords_this_session_already_has() {
     // believes they have just put their passwords into it.
     let _g = isolate().await;
     let dir = tempfile::tempdir().unwrap();
-    let (config_path, vault) = make_vault(&dir).await;
+    let (config_path, vault) = make_vault(&dir).expect("a vault on disk");
 
     let mut app = App::new(vec![test_server("alpha"), test_server("beta")]);
     app.config_path = Some(config_path);
@@ -262,7 +266,7 @@ async fn a_new_vault_is_seeded_with_the_passwords_this_session_already_has() {
 async fn a_removed_password_is_gone_from_the_vault_and_the_rest_stay() {
     let _g = isolate().await;
     let dir = tempfile::tempdir().unwrap();
-    let (_config_path, vault) = make_vault(&dir).await;
+    let (_config_path, vault) = make_vault(&dir).expect("a vault on disk");
 
     let mut unlocked = vault.unlock_with_password(MASTER).expect("unlock");
     for host in ["alpha", "beta"] {
@@ -305,7 +309,7 @@ async fn changing_the_master_password_leaves_the_contents_reachable() {
     // be lost by the act of improving the master password.
     let _g = isolate().await;
     let dir = tempfile::tempdir().unwrap();
-    let (_config_path, vault) = make_vault(&dir).await;
+    let (_config_path, vault) = make_vault(&dir).expect("a vault on disk");
 
     let key = password_store::account(&test_server("alpha"));
     let mut unlocked = vault.unlock_with_password(MASTER).expect("unlock");
@@ -339,7 +343,7 @@ async fn changing_the_master_password_leaves_the_contents_reachable() {
 async fn rotating_with_the_wrong_current_password_changes_nothing() {
     let _g = isolate().await;
     let dir = tempfile::tempdir().unwrap();
-    let (_config_path, vault) = make_vault(&dir).await;
+    let (_config_path, vault) = make_vault(&dir).expect("a vault on disk");
 
     assert!(vault.change_password("not the master", "new one").is_err());
     assert!(
@@ -354,7 +358,7 @@ async fn rotating_with_the_wrong_current_password_changes_nothing() {
 async fn an_open_vault_never_prints_what_it_holds() {
     let _g = isolate().await;
     let dir = tempfile::tempdir().unwrap();
-    let (_config_path, vault) = make_vault(&dir).await;
+    let (_config_path, vault) = make_vault(&dir).expect("a vault on disk");
 
     let mut unlocked = vault.unlock_with_password(MASTER).expect("unlock");
     unlocked

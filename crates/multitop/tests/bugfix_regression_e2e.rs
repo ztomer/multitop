@@ -3,26 +3,22 @@
 //! These drive the real event loop / App state machine end-to-end. Each test
 //! reproduces the exact failure the user reported, then verifies the fix holds.
 
-#![expect(clippy::items_after_statements)]
+// A test crate, said where clippy reads it: the restriction lints
+// (`unwrap_used`, `expect_used`, `panic`) are policy for production code and
+// exempt for test code (clippy.toml), and an integration test is test code
+// through and through -- helpers included.
+#![cfg(test)]
 
-use crossterm::event::{Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 use multitop::app::{App, Msg, VaultState};
 use multitop::config::Server;
 use multitop::panel::{Mode, UpgradeState};
 use multitop::password_store;
+use multitop_agent::fetch::FetchSnapshot;
+use multitop_vault::{Vault, VaultConfig};
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
-
-#[expect(dead_code, clippy::missing_const_for_fn)]
-fn key(code: KeyCode) -> Event {
-    Event::Key(KeyEvent::new_with_kind(
-        code,
-        KeyModifiers::NONE,
-        KeyEventKind::Press,
-    ))
-}
 
 fn test_server(host: &str) -> Server {
     Server {
@@ -238,7 +234,6 @@ fn reentering_fetch_shows_cached_data() {
     let _keychain = isolate_keychain_blocking();
     let mut a = App::new(vec![test_server("host-a")]);
 
-    use multitop_agent::fetch::FetchSnapshot;
     a.panels[0].last_fetch = Some(FetchSnapshot {
         user_host: "cached-host".into(),
         ..FetchSnapshot::default()
@@ -282,7 +277,6 @@ async fn locked_vault_goes_straight_to_password_prompt() {
     let mut a = App::new(vec![local_server("true")]);
 
     // Create and lock a vault.
-    use multitop_vault::{Vault, VaultConfig};
     let dir = tempfile::tempdir().unwrap();
     let vault_config = VaultConfig {
         vault_path: dir.path().join("vault.bin"),
@@ -294,7 +288,7 @@ async fn locked_vault_goes_straight_to_password_prompt() {
         use_os_keychain: false,
     };
     let vault = Vault::new(vault_config);
-    vault.initialize("test-master").await.unwrap();
+    vault.initialize("test-master").unwrap();
     a.vault = Some(std::sync::Arc::new(vault));
     a.vault_state = VaultState::Locked;
     a.panels[0].mode = Mode::Upgrade;
@@ -322,7 +316,6 @@ async fn confirm_modal_still_protects_after_vault_unlock() {
     let _keychain = isolate_keychain().await;
     let mut a = App::new(vec![local_server("true")]);
 
-    use multitop_vault::{Vault, VaultConfig};
     let dir = tempfile::tempdir().unwrap();
     let vault_config = VaultConfig {
         vault_path: dir.path().join("vault.bin"),
@@ -334,7 +327,7 @@ async fn confirm_modal_still_protects_after_vault_unlock() {
         use_os_keychain: false,
     };
     let vault = Vault::new(vault_config);
-    vault.initialize("test-master").await.unwrap();
+    vault.initialize("test-master").unwrap();
     a.vault = Some(std::sync::Arc::new(vault));
     a.vault_state = VaultState::Locked;
     a.panels[0].mode = Mode::Upgrade;

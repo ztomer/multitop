@@ -3,8 +3,13 @@
 //! Paths come from:
 //! 1. `MULTITOP_AGENT_X86_64` / `MULTITOP_AGENT_AARCH64`, which `build.sh` sets
 //!    after cross-compiling.
-//! 2. Candidate target directories (shared `CARGO_TARGET_DIR`, workspace `target/`,
-//!    `~/.cache/cargo-target`, `target/docker`, etc.) where cross-compiled binaries reside.
+//! 2. Candidate target directories (`CARGO_TARGET_DIR`, then the workspace's
+//!    `target/`, `target/docker`, `target/agent-build`) where cross-compiled
+//!    binaries reside. Only roots this checkout owns: a host-wide cache was a
+//!    root until 2026-09-21, and an agent left there by an earlier build would
+//!    have been embedded ahead of auto-compilation whenever `target/` had
+//!    none -- exactly the stale binary `tools/check_agent_version.py` exists
+//!    to refuse.
 //! 3. Auto-compilation with `cargo zigbuild` if toolchains are available.
 //!
 //! When an agent binary is not found and cannot be built, the corresponding slot is `None`
@@ -13,10 +18,6 @@
 
 // A build script's `expect()` IS its error reporting: a failed expectation
 // fails the build with the message, which is the behaviour wanted.
-#![expect(
-    clippy::expect_used,
-    reason = "a build script fails the build by expecting"
-)]
 
 use std::fmt::Write;
 use std::path::{Path, PathBuf};
@@ -117,11 +118,6 @@ fn find_agent_binary(
     roots.push(workspace_root.join("target").join("docker"));
     roots.push(workspace_root.join("target").join("agent-build"));
 
-    // User-wide cache target
-    if let Ok(home) = std::env::var("HOME") {
-        roots.push(PathBuf::from(home).join(".cache").join("cargo-target"));
-    }
-
     for root in &roots {
         for profile in ["release", "debug"] {
             let p = root
@@ -138,10 +134,12 @@ fn find_agent_binary(
     try_auto_build(target_triple, workspace_root)
 }
 
-fn main() {
-    let out_dir = std::env::var("OUT_DIR").expect("OUT_DIR");
+/// A build script reports failure by returning it: cargo prints the error
+/// and stops, which is what an `expect` did with less to read.
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let out_dir = std::env::var("OUT_DIR")?;
     let out_path = PathBuf::from(&out_dir);
-    let manifest_dir = std::env::var("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR");
+    let manifest_dir = std::env::var("CARGO_MANIFEST_DIR")?;
     let manifest_path = PathBuf::from(&manifest_dir);
     let workspace_root = manifest_path
         .parent()
@@ -191,7 +189,7 @@ fn main() {
         if let Some(path) = find_agent_binary(var, triple, &out_path, &manifest_path) {
             let path_str = path.display().to_string();
             println!("cargo:rerun-if-changed={path_str}");
-            let bytes = std::fs::read(&path).expect("read agent binary");
+            let bytes = std::fs::read(&path)?;
             // Hard gate: a release binary must embed an agent built from this
             // same checkout. A stale agent (e.g. 0.44.0 bytes inside a 0.44.1
             // build) makes Hello `0.44.0 vs 0.44.1` and the `replace_agent`
@@ -206,13 +204,9 @@ fn main() {
                     path.display()
                 );
                 if profile == "release" {
-                    #[expect(clippy::panic)]
-                    {
-                        panic!("{msg}");
-                    }
-                } else {
-                    println!("cargo:warning={msg}");
+                    return Err(msg.into());
                 }
+                println!("cargo:warning={msg}");
             }
             write!(
                 src,
@@ -220,8 +214,7 @@ fn main() {
                  pub static HASH_{ident}: &str = \"{:016x}\";\n\
                  pub static VERSION_{ident}: &str = \"{ws_version}\";\n",
                 fnv1a(&bytes)
-            )
-            .expect("write to src");
+            )?;
         } else {
             // Release builds must have an agent; debug can run local-only.
             if profile == "release" {
@@ -234,10 +227,10 @@ fn main() {
                 "pub static AGENT_{ident}: Option<&[u8]> = None;\n\
                  pub static HASH_{ident}: &str = \"missing\";\n\
                  pub static VERSION_{ident}: &str = \"missing\";\n"
-            )
-            .expect("write to src");
+            )?;
         }
     }
 
-    std::fs::write(out_path.join("agents.rs"), src).expect("write agents.rs");
+    std::fs::write(out_path.join("agents.rs"), src)?;
+    Ok(())
 }

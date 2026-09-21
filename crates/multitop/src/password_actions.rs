@@ -94,7 +94,6 @@ fn prepend_notice(app: &mut App, before: Option<String>) {
     }
 }
 
-#[expect(clippy::too_many_lines)]
 /// Carry out one [`PasswordAction`].
 ///
 /// # There is no `servers` parameter, and that is the point
@@ -122,256 +121,275 @@ pub fn apply(action: PasswordAction, app: &mut App, tx: &Sender<Msg>, tasks: &mu
             servers: new_servers,
             target_idx,
             password,
-        } => {
-            let result = write_servers(app, new_servers, tasks);
-            report_server_write(app, &result);
-            // A write that failed left the panels describing the row the editor
-            // no longer shows, so the password typed in that editor belongs to
-            // no host here -- storing it would put it under the identity the
-            // user was editing *away* from. Stop, and leave the failure on
-            // screen: the follow-up's notice used to replace it, so a config
-            // write that never happened was reported as a saved password.
-            if result.is_err() {
-                return;
-            }
-            let reported = current_notice(app);
-            if target_idx < app.panels.len() {
-                // `None` means the field was emptied on purpose: take the
-                // stored password back rather than keeping one the editor no
-                // longer shows.
-                let follow_up =
-                    password.map_or(PasswordAction::Delete { panel: target_idx }, |password| {
-                        PasswordAction::Save {
-                            panel: target_idx,
-                            password,
-                            resume_upgrade: false,
-                        }
-                    });
-                apply(follow_up, app, tx, tasks);
-                prepend_notice(app, reported);
-            }
-        }
-        PasswordAction::Delete { panel } => {
-            // A password lives in TWO stores, and `Save` writes to both. This
-            // wrote to one.
-            //
-            // The vault is the one that is read *first*: `load_known_passwords`
-            // takes the vault's copy and only falls back to the credential
-            // store when there is no vault at all. So emptying a host's
-            // password field removed the keychain entry, left the vault entry
-            // standing, said "this host now has none" -- and the password came
-            // straight back on the next unlock. The one asymmetric operation
-            // over a two-store credential is the whole defect.
-            let key = crate::password_store::account(&app.panels[panel].server);
-            let result = crate::password_store::delete(&app.panels[panel].server);
-            let vault_error = app
-                .vault_unlocked_mut()
-                .and_then(|unlocked| unlocked.remove_password(&key).err());
-            app.panels[panel].sudo_password = None;
-            app.panels[panel].password_saved = false;
-            app.panels[panel].external_password = false;
-            app.panels[panel].password_checked = true;
-            if let Some(manager) = app.password_manager.as_mut() {
-                manager.notice = Some(match (&result, &vault_error) {
-                    (Ok(()), None) => "Saved password removed; this host now has none.".to_string(),
-                    // Named separately, because a password still in the vault is
-                    // a password that will come back, and the user has to know
-                    // that rather than believe it is gone.
-                    (Ok(()), Some(e)) => format!(
-                        "Removed from the credential store, but NOT from the vault: {e}. \
-                         It will be used again until the vault entry is removed."
-                    ),
-                    (Err(error), _) => format!("Could not remove saved password: {error}"),
-                });
-            }
-        }
+        } => on_apply_server_edit(new_servers, target_idx, password, app, tx, tasks),
+        PasswordAction::Delete { panel } => on_delete(panel, app),
         PasswordAction::RotateVaultPassword { current, new } => {
-            let Some(vault) = app.vault.clone() else {
-                if let Some(manager) = app.password_manager.as_mut() {
-                    manager.notice = Some("There is no vault to rotate.".to_string());
-                }
-                return;
-            };
-            // Argon2id runs twice here -- once to open with the old password,
-            // once to wrap with the new -- so this cannot happen on the event
-            // loop without freezing the UI for seconds. Same treatment as the
-            // unlock path: hand it to a blocking thread, report by message, and
-            // stamp it with the vault epoch so a result the user has already
-            // moved on from is discarded.
-            let epoch = app.bump_vault_epoch();
-            let tx2 = tx.clone();
-            if let Some(manager) = app.password_manager.as_mut() {
-                // Marked before the work starts, so `r` is refused for as long
-                // as it runs rather than only until the notice is read.
-                manager.rotating = true;
-                manager.notice = Some("Changing the master password...".to_string());
-            }
-            tokio::task::spawn_blocking(move || {
-                let msg = match vault.change_password(&current, &new) {
-                    Ok(()) => crate::app::Msg::VaultPasswordRotated { epoch },
-                    Err(e) => crate::app::Msg::VaultPasswordRotationFailed {
-                        epoch,
-                        error: e.to_string(),
-                    },
-                };
-                let _ = tx2.blocking_send(msg);
-            });
+            on_rotate_vault_password(current, new, app, tx);
         }
-        PasswordAction::CycleBannerStyle => {
-            let style = app.cycle_banner_style();
-            if let Some(path) = &app.config_path {
-                crate::config::save_banner_style(path, style);
-            }
-            if let Some(manager) = app.password_manager.as_mut() {
-                manager.notice = Some(format!(
-                    "Banner: {}. Wide needs a font with fullwidth Latin glyphs.",
-                    style.label()
-                ));
-            }
-        }
-        PasswordAction::ImportSshHosts => {
-            let existing: Vec<Server> = app.panels.iter().map(|p| p.server.clone()).collect();
-            let outcome = crate::config::ssh_config_path()
-                .and_then(|path| std::fs::read_to_string(path).ok())
-                .map(|text| {
-                    crate::config::merge_ssh_hosts(
-                        &existing,
-                        crate::config::parse_ssh_config(&text),
-                    )
-                });
-            match outcome {
-                Some((_, 0)) => {
-                    if let Some(manager) = app.password_manager.as_mut() {
-                        manager.notice =
-                            Some("No new hosts in ~/.ssh/config; nothing was changed.".to_string());
-                    }
-                }
-                Some((merged, added)) => {
-                    // Delegated rather than reimplemented: `write_servers`
-                    // writes config.toml, rebuilds the panels through
-                    // `replace_panels` so stale tasks are retired, and carries
-                    // credentials across.
-                    let result = write_servers(app, merged, tasks);
-                    report_server_write(app, &result);
-                    // Only on success, and in front of what the write said
-                    // rather than over it. "Imported 3 hosts" used to be
-                    // printed whether or not the file was written, and it also
-                    // erased the warning naming an upgrade the import had just
-                    // interrupted.
-                    if result.is_ok() {
-                        let reported = current_notice(app);
-                        if let Some(manager) = app.password_manager.as_mut() {
-                            let plural = if added == 1 { "host" } else { "hosts" };
-                            manager.notice = Some(format!(
-                                "Imported {added} {plural} from ~/.ssh/config; existing entries were left alone."
-                            ));
-                        }
-                        prepend_notice(app, reported);
-                    }
-                }
-                None => {
-                    if let Some(manager) = app.password_manager.as_mut() {
-                        manager.notice = Some("Could not read ~/.ssh/config.".to_string());
-                    }
-                }
-            }
-        }
+        PasswordAction::CycleBannerStyle => on_cycle_banner_style(app),
+        PasswordAction::ImportSshHosts => on_import_ssh_hosts(app, tasks),
         PasswordAction::Save {
             panel,
             password,
             resume_upgrade,
-        } => {
-            let key = crate::password_store::account(&app.panels[panel].server);
-            app.panels[panel].sudo_password = Some(password.clone());
-            let result = crate::password_store::save(&app.panels[panel].server, &password);
-            let stored = result.is_ok();
-            app.panels[panel].password_saved = stored;
-            // Also save to vault if unlocked. The result is reported: dropping
-            // it told the user "saved securely" whenever the keychain write
-            // succeeded, even if the vault -- the thing they created to hold
-            // this -- never received it.
-            let vault_error = app.vault_unlocked_mut().and_then(|unlocked| {
-                unlocked
-                    .set_password(key, &SecretString::new(password.clone().into_boxed_str()))
-                    .err()
-            });
+        } => on_save(panel, password, resume_upgrade, app, tx, tasks),
+    }
+}
+
+fn on_apply_server_edit(
+    new_servers: Vec<Server>,
+    target_idx: usize,
+    password: Option<String>,
+    app: &mut App,
+    tx: &Sender<Msg>,
+    tasks: &mut Tasks,
+) {
+    let result = write_servers(app, new_servers, tasks);
+    report_server_write(app, &result);
+    // A write that failed left the panels describing the row the editor
+    // no longer shows, so the password typed in that editor belongs to
+    // no host here -- storing it would put it under the identity the
+    // user was editing *away* from. Stop, and leave the failure on
+    // screen: the follow-up's notice used to replace it, so a config
+    // write that never happened was reported as a saved password.
+    if result.is_err() {
+        return;
+    }
+    let reported = current_notice(app);
+    if target_idx < app.panels.len() {
+        // `None` means the field was emptied on purpose: take the
+        // stored password back rather than keeping one the editor no
+        // longer shows.
+        let follow_up = password.map_or(PasswordAction::Delete { panel: target_idx }, |password| {
+            PasswordAction::Save {
+                panel: target_idx,
+                password,
+                resume_upgrade: false,
+            }
+        });
+        apply(follow_up, app, tx, tasks);
+        prepend_notice(app, reported);
+    }
+}
+
+fn on_delete(panel: usize, app: &mut App) {
+    // A password lives in TWO stores, and `Save` writes to both. This
+    // wrote to one.
+    //
+    // The vault is the one that is read *first*: `load_known_passwords`
+    // takes the vault's copy and only falls back to the credential
+    // store when there is no vault at all. So emptying a host's
+    // password field removed the keychain entry, left the vault entry
+    // standing, said "this host now has none" -- and the password came
+    // straight back on the next unlock. The one asymmetric operation
+    // over a two-store credential is the whole defect.
+    let key = crate::password_store::account(&app.panels[panel].server);
+    let result = crate::password_store::delete(&app.panels[panel].server);
+    let vault_error = app
+        .vault_unlocked_mut()
+        .and_then(|unlocked| unlocked.remove_password(&key).err());
+    app.panels[panel].sudo_password = None;
+    app.panels[panel].password_saved = false;
+    app.panels[panel].external_password = false;
+    app.panels[panel].lookup = crate::panel::CredentialLookup::Answered;
+    if let Some(manager) = app.password_manager.as_mut() {
+        manager.notice = Some(match (&result, &vault_error) {
+            (Ok(()), None) => "Saved password removed; this host now has none.".to_string(),
+            // Named separately, because a password still in the vault is
+            // a password that will come back, and the user has to know
+            // that rather than believe it is gone.
+            (Ok(()), Some(e)) => format!(
+                "Removed from the credential store, but NOT from the vault: {e}. \
+                 It will be used again until the vault entry is removed."
+            ),
+            (Err(error), _) => format!("Could not remove saved password: {error}"),
+        });
+    }
+}
+
+fn on_rotate_vault_password(current: String, new: String, app: &mut App, tx: &Sender<Msg>) {
+    let Some(vault) = app.vault.clone() else {
+        if let Some(manager) = app.password_manager.as_mut() {
+            manager.notice = Some("There is no vault to rotate.".to_string());
+        }
+        return;
+    };
+    // Argon2id runs twice here -- once to open with the old password,
+    // once to wrap with the new -- so this cannot happen on the event
+    // loop without freezing the UI for seconds. Same treatment as the
+    // unlock path: hand it to a blocking thread, report by message, and
+    // stamp it with the vault epoch so a result the user has already
+    // moved on from is discarded.
+    let epoch = app.bump_vault_epoch();
+    let tx2 = tx.clone();
+    if let Some(manager) = app.password_manager.as_mut() {
+        // Marked before the work starts, so `r` is refused for as long
+        // as it runs rather than only until the notice is read.
+        manager.rotating = true;
+        manager.notice = Some("Changing the master password...".to_string());
+    }
+    tokio::task::spawn_blocking(move || {
+        let msg = match vault.change_password(&current, &new) {
+            Ok(()) => crate::app::Msg::VaultPasswordRotated { epoch },
+            Err(e) => crate::app::Msg::VaultPasswordRotationFailed {
+                epoch,
+                error: e.to_string(),
+            },
+        };
+        let _ = tx2.blocking_send(msg);
+    });
+}
+
+fn on_cycle_banner_style(app: &mut App) {
+    let style = app.cycle_banner_style();
+    if let Some(path) = &app.config_path {
+        crate::config::save_banner_style(path, style);
+    }
+    if let Some(manager) = app.password_manager.as_mut() {
+        manager.notice = Some(format!(
+            "Banner: {}. Wide needs a font with fullwidth Latin glyphs.",
+            style.label()
+        ));
+    }
+}
+
+fn on_import_ssh_hosts(app: &mut App, tasks: &mut Tasks) {
+    let existing: Vec<Server> = app.panels.iter().map(|p| p.server.clone()).collect();
+    let outcome = crate::config::ssh_config_path()
+        .and_then(|path| std::fs::read_to_string(path).ok())
+        .map(|text| {
+            crate::config::merge_ssh_hosts(&existing, crate::config::parse_ssh_config(&text))
+        });
+    match outcome {
+        Some((_, 0)) => {
             if let Some(manager) = app.password_manager.as_mut() {
-                manager.resume_upgrade = false;
-                manager.notice = Some(match (&result, &vault_error) {
-                    (Ok(()), None) => {
-                        "Password saved securely in system credential store.".to_string()
-                    }
-                    (Ok(()), Some(e)) => {
-                        format!("Saved to the credential store, but NOT to the vault: {e}")
-                    }
-                    (Err(error), _) => {
-                        format!("Password kept for this session; save failed: {error}")
-                    }
-                });
-            }
-            // Saving the first password is the moment a vault becomes worth
-            // having, so offer to create one here rather than expecting the
-            // user to have set one up in advance.
-            if stored {
-                offer_vault_creation(app);
-            }
-            // A resume is for an upgrade that stopped for want of a password.
-            // A host in the middle of one must not be restarted: the spawn
-            // below replaces the panel's task and aborts what was there, every
-            // child is `kill_on_drop`, and so saving a password would kill the
-            // SSH session of a running `apt upgrade` -- interrupting a package
-            // transaction on the real machine and leaving the remote lock file
-            // behind. `execute_cmds` refuses to abort a running upgrade for
-            // exactly this reason; this path disagreed with it.
-            //
-            // The condition is broad on purpose otherwise: `mode == Upgrade`
-            // holds for the whole session once `u` has been pressed, which is
-            // what makes "set the password, watch it resume" work at all.
-            let already_running =
-                app.panels[panel].upgrade_state == crate::panel::UpgradeState::STARTED;
-            let should_resume = (resume_upgrade
-                || app.panels[panel].mode == crate::app::Mode::Upgrade)
-                && !already_running;
-            // From the panel, not from a caller's list: see `apply`'s own note.
-            if should_resume
-                && app
-                    .panels
-                    .get(panel)
-                    .and_then(|p| p.server.upgrade_cmd.as_ref())
-                    .is_some()
-            {
-                let gen = app.bump(panel);
-                let palette = app.current_theme();
-                app.panels[panel].mode = crate::app::Mode::Upgrade;
-                app.panels[panel].upgrade_state = crate::panel::UpgradeState::STARTED;
-                app.panels[panel].upgrade_gen = gen;
-                // The same bookkeeping the confirmation modal does, through the
-                // same method. This used to set only the global
-                // `upgrade_started_at` and hand-roll the state write, so the
-                // host's own `started_at` was never written and a resumed run
-                // cut short was reported afterwards as the *previous* run's
-                // outcome -- a success, or "never upgraded".
-                // Into the ring, not `view`: this panel is in Upgrade mode and
-                // the Upgrade pane is composed from the ring, so a line put in
-                // `view` here would be one nothing draws.
-                app.panels[panel]
-                    .last_upgrade
-                    .replace_with(std::iter::once(format!(
-                        "{}\u{2192} Upgrade running...{}",
-                        palette.meter_mid(),
-                        palette.reset
-                    )));
-                // After the `replace_with`, for the reason `confirm_upgrade`
-                // documents: this panel is in Upgrade mode, so anything the
-                // state write has to say goes into the ring the line above
-                // empties.
-                app.mark_upgrades_started(&[panel]);
-                let server = app.panels[panel].server.clone();
-                let handle =
-                    crate::tasks::spawn_upgrade(panel, gen, server, Some(password), tx.clone());
-                tasks.set_upgrade(panel, handle);
+                manager.notice =
+                    Some("No new hosts in ~/.ssh/config; nothing was changed.".to_string());
             }
         }
+        Some((merged, added)) => {
+            // Delegated rather than reimplemented: `write_servers`
+            // writes config.toml, rebuilds the panels through
+            // `replace_panels` so stale tasks are retired, and carries
+            // credentials across.
+            let result = write_servers(app, merged, tasks);
+            report_server_write(app, &result);
+            // Only on success, and in front of what the write said
+            // rather than over it. "Imported 3 hosts" used to be
+            // printed whether or not the file was written, and it also
+            // erased the warning naming an upgrade the import had just
+            // interrupted.
+            if result.is_ok() {
+                let reported = current_notice(app);
+                if let Some(manager) = app.password_manager.as_mut() {
+                    let plural = if added == 1 { "host" } else { "hosts" };
+                    manager.notice = Some(format!(
+                        "Imported {added} {plural} from ~/.ssh/config; existing entries were left alone."
+                    ));
+                }
+                prepend_notice(app, reported);
+            }
+        }
+        None => {
+            if let Some(manager) = app.password_manager.as_mut() {
+                manager.notice = Some("Could not read ~/.ssh/config.".to_string());
+            }
+        }
+    }
+}
+
+fn on_save(
+    panel: usize,
+    password: String,
+    resume_upgrade: bool,
+    app: &mut App,
+    tx: &Sender<Msg>,
+    tasks: &mut Tasks,
+) {
+    let key = crate::password_store::account(&app.panels[panel].server);
+    app.panels[panel].sudo_password = Some(password.clone());
+    let result = crate::password_store::save(&app.panels[panel].server, &password);
+    let stored = result.is_ok();
+    app.panels[panel].password_saved = stored;
+    // Also save to vault if unlocked. The result is reported: dropping
+    // it told the user "saved securely" whenever the keychain write
+    // succeeded, even if the vault -- the thing they created to hold
+    // this -- never received it.
+    let vault_error = app.vault_unlocked_mut().and_then(|unlocked| {
+        unlocked
+            .set_password(key, &SecretString::new(password.clone().into_boxed_str()))
+            .err()
+    });
+    if let Some(manager) = app.password_manager.as_mut() {
+        manager.resume_upgrade = false;
+        manager.notice = Some(match (&result, &vault_error) {
+            (Ok(()), None) => "Password saved securely in system credential store.".to_string(),
+            (Ok(()), Some(e)) => {
+                format!("Saved to the credential store, but NOT to the vault: {e}")
+            }
+            (Err(error), _) => {
+                format!("Password kept for this session; save failed: {error}")
+            }
+        });
+    }
+    // Saving the first password is the moment a vault becomes worth
+    // having, so offer to create one here rather than expecting the
+    // user to have set one up in advance.
+    if stored {
+        offer_vault_creation(app);
+    }
+    // A resume is for an upgrade that stopped for want of a password.
+    // A host in the middle of one must not be restarted: the spawn
+    // below replaces the panel's task and aborts what was there, every
+    // child is `kill_on_drop`, and so saving a password would kill the
+    // SSH session of a running `apt upgrade` -- interrupting a package
+    // transaction on the real machine and leaving the remote lock file
+    // behind. `execute_cmds` refuses to abort a running upgrade for
+    // exactly this reason; this path disagreed with it.
+    //
+    // The condition is broad on purpose otherwise: `mode == Upgrade`
+    // holds for the whole session once `u` has been pressed, which is
+    // what makes "set the password, watch it resume" work at all.
+    let already_running = app.panels[panel].upgrade_state == crate::panel::UpgradeState::STARTED;
+    let should_resume =
+        (resume_upgrade || app.panels[panel].mode == crate::app::Mode::Upgrade) && !already_running;
+    // From the panel, not from a caller's list: see `apply`'s own note.
+    if should_resume
+        && app
+            .panels
+            .get(panel)
+            .and_then(|p| p.server.upgrade_cmd.as_ref())
+            .is_some()
+    {
+        let gen = app.bump(panel);
+        let palette = app.current_theme();
+        app.panels[panel].mode = crate::app::Mode::Upgrade;
+        app.panels[panel].upgrade_state = crate::panel::UpgradeState::STARTED;
+        app.panels[panel].upgrade_gen = gen;
+        // The same bookkeeping the confirmation modal does, through the
+        // same method. This used to set only the global
+        // `upgrade_started_at` and hand-roll the state write, so the
+        // host's own `started_at` was never written and a resumed run
+        // cut short was reported afterwards as the *previous* run's
+        // outcome -- a success, or "never upgraded".
+        // Into the ring, not `view`: this panel is in Upgrade mode and
+        // the Upgrade pane is composed from the ring, so a line put in
+        // `view` here would be one nothing draws.
+        app.panels[panel]
+            .last_upgrade
+            .replace_with(std::iter::once(format!(
+                "{}\u{2192} Upgrade running...{}",
+                palette.meter_mid(),
+                palette.reset
+            )));
+        // After the `replace_with`, for the reason `confirm_upgrade`
+        // documents: this panel is in Upgrade mode, so anything the
+        // state write has to say goes into the ring the line above
+        // empties.
+        app.mark_upgrades_started(&[panel]);
+        let server = app.panels[panel].server.clone();
+        let handle = crate::tasks::spawn_upgrade(panel, gen, server, Some(password), tx.clone());
+        tasks.set_upgrade(panel, handle);
     }
 }
 
@@ -400,7 +418,7 @@ pub fn port_plaintext_passwords(
                     if p.server.host == server.host && p.server.port == server.port {
                         p.sudo_password = Some(secret.clone());
                         p.password_saved = true;
-                        p.password_checked = true;
+                        p.lookup = crate::panel::CredentialLookup::Answered;
                     }
                 }
             }

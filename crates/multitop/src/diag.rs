@@ -104,11 +104,15 @@ pub struct PanelDigest {
     pub scroll: usize,
 }
 
+/// The quit sequence as the loop saw it: `armed` by the first `q`,
+/// `requested` once confirmed.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct QuitFlags {
+    pub armed: bool,
+    pub requested: bool,
+}
+
 /// A point-in-time look at the app, safe to copy out from under the loop.
-///
-/// Four booleans on a purpose-built diagnostic cut is simpler to read than a
-/// nested state machine; the group is allowed wholesale.
-#[expect(clippy::struct_excessive_bools)]
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Snapshot {
     pub mode: String,
@@ -116,8 +120,7 @@ pub struct Snapshot {
     pub selected: usize,
     pub panels: Vec<PanelDigest>,
     pub in_flight: bool,
-    pub quit_armed: bool,
-    pub should_quit: bool,
+    pub quit: QuitFlags,
     pub vault_unlocked: bool,
     pub last_update: Option<u64>,
     pub upgrade_started_at: Option<u64>,
@@ -325,15 +328,14 @@ pub fn install(diag: &Arc<Diag>) {
         let inner = Arc::clone(diag);
         let spawned = std::thread::Builder::new()
             .name("multitop-diag".into())
-            .spawn(move || signal_thread(inner));
+            .spawn(move || signal_thread(&inner));
         if let Err(e) = spawned {
             report(&format!("diag: could not start the diagnostic thread: {e}"));
         }
     });
 }
 
-#[expect(clippy::needless_pass_by_value)]
-fn signal_thread(diag: Arc<Diag>) {
+fn signal_thread(diag: &Diag) {
     use signal_hook::consts::{SIGUSR1, SIGUSR2};
     let mut sigs = match signal_hook::iterator::Signals::new([SIGUSR1, SIGUSR2]) {
         Ok(s) => s,
@@ -432,8 +434,10 @@ pub fn snapshot_app(app: &App, tasks: &Tasks) -> Snapshot {
             })
             .collect(),
         in_flight: app.upgrades_in_flight(),
-        quit_armed: app.quit_armed,
-        should_quit: app.should_quit,
+        quit: QuitFlags {
+            armed: app.quit_armed,
+            requested: app.should_quit,
+        },
         vault_unlocked: app.vault_unlocked().is_some(),
         last_update: app.last_update,
         upgrade_started_at: app.upgrade_started_at,
@@ -452,8 +456,8 @@ fn render_snapshot(snapshot: &Snapshot) -> String {
         snapshot.filter,
         snapshot.selected,
         snapshot.in_flight,
-        snapshot.quit_armed,
-        snapshot.should_quit,
+        snapshot.quit.armed,
+        snapshot.quit.requested,
         snapshot.vault_unlocked,
         snapshot.active_confirm
     );
@@ -527,8 +531,7 @@ mod tests {
             filter: "/db".into(),
             selected: 1,
             in_flight: true,
-            quit_armed: false,
-            should_quit: false,
+            quit: QuitFlags::default(),
             vault_unlocked: true,
             active_confirm: None,
             tasks: Liveness {
@@ -627,8 +630,7 @@ mod tests {
                 ring_len: 5,
                 scroll: 3,
             }],
-            quit_armed: false,
-            should_quit: false,
+            quit: QuitFlags::default(),
             vault_unlocked: false,
             last_update: None,
             upgrade_started_at: None,

@@ -12,11 +12,16 @@ expect_used = "warn"
 panic = "warn"
 exit = "warn"
 
-[workspace.lints.rust]
-unsafe_code = "deny"
+# `unsafe_code` is NOT a workspace lint. The agent and the vault are FFI by
+# job (/proc, sysctl, openpty, flock, mlock) and the house refuses the
+# per-module `#[expect(unsafe_code)]` that used to carve them out. The policy
+# is structural instead: `multitop` denies it at its crate roots, and
+# tools/check_unsafe_scope.py holds the set of files that may contain
+# `unsafe` to an explicit list (a new module cannot add it silently, and a
+# listed module that drops its last unsafe leaves the list).
 
 [workspace.package]
-version = "0.47.2"
+version = "0.47.3"
 edition = "2021"
 rust-version = "1.85"
 license = "MIT"

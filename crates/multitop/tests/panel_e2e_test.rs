@@ -1,5 +1,11 @@
 //! Panel state integration tests.
 
+// A test crate, said where clippy reads it: the restriction lints
+// (`unwrap_used`, `expect_used`, `panic`) are policy for production code and
+// exempt for test code (clippy.toml), and an integration test is test code
+// through and through -- helpers included.
+#![cfg(test)]
+
 use multitop::app::Mode;
 use multitop::config::Server;
 use multitop::panel::UpgradeState;
@@ -14,14 +20,6 @@ use multitop::password_store;
 /// raises an access dialog and the suite stops until a human dismisses it.
 fn isolate_keychain() -> tokio::sync::MutexGuard<'static, ()> {
     let guard = multitop::password_store::lock_for_test();
-    multitop::password_store::enable_mock_store();
-    multitop::password_store::clear_mock_store();
-    guard
-}
-
-#[expect(dead_code)]
-async fn isolate_keychain_async() -> tokio::sync::MutexGuard<'static, ()> {
-    let guard = multitop::password_store::lock_for_test_async().await;
     multitop::password_store::enable_mock_store();
     multitop::password_store::clear_mock_store();
     guard
@@ -71,12 +69,12 @@ fn test_dispatch_credential_load_then_answer_lands_keychain_password() {
     let mut panel = multitop::app::Panel::new(server.clone());
     assert!(panel.needs_credential_load(), "no password held yet");
     panel.mark_credential_load_dispatched();
-    assert!(panel.password_checking, "in flight until the answer lands");
+    assert!(panel.lookup.in_flight(), "in flight until the answer lands");
     panel.answer_credential_load(password_store::load(&server));
 
     assert_eq!(panel.sudo_password.as_deref(), Some("keychain_pass"));
     assert!(panel.password_saved);
-    assert!(!panel.password_checking);
+    assert!(!panel.lookup.in_flight());
 }
 
 #[test]
@@ -91,7 +89,7 @@ fn test_dispatch_credential_load_then_answer_without_store_entry_yields_none() {
 
     assert_eq!(panel.sudo_password, None);
     assert!(!panel.password_saved);
-    assert!(!panel.password_checking);
+    assert!(!panel.lookup.in_flight());
     assert!(
         !panel.needs_credential_load(),
         "answered once is answered forever"

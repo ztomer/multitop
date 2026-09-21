@@ -16,10 +16,8 @@ resolve_target_dir() {
             return
         fi
     fi
-    if [ -d "$HOME/.cache/cargo-target" ]; then
-        echo "$HOME/.cache/cargo-target"
-        return
-    fi
+    # Only this checkout's target dir: a host-wide cache was a rung here until
+    # 2026-09-21 and would have run whatever build last landed there.
     echo "$PWD/target"
 }
 

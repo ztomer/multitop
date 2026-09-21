@@ -247,8 +247,38 @@ pub enum UpgradeState {
     DONE,
 }
 
+/// The credential-store lookup for a host: three states, not two flags.
+///
+/// Never asked; dispatched off the loop thread and not yet answered (the UI
+/// shows `Checking`, and a confirm is deferred so an upgrade never starts on
+/// a password it has not actually read); answered, with `sudo_password`
+/// holding the answer or nothing worth keeping.
+///
+/// Set to in-flight *before* a load is dispatched (an unanswered lookup must
+/// not be re-dispatched), which is the same moment the old synchronous path
+/// used to mark the panel checked.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+pub enum CredentialLookup {
+    #[default]
+    NotAsked,
+    InFlight,
+    Answered,
+}
+
+impl CredentialLookup {
+    /// Dispatched or answered: no further lookup is due.
+    #[must_use]
+    pub const fn asked(self) -> bool {
+        !matches!(self, Self::NotAsked)
+    }
+
+    #[must_use]
+    pub const fn in_flight(self) -> bool {
+        matches!(self, Self::InFlight)
+    }
+}
+
 #[derive(Clone, Debug)]
-#[expect(clippy::struct_excessive_bools)]
 pub struct Panel {
     pub server: Server,
     pub mode: Mode,
@@ -277,15 +307,8 @@ pub struct Panel {
     pub sudo_password: Option<String>,
     pub password_saved: bool,
     pub external_password: bool,
-    /// A credential-store lookup has been answered: either it found nothing
-    /// worth keeping, or `sudo_password` holds the answer. Set *before* a load
-    /// is dispatched (an unanswered lookup must not be re-dispatched), which is
-    /// the same moment the old synchronous path used to set it.
-    pub password_checked: bool,
-    /// A credential-store lookup is in flight, dispatched off the loop thread.
-    /// The UI shows `Checking` while it is set, and a confirm is deferred so an
-    /// upgrade never starts on a password it has not actually read.
-    pub password_checking: bool,
+    /// Where the credential-store lookup for this host stands.
+    pub lookup: CredentialLookup,
 
     /// Things the app has told the user, kept out of `view` so a frame cannot
     /// destroy them.
@@ -344,8 +367,7 @@ impl Panel {
             sudo_password: None,
             password_saved: false,
             external_password: false,
-            password_checked: false,
-            password_checking: false,
+            lookup: CredentialLookup::NotAsked,
             upgradable: None,
         }
     }
@@ -424,22 +446,21 @@ impl Panel {
     /// answer, exactly as it was when the read was synchronous.
     #[must_use]
     pub const fn needs_credential_load(&self) -> bool {
-        !self.password_checked && self.sudo_password.is_none()
+        !self.lookup.asked() && self.sudo_password.is_none()
     }
 
     /// Mark that a credential-store lookup has been dispatched for this panel.
     /// It must be called before the off-thread read starts, so a slow store can
     /// never cause a second lookup of a panel already being answered.
     pub const fn mark_credential_load_dispatched(&mut self) {
-        self.password_checked = true;
-        self.password_checking = true;
+        self.lookup = CredentialLookup::InFlight;
     }
 
     /// The off-thread lookup answered. `Some` is kept, silence and errors are
     /// both "no stored password" (the upgrade will prompt on the pty, as before
     /// the synchronous path was moved off the loop thread).
     pub fn answer_credential_load(&mut self, result: Result<Option<String>, String>) {
-        self.password_checking = false;
+        self.lookup = CredentialLookup::Answered;
         if let Ok(Some(pass)) = result {
             self.sudo_password = Some(pass);
             self.password_saved = true;
@@ -448,10 +469,9 @@ impl Panel {
 
     pub fn set_sudo_password(&mut self, password: String, from_vault: bool) {
         self.sudo_password = Some(password);
-        self.password_checked = true;
         // A password landing here (e.g. a vault copy) answers any lookup now
-        // in flight; a stale `checking` would defer the confirm forever.
-        self.password_checking = false;
+        // in flight; a stale in-flight state would defer the confirm forever.
+        self.lookup = CredentialLookup::Answered;
         if from_vault {
             self.external_password = true;
         }

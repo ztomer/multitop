@@ -9,14 +9,22 @@
 //! and so does a panic, because the release profile aborts and runs no
 //! destructors.
 
+// A test crate, said where clippy reads it: the restriction lints
+// (`unwrap_used`, `expect_used`, `panic`) are policy for production code and
+// exempt for test code (clippy.toml), and an integration test is test code
+// through and through -- helpers included.
+#![cfg(test)]
+
 // Integration-test crate: helper fns outside #[test] are not covered by
 // clippy.toml's test exemption, so the restriction lints are expected here.
-#![expect(clippy::unwrap_used)]
 
 use multitop_vault::crypto::Argon2Params;
+use multitop_vault::VaultError;
 use multitop_vault::{Vault, VaultConfig};
 
-fn vault_at(dir: &std::path::Path) -> (Vault, std::path::PathBuf) {
+/// A vault initialised under `dir`; a helper is outside clippy's test
+/// exemption, so it reports and the `#[test]` caller unwraps.
+fn vault_at(dir: &std::path::Path) -> Result<(Vault, std::path::PathBuf), VaultError> {
     let vault_path = dir.join("vault.bin");
     let vault = Vault::new(VaultConfig {
         vault_path: vault_path.clone(),
@@ -27,20 +35,15 @@ fn vault_at(dir: &std::path::Path) -> (Vault, std::path::PathBuf) {
         }),
         use_os_keychain: false,
     });
-    tokio::runtime::Builder::new_current_thread()
-        .enable_all()
-        .build()
-        .unwrap()
-        .block_on(vault.initialize("master-pw"))
-        .unwrap();
-    (vault, vault_path)
+    vault.initialize("master-pw")?;
+    Ok((vault, vault_path))
 }
 
 #[test]
 fn a_stale_temp_file_does_not_block_saving_forever() {
     let dir = std::env::temp_dir().join(format!("mt_atomic_{}", std::process::id()));
     std::fs::create_dir_all(&dir).unwrap();
-    let (vault, vault_path) = vault_at(&dir);
+    let (vault, vault_path) = vault_at(&dir).expect("a fresh vault");
 
     // Debris from a writer that was killed before it could rename.
     let tmp = vault_path.with_extension("bin.tmp");
@@ -66,7 +69,7 @@ fn a_stale_temp_file_does_not_block_saving_forever() {
 fn a_successful_save_leaves_no_temp_file_behind() {
     let dir = std::env::temp_dir().join(format!("mt_atomic2_{}", std::process::id()));
     std::fs::create_dir_all(&dir).unwrap();
-    let (vault, vault_path) = vault_at(&dir);
+    let (vault, vault_path) = vault_at(&dir).expect("a fresh vault");
 
     let mut unlocked = vault.unlock_with_password("master-pw").unwrap();
     unlocked

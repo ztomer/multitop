@@ -73,6 +73,8 @@ jobs:
            python3 tools/check_agent_version.py
            python3 tools/check_codesign.py --self-test
            python3 tools/check_codesign.py
+           python3 tools/check_unsafe_scope.py --self-test
+           python3 tools/check_unsafe_scope.py
 
       - name: Formatting
         run: cargo fmt --all -- --check

@@ -1,6 +1,12 @@
 //! Comprehensive integration tests for Server Settings Manager,
 //! keybar visual flare, hotkeys ('e'), and upgrade flow.
 
+// A test crate, said where clippy reads it: the restriction lints
+// (`unwrap_used`, `expect_used`, `panic`) are policy for production code and
+// exempt for test code (clippy.toml), and an integration test is test code
+// through and through -- helpers included.
+#![cfg(test)]
+
 use crossterm::event::KeyCode;
 use multitop::app::{App, Mode, Msg};
 use multitop::config::Server;
@@ -17,14 +23,6 @@ use std::sync::atomic::{AtomicU16, Ordering};
 /// raises an access dialog and the suite stops until a human dismisses it.
 fn isolate_keychain() -> tokio::sync::MutexGuard<'static, ()> {
     let guard = multitop::password_store::lock_for_test();
-    multitop::password_store::enable_mock_store();
-    multitop::password_store::clear_mock_store();
-    guard
-}
-
-#[expect(dead_code)]
-async fn isolate_keychain_async() -> tokio::sync::MutexGuard<'static, ()> {
-    let guard = multitop::password_store::lock_for_test_async().await;
     multitop::password_store::enable_mock_store();
     multitop::password_store::clear_mock_store();
     guard

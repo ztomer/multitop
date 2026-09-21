@@ -14,7 +14,7 @@ impl App {
         };
         let running = p.upgrade_state == crate::panel::UpgradeState::STARTED;
 
-        let credential = if p.password_checking {
+        let credential = if p.lookup.in_flight() {
             crate::upgrade_view::Credential::Checking
         } else if p.external_password || p.password_saved {
             crate::upgrade_view::Credential::Stored
@@ -139,7 +139,7 @@ impl App {
     /// not read, so it is deferred until the last answer lands.
     #[must_use]
     pub fn any_password_checking(&self) -> bool {
-        self.panels.iter().any(|p| p.password_checking)
+        self.panels.iter().any(|p| p.lookup.in_flight())
     }
 
     pub fn enter_upgrade_view(&mut self) -> Vec<(usize, Server)> {

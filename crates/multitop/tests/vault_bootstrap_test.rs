@@ -7,8 +7,23 @@
 //! `sudo_password` key in config.toml was parsed by nothing at all, leaving a
 //! plaintext secret on disk that did not even work.
 
+// A test crate, said where clippy reads it: the restriction lints
+// (`unwrap_used`, `expect_used`, `panic`) are policy for production code and
+// exempt for test code (clippy.toml), and an integration test is test code
+// through and through -- helpers included.
+#![cfg(test)]
+
 use multitop::app::{App, VaultState};
 use multitop::config::{self, Server};
+
+/// `isolate_keychain` for `#[tokio::test]` bodies, which must not block the
+/// runtime thread to take the guard.
+async fn isolate_keychain_async() -> tokio::sync::MutexGuard<'static, ()> {
+    let guard = multitop::password_store::lock_for_test_async().await;
+    multitop::password_store::enable_mock_store();
+    multitop::password_store::clear_mock_store();
+    guard
+}
 
 /// Divert credentials to the in-memory store, and hold the process-global guard.
 ///
@@ -20,15 +35,6 @@ use multitop::config::{self, Server};
 /// can read, overwrite or delete credentials the user depends on.
 fn isolate_keychain() -> tokio::sync::MutexGuard<'static, ()> {
     let guard = multitop::password_store::lock_for_test();
-    multitop::password_store::enable_mock_store();
-    multitop::password_store::clear_mock_store();
-    guard
-}
-
-/// `isolate_keychain` for `#[tokio::test]` bodies, which must not block the
-/// runtime thread to take the guard.
-async fn isolate_keychain_async() -> tokio::sync::MutexGuard<'static, ()> {
-    let guard = multitop::password_store::lock_for_test_async().await;
     multitop::password_store::enable_mock_store();
     multitop::password_store::clear_mock_store();
     guard
@@ -233,7 +239,7 @@ async fn a_created_vault_can_be_unlocked_and_holds_passwords() {
         // Tests never touch the real login keychain.
         use_os_keychain: false,
     });
-    vault.initialize("master-pw").await.unwrap();
+    vault.initialize("master-pw").unwrap();
     assert!(vault_path.exists(), "creation must produce the vault file");
 
     let mut unlocked = vault.unlock_with_password("master-pw").unwrap();
@@ -271,10 +277,6 @@ fn new_vault_seeds_from_keychain_when_panel_has_no_password() {
     app.config_path = Some(config_path);
 
     // Create and unlock a vault the way the app does (cheap Argon2 for tests).
-    let rt = tokio::runtime::Builder::new_current_thread()
-        .enable_all()
-        .build()
-        .unwrap();
     let vault = multitop_vault::Vault::new(multitop_vault::VaultConfig {
         vault_path,
         argon2_params: Some(multitop_vault::crypto::Argon2Params {
@@ -284,7 +286,7 @@ fn new_vault_seeds_from_keychain_when_panel_has_no_password() {
         }),
         use_os_keychain: false,
     });
-    rt.block_on(vault.initialize("master-pw")).unwrap();
+    vault.initialize("master-pw").unwrap();
     let unlocked = vault.unlock_with_password("master-pw").unwrap();
     app.vault_state = multitop::app::VaultState::Unlocked {
         vault: Box::new(unlocked),
@@ -319,10 +321,6 @@ fn vault_fallback_loads_from_keychain_when_vault_has_no_entry() {
     let dir = std::env::temp_dir().join(format!("multitop_fallback_{}", std::process::id()));
     std::fs::create_dir_all(&dir).unwrap();
     let vault_path = dir.join("vault.bin");
-    let rt = tokio::runtime::Builder::new_current_thread()
-        .enable_all()
-        .build()
-        .unwrap();
     let vault = multitop_vault::Vault::new(multitop_vault::VaultConfig {
         vault_path,
         argon2_params: Some(multitop_vault::crypto::Argon2Params {
@@ -332,7 +330,7 @@ fn vault_fallback_loads_from_keychain_when_vault_has_no_entry() {
         }),
         use_os_keychain: false,
     });
-    rt.block_on(vault.initialize("master-pw")).unwrap();
+    vault.initialize("master-pw").unwrap();
     let unlocked = vault.unlock_with_password("master-pw").unwrap();
     // Don't put fallback-host into the vault — leave it empty to test fallback.
 

@@ -8,10 +8,12 @@
 //! - [`handle_key`] — key dispatch + `execute_cmds`
 //! - [`spawn`] — monitor spawn (re-exported)
 
+mod boot;
 pub(super) mod dims;
 mod entry;
 pub(super) mod event_loop;
 pub(super) mod handle_key;
+mod nav_keys;
 pub(super) mod tasks;
 pub(super) mod terminal;
 

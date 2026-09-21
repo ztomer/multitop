@@ -1,24 +1,12 @@
 //! Platform-specific sampling fallback for non-Linux hosts (e.g. macOS).
 //!
-//! CASTS AT THE libc BOUNDARY. The `*_macos` functions carry narrow `#[expect]`
-//! lists: the syscall signatures fix these widths and every return is
-//! range-checked first (`num_pids <= 0`, `bytes_got <= 0` both bail). Per
-//! function, not per module — `expect` errors when a declared lint does NOT
-//! fire, which narrowed these lists and stops a blanket suppression.
-
-#![cfg_attr(
-    target_os = "macos",
-    expect(
-        unsafe_code,
-        reason = "FFI boundary on macOS only; scoped so the expectation is fulfilled \
-                  exactly where the unsafe exists (see the unsafe_code note in lib.rs)"
-    )
-)]
+//! CONVERSIONS AT THE libc BOUNDARY. The syscall signatures fix these widths;
+//! every return is range-checked first (`num_pids <= 0`, `bytes_got <= 0`
+//! both bail) and every narrowing is a `try_from` with its fallback stated.
 
 use crate::proc::{CpuStat, NetTotals, RawProcStat, Usage};
-// Only the macOS sampler builds `CpuTimes` values; on Linux the import is dead.
-// Naming that with a cfg is what let the blanket `#[expect(unused_imports)]`
-// that used to sit here go away -- it was hiding exactly one real fact.
+// Only the macOS sampler builds `CpuTimes` values; on Linux the import is dead,
+// and the cfg says so.
 #[cfg(target_os = "macos")]
 use crate::proc::CpuTimes;
 
@@ -123,11 +111,6 @@ pub fn get_cpu_stat_macos() -> CpuStat {
 
 #[cfg(target_os = "macos")]
 #[must_use]
-#[expect(
-    clippy::cast_possible_truncation,
-    clippy::cast_sign_loss,
-    reason = "libc FFI widths — see the CASTS note at the top of this file"
-)]
 pub fn get_memory_macos() -> Usage {
     let mut total: u64 = 0;
     let mut size = std::mem::size_of::<u64>();
@@ -147,9 +130,12 @@ pub fn get_memory_macos() -> Usage {
     }
 
     let mut vm_info: libc::vm_statistics64 = unsafe { std::mem::zeroed() };
-    let mut count = (std::mem::size_of::<libc::vm_statistics64>()
-        / std::mem::size_of::<libc::integer_t>())
-        as libc::mach_msg_type_number_t;
+    // The struct is a handful of integers; the element count fits the
+    // message-type width by a wide margin.
+    let mut count: libc::mach_msg_type_number_t = libc::mach_msg_type_number_t::try_from(
+        std::mem::size_of::<libc::vm_statistics64>() / std::mem::size_of::<libc::integer_t>(),
+    )
+    .unwrap_or(libc::mach_msg_type_number_t::MAX);
     let host_port = unsafe { mach_host_self() };
     let ret = unsafe {
         libc::host_statistics64(
@@ -165,7 +151,7 @@ pub fn get_memory_macos() -> Usage {
 
     if ret == libc::KERN_SUCCESS {
         let ps = unsafe { libc::sysconf(libc::_SC_PAGESIZE) };
-        let page_size = if ps > 0 { ps as u64 } else { 4096 };
+        let page_size = u64::try_from(ps).ok().filter(|&p| p > 0).unwrap_or(4096);
         let active = u64::from(vm_info.active_count) * page_size;
         let wire = u64::from(vm_info.wire_count) * page_size;
         let compressed = u64::from(vm_info.compressor_page_count) * page_size;
@@ -184,10 +170,6 @@ pub fn get_memory_macos() -> Usage {
 
 #[cfg(target_os = "macos")]
 #[must_use]
-#[expect(
-    clippy::cast_possible_truncation,
-    reason = "libc FFI widths — see the CASTS note at the top of this file"
-)]
 pub fn get_net_macos() -> NetTotals {
     let mut totals = NetTotals::default();
     unsafe {
@@ -207,7 +189,9 @@ pub fn get_net_macos() -> NetTotals {
                     let name = std::ffi::CStr::from_ptr(ifa.ifa_name).to_string_lossy();
                     if name != "lo0" && !name.starts_with("lo") {
                         let sa_family = (*ifa.ifa_addr).sa_family;
-                        if sa_family == libc::AF_LINK as u8 {
+                        // `AF_LINK` is a small positive constant; `sa_family` is a u8.
+                        if u32::from(sa_family) == u32::try_from(libc::AF_LINK).unwrap_or(u32::MAX)
+                        {
                             let data = ifa.ifa_data as *const libc::if_data;
                             totals.rx = totals.rx.saturating_add(u64::from((*data).ifi_ibytes));
                             totals.tx = totals.tx.saturating_add(u64::from((*data).ifi_obytes));
@@ -230,31 +214,29 @@ pub fn get_net_macos() -> NetTotals {
 
 #[cfg(target_os = "macos")]
 #[must_use]
-#[expect(
-    clippy::cast_possible_truncation,
-    clippy::cast_sign_loss,
-    clippy::cast_possible_wrap,
-    reason = "libc FFI widths — see the CASTS note at the top of this file"
-)]
 pub fn scan_macos() -> Vec<RawProcStat> {
     let mut out = Vec::with_capacity(crate::consts::IOKIT_SENSOR_CAPACITY);
     let num_pids = unsafe { libc::proc_listallpids(std::ptr::null_mut(), 0) };
     if num_pids <= 0 {
         return out;
     }
-    let mut pids = vec![0i32; num_pids as usize + 64];
-    let bytes_got = unsafe {
-        libc::proc_listallpids(
-            pids.as_mut_ptr().cast(),
-            (pids.len() * std::mem::size_of::<i32>()) as i32,
-        )
+    // `num_pids` is positive here (checked above); the buffer size in bytes is
+    // what the kernel wants and fits `i32` for any real process count.
+    let mut pids = vec![0i32; usize::try_from(num_pids).unwrap_or(0) + 64];
+    let buf_bytes = i32::try_from(pids.len() * std::mem::size_of::<i32>()).unwrap_or(i32::MAX);
+    let bytes_got = unsafe { libc::proc_listallpids(pids.as_mut_ptr().cast(), buf_bytes) };
+    let Ok(bytes_got) = usize::try_from(bytes_got) else {
+        return out;
     };
-    if bytes_got <= 0 {
+    if bytes_got == 0 {
         return out;
     }
-    let actual_count = bytes_got as usize / std::mem::size_of::<i32>();
+    let actual_count = bytes_got / std::mem::size_of::<i32>();
     let clk_tck = unsafe { libc::sysconf(libc::_SC_CLK_TCK) };
-    let hz = if clk_tck > 0 { clk_tck as u64 } else { 100 };
+    let hz = u64::try_from(clk_tck)
+        .ok()
+        .filter(|&h| h > 0)
+        .unwrap_or(100);
 
     for &pid in &pids[..actual_count] {
         if pid <= 0 {
@@ -267,7 +249,7 @@ pub fn scan_macos() -> Vec<RawProcStat> {
                 libc::PROC_PIDTASKINFO,
                 0,
                 (&raw mut task_info).cast(),
-                std::mem::size_of::<libc::proc_taskinfo>() as i32,
+                i32::try_from(std::mem::size_of::<libc::proc_taskinfo>()).unwrap_or(i32::MAX),
             )
         };
         if res <= 0 {
@@ -275,12 +257,13 @@ pub fn scan_macos() -> Vec<RawProcStat> {
         }
 
         let mut name_buf = [0u8; crate::consts::SYSCTL_BUF];
-        let name_res =
-            unsafe { libc::proc_name(pid, name_buf.as_mut_ptr().cast(), name_buf.len() as u32) };
-        let comm = if name_res > 0 {
-            String::from_utf8_lossy(&name_buf[..name_res as usize]).to_string()
-        } else {
-            format!("pid_{pid}")
+        let name_len = u32::try_from(name_buf.len()).unwrap_or(u32::MAX);
+        let name_res = unsafe { libc::proc_name(pid, name_buf.as_mut_ptr().cast(), name_len) };
+        let comm = match usize::try_from(name_res) {
+            Ok(n) if n > 0 => {
+                String::from_utf8_lossy(&name_buf[..n.min(name_buf.len())]).to_string()
+            }
+            _ => format!("pid_{pid}"),
         };
 
         let total_ns = task_info.pti_total_user + task_info.pti_total_system;
@@ -288,7 +271,8 @@ pub fn scan_macos() -> Vec<RawProcStat> {
         let rss_pages = task_info.pti_resident_size / 4096;
 
         out.push(RawProcStat {
-            pid: pid as u32,
+            // `pid > 0` was checked at the top of the loop.
+            pid: u32::try_from(pid).unwrap_or(0),
             stat_comm: String::new(),
             comm,
             ticks,

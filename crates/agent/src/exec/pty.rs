@@ -12,11 +12,6 @@
 //! costs nothing -- no tool decides its output style from `isatty(2)` -- and
 //! keeps the failure reason separable all the way to the panel.
 
-#![expect(
-    unsafe_code,
-    reason = "FFI boundary; see the unsafe_code note in lib.rs"
-)]
-
 use std::ffi::CString;
 use std::io;
 use std::os::fd::RawFd;
@@ -204,9 +199,8 @@ pub fn read_fd(fd: RawFd, buf: &mut [u8]) -> io::Result<usize> {
         // SAFETY: `buf` is a live slice and `n` is its length, so the kernel
         // writes only within it.
         let n = unsafe { libc::read(fd, buf.as_mut_ptr().cast(), buf.len()) };
-        if n >= 0 {
-            #[expect(clippy::cast_sign_loss)]
-            return Ok(n as usize);
+        if let Ok(n) = usize::try_from(n) {
+            return Ok(n);
         }
         let e = io::Error::last_os_error();
         match e.raw_os_error() {
@@ -227,9 +221,8 @@ pub fn write_fd(fd: RawFd, mut buf: &[u8]) -> io::Result<()> {
     while !buf.is_empty() {
         // SAFETY: `buf` is a live slice and `n` is its length.
         let n = unsafe { libc::write(fd, buf.as_ptr().cast(), buf.len()) };
-        if n > 0 {
-            #[expect(clippy::cast_sign_loss)]
-            let n = n as usize;
+        // A positive count is the bytes written; zero or negative is an error.
+        if let Some(n) = usize::try_from(n).ok().filter(|&n| n > 0) {
             buf = &buf[n..];
             continue;
         }

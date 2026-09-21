@@ -5,6 +5,12 @@
 //! swallowed while a biometric prompt hangs so the app can only be killed, a
 //! password field that silently eats what was typed into it.
 
+// A test crate, said where clippy reads it: the restriction lints
+// (`unwrap_used`, `expect_used`, `panic`) are policy for production code and
+// exempt for test code (clippy.toml), and an integration test is test code
+// through and through -- helpers included.
+#![cfg(test)]
+
 use std::sync::Arc;
 
 use crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
@@ -64,7 +70,7 @@ impl Keys {
             KeyEvent::new_with_kind(code, modifiers, KeyEventKind::Press),
             app,
             (80, 24),
-            self.dims_rx.clone(),
+            &self.dims_rx,
             &self.tx,
             &mut self.tasks,
         );
@@ -75,7 +81,7 @@ impl Keys {
             KeyEvent::new_with_kind(code, KeyModifiers::NONE, KeyEventKind::Release),
             app,
             (80, 24),
-            self.dims_rx.clone(),
+            &self.dims_rx,
             &self.tx,
             &mut self.tasks,
         );

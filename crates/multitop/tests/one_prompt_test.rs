@@ -11,9 +11,14 @@
 //! looked at one prompt at a time and none counted them across the journey. So
 //! this file counts.
 
+// A test crate, said where clippy reads it: the restriction lints
+// (`unwrap_used`, `expect_used`, `panic`) are policy for production code and
+// exempt for test code (clippy.toml), and an integration test is test code
+// through and through -- helpers included.
+#![cfg(test)]
+
 // Integration-test crate: helper fns outside #[test] are not covered by
 // clippy.toml's test exemption, so the restriction lints are expected here.
-#![expect(clippy::expect_used)]
 
 use std::sync::Arc;
 
@@ -50,7 +55,7 @@ fn press(app: &mut App, code: KeyCode, tx: &mpsc::Sender<Msg>, tasks: &mut Tasks
         KeyEvent::new_with_kind(code, KeyModifiers::NONE, KeyEventKind::Press),
         app,
         (80, 24),
-        Arc::new(dims_rx),
+        &Arc::new(dims_rx),
         tx,
         tasks,
     );
@@ -127,12 +132,12 @@ impl PromptCounter {
 
 /// A vault holding a password for every host, which is the configuration the
 /// single-prompt promise is made about.
-async fn vault_with_all_passwords(
+fn vault_with_all_passwords(
     dir: &std::path::Path,
     servers: &[Server],
 ) -> Arc<multitop_vault::Vault> {
     let vault = multitop_vault::Vault::new(multitop::vault::config_for(dir.join("vault.bin")));
-    vault.initialize(MASTER).await.expect("initialise");
+    vault.initialize(MASTER).expect("initialise");
     let mut unlocked = vault.unlock_with_password(MASTER).expect("unlock");
     for s in servers {
         unlocked
@@ -155,9 +160,9 @@ async fn one_upgrade_asks_for_one_credential_and_then_never_again() {
         test_server("web-02"),
         test_server("db-01"),
     ];
-    let vault = vault_with_all_passwords(dir.path(), &servers).await;
+    let vault = vault_with_all_passwords(dir.path(), &servers);
 
-    let mut app = App::new(servers.clone());
+    let mut app = App::new(servers);
     app.config_path = Some(dir.path().join("config.toml"));
     app.vault = Some(vault);
     app.vault_state = VaultState::Locked;
@@ -243,7 +248,7 @@ async fn a_vault_that_cannot_be_opened_by_touch_still_asks_only_once() {
     let _g = isolate().await;
     let dir = tempfile::tempdir().unwrap();
     let servers = vec![test_server("web-01")];
-    let vault = vault_with_all_passwords(dir.path(), &servers).await;
+    let vault = vault_with_all_passwords(dir.path(), &servers);
     assert!(
         !vault.biometric_available(),
         "a test vault must not be touchable, or this proves nothing"

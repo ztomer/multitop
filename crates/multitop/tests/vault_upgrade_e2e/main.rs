@@ -3,9 +3,14 @@
 //! These tests verify the complete flow from vault unlock to upgrade execution
 //! using mocked passwords to avoid interactive prompts.
 
+// A test crate, said where clippy reads it: the restriction lints
+// (`unwrap_used`, `expect_used`, `panic`) are policy for production code and
+// exempt for test code (clippy.toml), and an integration test is test code
+// through and through -- helpers included.
+#![cfg(test)]
+
 // Integration-test crate: helper fns outside #[test] are not covered by
 // clippy.toml's test exemption, so the restriction lints are expected here.
-#![expect(clippy::unwrap_used)]
 
 use multitop::app::*;
 use multitop::config::{Config, Server};
@@ -15,21 +20,6 @@ use secrecy::SecretString;
 use std::collections::HashMap;
 use tempfile::TempDir;
 use tokio::sync::mpsc;
-
-/// Divert credentials to the in-memory store, and hold the process-global guard.
-///
-/// An integration binary is compiled without `cfg(test)`, so the mock store is
-/// not in force unless it is asked for, and anything holding an `App` reaches
-/// `password_store` several calls down. Without this these tests query the real
-/// OS keychain: every rebuild changes the binary's code signature, so macOS
-/// raises an access dialog and the suite stops until a human dismisses it.
-#[expect(dead_code)]
-fn isolate_keychain() -> tokio::sync::MutexGuard<'static, ()> {
-    let guard = multitop::password_store::lock_for_test();
-    multitop::password_store::enable_mock_store();
-    multitop::password_store::clear_mock_store();
-    guard
-}
 
 async fn isolate_keychain_async() -> tokio::sync::MutexGuard<'static, ()> {
     let guard = multitop::password_store::lock_for_test_async().await;
@@ -57,7 +47,7 @@ fn test_servers() -> Vec<Server> {
     ]
 }
 
-async fn setup_test_vault(
+fn setup_test_vault(
     vault_path: &std::path::Path,
     master_password: &str,
     passwords: HashMap<String, String>,
@@ -73,7 +63,7 @@ async fn setup_test_vault(
         use_os_keychain: false,
     };
     let vault = Vault::new(config);
-    vault.initialize(master_password).await.unwrap();
+    vault.initialize(master_password).unwrap();
 
     let mut unlocked = vault.unlock_with_password(master_password).unwrap();
     for (host, pass) in passwords {
@@ -86,7 +76,7 @@ async fn setup_test_vault(
 }
 
 /// Create an App with a pre-configured vault for testing
-async fn app_with_vault(
+fn app_with_vault(
     servers: Vec<Server>,
     _master_password: &str,
     vault_passwords: HashMap<String, String>,
@@ -96,7 +86,7 @@ async fn app_with_vault(
     let config_path = temp_dir.path().join("config.toml");
 
     // Create vault with test passwords
-    let vault = setup_test_vault(&vault_path, "test-master", vault_passwords).await;
+    let vault = setup_test_vault(&vault_path, "test-master", vault_passwords);
 
     // Create config
     let config = Config {

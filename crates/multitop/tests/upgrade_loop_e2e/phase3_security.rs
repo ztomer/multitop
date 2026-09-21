@@ -28,7 +28,7 @@ async fn test_upgrade_vault_password_preloaded() {
         use_os_keychain: false,
     };
     let vault = Vault::new(vault_config);
-    vault.initialize(master_pw).await.unwrap();
+    vault.initialize(master_pw).unwrap();
     let mut unlocked = vault.unlock_with_password(master_pw).unwrap();
     let key = multitop::password_store::account(&local_server("echo test"));
     unlocked

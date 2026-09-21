@@ -102,7 +102,6 @@ impl Vault {
             params,
         )?;
 
-        #[cfg_attr(not(target_os = "macos"), allow(unused_mut))]
         let mut unlocked = self.decrypt_and_load(vault_key, &vault_file)?;
 
         // The password was correct: decryption and the canary both passed.

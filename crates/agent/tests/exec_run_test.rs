@@ -3,9 +3,15 @@
 //! These are the cases the old raw-text reader got wrong, asserted here against
 //! the thing that replaced it. Each one names the defect it stands for.
 
+// A test crate, said where clippy reads it: the restriction lints
+// (`unwrap_used`, `expect_used`, `panic`) are policy for production code and
+// exempt for test code (clippy.toml), and an integration test is test code
+// through and through -- helpers included.
+#![cfg(test)]
+
 // Integration-test crate: helper fns outside #[test] are not covered by
-// clippy.toml's test exemption, so the restriction lints are expected here.
-#![expect(clippy::expect_used, clippy::panic)]
+// clippy.toml's test exemption, so they report through `Result` and the
+// `#[test]` callers unwrap with the reason.
 use multitop_agent::exec::run::{run, Request};
 use multitop_agent::exec::{ExecFrame, MarkerKind, Stream, MAX_EXEC_CHUNK};
 use multitop_agent::proto::{decode_packet, Payload};
@@ -15,21 +21,26 @@ use multitop_agent::proto::{decode_packet, Payload};
 /// Length-driven, exactly as a client's reader is: if the framing were wrong
 /// this would desynchronise here rather than quietly return plausible frames,
 /// which is the property the whole change exists to buy.
-fn frames(bytes: &[u8]) -> Vec<ExecFrame> {
+fn frames(bytes: &[u8]) -> Result<Vec<ExecFrame>, String> {
     let mut out = Vec::new();
     let mut pos = 0;
     while pos + 8 <= bytes.len() {
-        let len = u16::from_le_bytes([bytes[pos + 6], bytes[pos + 7]]) as usize;
+        let len = usize::from(u16::from_le_bytes([bytes[pos + 6], bytes[pos + 7]]));
         let end = pos + 8 + len;
-        assert!(end <= bytes.len(), "a frame ran past the end of the stream");
-        match decode_packet(&bytes[pos..end]).expect("every frame written must decode") {
-            Payload::Exec(f) => out.push(f),
-            other => panic!("wrong payload kind: {other:?}"),
+        if end > bytes.len() {
+            return Err("a frame ran past the end of the stream".to_string());
+        }
+        match decode_packet(&bytes[pos..end]) {
+            Some(Payload::Exec(f)) => out.push(f),
+            Some(other) => return Err(format!("wrong payload kind: {other:?}")),
+            None => return Err("a frame written by this build did not decode".to_string()),
         }
         pos = end;
     }
-    assert_eq!(pos, bytes.len(), "trailing bytes that are not a frame");
-    out
+    if pos != bytes.len() {
+        return Err("trailing bytes that are not a frame".to_string());
+    }
+    Ok(out)
 }
 
 struct Ran {
@@ -65,19 +76,24 @@ impl Ran {
             .collect()
     }
 
-    fn exit(&self) -> (i32, bool) {
+    /// The final `Exit` frame's `(code, signalled)`, or what was there instead.
+    fn exit(&self) -> Result<(i32, bool), String> {
         match self.frames.last() {
-            Some(ExecFrame::Exit { code, signalled }) => (*code, *signalled),
-            other => panic!("the last frame must be Exit, got {other:?}"),
+            Some(ExecFrame::Exit { code, signalled }) => Ok((*code, *signalled)),
+            other => Err(format!("the last frame must be Exit, got {other:?}")),
         }
     }
 }
 
-fn exec(command: &str) -> Ran {
+fn exec(command: &str) -> Result<Ran, String> {
     exec_full(command, None, None)
 }
 
-fn exec_full(command: &str, password: Option<&str>, lock_path: Option<&std::path::Path>) -> Ran {
+fn exec_full(
+    command: &str,
+    password: Option<&str>,
+    lock_path: Option<&std::path::Path>,
+) -> Result<Ran, String> {
     let mut buf = Vec::new();
     let req = Request {
         command,
@@ -89,23 +105,23 @@ fn exec_full(command: &str, password: Option<&str>, lock_path: Option<&std::path
         lock_path,
     };
     let code = run(&req, &mut buf);
-    Ran {
-        frames: frames(&buf),
+    Ok(Ran {
+        frames: frames(&buf)?,
         code,
-    }
+    })
 }
 
 /// The shape of an ordinary run, and the guarantee the whole channel rests on:
 /// it begins with `Begin` and ends with `Exit`.
 #[test]
 fn a_clean_run_begins_and_ends_where_it_says() {
-    let r = exec("printf 'hello\\n'");
+    let r = exec("printf 'hello\\n'").expect("the command ran");
     assert!(
         matches!(r.frames.first(), Some(ExecFrame::Begin { .. })),
         "first frame was {:?}",
         r.frames.first()
     );
-    assert_eq!(r.exit(), (0, false));
+    assert_eq!(r.exit().expect("an Exit frame"), (0, false));
     assert_eq!(r.code, 0);
     assert!(r.text(Stream::Stdout).contains("hello"));
 }
@@ -116,7 +132,7 @@ fn a_clean_run_begins_and_ends_where_it_says() {
 /// `ControlMaster` socket.
 #[test]
 fn output_arrives_with_terminal_line_endings_everywhere() {
-    let r = exec("printf 'a\\nb\\n'");
+    let r = exec("printf 'a\\nb\\n'").expect("the command ran");
     assert_eq!(r.text(Stream::Stdout), "a\r\nb\r\n");
 }
 
@@ -125,8 +141,12 @@ fn output_arrives_with_terminal_line_endings_everywhere() {
 /// through `ssh -tt`.
 #[test]
 fn the_same_command_produces_the_same_bytes_every_time() {
-    let first = exec("printf 'x\\ny\\n'").text(Stream::Stdout);
-    let second = exec("printf 'x\\ny\\n'").text(Stream::Stdout);
+    let first = exec("printf 'x\\ny\\n'")
+        .expect("the command ran")
+        .text(Stream::Stdout);
+    let second = exec("printf 'x\\ny\\n'")
+        .expect("the command ran")
+        .text(Stream::Stdout);
     assert_eq!(first, second);
     assert_eq!(first, "x\r\ny\r\n");
 }
@@ -136,7 +156,7 @@ fn the_same_command_produces_the_same_bytes_every_time() {
 /// panel could colour it correctly on one host and not on another.
 #[test]
 fn stderr_stays_separable_from_stdout() {
-    let r = exec("echo out; echo problem >&2");
+    let r = exec("echo out; echo problem >&2").expect("the command ran");
     assert!(r.text(Stream::Stdout).contains("out"));
     assert!(!r.text(Stream::Stdout).contains("problem"));
     assert!(r.text(Stream::Stderr).contains("problem"));
@@ -147,7 +167,7 @@ fn stderr_stays_separable_from_stdout() {
 /// than the one they would see in a terminal.
 #[test]
 fn the_child_gets_a_real_terminal() {
-    let r = exec("test -t 1 && echo TTY_YES || echo TTY_NO");
+    let r = exec("test -t 1 && echo TTY_YES || echo TTY_NO").expect("the command ran");
     assert!(
         r.text(Stream::Stdout).contains("TTY_YES"),
         "stdout was not a tty: {:?}",
@@ -171,7 +191,7 @@ fn the_child_is_told_the_window_size() {
     };
     run(&req, &mut buf);
     let r = Ran {
-        frames: frames(&buf),
+        frames: frames(&buf).expect("a well-framed stream"),
         code: 0,
     };
     let text = r.text(Stream::Stdout);
@@ -184,7 +204,7 @@ fn the_child_is_told_the_window_size() {
 /// sent, so the same text went out again on every tick after that.
 #[test]
 fn a_prompt_without_a_newline_arrives_exactly_once() {
-    let r = exec("printf 'Continue? [Y/n] '; sleep 1; printf 'y\\n'");
+    let r = exec("printf 'Continue? [Y/n] '; sleep 1; printf 'y\\n'").expect("the command ran");
     let text = r.text(Stream::Stdout);
     assert_eq!(
         text.matches("Continue? [Y/n]").count(),
@@ -198,7 +218,7 @@ fn a_prompt_without_a_newline_arrives_exactly_once() {
 /// for them is the guess this channel exists to remove.
 #[test]
 fn carriage_return_progress_is_forwarded_verbatim() {
-    let r = exec("printf '10%%\\r20%%\\r30%%\\n'");
+    let r = exec("printf '10%%\\r20%%\\r30%%\\n'").expect("the command ran");
     assert_eq!(r.text(Stream::Stdout), "10%\r20%\r30%\r\n");
 }
 
@@ -207,7 +227,7 @@ fn carriage_return_progress_is_forwarded_verbatim() {
 /// made once, by the client's screen model, from complete information.
 #[test]
 fn cursor_movement_is_forwarded_verbatim() {
-    let r = exec("printf 'a\\nb\\n\\033[2Ac\\n'");
+    let r = exec("printf 'a\\nb\\n\\033[2Ac\\n'").expect("the command ran");
     assert_eq!(r.text(Stream::Stdout), "a\r\nb\r\n\u{1b}[2Ac\r\n");
 }
 
@@ -216,7 +236,7 @@ fn cursor_movement_is_forwarded_verbatim() {
 #[test]
 fn a_large_burst_arrives_once_and_whole() {
     let n = 200_000;
-    let r = exec(&format!("head -c {n} /dev/zero | tr '\\0' 'x'"));
+    let r = exec(&format!("head -c {n} /dev/zero | tr '\\0' 'x'")).expect("the command ran");
     let text = r.text(Stream::Stdout);
     assert_eq!(
         text.chars().filter(|c| *c == 'x').count(),
@@ -234,7 +254,7 @@ fn a_large_burst_arrives_once_and_whole() {
 /// order. A repeat would make two chunks indistinguishable.
 #[test]
 fn sequence_numbers_are_unique_and_ordered() {
-    let r = exec("echo one; echo two >&2; echo three");
+    let r = exec("echo one; echo two >&2; echo three").expect("the command ran");
     let seqs: Vec<u32> = r
         .frames
         .iter()
@@ -252,7 +272,13 @@ fn sequence_numbers_are_unique_and_ordered() {
 
 #[test]
 fn a_failing_command_reports_its_own_code() {
-    assert_eq!(exec("exit 3").exit(), (3, false));
+    assert_eq!(
+        exec("exit 3")
+            .expect("the command ran")
+            .exit()
+            .expect("an Exit frame"),
+        (3, false)
+    );
 }
 
 /// The bit layout of a `waitpid` status, tested directly.
@@ -281,8 +307,8 @@ fn a_wait_status_is_decoded_the_right_way_round() {
 /// And end to end: a command killed by a signal is never reported as a success.
 #[test]
 fn a_command_killed_by_a_signal_is_not_a_success() {
-    let r = exec("sh -c 'kill -9 $$'");
-    let (code, _) = r.exit();
+    let r = exec("sh -c 'kill -9 $$'").expect("the command ran");
+    let (code, _) = r.exit().expect("an Exit frame");
     assert_ne!(code, 0, "a killed command was announced as done");
     assert_eq!(
         code,
@@ -297,7 +323,7 @@ fn a_command_killed_by_a_signal_is_not_a_success() {
 /// upgrade log.
 #[test]
 fn the_login_shells_own_startup_noise_is_not_in_the_log() {
-    let r = exec("printf 'a\nb\n'");
+    let r = exec("printf 'a\nb\n'").expect("the command ran");
     assert_eq!(
         r.text(Stream::Stdout),
         "a\r\nb\r\n",
@@ -327,7 +353,7 @@ fn output_before_the_start_marker_is_released_if_it_never_arrives() {
     // path: a shell that cannot start at all.
     run(&req, &mut buf);
     let r = Ran {
-        frames: frames(&buf),
+        frames: frames(&buf).expect("a well-framed stream"),
         code: 0,
     };
     assert!(
@@ -341,8 +367,8 @@ fn output_before_the_start_marker_is_released_if_it_never_arrives() {
 /// of the session.
 #[test]
 fn even_a_command_that_cannot_run_ends_in_exit() {
-    let r = exec("this-command-does-not-exist-anywhere");
-    let (code, _) = r.exit();
+    let r = exec("this-command-does-not-exist-anywhere").expect("the command ran");
+    let (code, _) = r.exit().expect("an Exit frame");
     assert_ne!(code, 0, "a missing command must not report success");
     assert!(
         matches!(r.frames.last(), Some(ExecFrame::Exit { .. })),
@@ -354,7 +380,7 @@ fn even_a_command_that_cannot_run_ends_in_exit() {
 /// wedge without a timeout that has no upper bound to be right about.
 #[test]
 fn a_long_run_emits_heartbeats() {
-    let r = exec("sleep 2; echo done");
+    let r = exec("sleep 2; echo done").expect("the command ran");
     let beats = r
         .frames
         .iter()
@@ -369,7 +395,7 @@ fn a_long_run_emits_heartbeats() {
 /// `__multitop_lock_held__` did.
 #[test]
 fn markers_are_frames_and_never_text() {
-    let r = exec("printf '__multitop_lock_held__\\n'; echo real output");
+    let r = exec("printf '__multitop_lock_held__\\n'; echo real output").expect("the command ran");
     assert_eq!(r.markers(), vec![MarkerKind::LockHeld]);
     let text = r.text(Stream::Stdout);
     assert!(
@@ -382,9 +408,13 @@ fn markers_are_frames_and_never_text() {
 /// A marker printed onto a line a progress bar had already written to.
 #[test]
 fn a_marker_after_a_carriage_return_is_still_a_marker() {
-    let r = exec("printf 'working...\\r__multitop_sudo_failed__\\n'");
+    let r = exec("printf 'working...\\r__multitop_sudo_failed__\\n'").expect("the command ran");
     assert_eq!(r.markers(), vec![MarkerKind::SudoFailed]);
-    assert_eq!(r.exit().0, 111, "the marker must decide the outcome");
+    assert_eq!(
+        r.exit().expect("an Exit frame").0,
+        111,
+        "the marker must decide the outcome"
+    );
 }
 
 /// Two runs, one lock. The second is told it never ran, rather than being
@@ -394,9 +424,9 @@ fn a_held_lock_stops_the_second_run_and_says_so() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("upgrade.lock");
     let held = multitop_agent::exec::lock::acquire(&path).expect("first acquire");
-    let r = exec_full("echo should-not-run", None, Some(&path));
+    let r = exec_full("echo should-not-run", None, Some(&path)).expect("the command ran");
     assert_eq!(r.markers(), vec![MarkerKind::LockHeld]);
-    assert_eq!(r.exit(), (125, false));
+    assert_eq!(r.exit().expect("an Exit frame"), (125, false));
     assert!(
         !r.text(Stream::Stdout).contains("should-not-run"),
         "the command ran despite the lock"
@@ -411,10 +441,13 @@ fn the_lock_is_released_when_the_run_ends() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("upgrade.lock");
     assert_eq!(
-        exec_full("echo first", None, Some(&path)).exit(),
+        exec_full("echo first", None, Some(&path))
+            .expect("the command ran")
+            .exit()
+            .expect("an Exit frame"),
         (0, false)
     );
-    let r = exec_full("echo second", None, Some(&path));
+    let r = exec_full("echo second", None, Some(&path)).expect("the command ran");
     assert_eq!(r.markers(), vec![], "the lock outlived its run");
     assert!(r.text(Stream::Stdout).contains("second"));
 }

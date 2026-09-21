@@ -222,12 +222,13 @@ pub fn load_state(config_path: &Path) -> StateLoad {
     }
 }
 
-#[expect(clippy::expect_used)]
 fn insert_opt_u64(table: &mut toml::Table, key: &str, val: Option<u64>) {
     if let Some(v) = val {
         table.insert(
             key.to_string(),
-            toml::Value::Integer(i64::try_from(v).expect("u64 fits in i64")),
+            // TOML integers are i64; a value past that saturates rather than
+            // aborting the state write.
+            toml::Value::Integer(i64::try_from(v).unwrap_or(i64::MAX)),
         );
     }
 }

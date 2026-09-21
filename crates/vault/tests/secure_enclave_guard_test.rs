@@ -10,15 +10,20 @@
 //! private key never leaves the enclave, that damage is permanent -- biometric
 //! unlock stops working and cannot be recovered by re-running anything.
 
+// A test crate, said where clippy reads it: the restriction lints
+// (`unwrap_used`, `expect_used`, `panic`) are policy for production code and
+// exempt for test code (clippy.toml), and an integration test is test code
+// through and through -- helpers included.
+#![cfg(test)]
+
 // Integration-test crate: helper fns outside #[test] are not covered by
 // clippy.toml's test exemption, so the restriction lints are expected here.
-#![expect(clippy::unwrap_used)]
 
 use multitop_vault::crypto::{Argon2Params, WrapperType};
 use multitop_vault::format::VaultHeader;
 use multitop_vault::{Vault, VaultConfig};
 
-fn init_vault(dir: &std::path::Path, use_os_keychain: bool) -> VaultHeader {
+fn init_vault(dir: &std::path::Path, use_os_keychain: bool) -> Result<VaultHeader, String> {
     let vault_path = dir.join("vault.bin");
     let vault = Vault::new(VaultConfig {
         vault_path: vault_path.clone(),
@@ -29,13 +34,9 @@ fn init_vault(dir: &std::path::Path, use_os_keychain: bool) -> VaultHeader {
         }),
         use_os_keychain,
     });
-    tokio::runtime::Builder::new_current_thread()
-        .enable_all()
-        .build()
-        .unwrap()
-        .block_on(vault.initialize("master-pw"))
-        .unwrap();
-    VaultHeader::from_bytes(&std::fs::read(&vault_path).unwrap()).unwrap()
+    vault.initialize("master-pw").map_err(|e| e.to_string())?;
+    let bytes = std::fs::read(&vault_path).map_err(|e| e.to_string())?;
+    VaultHeader::from_bytes(&bytes).map_err(|e| e.to_string())
 }
 
 #[test]
@@ -43,7 +44,7 @@ fn initialising_without_keychain_permission_creates_no_secure_enclave_key() {
     let dir = std::env::temp_dir().join(format!("mt_se_guard_{}", std::process::id()));
     std::fs::create_dir_all(&dir).unwrap();
 
-    let header = init_vault(&dir, false);
+    let header = init_vault(&dir, false).expect("an initialised vault");
     assert!(
         !header.has_wrapper(WrapperType::SecureEnclave),
         "use_os_keychain=false must not produce a Secure Enclave wrapper: creating one \
@@ -70,7 +71,7 @@ fn no_vault_is_created_with_a_tpm2_wrapper() {
     let dir = std::env::temp_dir().join(format!("mt_tpm2_{}", std::process::id()));
     std::fs::create_dir_all(&dir).unwrap();
 
-    let header = init_vault(&dir, false);
+    let header = init_vault(&dir, false).expect("an initialised vault");
     assert!(
         !header.has_wrapper(WrapperType::Tpm2),
         "a TPM2 wrapper now exists, so the fprintd path is live -- TPM2 unwrapping \

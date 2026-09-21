@@ -61,7 +61,8 @@ def hosts():
 
 def agent_for(arch):
     """The cross-compiled agent for `arch`, or None if it was never built."""
-    root = os.environ.get("CARGO_TARGET_DIR") or os.path.expanduser("~/.cache/cargo-target")
+    here = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    root = os.environ.get("CARGO_TARGET_DIR") or os.path.join(here, "target")
     path = os.path.join(root, f"{arch}-unknown-linux-musl", "release", "multitop-agent")
     return path if os.path.isfile(path) else None
 

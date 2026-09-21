@@ -6,8 +6,6 @@
 //! This module contains unsafe code for calling mlock/munlock system calls.
 //! The unsafe blocks are reviewed and contain only standard system call wrappers.
 
-#![expect(unsafe_code)]
-
 use libc::{mlock, munlock};
 use zeroize::Zeroize;
 

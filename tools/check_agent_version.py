@@ -35,7 +35,6 @@ CANDIDATE_ROOTS = [
     REPO / "target",
     REPO / "target" / "docker",
     REPO / "target" / "agent-build",
-    Path.home() / ".cache" / "cargo-target",
 ]
 
 # Env var takes precedence, just like build.rs

@@ -5,9 +5,14 @@
 //! side of `/proc/stat`, `/proc/meminfo`, `/proc/net/dev` and
 //! `/proc/self/mountinfo` is never executed until it is in production.
 
+// A test crate, said where clippy reads it: the restriction lints
+// (`unwrap_used`, `expect_used`, `panic`) are policy for production code and
+// exempt for test code (clippy.toml), and an integration test is test code
+// through and through -- helpers included.
+#![cfg(test)]
+
 // Integration-test crate: helper fns outside #[test] are not covered by
 // clippy.toml's test exemption, so the restriction lints are expected here.
-#![expect(clippy::unwrap_used)]
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
@@ -17,18 +22,23 @@ use multitop_agent::proc;
 struct Fixture(PathBuf);
 
 impl Fixture {
-    fn new(tag: &str, body: &str) -> Self {
+    /// Write the fixture, or say why the filesystem refused.
+    fn new(tag: &str, body: &str) -> std::io::Result<Self> {
         static N: AtomicUsize = AtomicUsize::new(0);
         let path = std::env::temp_dir().join(format!(
             "multitop-proc-{tag}-{}-{}",
             std::process::id(),
             N.fetch_add(1, Ordering::Relaxed)
         ));
-        std::fs::write(&path, body).unwrap();
-        Self(path)
+        std::fs::write(&path, body)?;
+        Ok(Self(path))
     }
-    fn path(&self) -> &str {
-        self.0.to_str().unwrap()
+    /// The path as text; a temp dir on this machine is UTF-8, and one that
+    /// is not is reported rather than guessed at.
+    fn path(&self) -> Result<&str, String> {
+        self.0
+            .to_str()
+            .ok_or_else(|| format!("fixture path is not UTF-8: {}", self.0.display()))
     }
 }
 
@@ -75,8 +85,9 @@ const MOUNTINFO: &str = "\
 
 #[test]
 fn proc_stat_is_read_and_parsed_into_aggregate_and_cores() {
-    let f = Fixture::new("stat", PROC_STAT);
-    let stat = proc::cpu_stat_from(f.path()).expect("a well-formed /proc/stat must parse");
+    let f = Fixture::new("stat", PROC_STAT).expect("fixture written");
+    let stat = proc::cpu_stat_from(f.path().expect("utf-8 path"))
+        .expect("a well-formed /proc/stat must parse");
 
     // Aggregate: every column summed; idle is columns 4 and 5 together.
     assert_eq!(stat.aggregate.total, (1000 + 20 + 300 + 8000 + 100) + 40);
@@ -100,8 +111,9 @@ fn cores_come_back_in_index_order_however_the_file_lists_them() {
     let f = Fixture::new(
         "stat-order",
         "cpu2 1 1 1 1 1\ncpu0 1 1 1 1 1\ncpu1 1 1 1 1 1\n",
-    );
-    let stat = proc::cpu_stat_from(f.path()).unwrap();
+    )
+    .expect("fixture written");
+    let stat = proc::cpu_stat_from(f.path().expect("utf-8 path")).unwrap();
     assert_eq!(
         stat.cores.iter().map(|(i, _)| *i).collect::<Vec<_>>(),
         vec![0, 1, 2]
@@ -112,8 +124,8 @@ fn cores_come_back_in_index_order_however_the_file_lists_them() {
 fn a_cpu_line_without_an_idle_column_is_unusable_and_skipped() {
     // Fewer than five columns means idle and iowait are not there, so the
     // busy percentage would be meaningless.
-    let f = Fixture::new("stat-short", "cpu  1 2 3\ncpu0 1 2 3 4 5\n");
-    let stat = proc::cpu_stat_from(f.path()).unwrap();
+    let f = Fixture::new("stat-short", "cpu  1 2 3\ncpu0 1 2 3 4 5\n").expect("fixture written");
+    let stat = proc::cpu_stat_from(f.path().expect("utf-8 path")).unwrap();
     assert_eq!(
         stat.aggregate,
         proc::CpuTimes::default(),
@@ -124,8 +136,9 @@ fn a_cpu_line_without_an_idle_column_is_unusable_and_skipped() {
 
 #[test]
 fn a_cpu_line_with_a_non_numeric_column_is_skipped() {
-    let f = Fixture::new("stat-junk", "cpu  1 2 three 4 5\ncpu0 1 2 3 4 5\n");
-    let stat = proc::cpu_stat_from(f.path()).unwrap();
+    let f =
+        Fixture::new("stat-junk", "cpu  1 2 three 4 5\ncpu0 1 2 3 4 5\n").expect("fixture written");
+    let stat = proc::cpu_stat_from(f.path().expect("utf-8 path")).unwrap();
     assert_eq!(stat.aggregate, proc::CpuTimes::default());
     assert_eq!(stat.cores.len(), 1);
 }
@@ -133,20 +146,21 @@ fn a_cpu_line_with_a_non_numeric_column_is_skipped() {
 #[test]
 fn an_absent_or_empty_proc_stat_sends_the_caller_elsewhere() {
     assert_eq!(proc::cpu_stat_from("/no/such/proc/stat"), None);
-    let empty = Fixture::new("stat-empty", "");
-    assert_eq!(proc::cpu_stat_from(empty.path()), None);
+    let empty = Fixture::new("stat-empty", "").expect("fixture written");
+    assert_eq!(proc::cpu_stat_from(empty.path().expect("utf-8 path")), None);
     // Present but with nothing the parser recognises is the same as absent:
     // returning an all-zero CpuStat would report a permanently idle host.
-    let junk = Fixture::new("stat-nocpu", "intr 1 2 3\nctxt 4\n");
-    assert_eq!(proc::cpu_stat_from(junk.path()), None);
+    let junk = Fixture::new("stat-nocpu", "intr 1 2 3\nctxt 4\n").expect("fixture written");
+    assert_eq!(proc::cpu_stat_from(junk.path().expect("utf-8 path")), None);
 }
 
 // --------------------------------------------------------------- /proc/meminfo
 
 #[test]
 fn meminfo_is_read_and_used_excludes_what_the_kernel_can_reclaim() {
-    let f = Fixture::new("meminfo", MEMINFO);
-    let mem = proc::memory_from(f.path()).expect("a well-formed meminfo must parse");
+    let f = Fixture::new("meminfo", MEMINFO).expect("fixture written");
+    let mem =
+        proc::memory_from(f.path().expect("utf-8 path")).expect("a well-formed meminfo must parse");
 
     assert_eq!(mem.total, 16_384_000 * 1024);
     // used = total - (free + buffers + cached)
@@ -162,8 +176,9 @@ fn meminfo_ignores_the_fields_it_does_not_use() {
     let f = Fixture::new(
         "meminfo-only-total",
         "MemTotal: 1024 kB\nSwapTotal: 999999 kB\n",
-    );
-    let mem = proc::memory_from(f.path()).unwrap();
+    )
+    .expect("fixture written");
+    let mem = proc::memory_from(f.path().expect("utf-8 path")).unwrap();
     assert_eq!(mem.total, 1024 * 1024);
     assert_eq!(
         mem.used, mem.total,
@@ -174,25 +189,30 @@ fn meminfo_ignores_the_fields_it_does_not_use() {
 #[test]
 fn a_meminfo_that_reports_no_total_sends_the_caller_elsewhere() {
     assert_eq!(proc::memory_from("/no/such/meminfo"), None);
-    let empty = Fixture::new("meminfo-empty", "");
-    assert_eq!(proc::memory_from(empty.path()), None);
-    let no_total = Fixture::new("meminfo-nototal", "MemFree: 100 kB\n");
-    assert_eq!(proc::memory_from(no_total.path()), None);
+    let empty = Fixture::new("meminfo-empty", "").expect("fixture written");
+    assert_eq!(proc::memory_from(empty.path().expect("utf-8 path")), None);
+    let no_total = Fixture::new("meminfo-nototal", "MemFree: 100 kB\n").expect("fixture written");
+    assert_eq!(
+        proc::memory_from(no_total.path().expect("utf-8 path")),
+        None
+    );
     // Lines with no colon, and values that are not numbers, are skipped
     // rather than aborting the parse.
     let junk = Fixture::new(
         "meminfo-junk",
         "garbage\nMemTotal: lots kB\nMemFree: 1 kB\n",
-    );
-    assert_eq!(proc::memory_from(junk.path()), None);
+    )
+    .expect("fixture written");
+    assert_eq!(proc::memory_from(junk.path().expect("utf-8 path")), None);
 }
 
 // -------------------------------------------------------------- /proc/net/dev
 
 #[test]
 fn net_dev_sums_the_real_interfaces_and_ignores_loopback() {
-    let f = Fixture::new("netdev", NET_DEV);
-    let net = proc::net_from(f.path()).expect("a well-formed net/dev must parse");
+    let f = Fixture::new("netdev", NET_DEV).expect("fixture written");
+    let net =
+        proc::net_from(f.path().expect("utf-8 path")).expect("a well-formed net/dev must parse");
     // eth0 + eth1, with lo left out — counting loopback would double every
     // byte the host sent to itself.
     assert_eq!(net.rx, 900_000 + 100_000);
@@ -201,8 +221,9 @@ fn net_dev_sums_the_real_interfaces_and_ignores_loopback() {
 
 #[test]
 fn a_net_dev_with_nothing_but_loopback_sends_the_caller_elsewhere() {
-    let f = Fixture::new("netdev-lo", "hdr1\nhdr2\n    lo: 1 2 3 4 5 6 7 8 9 10\n");
-    assert_eq!(proc::net_from(f.path()), None);
+    let f = Fixture::new("netdev-lo", "hdr1\nhdr2\n    lo: 1 2 3 4 5 6 7 8 9 10\n")
+        .expect("fixture written");
+    assert_eq!(proc::net_from(f.path().expect("utf-8 path")), None);
     assert_eq!(proc::net_from("/no/such/net/dev"), None);
 }
 
@@ -210,8 +231,8 @@ fn a_net_dev_with_nothing_but_loopback_sends_the_caller_elsewhere() {
 fn malformed_net_dev_rows_are_skipped_rather_than_aborting_the_sum() {
     // A row with no colon, and a row that stops before the transmit column.
     let body = "hdr1\nhdr2\nnot-an-interface-row\n  eth9: 7\n  eth0: 500 1 0 0 0 0 0 0 250 1\n";
-    let f = Fixture::new("netdev-mixed", body);
-    let net = proc::net_from(f.path()).unwrap();
+    let f = Fixture::new("netdev-mixed", body).expect("fixture written");
+    let net = proc::net_from(f.path().expect("utf-8 path")).unwrap();
     assert_eq!(net.rx, 500);
     assert_eq!(net.tx, 250);
 }
@@ -220,18 +241,25 @@ fn malformed_net_dev_rows_are_skipped_rather_than_aborting_the_sum() {
 
 #[test]
 fn the_root_mount_is_found_among_the_others() {
-    let f = Fixture::new("mountinfo", MOUNTINFO);
-    assert_eq!(proc::root_mount_from(f.path()).as_deref(), Some("/"));
+    let f = Fixture::new("mountinfo", MOUNTINFO).expect("fixture written");
+    assert_eq!(
+        proc::root_mount_from(f.path().expect("utf-8 path")).as_deref(),
+        Some("/")
+    );
 }
 
 #[test]
 fn a_mountinfo_without_a_root_row_names_no_mount() {
-    let f = Fixture::new("mountinfo-noroot", "23 28 0:21 / /proc rw - proc proc rw\n");
-    assert_eq!(proc::root_mount_from(f.path()), None);
+    let f = Fixture::new("mountinfo-noroot", "23 28 0:21 / /proc rw - proc proc rw\n")
+        .expect("fixture written");
+    assert_eq!(proc::root_mount_from(f.path().expect("utf-8 path")), None);
     assert_eq!(proc::root_mount_from("/no/such/mountinfo"), None);
     // Rows too short to have a mount-point column are skipped.
-    let short = Fixture::new("mountinfo-short", "23 28\n");
-    assert_eq!(proc::root_mount_from(short.path()), None);
+    let short = Fixture::new("mountinfo-short", "23 28\n").expect("fixture written");
+    assert_eq!(
+        proc::root_mount_from(short.path().expect("utf-8 path")),
+        None
+    );
 }
 
 // ------------------------------------------------------------- non-utf8 bytes
