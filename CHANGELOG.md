@@ -47,6 +47,10 @@ document for anything before this point.
   empty-scope sweep found the checker failing on an empty tree with a
   0.47.2 agent still parked there. Every site now resolves only this
   checkout's target dir (`cargo metadata`, `CARGO_TARGET_DIR`, `target/`).
+- **`fuzz/Cargo.lock` is checked `--locked`.** The pre-commit fuzz check
+  ran an unlocked `cargo check`, which rewrote the lockfile during the
+  0.47.3 commit and left the tree dirty behind a green hook. A stale fuzz
+  lockfile is now a red step naming its fix (proven red, then green).
 - **Vault moves from `keyring` 3 to 4, matching `multitop`.**
   The workspace carried two majors of one crate: `multitop` on 4 since the
   August dependency refresh, `multitop-vault` still on 3 with the old

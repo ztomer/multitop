@@ -17,8 +17,13 @@ GOH="${GOH_DIR:-${GOH:-$HOME/Projects/gates_of_heck}}"
 . "$GOH/tui/lib.sh"
 targets=(fuzz/fuzz_targets/*.rs)
 [ -e "${targets[0]}" ] || die "no fuzz targets found -- fuzz/fuzz_targets is empty"
-info "fuzz targets compile (cargo check)"
-cargo check --manifest-path fuzz/Cargo.toml --all-targets --quiet
+# --locked: fuzz/Cargo.lock tracks the workspace's version and dependencies,
+# and an unlocked check silently rewrote it DURING the commit hook -- the
+# commit went through and left the lockfile dirty behind it (the 0.47.3
+# bump). A stale lockfile is a finding with a named fix, not a side effect.
+info "fuzz targets compile (cargo check --locked)"
+cargo check --manifest-path fuzz/Cargo.toml --all-targets --locked --quiet \
+    || die "fuzz/Cargo.lock is stale -- run: cargo check --manifest-path fuzz/Cargo.toml --all-targets && git add fuzz/Cargo.lock"
 ok "fuzz targets compile"
 if ! cargo +nightly fuzz --version >/dev/null 2>&1; then
     warn "cargo-fuzz on nightly is not installed -- the ASan build is SKIPPED (cargo install cargo-fuzz; rustup toolchain install nightly)"
