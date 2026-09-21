@@ -7,6 +7,22 @@ This file starts at v0.47.0 — earlier history is in git (`git log`), and the
 per-defect record is `docs/detection-record.md`, which is the more useful
 document for anything before this point.
 
+## v0.47.3 — unify the vault on keyring 4 _(unreleased)_
+
+### Changed
+- **Vault moves from `keyring` 3 to 4, matching `multitop`.**
+  The workspace carried two majors of one crate: `multitop` on 4 since the
+  August dependency refresh, `multitop-vault` still on 3 with the old
+  `apple-native` / `sync-secret-service` feature flags (names that no longer
+  exist upstream; the platform stores are built in and Linux secret-service
+  selection is the default). The vault now declares
+  `keyring = { version = "4", default-features = true }`, identical to
+  `multitop`, and both lockfiles drop the second graph: `keyring` 3.6.3,
+  `dbus` / `dbus-secret-service` / `libdbus-sys`, `security-framework`
+  2.11.1 and `core-foundation` 0.9.4. The keychain calls in use
+  (`Entry::new`, `get_password`, `set_password`) are identical across the
+  bump and the vault file format is untouched — existing vaults open as-is.
+
 ## v0.47.2 — upgrade stderr through the painter, finish routing shared _(2026-09-13)_
 
 ### Fixed

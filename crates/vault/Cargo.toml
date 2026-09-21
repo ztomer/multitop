@@ -32,8 +32,8 @@ hex = "0.4"
 fs2 = "0.4"
 libc = "0.2"
 
-# Keychain
-keyring = { version = "3", features = ["apple-native", "sync-secret-service"] }
+# Keychain (unified on keyring 4 with multitop; one major per workspace)
+keyring = { version = "4", default-features = true }
 
 # Platform-specific
 #[cfg(target_os = "macos")]
