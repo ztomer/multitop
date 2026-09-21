@@ -49,20 +49,38 @@ def self_test() -> int:
     return 0
 
 
-def main() -> int:
-    if "--self-test" in sys.argv:
-        return self_test()
-    proc = subprocess.run(
+# A latency gate measures what the code CAN do, so one sample is the wrong
+# statistic: the pre-push run on 2026-09-21 read 57 us for a frame render that
+# takes 28 us on a quiet machine, because the fuzz ASan builds had just
+# finished and the container lint was warming up. Best of a few runs is
+# still a gate (a real regression is slow every time) without being a
+# load meter.
+RUNS = 3
+
+
+def run_bench() -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
         ["cargo", "bench", "-p", "multitop", "--bench", "client_bench"],
         cwd=REPO, capture_output=True, text=True, errors="replace",
     )
-    if proc.returncode != 0:
-        print("bench-check: the benchmark did not run", file=sys.stderr)
-        sys.stderr.write(proc.stderr[-2000:])
-        return 1
-    passed, line = verdict(proc.stdout)
-    print(("bench-check: " if passed else "bench-check FAILED: ") + line, file=None if passed else sys.stderr)
-    return 0 if passed else 1
+
+
+def main() -> int:
+    if "--self-test" in sys.argv:
+        return self_test()
+    line = "the benchmark never ran"
+    for _ in range(RUNS):
+        proc = run_bench()
+        if proc.returncode != 0:
+            print("bench-check: the benchmark did not run", file=sys.stderr)
+            sys.stderr.write(proc.stderr[-2000:])
+            return 1
+        passed, line = verdict(proc.stdout)
+        if passed:
+            print("bench-check: " + line)
+            return 0
+    print(f"bench-check FAILED (all {RUNS} runs over threshold; last): " + line, file=sys.stderr)
+    return 1
 
 
 if __name__ == "__main__":

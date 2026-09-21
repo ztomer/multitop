@@ -51,6 +51,14 @@ document for anything before this point.
   ran an unlocked `cargo check`, which rewrote the lockfile during the
   0.47.3 commit and left the tree dirty behind a green hook. A stale fuzz
   lockfile is now a red step naming its fix (proven red, then green).
+- **The bench gate is best-of-three.** One sample under load (57 us for a
+  28 us frame render, right after the fuzz ASan builds) refused a push;
+  a latency gate measures what the code can do, and a real regression is
+  slow every time.
+- **The enclave rebind is macOS-only at its call site.** The pre-push
+  container lint (`tools/lint_linux.sh`) caught the non-macOS stub as
+  `unused_self`; the repair now takes the vault by value and the one call
+  is `cfg`'d, so there is no stub and no `mut` a platform never uses.
 - **Vault moves from `keyring` 3 to 4, matching `multitop`.**
   The workspace carried two majors of one crate: `multitop` on 4 since the
   August dependency refresh, `multitop-vault` still on 3 with the old
