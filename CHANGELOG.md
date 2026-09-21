@@ -7,7 +7,7 @@ This file starts at v0.47.0 — earlier history is in git (`git log`), and the
 per-defect record is `docs/detection-record.md`, which is the more useful
 document for anything before this point.
 
-## v0.47.3 — no lint suppression, unsafe scope as a gate, keyring 4 _(unreleased)_
+## v0.47.3 — no lint suppression, unsafe scope as a gate, keyring 4 _(2026-09-21)_
 
 ### Changed
 - **Every `#[expect]` and `#[allow]` is gone from the workspace; the house
@@ -59,6 +59,15 @@ document for anything before this point.
   container lint (`tools/lint_linux.sh`) caught the non-macOS stub as
   `unused_self`; the repair now takes the vault by value and the one call
   is `cfg`'d, so there is no stub and no `mut` a platform never uses.
+- **`release.sh`'s tap bump ran for the first time since it was written
+  and failed twice on its environment, not the formula.** The Python
+  transform sat inside `python3 -c "..."`, so the `sha256 "..."` regexes
+  lost their double quotes to bash and the agent-sha line was never
+  matched; it is a quoted heredoc now. Then `ruby -c` rejected the
+  formula's em dash as an invalid multibyte character because the tool
+  shell had no locale; it runs under `LC_ALL=C.UTF-8`. The tag, release
+  and assets had already landed, so the bump was finished by hand-running
+  the fixed tail; the next release runs end to end.
 - **Vault moves from `keyring` 3 to 4, matching `multitop`.**
   The workspace carried two majors of one crate: `multitop` on 4 since the
   August dependency refresh, `multitop-vault` still on 3 with the old

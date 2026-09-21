@@ -133,9 +133,15 @@ done
 info "bumping ${TAP}/${FORMULA_PATH} → ${VER} (tarball + both resources) ..."
 CUR_SHA="$(gh api "repos/${TAP}/contents/${FORMULA_PATH}" --jq .sha)"
 CUR_FORMULA="$(gh api "repos/${TAP}/contents/${FORMULA_PATH}" --jq .content | base64 --decode)"
-NEW_FORMULA="$(printf '%s' "${CUR_FORMULA}" | NEW_TAG="${TAG}" TARBALL_SHA="${TARBALL_SHA}" SHA_X64="${SHA_X64}" SHA_ARM="${SHA_ARM}" python3 -c "
+# The transform is a quoted heredoc, never `python3 -c "..."`: the program has
+# double quotes in it (`sha256 "..."`), and inside a bash double-quoted string
+# they closed and reopened the argument, so the regexes lost their quotes and
+# the agent-sha line was never matched (v0.47.3: "agent sha line not found").
+# The formula travels by environment for the same reason.
+NEW_FORMULA="$(CUR_FORMULA="${CUR_FORMULA}" NEW_TAG="${TAG}" TARBALL_SHA="${TARBALL_SHA}" SHA_X64="${SHA_X64}" SHA_ARM="${SHA_ARM}" python3 - <<'PY'
+
 import os, re, sys
-s = sys.stdin.read()
+s = os.environ['CUR_FORMULA']
 new_tag = os.environ['NEW_TAG']
 old = re.search(r'multitop/archive/refs/tags/(v[\d.]+)\.tar\.gz', s)
 assert old, 'source tarball url not found'
@@ -165,11 +171,16 @@ if not s.endswith('\n'):
     s += '\n'
 assert old_tag not in [l for l in out if 'multitop-agent-' in l or 'archive/refs/tags' in l], 'stale tag left behind'
 sys.stdout.write(s)
-")"
+PY
+)"
 if [ "${NEW_FORMULA}" = "${CUR_FORMULA}" ]; then
   die "tap transform produced no change — refusing to push an empty bump"
 fi
-printf '%s' "${NEW_FORMULA}" | ruby -c >/dev/null || die "transformed formula failed ruby -c"
+# UTF-8 named explicitly: the formula's desc has an em dash, and ruby reads
+# stdin as US-ASCII when the caller's locale is unset (a tool shell, launchd),
+# rejecting it as an "invalid multibyte character" -- a syntax check failing
+# on the environment, not the formula.
+printf '%s' "${NEW_FORMULA}" | LC_ALL=C.UTF-8 ruby -c >/dev/null || die "transformed formula failed ruby -c"
 gh api -X PUT "repos/${TAP}/contents/${FORMULA_PATH}" \
   -f message="multitop ${VER}" \
   -f content="$(printf '%s' "${NEW_FORMULA}" | base64 | tr -d '\n')" \
