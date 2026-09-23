@@ -304,3 +304,50 @@ fn the_glyphs_alone_tell_the_tones_apart() {
         "a clock ahead of ours is not negative time"
     );
 }
+
+#[test]
+fn a_container_without_a_health_check_is_not_counted_as_unhealthy() {
+    // .33, 2026-09-23: "44 running, 33 healthy" read as 11 unhealthy; none
+    // were - 11 define no Docker health check, which is a different fact.
+    let mut s = snapshot();
+    s.containers = Part::Ready(
+        parse_containers(&json!({"containers": [
+            {"name": "a", "id": "1", "image": "i", "state": "running", "status": "Up", "health": "healthy", "compose_project": "p", "compose_service": "a"},
+            {"name": "b", "id": "2", "image": "i", "state": "running", "status": "Up", "health": "healthy", "compose_project": "p", "compose_service": "b"},
+            {"name": "c", "id": "3", "image": "i", "state": "running", "status": "Up", "health": "none", "compose_project": "p", "compose_service": "c"},
+        ]}))
+        .unwrap(),
+    );
+    let f = plain(&render(
+        "h",
+        &OpsState::Ready(Box::new(s)),
+        80,
+        40,
+        NOW,
+        PAL,
+    ));
+    assert!(
+        f.contains(&"⚠ docker  3 running · 2 healthy · 1 unchecked".to_string()),
+        "{f:?}"
+    );
+    // Every one checked and healthy: said in three words.
+    let mut s = snapshot();
+    s.containers = Part::Ready(
+        parse_containers(&json!({"containers": [
+            {"name": "a", "id": "1", "image": "i", "state": "running", "status": "Up", "health": "healthy", "compose_project": "p", "compose_service": "a"},
+        ]}))
+        .unwrap(),
+    );
+    let f = plain(&render(
+        "h",
+        &OpsState::Ready(Box::new(s)),
+        80,
+        40,
+        NOW,
+        PAL,
+    ));
+    assert!(
+        f.contains(&"✓ docker  1 running, all healthy".to_string()),
+        "{f:?}"
+    );
+}

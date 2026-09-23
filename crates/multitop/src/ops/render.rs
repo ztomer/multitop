@@ -198,12 +198,28 @@ fn containers(f: &mut Frame<'_>, cs: &[Container]) {
     let bad: Vec<&Container> = cs.iter().filter(|c| c.in_trouble()).collect();
     let running = cs.iter().filter(|c| c.state == "running").count();
     let healthy = cs.iter().filter(|c| c.health == "healthy").count();
+    // A running container that defines no Docker health check has no health
+    // to report; "44 running, 33 healthy" read as 11 unhealthy when none
+    // were (.33, 2026-09-23). It is named for what it is - and it is a gap
+    // (nothing would notice it hang), so the line warns.
+    let unchecked = cs
+        .iter()
+        .filter(|c| c.state == "running" && matches!(c.health.as_str(), "" | "none"))
+        .count();
     if bad.is_empty() {
-        f.line(
-            Tone::Good,
-            "docker",
-            &format!("{running} running, {healthy} healthy"),
-        );
+        if unchecked == 0 {
+            f.line(
+                Tone::Good,
+                "docker",
+                &format!("{running} running, all healthy"),
+            );
+        } else {
+            f.line(
+                Tone::Warn,
+                "docker",
+                &format!("{running} running · {healthy} healthy · {unchecked} unchecked"),
+            );
+        }
         return;
     }
     f.line(
