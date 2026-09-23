@@ -9,12 +9,17 @@
 //! ```
 //!
 //! Requires a reachable SSH host configured via environment variables:
-//! - `MULTITOP_TEST_SSH_HOST` — hostname or IP (default: `127.0.0.1`)
+//! - `MULTITOP_TEST_SSH_HOST` — hostname, IP or `~/.ssh/config` alias
+//!   (required: there is no default)
 //! - `MULTITOP_TEST_SSH_USER` — SSH username (default: current user)
 //! - `MULTITOP_TEST_SSH_PORT` — SSH port (default: `22`)
 //!
-//! For local testing with SSH, use `MULTITOP_TEST_SSH_HOST=127.0.0.1` and
-//! ensure sshd is running locally.
+//! A loopback name is refused: multitop runs `localhost`/`127.0.0.1` (and
+//! port 0) locally, without ssh, so a run aimed there tests nothing this
+//! suite is for. To test ssh against this machine, run sshd (Remote Login on
+//! macOS) and name it through an alias - `Host multitop-loop` /
+//! `HostName 127.0.0.1` - see `live_ssh/mod.rs`. `test_remote_upgrade_runs_over_ssh`
+//! proves each run actually crossed ssh.
 //!
 //! # Never run a real upgrade command here
 //!
@@ -36,7 +41,6 @@
 // through and through -- helpers included.
 #![cfg(test)]
 
-use std::env;
 use std::time::Duration;
 
 use multitop::app::Msg;
@@ -45,25 +49,9 @@ use multitop::tasks::spawn_upgrade;
 
 use tokio::sync::mpsc;
 
-/// Read SSH connection params from environment variables.
-fn ssh_server(upgrade_cmd: &str) -> Server {
-    let host = env::var("MULTITOP_TEST_SSH_HOST").unwrap_or_else(|_| "127.0.0.1".to_string());
-    let user = env::var("MULTITOP_TEST_SSH_USER")
-        .unwrap_or_else(|_| env::var("USER").unwrap_or_else(|_| "root".to_string()));
-    let port = env::var("MULTITOP_TEST_SSH_PORT")
-        .ok()
-        .and_then(|p| p.parse::<u16>().ok())
-        .unwrap_or(22);
-
-    Server {
-        host,
-        port,
-        user,
-        upgrade_cmd: Some(upgrade_cmd.to_string()),
-        custom_command: None,
-        mcp: None,
-    }
-}
+#[path = "live_ssh/mod.rs"]
+mod live_ssh;
+use live_ssh::{ssh_server, target};
 
 /// Collect messages from channel with timeout, returns all messages received.
 async fn collect_messages(rx: mpsc::Receiver<Msg>) -> Vec<Msg> {
@@ -89,20 +77,37 @@ async fn collect_until_done(rx: mpsc::Receiver<Msg>) -> Vec<Msg> {
     msgs
 }
 
+/// Run `server`'s upgrade as panel 0, generation 1, and return every message
+/// it sent until it finished. The task is joined, not dropped: a panic inside
+/// it arrives as a join error, and swallowing that leaves the test to fail
+/// later for some other reason - or to pass. The task is the thing under test.
+async fn run(server: Server, sudo: Option<String>, cap: usize) -> Vec<Msg> {
+    let (tx, rx) = mpsc::channel::<Msg>(cap);
+    let handle = spawn_upgrade(0, 1, server, sudo, tx);
+    let msgs = collect_until_done(rx).await;
+    handle.await.expect("the spawned task must not panic");
+    msgs
+}
+
+/// The output lines among `msgs`, in order.
+fn aux_lines(msgs: &[Msg]) -> Vec<String> {
+    msgs.iter()
+        .filter_map(|m| match m {
+            Msg::AuxLine { line, .. } => Some(line.clone()),
+            _ => None,
+        })
+        .collect()
+}
+
 /// Test R1: Remote basic command
-/// SSH into real host, run `ls -l ; ls -l`.
+/// SSH into real host, run `ls -l / ; ls -l /`: the root directory, not the
+/// login's home, so the line count does not depend on what the account keeps
+/// there (a sparse home gave 8 lines and failed a host that was fine).
 #[ignore = "requires a reachable SSH host (MULTITOP_TEST_SSH_HOST); run with --ignored"]
 #[tokio::test]
 async fn test_remote_upgrade_basic_command() {
-    let server = ssh_server("ls -l ; ls -l");
-    let (tx, rx) = mpsc::channel::<Msg>(200);
-
-    let handle = spawn_upgrade(0, 1, server, None, tx);
-    let msgs = collect_until_done(rx).await;
-    // Not `let _ =`: a panic inside the spawned task arrives here as a join
-    // error, and swallowing it leaves the test to fail later for some other
-    // reason -- or to pass. The task is the thing under test.
-    handle.await.expect("the spawned task must not panic");
+    let server = ssh_server("ls -l / ; ls -l /");
+    let msgs = run(server, None, 200).await;
 
     // AuxBegin with correct panel/gen
     let begin = msgs.iter().find(|m| {
@@ -132,16 +137,7 @@ async fn test_remote_upgrade_basic_command() {
     assert!(done.is_some(), "Expected AuxDone success=true");
 
     // Output contains real ls -l data
-    let output_lines: Vec<String> = msgs
-        .iter()
-        .filter_map(|m| {
-            if let Msg::AuxLine { line, .. } = m {
-                Some(line.clone())
-            } else {
-                None
-            }
-        })
-        .collect();
+    let output_lines = aux_lines(&msgs);
     assert!(!output_lines.is_empty(), "Should have output lines");
     assert!(
         output_lines.len() >= 10,
@@ -156,14 +152,7 @@ async fn test_remote_upgrade_basic_command() {
 #[tokio::test]
 async fn test_remote_upgrade_with_sudo_password() {
     let server = ssh_server("ls -l");
-    let (tx, rx) = mpsc::channel::<Msg>(200);
-
-    let handle = spawn_upgrade(0, 1, server, Some("test-sudo-pass".to_string()), tx);
-    let msgs = collect_until_done(rx).await;
-    // Not `let _ =`: a panic inside the spawned task arrives here as a join
-    // error, and swallowing it leaves the test to fail later for some other
-    // reason -- or to pass. The task is the thing under test.
-    handle.await.expect("the spawned task must not panic");
+    let msgs = run(server, Some("test-sudo-pass".to_string()), 200).await;
 
     // Should complete (with or without sudo, depending on host config)
     let has_done = msgs.iter().any(|m| matches!(m, Msg::AuxDone { .. }));
@@ -187,14 +176,7 @@ async fn test_remote_upgrade_with_sudo_password() {
 #[tokio::test]
 async fn test_remote_upgrade_failure_exit_code() {
     let server = ssh_server("ls -l ; exit 42");
-    let (tx, rx) = mpsc::channel::<Msg>(200);
-
-    let handle = spawn_upgrade(0, 1, server, None, tx);
-    let msgs = collect_until_done(rx).await;
-    // Not `let _ =`: a panic inside the spawned task arrives here as a join
-    // error, and swallowing it leaves the test to fail later for some other
-    // reason -- or to pass. The task is the thing under test.
-    handle.await.expect("the spawned task must not panic");
+    let msgs = run(server, None, 200).await;
 
     let done = msgs.iter().find(|m| {
         matches!(
@@ -230,14 +212,7 @@ async fn test_remote_upgrade_failure_exit_code() {
 #[tokio::test]
 async fn test_remote_upgrade_empty_command() {
     let server = ssh_server("true");
-    let (tx, rx) = mpsc::channel::<Msg>(200);
-
-    let handle = spawn_upgrade(0, 1, server, None, tx);
-    let msgs = collect_until_done(rx).await;
-    // Not `let _ =`: a panic inside the spawned task arrives here as a join
-    // error, and swallowing it leaves the test to fail later for some other
-    // reason -- or to pass. The task is the thing under test.
-    handle.await.expect("the spawned task must not panic");
+    let msgs = run(server, None, 200).await;
 
     let begin = msgs.iter().find(|m| matches!(m, Msg::AuxBegin { .. }));
     let done = msgs
@@ -334,13 +309,7 @@ async fn test_remote_upgrade_connection_failure() {
         mcp: None,
     };
 
-    let (tx, rx) = mpsc::channel::<Msg>(100);
-    let handle = spawn_upgrade(0, 1, server, None, tx);
-    let msgs = collect_until_done(rx).await;
-    // Not `let _ =`: a panic inside the spawned task arrives here as a join
-    // error, and swallowing it leaves the test to fail later for some other
-    // reason -- or to pass. The task is the thing under test.
-    handle.await.expect("the spawned task must not panic");
+    let msgs = run(server, None, 100).await;
 
     // Should get either AuxDone (with error) or Status message
     let has_terminal = msgs
@@ -358,25 +327,9 @@ async fn test_remote_upgrade_connection_failure() {
 #[tokio::test]
 async fn test_remote_upgrade_multiline_output_ordering() {
     let server = ssh_server("echo STEP_A ; sleep 0.1 ; echo STEP_B ; sleep 0.1 ; echo STEP_C");
-    let (tx, rx) = mpsc::channel::<Msg>(200);
+    let msgs = run(server, None, 200).await;
 
-    let handle = spawn_upgrade(0, 1, server, None, tx);
-    let msgs = collect_until_done(rx).await;
-    // Not `let _ =`: a panic inside the spawned task arrives here as a join
-    // error, and swallowing it leaves the test to fail later for some other
-    // reason -- or to pass. The task is the thing under test.
-    handle.await.expect("the spawned task must not panic");
-
-    let lines: Vec<String> = msgs
-        .iter()
-        .filter_map(|m| {
-            if let Msg::AuxLine { line, .. } = m {
-                Some(line.clone())
-            } else {
-                None
-            }
-        })
-        .collect();
+    let lines = aux_lines(&msgs);
 
     let pos_a = lines.iter().position(|l| l.contains("STEP_A"));
     let pos_b = lines.iter().position(|l| l.contains("STEP_B"));
@@ -399,25 +352,9 @@ async fn test_remote_upgrade_multiline_output_ordering() {
 #[tokio::test]
 async fn test_remote_upgrade_stderr_captured() {
     let server = ssh_server("echo OUT ; echo ERR >&2");
-    let (tx, rx) = mpsc::channel::<Msg>(200);
+    let msgs = run(server, None, 200).await;
 
-    let handle = spawn_upgrade(0, 1, server, None, tx);
-    let msgs = collect_until_done(rx).await;
-    // Not `let _ =`: a panic inside the spawned task arrives here as a join
-    // error, and swallowing it leaves the test to fail later for some other
-    // reason -- or to pass. The task is the thing under test.
-    handle.await.expect("the spawned task must not panic");
-
-    let lines: Vec<String> = msgs
-        .iter()
-        .filter_map(|m| {
-            if let Msg::AuxLine { line, .. } = m {
-                Some(line.clone())
-            } else {
-                None
-            }
-        })
-        .collect();
+    let lines = aux_lines(&msgs);
 
     let has_out = lines.iter().any(|l| l.contains("OUT"));
     let has_err = lines.iter().any(|l| l.contains("ERR"));
@@ -431,25 +368,9 @@ async fn test_remote_upgrade_stderr_captured() {
 #[tokio::test]
 async fn test_remote_upgrade_large_output() {
     let server = ssh_server("seq 1 1000");
-    let (tx, rx) = mpsc::channel::<Msg>(2048);
+    let msgs = run(server, None, 2048).await;
 
-    let handle = spawn_upgrade(0, 1, server, None, tx);
-    let msgs = collect_until_done(rx).await;
-    // Not `let _ =`: a panic inside the spawned task arrives here as a join
-    // error, and swallowing it leaves the test to fail later for some other
-    // reason -- or to pass. The task is the thing under test.
-    handle.await.expect("the spawned task must not panic");
-
-    let lines: Vec<String> = msgs
-        .iter()
-        .filter_map(|m| {
-            if let Msg::AuxLine { line, .. } = m {
-                Some(line.clone())
-            } else {
-                None
-            }
-        })
-        .collect();
+    let lines = aux_lines(&msgs);
 
     assert!(
         lines.len() >= 1000,
@@ -463,21 +384,60 @@ async fn test_remote_upgrade_large_output() {
     assert!(first < last, "Line '1' should appear before '1000'");
 }
 
-/// Test R10: Remote upgrade agent deployment
-/// Verifies that a remote host without a cached agent gets the agent deployed.
+/// Test R10: a remote upgrade finishes in bounded time.
+/// An upgrade never deploys the agent (that is for the monitor, docker and
+/// fetch modes), so a host without one must still finish promptly.
 #[ignore = "requires a reachable SSH host (MULTITOP_TEST_SSH_HOST); run with --ignored"]
 #[tokio::test]
-async fn test_remote_upgrade_agent_deployment() {
+async fn test_remote_upgrade_finishes_without_an_agent() {
     let server = ssh_server("ls -l");
     let (tx, _rx) = mpsc::channel::<Msg>(100);
-
     let handle = spawn_upgrade(0, 1, server, None, tx);
-    // Wait for the task to complete or fail
-    let result = tokio::time::timeout(Duration::from_secs(30), handle).await;
-    assert!(result.is_ok(), "Upgrade task should complete within 30s");
+    tokio::time::timeout(Duration::from_secs(30), handle)
+        .await
+        .expect("the upgrade task finishes within 30s")
+        .expect("the spawned task must not panic");
+}
 
-    let result = result.unwrap();
-    // The task should complete without needing agent deployment for upgrade_cmd
-    // (agent deployment is for monitor/docker/fetch modes, not upgrade)
-    let _ = result;
+/// The suite's premise: the command ran over ssh, not on this machine. sshd
+/// sets `SSH_CONNECTION` in the remote shell and does not carry this
+/// process's environment across, so a marker set here is absent there - and
+/// a local `sh -c` would inherit it.
+#[ignore = "requires a reachable SSH host (MULTITOP_TEST_SSH_HOST); run with --ignored"]
+#[tokio::test]
+async fn test_remote_upgrade_runs_over_ssh() {
+    std::env::set_var("MULTITOP_E2E_MARKER", "here");
+    let server = ssh_server(r#"echo "over-ssh=[$SSH_CONNECTION] marker=[$MULTITOP_E2E_MARKER]""#);
+    let out = aux_lines(&run(server, None, 200).await);
+    assert!(
+        out.iter()
+            .any(|l| l.contains("marker=[]") && !l.contains("over-ssh=[]")),
+        "the command did not run over ssh: {out:?}"
+    );
+}
+
+/// No default host, and a target multitop would run locally is refused:
+/// `127.0.0.1`, `localhost` and port 0 skip ssh entirely (`ssh::is_local`).
+/// An ssh alias for this machine is the way to test ssh against it.
+#[test]
+fn a_target_that_would_skip_ssh_is_refused_and_an_alias_is_accepted() {
+    for (host, port) in [
+        ("127.0.0.1", None),
+        ("localhost", Some("2222")),
+        ("web-01", Some("0")),
+    ] {
+        let why = target(Some(host), "u", port, "true").unwrap_err();
+        assert!(why.contains("is local to multitop"), "{host}: {why}");
+    }
+    for host in [None, Some("")] {
+        let why = target(host, "u", None, "true").unwrap_err();
+        assert!(why.contains("is not set"), "{why}");
+    }
+    let why = target(Some("h"), "u", Some("ssh"), "true").unwrap_err();
+    assert!(why.starts_with("MULTITOP_TEST_SSH_PORT=ssh:"), "{why}");
+    let s = target(Some("multitop-loop"), "u", None, "true").unwrap();
+    assert_eq!(
+        (s.host.as_str(), s.port, s.upgrade_cmd.as_deref()),
+        ("multitop-loop", 22, Some("true"))
+    );
 }

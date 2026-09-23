@@ -299,6 +299,15 @@ MULTITOP_TEST_SSH_PORT=22 \
   cargo test -p multitop --test upgrade_loop_remote_e2e -- --ignored --test-threads=1
 ```
 
+The host is required, and a loopback name (`localhost`, `127.0.0.1`) is
+refused: multitop treats those as this machine and runs the agent locally,
+without ssh, so the suite would pass without testing anything it is for. To
+test ssh against this Mac, turn on Remote Login and add an alias
+(`Host multitop-loop` / `HostName 127.0.0.1` in `~/.ssh/config`), then set
+`MULTITOP_TEST_SSH_HOST=multitop-loop`. `test_remote_upgrade_runs_over_ssh`
+checks every run really crossed ssh. `upgrade_view_live_e2e` takes the same
+variables.
+
 `--test-threads=1` *is* needed here: the tests contend on a per-host remote
 lock file, and running them concurrently makes them flap between "ran" and
 "lock prevented execution".

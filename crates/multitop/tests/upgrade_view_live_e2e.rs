@@ -26,6 +26,9 @@
 //! MULTITOP_TEST_SSH_HOST=<host> MULTITOP_TEST_SSH_USER=<user> \
 //!   cargo test --test upgrade_view_live_e2e -- --ignored --test-threads=1
 //! ```
+//!
+//! There is no default host, and a loopback name is refused: multitop runs
+//! `localhost`/`127.0.0.1` locally, without ssh (see `live_ssh/mod.rs`).
 
 // A test crate, said where clippy reads it: the restriction lints
 // (`unwrap_used`, `expect_used`, `panic`) are policy for production code and
@@ -45,6 +48,10 @@ use multitop::config::Server;
 use multitop::panel::UpgradeState;
 use multitop::run::{handle_key, Tasks};
 
+#[path = "live_ssh/mod.rs"]
+mod live_ssh;
+use live_ssh::ssh_server;
+
 /// `isolate_keychain` for `#[tokio::test]` bodies, which must not block the
 /// runtime thread to take the guard.
 async fn isolate_keychain_async() -> tokio::sync::MutexGuard<'static, ()> {
@@ -56,21 +63,6 @@ async fn isolate_keychain_async() -> tokio::sync::MutexGuard<'static, ()> {
 
 /// A read-only stand-in for a real upgrade. See the module header.
 const SAFE_CMD: &str = "ls -l ; ls -l";
-
-fn ssh_server(cmd: &str) -> Server {
-    Server {
-        host: std::env::var("MULTITOP_TEST_SSH_HOST").unwrap_or_else(|_| "127.0.0.1".into()),
-        user: std::env::var("MULTITOP_TEST_SSH_USER")
-            .unwrap_or_else(|_| std::env::var("USER").unwrap_or_else(|_| "root".into())),
-        port: std::env::var("MULTITOP_TEST_SSH_PORT")
-            .ok()
-            .and_then(|p| p.parse().ok())
-            .unwrap_or(22),
-        upgrade_cmd: Some(cmd.to_string()),
-        custom_command: None,
-        mcp: None,
-    }
-}
 
 struct Live {
     app: App,
@@ -112,6 +104,30 @@ impl Live {
         );
     }
 
+    /// Start the upgrade the way a user does: `u` enters the view, `u` opens
+    /// the confirmation, `u` confirms. Entering the view starts each host's
+    /// credential lookup, and a confirm pressed while one is in flight is
+    /// deferred (it would run on passwords not yet read), so the lookups are
+    /// let land first - as they would while a person reads the modal.
+    async fn start(&mut self) {
+        self.press('u');
+        assert_eq!(self.app.panels[0].mode, Mode::Upgrade);
+        let deadline = tokio::time::Instant::now() + Duration::from_secs(10);
+        while self.app.any_password_checking() && tokio::time::Instant::now() < deadline {
+            if let Ok(Some(msg)) =
+                tokio::time::timeout(Duration::from_millis(100), self.rx.recv()).await
+            {
+                self.app.apply(msg);
+            }
+        }
+        assert!(
+            !self.app.any_password_checking(),
+            "the credential lookups never answered"
+        );
+        self.press('u');
+        self.press('u');
+    }
+
     /// Apply whatever the live task has produced so far, without blocking.
     fn pump(&mut self) -> usize {
         let mut n = 0;
@@ -144,8 +160,14 @@ impl Live {
         false
     }
 
+    /// The pane's text, through the one function that decides what a pane
+    /// shows (`panel.view` is not what the Upgrade pane draws).
     fn pane(&self, panel: usize) -> String {
-        strip_ansi(&self.app.panels[panel].view.join("\n"))
+        strip_ansi(
+            &multitop::ui::pane_lines(&self.app, panel, usize::MAX, 0, 0)
+                .0
+                .join("\n"),
+        )
     }
 
     /// What the user would actually see, after layout and truncation.
@@ -196,10 +218,7 @@ async fn live_run_keeps_its_status_block_and_collects_output() {
     let _keychain = isolate_keychain_async().await;
     let mut h = Live::new(vec![ssh_server(SAFE_CMD)]);
 
-    h.press('u');
-    assert_eq!(h.app.panels[0].mode, Mode::Upgrade);
-    h.press('u');
-    h.press('u');
+    h.start().await;
     assert!(h.app.upgrades_in_flight(), "the run must actually start");
 
     assert!(
@@ -242,9 +261,7 @@ async fn switching_views_during_a_live_run_loses_nothing() {
         "ls -l ; sleep 3 ; ls -l ; echo TAIL_MARKER",
     )]);
 
-    h.press('u');
-    h.press('u');
-    h.press('u');
+    h.start().await;
     assert!(h.app.upgrades_in_flight());
 
     // Let some output land while we are watching.
@@ -297,9 +314,7 @@ async fn a_failing_command_on_a_reachable_host_is_reported_honestly() {
     let _keychain = isolate_keychain_async().await;
     let mut h = Live::new(vec![ssh_server("ls -l ; exit 2")]);
 
-    h.press('u');
-    h.press('u');
-    h.press('u');
+    h.start().await;
     assert!(
         h.pump_until_done(Duration::from_secs(60)).await,
         "a failing command must still reach a terminal state"
@@ -345,9 +360,7 @@ async fn an_unreachable_host_reaches_a_terminal_state() {
         mcp: None,
     }]);
 
-    h.press('u');
-    h.press('u');
-    h.press('u');
+    h.start().await;
 
     assert!(
         h.pump_until_done(Duration::from_secs(90)).await,
