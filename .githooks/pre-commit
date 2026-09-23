@@ -56,6 +56,24 @@ command -v python3 >/dev/null 2>&1 || die "python3 not on PATH — cannot run th
 
 section "pre-commit gates"
 
+# proven_step '<step>' -- run a step that GOH_CI_STEPS also runs, through
+# gates_of_heck's proven-step cache (gates/proven.sh), output to $log. Spelled
+# EXACTLY as GOH_CI_STEPS spells it; check_gate_parity.py holds the two to the
+# letter, since a respelling would silently never hit. A pass on a clean tree
+# (the working tree equal to the index being committed) is recorded, and the
+# pre-push `tools/gate.sh --full` over the same tree skips that step instead of
+# running it again. A partially staged commit has no key and records nothing.
+# CI never reads the records: it stays the independent check. A gates_of_heck
+# checkout that predates proven.sh runs the step uncached, and says so.
+proven_step() {
+    if [ -x "$GOH/gates/proven.sh" ]; then
+        "$GOH/gates/proven.sh" --label pre-commit --log "$log" -- "$1"
+    else
+        warn "no gates/proven.sh in $GOH -- running uncached (update gates_of_heck)"
+        bash -c "$1" >"$log" 2>&1 </dev/null
+    fi
+}
+
 info "checking the gate lists agree"
 if ! python3 tools/check_gate_parity.py --self-test >"$log" 2>&1; then
     cat "$log" >&2
@@ -201,7 +219,10 @@ info "checking the line-count ratchet"
 # correctness one". True, and it still went red on a commit this hook passed --
 # so the shape rule was enforced only by whoever remembered to run the pre-push
 # script. It costs a glob and a line count.
-if ! python3 tools/ratchet_check.py >"$log" 2>&1; then
+#
+# Through the proven-step cache (proven_step, above), spelled as GOH_CI_STEPS
+# spells it -- self-test included -- so the push-time run is a hit.
+if ! proven_step 'python3 tools/ratchet_check.py --self-test && python3 tools/ratchet_check.py'; then
     cat "$log" >&2
     die "a file grew past its recorded ceiling -- shrink it, or re-record in this commit"
 fi
@@ -222,7 +243,9 @@ fi
 ok "fuzz targets compile"
 
 info "checking coverage (workspace, 95% floor)"
-if ! bash tools/coverage_check.sh >"$log" 2>&1; then
+# Through the proven-step cache (proven_step, above): a pass here is what lets
+# the pre-push run skip the identical ~10 min suite over the same tree.
+if ! proven_step 'bash tools/coverage_check.sh'; then
     tail -20 "$log" >&2
     die "coverage below 95% — add tests"
 fi

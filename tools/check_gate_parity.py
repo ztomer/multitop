@@ -123,6 +123,32 @@ FUZZ_RUN = re.compile(
 )
 
 
+# The hook runs the steps GOH_CI_STEPS also runs through gates_of_heck's
+# proven-step cache, so the pre-push run over the same tree can skip them. The
+# cache keys on the step STRING: a hook step spelled one character differently
+# from its GOH_CI_STEPS twin still runs and passes, and simply never hits --
+# the ~10 min coverage suite quietly runs twice per commit again, and nothing
+# goes red. So every `proven_step '<step>'` in the hook must be, to the letter,
+# one of the colon-separated GOH_CI_STEPS tokens.
+PROVEN_STEP = re.compile(r"^\s*(?:if\s+!\s+)?proven_step\s+'([^']*)'", re.MULTILINE)
+
+
+def proven_mismatches(hook_text: str, steps: str) -> list[str]:
+    tokens = {t for t in steps.split(":") if t}
+    return [s for s in PROVEN_STEP.findall(hook_text) if s not in tokens]
+
+
+def proven_problems() -> list[str]:
+    hook = HOOK.read_text(encoding="utf-8")
+    problems = [
+        f"pre-commit hook proves a step GOH_CI_STEPS does not spell that way: {s!r}"
+        for s in proven_mismatches(hook, gatesrc_steps())
+    ]
+    if "proven_step" in hook and not PROVEN_STEP.search(hook):
+        problems.append("pre-commit hook defines proven_step but no call was recognised")
+    return problems
+
+
 def named_in(text: str, pattern: re.Pattern[str]) -> set[str]:
     return {m for m in pattern.findall(text)} - EXEMPT
 
@@ -247,6 +273,15 @@ def self_test() -> int:
         print("gate-parity self-test: a cargo run was mistaken for pytest", file=sys.stderr)
         return 1
 
+    # And that a proven step respelled against GOH_CI_STEPS is caught, both ways.
+    steps = 'tools/checkers.sh:bash tools/coverage_check.sh'
+    if proven_mismatches("if ! proven_step 'bash tools/coverage_check.sh'; then\n", steps):
+        print("gate-parity self-test: a matching proven step was reported", file=sys.stderr)
+        return 1
+    if not proven_mismatches("if ! proven_step 'bash  tools/coverage_check.sh'; then\n", steps):
+        print("gate-parity self-test: a respelled proven step was NOT reported", file=sys.stderr)
+        return 1
+
     print("gate-parity self-test: passed")
     return 0
 
@@ -256,7 +291,8 @@ def main() -> int:
         return self_test()
 
     existing = on_disk()
-    problems = differences(gates(), existing) + suite_problems() + always_run_problems()
+    problems = (differences(gates(), existing) + suite_problems() + always_run_problems()
+                + proven_problems())
     if not problems:
         print(
             f"gate-parity: clean ({len(existing)} checkers and "

@@ -20,8 +20,12 @@ release could then never match). Callers pass their own stable pid -- $$
 in shell, os.getpid() in python -- so pre-push execing gate.sh under one
 pid is naturally re-entrant.
 
-The lock is a directory (mkdir is atomic) holding the holder's pid, under
-.git so it is per clone. A holder that died without releasing (kill -9)
+The lock is a directory (mkdir is atomic) holding the holder's pid, in the
+git dir -- per clone, and per worktree: a linked worktree's `.git` is a FILE,
+and joining "gate.lock" onto it crashed every gate run there with
+NotADirectoryError (2026-09-23). A worktree has its own target dir and
+build dir, so it contends with its main checkout for nothing but CPU, the
+same as a second clone. A holder that died without releasing (kill -9)
 leaves a stale directory; the next acquirer reaps it when the pid is gone.
 PID reuse could theoretically reap a live lock -- the consequence is two
 concurrent runs, which is exactly today without the lock, so the failure
@@ -41,9 +45,9 @@ import time
 HEARTBEAT_EVERY = 60
 
 
-def repo_root() -> str:
+def git_dir() -> str:
     r = subprocess.run(
-        ["git", "rev-parse", "--show-toplevel"],
+        ["git", "rev-parse", "--absolute-git-dir"],
         capture_output=True,
         text=True,
         check=False,
@@ -55,7 +59,7 @@ def repo_root() -> str:
 
 
 def lockdir() -> str:
-    return os.path.join(repo_root(), ".git", "gate.lock")
+    return os.path.join(git_dir(), "gate.lock")
 
 
 def holder_alive(pid: int) -> bool:
