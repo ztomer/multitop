@@ -7,6 +7,20 @@ This file starts at v0.47.0 — earlier history is in git (`git log`), and the
 per-defect record is `docs/detection-record.md`, which is the more useful
 document for anything before this point.
 
+## v0.48.1 — "unchecked", never read as unhealthy _(2026-09-23)_
+
+### Fixed
+- **The Ops view's containers line.** ".33: 44 running, 33 healthy" read as
+  eleven unhealthy containers; none were - eleven declared no Docker health
+  check. The line now reads "N running, all healthy", or warns "N running ·
+  H healthy · U unchecked" (a container nothing checks is a gap). Unhealthy
+  containers are still named, each on its own line.
+
+### Changed
+- **Hooks.** The commit hook runs coverage and the ratchet through the
+  gates_of_heck proven-step cache, so the push gate skips a step already
+  proven on the identical tree; `tools/gate_lock.py` works in a git worktree.
+
 ## v0.48.0 — the Ops view _(2026-09-23)_
 
 ### Added
