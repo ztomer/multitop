@@ -33,6 +33,7 @@ fn srv() -> Server {
         user: "u".into(),
         upgrade_cmd: Some("true".into()),
         custom_command: None,
+        mcp: None,
     }
 }
 

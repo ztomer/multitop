@@ -249,6 +249,7 @@ mod tests {
             user: "mock_user".into(),
             upgrade_cmd: None,
             custom_command: None,
+            mcp: None,
         };
 
         assert_eq!(load(&server).unwrap(), None);

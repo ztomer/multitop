@@ -51,6 +51,7 @@ fn test_server(host: &str, upgrade_cmd: Option<&str>) -> Server {
         user: "testuser".to_string(),
         upgrade_cmd: upgrade_cmd.map(String::from),
         custom_command: None,
+        mcp: None,
     }
 }
 

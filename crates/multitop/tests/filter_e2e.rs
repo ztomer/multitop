@@ -62,6 +62,7 @@ fn server(host: &str, user: &str) -> Server {
         user: user.to_string(),
         upgrade_cmd: None,
         custom_command: None,
+        mcp: None,
     }
 }
 

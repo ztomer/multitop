@@ -2,6 +2,8 @@ use crate::app::App;
 use ratatui::style::{Color, Style};
 use ratatui::text::{Line, Span};
 
+use super::keybar_confirm::{kill_confirm_row, quit_confirm_row, upgrade_confirm_row};
+
 #[derive(Clone, Copy, Debug)]
 pub enum FilterHint<'a> {
     /// No filter, nothing being typed.
@@ -123,9 +125,13 @@ pub fn badge_span(badge: &str) -> String {
     }
 }
 
-fn span_width(spans: &[Span<'static>]) -> usize {
+pub(super) fn span_width(spans: &[Span<'static>]) -> usize {
     spans.iter().map(|s| s.content.chars().count()).sum()
 }
+
+/// The narrow keybar's shed order, views before doors, by NAME: an index
+/// list coupled to the row's order broke the day Ops was added.
+const SHED: [&str; 9] = ["F", "G", "D", "P", "U", "S", "/", "E", "?"];
 
 /// The keybar for a terminal too narrow for words: one letter per key.
 ///
@@ -151,14 +157,11 @@ fn keybar_initials(
         )]);
     }
     let widths: Vec<usize> = chunks.iter().map(|c| span_width(c)).collect();
-    // Shed the views before the doors: Fetch, Graphs, Docker, Upgrade, Stats,
-    // then Filter and Settings. Graphs goes early because it is a second
-    // reading of the numbers Stats already shows.
-    //
-    // These are indices into the row above, so the order of the two lists is
-    // coupled -- moving a key in the row means moving its index here. The row
-    // is Q S D F G U / E ?.
-    let kept = crate::layout::fit_row(&widths, 2, keybar_width as usize, &[3, 4, 2, 5, 1, 6, 7, 8]);
+    let shed: Vec<usize> = SHED
+        .iter()
+        .filter_map(|k| keys.iter().position(|(t, _)| t == k))
+        .collect();
+    let kept = crate::layout::fit_row(&widths, 2, keybar_width as usize, &shed);
     let mut out = Vec::new();
     for (n, index) in kept.iter().enumerate() {
         if n > 0 {
@@ -207,11 +210,6 @@ pub fn keybar_line(
     }
 
     let pair = |m| mode_pair(active_mode, m, active_mode_style, key_hi, label);
-    let (f_hi, f_lbl) = pair(crate::app::Mode::Fetch);
-    let (d_hi, d_lbl) = pair(crate::app::Mode::Docker);
-    let (s_hi, s_lbl) = pair(crate::app::Mode::Monitor);
-    let (g_hi, g_lbl) = pair(crate::app::Mode::Graphs);
-    let (u_hi, u_lbl) = pair(crate::app::Mode::Upgrade);
     let upgrade_word = if active_mode == crate::app::Mode::Upgrade {
         // In the Upgrade view the same key starts the run, so say which of the
         // two it will do rather than leaving the second press undiscoverable.
@@ -219,31 +217,39 @@ pub fn keybar_line(
     } else {
         "pgrade"
     };
+    // The view keys, left to right, from ONE table - the words and the
+    // initials fallback below read the same rows, so a view cannot be in one
+    // and missing from the other: the letters before the key, the key, the
+    // rest of the word, the key's initial, and the view it selects.
+    let views = [
+        ("", "S", "tats", "S", crate::app::Mode::Monitor),
+        ("", "D", "ocker", "D", crate::app::Mode::Docker),
+        ("", "F", "etch", "F", crate::app::Mode::Fetch),
+        ("", "G", "raphs", "G", crate::app::Mode::Graphs),
+        ("O", "p", "s", "P", crate::app::Mode::Ops),
+        ("", "U", upgrade_word, "U", crate::app::Mode::Upgrade),
+    ];
     let mut left_spans = vec![
         Span::styled("ESC / ", label),
         Span::styled("Q", key_hi),
-        Span::styled("uit  ", label),
-        Span::styled("S", s_hi),
-        Span::styled("tats", s_lbl),
-        Span::styled("  ", label),
-        Span::styled("D", d_hi),
-        Span::styled("ocker", d_lbl),
-        Span::styled("  ", label),
-        Span::styled("F", f_hi),
-        Span::styled("etch", f_lbl),
-        Span::styled("  ", label),
-        Span::styled("G", g_hi),
-        Span::styled("raphs", g_lbl),
-        Span::styled("  ", label),
-        Span::styled("U", u_hi),
-        Span::styled(upgrade_word, u_lbl),
+        Span::styled("uit", label),
+    ];
+    for (before, key, rest, _, m) in views {
+        let (hi, lbl) = pair(m);
+        left_spans.push(Span::styled("  ", label));
+        if !before.is_empty() {
+            left_spans.push(Span::styled(before, lbl));
+        }
+        left_spans.extend([Span::styled(key, hi), Span::styled(rest, lbl)]);
+    }
+    left_spans.extend([
         Span::styled("  ", label),
         Span::styled("/", key_hi),
         Span::styled(" Filter", label),
         Span::styled("  ", label),
         Span::styled("?", key_hi),
         Span::styled(" Help", label),
-    ];
+    ]);
     // A filter in force is never abbreviated away: panels are hidden, and a
     // monitor that silently stops showing a host is worse than one showing it
     // failing.
@@ -260,17 +266,13 @@ pub fn keybar_line(
     // bar read `Upgrad`, a word cut in half, and Filter, Settings, Theme and
     // Sort were simply gone with nothing to say they existed.
     if span_width(&left_spans) > keybar_width as usize {
-        let keys = [
-            ("Q", key_hi),
-            ("S", s_hi),
-            ("D", d_hi),
-            ("F", f_hi),
-            ("G", g_hi),
-            ("U", u_hi),
-            ("/", key_hi),
-            ("E", key_hi),
-            ("?", key_hi),
-        ];
+        let mut keys = vec![("Q", key_hi)];
+        keys.extend(
+            views
+                .iter()
+                .map(|&(_, _, _, initial, m)| (initial, pair(m).0)),
+        );
+        keys.extend([("/", key_hi), ("E", key_hi), ("?", key_hi)]);
         return keybar_initials(&keys, keybar_width, label, filter, accent_color);
     }
     let left_width = span_width(&left_spans);
@@ -306,197 +308,6 @@ pub fn keybar_line(
         spans.extend(badges[*index].1.clone());
     }
     Line::from(spans)
-}
-
-/// Assemble a keybar row from whole chunks, shedding in a declared order.
-///
-/// The same rule as every other row: a chunk is drawn whole or not at all, and
-/// the shed order is a priority list, never "drop from the right". The way out
-/// is never in the shed list.
-///
-/// Each chunk's width is measured from the spans that will be drawn, never
-/// declared alongside them. A hand-written number is a second copy of the
-/// string's length that drifts the moment the string is edited -- `[Esc] stay`
-/// was declared as 11 cells and is 10 -- and the whole point of the budget is
-/// that it is describing what actually goes on screen.
-fn chunk_row(
-    chunks: &[Vec<Span<'static>>],
-    keybar_width: u16,
-    shed: &[usize],
-    sep_style: Style,
-) -> Line<'static> {
-    let widths: Vec<usize> = chunks
-        .iter()
-        .map(|spans| spans.iter().map(Span::width).sum())
-        .collect();
-    let kept = crate::layout::fit_row(&widths, 2, keybar_width as usize, shed);
-    let mut out = Vec::new();
-    for (n, index) in kept.iter().enumerate() {
-        if n > 0 {
-            out.push(Span::styled("  ", sep_style));
-        }
-        out.extend(chunks[*index].clone());
-    }
-    Line::from(out)
-}
-
-/// The confirmation that replaces the keybar while an upgrade is armed.
-///
-/// Kare's ruling, review round B: a keybar row rather than a box -- the box
-/// was 38 cells wide at 40 columns and clipped its own cancel line to `Esc t`,
-/// while the filter prompt renders every word whole at the same size. State
-/// left, keys right, two spaces between. Shed order: the `· M skipped` tail
-/// first (the ⚠ is already in those panes), then the count itself before the
-/// keys; `[Esc] cancel` is last and in practice never -- it is the only thing
-/// on the line the operator cannot guess.
-///
-/// The count is the alarm: with the run scoped to the filter, a grid showing
-/// one host says "Upgrade 1 host", never a sentence long enough to hide the
-/// others.
-///
-/// # The interrupted-run warning
-///
-/// The box this replaced also said "Previous upgrade was interrupted! Check
-/// server state." when a run started and no completion followed. Rams
-/// condemned the box's aggregate `Last update` *timestamp* and the ruling
-/// dropped it; the warning is a different thing and dropping it with the box
-/// was an accident. It is back, and it sheds **after** the count: how many
-/// machines are about to be touched is a number the operator can recover by
-/// looking at the grid, whereas "one of these has a half-finished dpkg
-/// transaction on it" appears nowhere else on the screen.
-fn upgrade_confirm_row(
-    app: &App,
-    accent: Color,
-    key_hi: Style,
-    label: Style,
-    keybar_width: u16,
-) -> Line<'static> {
-    let scope = app.filtered_indices();
-    let skipped = app.upgrade_skip_hosts();
-    let runnable = scope.len().saturating_sub(skipped.len());
-
-    // The count is styled as the alarm: a grid showing one host that says
-    // "Upgrade 8 hosts" must be louder than any sentence that would fit.
-    let count = format!(
-        "Upgrade {runnable} host{}",
-        if runnable == 1 { "" } else { "s" }
-    );
-    let mut chunks: Vec<Vec<Span<'static>>> = vec![vec![Span::styled(
-        count,
-        Style::default()
-            .fg(accent)
-            .add_modifier(ratatui::style::Modifier::BOLD),
-    )]];
-    let count_at = 0;
-    // Shed order is built by identity, not by position: which index holds what
-    // depends on whether the optional chunks are present at all.
-    let mut skipped_at = None;
-    let mut interrupted_at = None;
-    if !skipped.is_empty() {
-        skipped_at = Some(chunks.len());
-        chunks.push(vec![Span::styled(
-            format!("\u{b7} {} skipped", skipped.len()),
-            label,
-        )]);
-    }
-    if app.previous_upgrade_interrupted() {
-        interrupted_at = Some(chunks.len());
-        chunks.push(vec![Span::styled(
-            "\u{26a0} previous run interrupted",
-            Style::default().fg(Color::Yellow),
-        )]);
-    }
-    chunks.push(vec![
-        Span::styled("[", label),
-        Span::styled("U", key_hi),
-        Span::styled("] go", label),
-    ]);
-    // Neither key ever sheds. Together they are 20 cells; a terminal too narrow
-    // for that is too narrow for the grid underneath, and a confirmation with
-    // no stated way out is the defect this row exists to remove.
-    chunks.push(vec![
-        Span::styled("[", label),
-        Span::styled("Esc", key_hi),
-        Span::styled("] cancel", label),
-    ]);
-    let shed: Vec<usize> = skipped_at
-        .into_iter()
-        .chain(std::iter::once(count_at))
-        .chain(interrupted_at)
-        .collect();
-    chunk_row(&chunks, keybar_width, &shed, label)
-}
-
-fn kill_confirm_row(
-    app: &App,
-    accent: Color,
-    key_hi: Style,
-    label: Style,
-    keybar_width: u16,
-) -> Line<'static> {
-    let Some(ec) = &app.kill_confirm else {
-        return Line::from(vec![Span::styled("Kill ?", label)]);
-    };
-    let host = app
-        .panels
-        .get(ec.panel)
-        .map_or("?", |p| p.server.host.as_str());
-    let (action, key) = match ec.kind {
-        crate::app::ExecKind::Kill => ("Kill", "K"),
-        crate::app::ExecKind::Journal => ("Journal", "O"),
-        crate::app::ExecKind::Renice => ("Renice", "R"),
-    };
-    let target = format!("{action} {host}:{}:{}", ec.pid, ec.name);
-    let mut chunks: Vec<Vec<Span<'static>>> = vec![vec![Span::styled(
-        target,
-        Style::default()
-            .fg(accent)
-            .add_modifier(ratatui::style::Modifier::BOLD),
-    )]];
-    chunks.push(vec![
-        Span::styled("[", label),
-        Span::styled(key, key_hi),
-        Span::styled(format!("] {}", action.to_lowercase()), label),
-    ]);
-    chunks.push(vec![
-        Span::styled("[", label),
-        Span::styled("Esc", key_hi),
-        Span::styled("] cancel", label),
-    ]);
-    let shed = vec![0usize];
-    chunk_row(&chunks, keybar_width, &shed, label)
-}
-
-/// The confirmation that replaces the keybar once Esc/q/Ctrl-C asked to quit
-/// while upgrades were in flight. Names the hosts, states the cost, and gives
-/// the two ways out.
-fn quit_confirm_row(app: &App, key_hi: Style, label: Style, keybar_width: u16) -> Line<'static> {
-    let hosts = app.running_upgrade_hosts();
-    let n = hosts.len();
-    let mut chunks: Vec<Vec<Span<'static>>> = vec![vec![Span::styled(
-        format!("{n} upgrade{} running", if n == 1 { "" } else { "s" }),
-        Style::default().fg(Color::Yellow),
-    )]];
-    // The host list is the first thing to go: it is long, and every one of
-    // those names is already on the grid behind this row. The count is not --
-    // it is what says the quit has a cost at all.
-    let mut shed = Vec::new();
-    let host_list = hosts.join(", ");
-    if !host_list.is_empty() {
-        shed.push(chunks.len());
-        chunks.push(vec![Span::styled(format!("\u{b7} {host_list}"), label)]);
-    }
-    chunks.push(vec![
-        Span::styled("[", label),
-        Span::styled("Q", key_hi),
-        Span::styled("] quit anyway", label),
-    ]);
-    chunks.push(vec![
-        Span::styled("[", label),
-        Span::styled("Esc", key_hi),
-        Span::styled("] stay", label),
-    ]);
-    chunk_row(&chunks, keybar_width, &shed, label)
 }
 
 /// What the keybar row should be right now: a confirm row for a quit or an

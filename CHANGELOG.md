@@ -7,6 +7,41 @@ This file starts at v0.47.0 — earlier history is in git (`git log`), and the
 per-defect record is `docs/detection-record.md`, which is the more useful
 document for anything before this point.
 
+## v0.48.0 — the Ops view _(2026-09-23)_
+
+### Added
+- **`p`: the Ops view** (servers ROADMAP 12.17b). Per host, what its
+  `mcp_host` says that the agent does not stream: the last verdict of each
+  health check (`health://latest`, never a suite run), cron jobs, container
+  health (`docker.containers`), and the alerts its cron wrapper logged in the
+  last 24 hours. Each section says why it is absent (a host with no Docker) or
+  unreadable, and one failing never hides the rest. A container outside any
+  compose project that exited 0 is a finished one-shot, not trouble - the
+  routines follower's rule. `/` searches check, job and container names,
+  alert subjects and a failed session's reason.
+- **A stateless MCP client** (`mcp::client`, protocol 2026-07-28):
+  `server/discover` first, every request carrying the version in `_meta`, no
+  handshake; an older server is refused with the versions it offers. Each
+  request has a deadline, and after a timeout or a closed pipe the session is
+  not trusted again. The server is started by the host's login shell over the
+  panel's ssh connection (`mcp` in `[[servers]]`); nothing listens.
+- The poll holds one session per host, reopens a broken one on the next poll,
+  and shows why under the last answer it had. It runs only while its panel is
+  in the Ops view (`Tasks::retire_ops` after every key).
+
+### Changed
+- **No source file is over 500 lines any more.** `handle_key.rs`, `diag.rs`,
+  `state.rs`, `keybar.rs` and `server.rs` were grandfathered over the cap by
+  the LOC ratchet; each is now split by responsibility (`run/commands.rs`,
+  `run/confirm_keys.rs`, `run/palette.rs`, `ui/keybar_confirm.rs`) or has its
+  tests in a sibling `*_tests.rs`, and their ceilings are gone from
+  `tools/loc_baseline.txt`.
+- The palette's view words go through `execute_cmds` like the keys; its
+  Docker and Fetch branches were copies of it.
+- The narrow keybar sheds keys by NAME: its index list, coupled to the row's
+  order by a comment, overflowed at 8 columns the moment a key was added.
+- `Mode` lives in `src/mode.rs`.
+
 ## v0.47.3 — no lint suppression, unsafe scope as a gate, keyring 4 _(2026-09-21)_
 
 ### Changed

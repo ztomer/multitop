@@ -241,6 +241,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         user: remote_user,
         upgrade_cmd: None,
         custom_command: None,
+        mcp: None,
     };
 
     println!("[1/3] Establishing SSH connection & bootstrapping remote agent...");

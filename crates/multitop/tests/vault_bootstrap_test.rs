@@ -47,6 +47,7 @@ fn server(host: &str) -> Server {
         user: "ztomer".to_string(),
         upgrade_cmd: Some("apt upgrade".into()),
         custom_command: None,
+        mcp: None,
     }
 }
 

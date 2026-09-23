@@ -59,6 +59,7 @@ impl ServerDraft {
             port,
             upgrade_cmd: (!self.upgrade_cmd.trim().is_empty()).then_some(self.upgrade_cmd),
             custom_command: None,
+            mcp: None,
         })
     }
 }

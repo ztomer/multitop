@@ -8,6 +8,7 @@ finished, delete it rather than ticking it off.
 
 | Item | Why deferred |
 |------|--------------|
+| **A palette for light terminals** | Found 2026-09-23 screenshotting the Ops view on a light backdrop: every one of the 8 themes is dark, so yellow (the `⚠` glyph) and cyan (every host banner) wash out to near-invisible on a light terminal, in every view. Meaning survives (glyph shape and words carry it), legibility does not. Needs a light variant per theme, or background detection - a design pass across all views, not an Ops fix. |
 | **Mobile companion** | Same `MTOP` over `WebSocket`, needs `Hello` + `Token` hardening + APNs. |
 | **Post-quantum KEM** | Not warranted for device-local file threat model. |
 | **Plugin SDK (WASM)** | Custom `exec` panels cover 80% without sandbox. |

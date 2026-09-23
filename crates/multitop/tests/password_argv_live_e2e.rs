@@ -95,6 +95,7 @@ fn live_server() -> Option<Server> {
         user: std::env::var("MULTITOP_LIVE_USER").unwrap_or_default(),
         upgrade_cmd: Some("ls -l; ls -l".to_string()),
         custom_command: None,
+        mcp: None,
     })
 }
 

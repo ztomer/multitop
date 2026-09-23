@@ -80,6 +80,7 @@ pub fn parse(text: &str) -> Result<Config, ConfigError> {
                 user,
                 upgrade_cmd: None,
                 custom_command: command,
+                mcp: None,
             };
             out.push(server);
         }
@@ -200,12 +201,19 @@ fn parse_servers(servers: &[toml::Value]) -> Result<ParsedServers, ConfigError> 
             .map(str::to_string)
             .filter(|s| !s.trim().is_empty());
 
+        let mcp = table
+            .get("mcp")
+            .and_then(|v| v.as_str())
+            .map(str::to_string)
+            .filter(|s| !s.trim().is_empty());
+
         let server = Server {
             host,
             port,
             user,
             upgrade_cmd,
             custom_command,
+            mcp,
         };
 
         if let Some(secret) = table

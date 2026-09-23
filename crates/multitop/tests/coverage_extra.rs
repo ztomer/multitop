@@ -28,6 +28,7 @@ fn port_plaintext_passwords_moves_and_strips() {
         user: "admin".into(),
         upgrade_cmd: None,
         custom_command: None,
+        mcp: None,
     };
     let mut app = App::new(vec![server.clone()]);
     app.config_path = Some(std::path::PathBuf::from("/tmp/test_config_port.toml"));
@@ -60,6 +61,7 @@ fn apply_cycle_banner_style_no_config() {
         user: "admin".into(),
         upgrade_cmd: None,
         custom_command: None,
+        mcp: None,
     };
     let mut app = App::new(vec![server]);
 
@@ -89,6 +91,7 @@ fn apply_import_ssh_hosts_no_file() {
         user: "admin".into(),
         upgrade_cmd: None,
         custom_command: None,
+        mcp: None,
     };
     let mut app = App::new(vec![server]);
     app.config_path = Some(std::path::PathBuf::from("/tmp/test_config_import.toml"));
@@ -119,6 +122,7 @@ fn apply_save_with_empty_password_deletes() {
         user: "admin".into(),
         upgrade_cmd: None,
         custom_command: None,
+        mcp: None,
     };
     let mut app = App::new(vec![server]);
     app.config_path = Some(std::path::PathBuf::from("/tmp/test_config_save.toml"));
@@ -154,6 +158,7 @@ fn apply_delete_action() {
         user: "admin".into(),
         upgrade_cmd: None,
         custom_command: None,
+        mcp: None,
     };
     let mut app = App::new(vec![server]);
     app.password_manager = Some(multitop::passwords::PasswordManager::new(0, false));
@@ -184,6 +189,7 @@ fn apply_apply_servers() {
         user: "admin".into(),
         upgrade_cmd: None,
         custom_command: None,
+        mcp: None,
     };
     let mut app = App::new(vec![server]);
 
@@ -194,6 +200,7 @@ fn apply_apply_servers() {
             user: "admin".into(),
             upgrade_cmd: None,
             custom_command: None,
+            mcp: None,
         },
         Server {
             host: "new2".into(),
@@ -201,6 +208,7 @@ fn apply_apply_servers() {
             user: "admin".into(),
             upgrade_cmd: None,
             custom_command: None,
+            mcp: None,
         },
     ];
 
@@ -227,6 +235,7 @@ fn app_scroll_panel_up_down() {
         user: "admin".into(),
         upgrade_cmd: None,
         custom_command: None,
+        mcp: None,
     };
     let mut app = App::new(vec![server]);
 
@@ -249,6 +258,7 @@ fn app_accessors() {
         user: "admin".into(),
         upgrade_cmd: Some("true".into()),
         custom_command: None,
+        mcp: None,
     };
     let app = App::new(vec![server]);
 

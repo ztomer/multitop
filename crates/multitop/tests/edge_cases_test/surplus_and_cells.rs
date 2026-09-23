@@ -20,6 +20,7 @@ async fn writing_the_server_list_creates_the_directory_it_needs() {
             user: "root".into(),
             upgrade_cmd: None,
             custom_command: None,
+            mcp: None,
         }],
     )
     .expect("the directory must be created");

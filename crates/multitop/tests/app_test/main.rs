@@ -35,6 +35,7 @@ fn servers(n: usize) -> Vec<Server> {
             user: String::new(),
             upgrade_cmd: None,
             custom_command: None,
+            mcp: None,
         })
         .collect()
 }

@@ -19,8 +19,3 @@
 #
 # lines path
 0 __under_cap_sentinel__
-531 crates/multitop/src/server.rs
-571 crates/multitop/src/ui/keybar.rs
-608 crates/multitop/src/state.rs
-715 crates/multitop/src/diag.rs
-814 crates/multitop/src/run/handle_key.rs

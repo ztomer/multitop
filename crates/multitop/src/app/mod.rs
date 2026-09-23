@@ -2,6 +2,7 @@
 
 mod apply;
 mod apply_vault;
+mod ops_view;
 mod render;
 mod types;
 mod upgrade;

@@ -49,6 +49,7 @@ fn server(host: &str, cmd: Option<&str>) -> Server {
         user: "ztomer".to_string(),
         upgrade_cmd: cmd.map(ToString::to_string),
         custom_command: None,
+        mcp: None,
     }
 }
 

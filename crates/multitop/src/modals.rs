@@ -207,6 +207,7 @@ const HELP_ROWS: &[(&str, &str)] = &[
     ("d", "docker containers per server"),
     ("f", "fetch OS, kernel and model card"),
     ("g", "graphs from stats history"),
+    ("p", "ops: health, cron, containers, alerts from mcp_host"),
     ("u", "update status, press again to run"),
     ("/", "filter the grid"),
     ("e", "settings: servers, passwords, vault"),

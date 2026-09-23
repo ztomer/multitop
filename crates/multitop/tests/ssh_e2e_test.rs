@@ -33,6 +33,7 @@ fn local_server(upgrade_cmd: &str) -> Server {
         user: "testuser".to_string(),
         upgrade_cmd: Some(upgrade_cmd.to_string()),
         custom_command: None,
+        mcp: None,
     }
 }
 

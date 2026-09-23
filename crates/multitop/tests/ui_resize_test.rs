@@ -34,6 +34,7 @@ fn sample_servers(count: usize) -> Vec<Server> {
             user: "root".into(),
             upgrade_cmd: None,
             custom_command: None,
+            mcp: None,
         })
         .collect()
 }
@@ -220,6 +221,7 @@ fn a_long_filter_query_cannot_push_the_way_out_off_the_screen() {
                 user: "admin".into(),
                 upgrade_cmd: None,
                 custom_command: None,
+                mcp: None,
             }]);
             app.filter_query = "z".repeat(query_len);
 
@@ -266,6 +268,7 @@ fn a_vault_prompt_keeps_its_way_out_at_every_size() {
                     user: "admin".into(),
                     upgrade_cmd: None,
                     custom_command: None,
+                    mcp: None,
                 }]);
                 if creating {
                     // Set directly, as the render harness does: the modal is
@@ -330,6 +333,7 @@ fn a_status_line_is_not_eaten_by_the_banner() {
         user: "admin".into(),
         upgrade_cmd: None,
         custom_command: None,
+        mcp: None,
     }]);
     app.apply(multitop::app::Msg::Status {
         panel: 0,

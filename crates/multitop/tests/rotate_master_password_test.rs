@@ -54,6 +54,7 @@ fn server(host: &str) -> Server {
         user: "ztomer".to_string(),
         upgrade_cmd: None,
         custom_command: None,
+        mcp: None,
     }
 }
 

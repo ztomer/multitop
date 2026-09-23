@@ -171,73 +171,7 @@ impl From<Vec<String>> for RingLines {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Mode {
-    Monitor,
-    Docker,
-    Fetch,
-    Upgrade,
-    /// The same Monitor stream, drawn as history rather than as a moment.
-    Graphs,
-    Alerts,
-}
-
-impl Mode {
-    #[must_use]
-    pub const fn as_str(self) -> &'static str {
-        match self {
-            Self::Monitor => "monitor",
-            Self::Docker => "docker",
-            Self::Fetch => "fetch",
-            Self::Upgrade => "upgrade",
-            Self::Graphs => "graphs",
-            Self::Alerts => "alerts",
-        }
-    }
-
-    /// Views that stay alive on the monitor stream alone, with no aux task
-    /// behind them. Monitor paints from every packet; Graphs re-renders from
-    /// the history those packets feed. Every other view needs something that
-    /// does not survive a restart: Docker and Fetch need a one-shot aux task
-    /// spawned by their toggle, Upgrade needs a run, Alerts is rendered once
-    /// at toggle time and never repainted.
-    #[must_use]
-    pub const fn survives_restart(self) -> bool {
-        matches!(self, Self::Monitor | Self::Graphs)
-    }
-
-    /// The mode a panel actually starts in for a persisted or restored name.
-    /// A task-backed view restored verbatim comes back dead: fresh panels show
-    /// the initial "connecting..." body, no backing task is ever spawned for
-    /// it, and the monitor stream updates history without painting. So such a
-    /// view starts as Monitor instead. Applied on both sides: persist maps
-    /// before writing so new state files stay clean, restore maps after
-    /// parsing so state files already poisoned by older builds heal on load.
-    #[must_use]
-    pub const fn for_startup(self) -> Self {
-        if self.survives_restart() {
-            self
-        } else {
-            Self::Monitor
-        }
-    }
-}
-
-impl std::str::FromStr for Mode {
-    type Err = ();
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match s {
-            "monitor" => Ok(Self::Monitor),
-            "docker" => Ok(Self::Docker),
-            "fetch" => Ok(Self::Fetch),
-            "upgrade" => Ok(Self::Upgrade),
-            "graphs" => Ok(Self::Graphs),
-            "alerts" => Ok(Self::Alerts),
-            _ => Err(()),
-        }
-    }
-}
+pub use crate::mode::Mode;
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum UpgradeState {
@@ -293,6 +227,8 @@ pub struct Panel {
     /// draw. Filled whatever view the panel is in.
     pub history: crate::history::History,
     pub last_docker: Option<multitop_agent::proto::Payload>,
+    /// The Ops poll's last word for this host (servers ROADMAP 12.17b).
+    pub last_ops: Option<crate::ops::OpsState>,
     pub view: Vec<String>,
     /// How far the pane the user is *currently looking at* is scrolled back.
     pub scroll_offset: usize,
@@ -352,6 +288,7 @@ impl Panel {
             last_monitor: None,
             history,
             last_docker: None,
+            last_ops: None,
             // Row 0 belongs to the host banner, which `ui::draw` composes over
             // whatever is there. A body that starts at row 0 therefore has its
             // first line eaten -- and this body is one line long, so the whole

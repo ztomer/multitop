@@ -62,6 +62,7 @@ fn server(host: &str, cmd: Option<&str>) -> Server {
         user: "ztomer".to_string(),
         upgrade_cmd: cmd.map(str::to_string),
         custom_command: None,
+        mcp: None,
     }
 }
 
@@ -155,6 +156,9 @@ fn hosts(n: usize) -> Vec<Server> {
         .collect()
 }
 
+#[path = "render_views/ops.rs"]
+mod ops_screen;
+
 /// One screen: a name and the state that produces it.
 struct Screen {
     name: &'static str,
@@ -207,6 +211,7 @@ const SCREENS: &[Screen] = &[
         multitop::passwords::open(&mut app, 0, false);
         app
     }},
+    Screen { name: "ops-4-hosts", build: ops_screen::ops },
     Screen { name: "stats-connecting", build: |_t| {
         let mut app = App::new(hosts(2));
         app.panels[1].view = vec!["connecting...".to_string()];

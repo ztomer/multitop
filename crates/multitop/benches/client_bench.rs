@@ -98,6 +98,7 @@ fn main() {
                 user: "admin".into(),
                 upgrade_cmd: None,
                 custom_command: None,
+                mcp: None,
             })
             .collect();
         let mut app = App::new(servers);

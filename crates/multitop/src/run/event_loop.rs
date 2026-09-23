@@ -51,6 +51,8 @@ fn spawn_initial_tasks(
     dims_rx: &Arc<watch::Receiver<(u16, u16)>>,
     tx: &Sender<Msg>,
 ) {
+    // Every later view task reads the live pane size through this.
+    tasks.dims = Some(Arc::clone(dims_rx));
     // Iterate panels, not servers, so `panel.gen` is always available and
     // the task list stays aligned with the panel list — the one place that
     // decides how many monitors exist.
@@ -313,6 +315,7 @@ where
                     Some(Ok(Event::Key(key))) => {
                         diag.bump_key();
                         handle_key(key, &mut app, dims.current(), &dims_rx, &tx, &mut tasks);
+                        tasks.retire_ops(&app.panels);
                         let epoch_changed = app.panels_epoch != known_epoch;
                         if epoch_changed {
                             known_epoch = app.panels_epoch;

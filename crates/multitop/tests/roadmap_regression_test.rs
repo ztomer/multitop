@@ -37,6 +37,7 @@ fn test_server(user: &str, host: &str) -> Server {
         user: user.to_string(),
         upgrade_cmd: Some("echo upgrade".to_string()),
         custom_command: None,
+        mcp: None,
     }
 }
 
@@ -148,6 +149,7 @@ fn test_username_consistency_across_panes() {
         user: String::new(),
         upgrade_cmd: None,
         custom_command: None,
+        mcp: None,
     };
 
     assert_eq!(server_with_user.target(), "alice@db-host");
@@ -174,6 +176,7 @@ fn a_packet_from_the_old_panel_list_cannot_paint_the_new_one() {
         user: "admin".to_string(),
         upgrade_cmd: None,
         custom_command: None,
+        mcp: None,
     };
     let b = Server {
         host: "beta".to_string(),

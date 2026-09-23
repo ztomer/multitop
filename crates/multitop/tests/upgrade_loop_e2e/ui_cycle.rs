@@ -279,6 +279,7 @@ fn test_ui_no_upgrade_cmd_shows_message_without_command() {
         user: "test".into(),
         upgrade_cmd: None,
         custom_command: None,
+        mcp: None,
     }]);
 
     let cmds = app.run_upgrade();

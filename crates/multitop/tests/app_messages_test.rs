@@ -30,6 +30,7 @@ fn test_server(host: &str) -> Server {
         user: "admin".to_string(),
         upgrade_cmd: Some("true".to_string()),
         custom_command: None,
+        mcp: None,
     }
 }
 
@@ -365,6 +366,7 @@ async fn a_host_with_no_upgrade_command_is_not_recorded_as_having_started_one() 
             user: "a".into(),
             upgrade_cmd: Some("true".into()),
             custom_command: None,
+            mcp: None,
         },
         Server {
             host: "beta".into(),
@@ -372,6 +374,7 @@ async fn a_host_with_no_upgrade_command_is_not_recorded_as_having_started_one() 
             user: "a".into(),
             upgrade_cmd: None,
             custom_command: None,
+            mcp: None,
         },
     ]);
 

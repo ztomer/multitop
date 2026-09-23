@@ -5,15 +5,18 @@
 //! - [`tasks`] — per-panel task handles (monitors, aux, upgrades)
 //! - [`dims`] — agent render size computation
 //! - [`event_loop`] — the core `select!` loop + `panel_at_pos`
-//! - [`handle_key`] — key dispatch + `execute_cmds`
+//! - [`handle_key`] — key dispatch; [`commands`] — `execute_cmds`
 //! - [`spawn`] — monitor spawn (re-exported)
 
 mod boot;
+pub(super) mod commands;
+mod confirm_keys;
 pub(super) mod dims;
 mod entry;
 pub(super) mod event_loop;
 pub(super) mod handle_key;
 mod nav_keys;
+mod palette;
 pub(super) mod tasks;
 pub(super) mod terminal;
 

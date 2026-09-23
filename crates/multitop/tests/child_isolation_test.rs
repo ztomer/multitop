@@ -36,6 +36,7 @@ fn local_server() -> Server {
         user: String::new(),
         upgrade_cmd: Some("sleep 5".to_string()),
         custom_command: None,
+        mcp: None,
     }
 }
 

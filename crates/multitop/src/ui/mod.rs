@@ -1,5 +1,6 @@
 mod draw;
 mod keybar;
+mod keybar_confirm;
 mod layout;
 mod windowing;
 

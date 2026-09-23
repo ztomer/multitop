@@ -28,6 +28,7 @@ fn test_server(host: &str) -> Server {
         user: "admin".to_string(),
         upgrade_cmd: Some("true".to_string()),
         custom_command: None,
+        mcp: None,
     }
 }
 

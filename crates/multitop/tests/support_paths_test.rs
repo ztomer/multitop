@@ -257,6 +257,7 @@ async fn a_local_server_is_recognised_however_it_is_spelled() {
         user: String::new(),
         upgrade_cmd: None,
         custom_command: None,
+        mcp: None,
     };
     assert!(multitop::ssh::is_local(&local("localhost", 22)));
     assert!(multitop::ssh::is_local(&local("127.0.0.1", 22)));
@@ -286,6 +287,7 @@ async fn no_ssh_command_asks_for_a_pty() {
         user: "root".into(),
         upgrade_cmd: None,
         custom_command: None,
+        mcp: None,
     };
     let args: Vec<String> = multitop::ssh::ssh_command(&server)
         .as_std()

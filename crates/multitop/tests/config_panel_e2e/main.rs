@@ -48,6 +48,7 @@ fn server(host: &str) -> Server {
         user: "admin".to_string(),
         upgrade_cmd: Some("ls -l ; ls -l".to_string()),
         custom_command: None,
+        mcp: None,
     }
 }
 

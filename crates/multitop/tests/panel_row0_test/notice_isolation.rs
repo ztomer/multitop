@@ -21,6 +21,7 @@ fn a_notice_survives_every_view_switch() {
         user: "admin".to_string(),
         upgrade_cmd: Some("apt upgrade".to_string()),
         custom_command: None,
+        mcp: None,
     }]);
     app.panels[0].note(NOTICE.to_string());
 
@@ -77,6 +78,7 @@ fn notices_never_take_the_pane_from_the_host() {
         user: "admin".to_string(),
         upgrade_cmd: None,
         custom_command: None,
+        mcp: None,
     }]);
     app.panels[0].show_frame(vec![
         String::new(),
@@ -161,6 +163,7 @@ fn a_held_notice_is_above_the_content_not_on_screen_twice() {
         user: "admin".to_string(),
         upgrade_cmd: Some("apt upgrade".to_string()),
         custom_command: None,
+        mcp: None,
     }]);
     for n in 0..4 {
         app.panels[0].note(format!(

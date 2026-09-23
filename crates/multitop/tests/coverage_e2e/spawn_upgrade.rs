@@ -16,6 +16,7 @@ async fn spawn_upgrade_streams_output_for_local_command() {
         user: "testuser".into(),
         upgrade_cmd: Some("echo hello-from-upgrade".into()),
         custom_command: None,
+        mcp: None,
     };
     let (tx, mut rx) = mpsc::channel(128);
 
@@ -48,6 +49,7 @@ async fn spawn_upgrade_no_password_succeeds() {
         user: "testuser".into(),
         upgrade_cmd: Some("echo no-pw-needed".into()),
         custom_command: None,
+        mcp: None,
     };
     let (tx, mut rx) = mpsc::channel(128);
 
@@ -78,6 +80,7 @@ async fn spawn_upgrade_collapses_carriage_returns() {
         user: "testuser".into(),
         upgrade_cmd: Some("printf '10%%\\r20%%\\r30%%\\n'".into()),
         custom_command: None,
+        mcp: None,
     };
     let (tx, mut rx) = mpsc::channel(128);
 

@@ -10,6 +10,7 @@ fn server(cmd: Option<&str>) -> Server {
         user: "admin".into(),
         upgrade_cmd: cmd.map(str::to_string),
         custom_command: None,
+        mcp: None,
     }
 }
 
@@ -277,6 +278,7 @@ mod header_width_tests {
             user: "admin".into(),
             upgrade_cmd: Some("sudo apt update && sudo apt upgrade -y".into()),
             custom_command: None,
+            mcp: None,
         };
         for credential in [
             Credential::Stored,

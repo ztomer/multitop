@@ -173,3 +173,32 @@ pub fn spawn_docker(
         }
     })
 }
+
+/// Poll `server`'s `mcp_host`, started by its `mcp` `command`, for the Ops
+/// view: the ssh session opens here, everything after it is `ops_poll`.
+#[must_use]
+pub fn spawn_ops(
+    panel: usize,
+    gen: u64,
+    server: Server,
+    command: String,
+    dims: std::sync::Arc<tokio::sync::watch::Receiver<(u16, u16)>>,
+    tx: Sender<Msg>,
+) -> JoinHandle<()> {
+    use super::ops_poll::{now_epoch, poll, Target, OPS_POLL, OPS_TIMEOUT};
+    let to = Target {
+        panel,
+        gen,
+        tx,
+        dims,
+    };
+    let connect = move || {
+        let (server, command) = (server.clone(), command.clone());
+        async move {
+            crate::mcp::spawn::open(&server, &command, OPS_TIMEOUT)
+                .await
+                .map_err(|e| e.to_string())
+        }
+    };
+    tokio::spawn(poll(to, connect, OPS_POLL, now_epoch))
+}

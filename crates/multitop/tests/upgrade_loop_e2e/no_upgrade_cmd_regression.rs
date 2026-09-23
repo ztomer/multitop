@@ -17,6 +17,7 @@ fn no_upgrade_server(host: &str) -> Server {
         user: String::new(),
         upgrade_cmd: None,
         custom_command: None,
+        mcp: None,
     }
 }
 

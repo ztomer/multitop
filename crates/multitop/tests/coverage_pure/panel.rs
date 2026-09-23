@@ -69,6 +69,7 @@ fn panel_show_last_frame_with_cached_frame() {
         user: "admin".into(),
         upgrade_cmd: None,
         custom_command: None,
+        mcp: None,
     });
     p.show_frame(vec!["cached".into()]);
     p.show_last_frame();
@@ -87,6 +88,7 @@ fn panel_note_dedup() {
         user: "admin".into(),
         upgrade_cmd: None,
         custom_command: None,
+        mcp: None,
     });
     p.note("hello".into());
     p.note("hello".into()); // duplicate
@@ -101,6 +103,7 @@ fn panel_note_bounded() {
         user: "admin".into(),
         upgrade_cmd: None,
         custom_command: None,
+        mcp: None,
     });
     for i in 0..10 {
         p.note(format!("note{i}"));
@@ -116,6 +119,7 @@ fn panel_show_body_reserves_row0() {
         user: "admin".into(),
         upgrade_cmd: None,
         custom_command: None,
+        mcp: None,
     });
     p.show_body(vec!["line1".into(), "line2".into()]);
     assert_eq!(p.view[0], "");
@@ -183,6 +187,7 @@ fn a_notice_lands_in_notes_whatever_view_is_showing() {
         user: "admin".into(),
         upgrade_cmd: None,
         custom_command: None,
+        mcp: None,
     });
     p.note("while monitoring".to_string());
     assert!(p.notes.iter().any(|l| l == "while monitoring"));

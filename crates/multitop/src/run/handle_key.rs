@@ -7,9 +7,12 @@ use tokio::sync::mpsc::Sender;
 use tokio::sync::watch;
 
 use crate::app::Overlay;
-use crate::app::{App, Command, Confirm, Msg};
+use crate::app::{App, Msg};
 
-use super::nav_keys::{clamp_selection_to_filter, focus_and_navigation_keys, yank_selected_host};
+use super::commands::execute_cmds;
+use super::confirm_keys::confirmation_keys;
+use super::nav_keys::{clamp_selection_to_filter, focus_and_navigation_keys};
+use super::palette::execute_palette_command;
 use super::tasks::Tasks;
 use multitop_agent::SortBy;
 
@@ -72,6 +75,7 @@ pub fn handle_key(
         KeyCode::Char('d' | 'D') => app.toggle_docker(dims),
         KeyCode::Char('g' | 'G') => app.toggle_graphs(dims),
         KeyCode::Char('h' | 'H') => app.toggle_alerts(dims),
+        KeyCode::Char('p' | 'P') => app.toggle_ops(dims),
         KeyCode::Char('s' | 'S') => app.switch_stats(),
         // `u` is deliberately two presses, and the rule does not depend on
         // whether an upgrade has run before:
@@ -141,7 +145,9 @@ pub fn handle_key(
     if !cmds.is_empty()
         || matches!(
             key.code,
-            KeyCode::Char('f' | 'F' | 'd' | 'D' | 'g' | 'G' | 'h' | 'H' | 's' | 'S' | 'u' | 'U')
+            KeyCode::Char(
+                'f' | 'F' | 'd' | 'D' | 'g' | 'G' | 'h' | 'H' | 'p' | 'P' | 's' | 'S' | 'u' | 'U'
+            )
         )
     {
         app.persist_state();
@@ -210,100 +216,6 @@ fn overlay_keys(
         app.overlay = Overlay::CommandPalette;
         app.command_input.clear();
         return true;
-    }
-
-    false
-}
-
-/// The confirmation in force (quit, upgrade, ...) owns every key while up.
-fn confirmation_keys(
-    key: KeyEvent,
-    app: &mut App,
-    dims: (u16, u16),
-    tx: &Sender<Msg>,
-    tasks: &mut Tasks,
-) -> bool {
-    // Which confirmation is in force is `App::active_confirm`'s answer, not a
-    // second copy of the priority. This used to test `show_upgrade_modal` first
-    // while `ui::keybar_content` tested `quit_armed` first, so with both set the
-    // screen named one set of keys and this ran the other -- and the one that
-    // lost was the confirmation guarding a running dpkg.
-    match app.active_confirm() {
-        // A quit armed by Esc/q/Ctrl-C while upgrades were in flight. `q`
-        // confirms, Esc stands down. Every other key is ignored until one of the
-        // two: the row is a modal in all but shape, and letting stray keys
-        // through while it is up would be acting on a screen the user has asked
-        // a question of.
-        Some(Confirm::Quit) => {
-            match key.code {
-                // Only the keys the row names, plus Ctrl-C, which means the same
-                // thing everywhere. `Enter` and `y` used to confirm too, and they
-                // are exactly the wrong keys to accept here: this press kills a
-                // running dpkg transaction on N production hosts, and `Enter` is
-                // what an operator hits to dismiss something they have not read.
-                KeyCode::Char('q' | 'Q') => app.quit(),
-                KeyCode::Char('c') if key.modifiers.contains(KeyModifiers::CONTROL) => app.quit(),
-                KeyCode::Esc => app.cancel_quit(),
-                _ => {}
-            }
-            return true;
-        }
-        Some(Confirm::Kill) => {
-            kill_confirm_keys(key, app, tx, tasks);
-            return true;
-        }
-        Some(Confirm::Upgrade) => {
-            match key.code {
-                // Only the key the row names. It reads `[U] go  [Esc] cancel`, and
-                // `y`, `Y` and `Enter` confirmed as well -- three keys that start
-                // `apt upgrade` on every visible host without appearing anywhere on
-                // the screen that asked. `Enter` is the worst of them: it is what an
-                // operator hits to dismiss a row they have not read, which is the
-                // reason the quit confirmation dropped it, and the reason the server
-                // removal dropped it in this same pass.
-                //
-                // Extra *cancel* keys below are not the same thing and stay: a stray
-                // key that cancels can only ever be the safe answer.
-                KeyCode::Char('u' | 'U') => {
-                    if app.any_password_checking() {
-                        // A credential-store lookup is still in flight (it can
-                        // block on a system dialog). Starting now would run on
-                        // passwords the app has not actually read; the header
-                        // says `Checking` and this press is deferred until the
-                        // last answer lands.
-                        return true;
-                    }
-                    let cmds = app.confirm_upgrade();
-                    execute_cmds(cmds, app, dims, tx, tasks);
-                }
-                KeyCode::Esc | KeyCode::Char('q' | 'Q' | 'n' | 'N') => {
-                    app.set_show_upgrade_modal(false);
-                }
-                KeyCode::Char('s' | 'S') => {
-                    app.set_show_upgrade_modal(false);
-                    let cmds = app.switch_stats();
-                    execute_cmds(cmds, app, dims, tx, tasks);
-                }
-                KeyCode::Char('d' | 'D') => {
-                    app.set_show_upgrade_modal(false);
-                    let cmds = app.toggle_docker(dims);
-                    execute_cmds(cmds, app, dims, tx, tasks);
-                }
-                KeyCode::Char('f' | 'F') => {
-                    app.set_show_upgrade_modal(false);
-                    let cmds = app.toggle_fetch(dims);
-                    execute_cmds(cmds, app, dims, tx, tasks);
-                }
-                KeyCode::Char('g' | 'G') => {
-                    app.set_show_upgrade_modal(false);
-                    let cmds = app.toggle_graphs(dims);
-                    execute_cmds(cmds, app, dims, tx, tasks);
-                }
-                _ => {}
-            }
-            return true;
-        }
-        None => {}
     }
 
     false
@@ -570,245 +482,5 @@ pub(super) fn process_keys(key: KeyEvent, app: &mut App) {
             }
         }
         _ => {}
-    }
-}
-
-/// The keys while a kill is awaiting confirmation: only the advertised key
-/// kills, Esc stands down, everything else is swallowed.
-fn kill_confirm_keys(key: KeyEvent, app: &mut App, tx: &Sender<Msg>, tasks: &mut Tasks) {
-    match key.code {
-        // Same discipline as Upgrade: only the advertised key kills.
-        // `Enter` is what an operator hits to dismiss, not to authorize
-        // `kill -9` on a production pid.
-        KeyCode::Char('k' | 'K' | 'x' | 'X') => {
-            if let Some(ec) = app.kill_confirm.take() {
-                if ec.kind == crate::app::ExecKind::Kill && ec.panel < app.panels.len() {
-                    let gen = app.bump(ec.panel);
-                    let server = app.panels[ec.panel].server.clone();
-                    let pass = app.panels[ec.panel].sudo_password.clone();
-                    let handle = crate::tasks::spawn_kill(
-                        ec.panel,
-                        gen,
-                        server,
-                        ec.pid,
-                        ec.name,
-                        pass,
-                        tx.clone(),
-                    );
-                    tasks.set_aux(ec.panel, handle);
-                } else {
-                    // Wrong key for armed action — re-arm.
-                    app.kill_confirm = Some(ec);
-                }
-            }
-        }
-        KeyCode::Char('o' | 'O') => {
-            if let Some(ec) = app.kill_confirm.take() {
-                if ec.kind == crate::app::ExecKind::Journal && ec.panel < app.panels.len() {
-                    let gen = app.bump(ec.panel);
-                    let server = app.panels[ec.panel].server.clone();
-                    let pass = app.panels[ec.panel].sudo_password.clone();
-                    let handle = crate::tasks::spawn_journal(
-                        ec.panel,
-                        gen,
-                        server,
-                        ec.pid,
-                        ec.name,
-                        pass,
-                        tx.clone(),
-                    );
-                    tasks.set_aux(ec.panel, handle);
-                } else {
-                    app.kill_confirm = Some(ec);
-                }
-            }
-        }
-        KeyCode::Char('r' | 'R') => {
-            if let Some(ec) = app.kill_confirm.take() {
-                if ec.kind == crate::app::ExecKind::Renice && ec.panel < app.panels.len() {
-                    let gen = app.bump(ec.panel);
-                    let server = app.panels[ec.panel].server.clone();
-                    let pass = app.panels[ec.panel].sudo_password.clone();
-                    let handle = crate::tasks::spawn_renice(
-                        ec.panel,
-                        gen,
-                        server,
-                        ec.pid,
-                        ec.name,
-                        pass,
-                        tx.clone(),
-                    );
-                    tasks.set_aux(ec.panel, handle);
-                } else {
-                    app.kill_confirm = Some(ec);
-                }
-            }
-        }
-        KeyCode::Esc | KeyCode::Char('q' | 'Q' | 'n' | 'N') => {
-            app.kill_confirm = None;
-        }
-        _ => {}
-    }
-}
-
-/// Carry out the commands an `App` method produced.
-pub fn execute_cmds(
-    cmds: Vec<Command>,
-    app: &App,
-    dims: (u16, u16),
-    tx: &Sender<Msg>,
-    tasks: &mut Tasks,
-) {
-    for cmd in cmds {
-        // A view task supersedes the last view task; an upgrade goes in the
-        // upgrade slot and outlives every view switch. Which slot it lands in
-        // is decided here, once, rather than by a flag each caller has to keep
-        // in step.
-        match cmd {
-            Command::RunFetch { panel, gen } => tasks.set_aux(
-                panel,
-                crate::tasks::spawn_fetch(
-                    panel,
-                    gen,
-                    app.panels_epoch,
-                    app.panels[panel].server.clone(),
-                    dims,
-                    app.sort,
-                    tx.clone(),
-                ),
-            ),
-            Command::RunDocker { panel, gen } => tasks.set_aux(
-                panel,
-                crate::tasks::spawn_docker(
-                    panel,
-                    gen,
-                    app.panels_epoch,
-                    app.panels[panel].server.clone(),
-                    dims,
-                    app.sort,
-                    tx.clone(),
-                ),
-            ),
-            Command::RunUpgrade { panel, gen } => {
-                // Use the panel's stored sudo password (from keychain)
-                let password = app.panels[panel].sudo_password.clone();
-                tasks.set_upgrade(
-                    panel,
-                    crate::tasks::spawn_upgrade(
-                        panel,
-                        gen,
-                        app.panels[panel].server.clone(),
-                        password,
-                        tx.clone(),
-                    ),
-                );
-            }
-        }
-    }
-}
-
-fn execute_palette_command(
-    input: &str,
-    app: &mut App,
-    dims: (u16, u16),
-    tx: &Sender<Msg>,
-    tasks: &mut Tasks,
-) {
-    let input = input.trim().to_lowercase();
-    if let Some(stripped) = input.strip_prefix("filter ") {
-        app.filter_query = stripped.to_string();
-        clamp_selection_to_filter(app);
-        app.persist_state();
-    } else if input == "filter" || input == "clear filter" {
-        app.filter_query.clear();
-        clamp_selection_to_filter(app);
-        app.persist_state();
-    } else if input.starts_with("upgrade") {
-        let loads = app.enter_upgrade_view();
-        app.dispatch_credential_loads(loads, tx);
-    } else if input == "docker" {
-        let cmds = app.toggle_docker(dims);
-        for cmd in cmds {
-            if let crate::types::Command::RunDocker { panel, gen } = cmd {
-                tasks.set_aux(
-                    panel,
-                    crate::tasks::spawn_docker(
-                        panel,
-                        gen,
-                        app.panels_epoch,
-                        app.panels[panel].server.clone(),
-                        dims,
-                        app.sort,
-                        tx.clone(),
-                    ),
-                );
-            }
-        }
-        app.persist_state();
-    } else if input == "fetch" {
-        let cmds = app.toggle_fetch(dims);
-        for cmd in cmds {
-            if let crate::types::Command::RunFetch { panel, gen } = cmd {
-                tasks.set_aux(
-                    panel,
-                    crate::tasks::spawn_fetch(
-                        panel,
-                        gen,
-                        app.panels_epoch,
-                        app.panels[panel].server.clone(),
-                        dims,
-                        app.sort,
-                        tx.clone(),
-                    ),
-                );
-            }
-        }
-        app.persist_state();
-    } else if input == "graphs" || input == "graph" {
-        let cmds = app.toggle_graphs(dims);
-        for cmd in cmds {
-            // toggle_graphs returns empty, just rerenders
-            let _ = cmd;
-        }
-        app.persist_state();
-    } else if input == "stats" || input == "s" {
-        let cmds = app.switch_stats();
-        for cmd in cmds {
-            let _ = cmd;
-        }
-        app.persist_state();
-    } else if input.starts_with("sort ") {
-        let old = app.sort;
-        if input.contains("mem") {
-            app.sort = SortBy::Mem;
-        } else {
-            app.sort = SortBy::Cpu;
-        }
-        if old != app.sort {
-            app.persist_state();
-        }
-    } else if input == "theme" || input.starts_with("theme ") {
-        app.cycle_theme();
-        if let Some(ref path) = app.config_path {
-            crate::config::save_theme(path, app.current_theme().name);
-        }
-        app.rerender_all(dims);
-    } else if input == "add server" || input == "add" {
-        let load = crate::passwords::open(app, app.selected_panel, true);
-        app.dispatch_credential_loads(load, tx);
-    } else if input == "vault unlock" {
-        if let Some((vault, epoch)) = app.begin_vault_unlock() {
-            drop(crate::run::spawn::spawn_biometric_unlock(
-                vault,
-                epoch,
-                tx.clone(),
-            ));
-        } else if app.show_vault_password_prompt() {
-            // already prompting
-        } else {
-            app.set_show_upgrade_modal(true);
-        }
-    } else if input == "yank" || input.starts_with("yank ") || input == "y" || input == "copy" {
-        yank_selected_host(app);
     }
 }

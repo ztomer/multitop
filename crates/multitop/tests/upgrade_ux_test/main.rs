@@ -40,6 +40,7 @@ fn server(host: &str, cmd: Option<&str>) -> Server {
         user: "admin".to_string(),
         upgrade_cmd: cmd.map(str::to_string),
         custom_command: None,
+        mcp: None,
     }
 }
 

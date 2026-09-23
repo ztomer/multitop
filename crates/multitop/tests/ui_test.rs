@@ -211,6 +211,7 @@ fn the_keybar_never_slices_a_word_at_any_width() {
             multitop::app::Mode::Monitor,
             multitop::app::Mode::Upgrade,
             multitop::app::Mode::Docker,
+            multitop::app::Mode::Ops,
         ] {
             for hint in [
                 multitop::ui::FilterHint::Off,

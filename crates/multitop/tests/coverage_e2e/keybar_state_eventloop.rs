@@ -177,6 +177,7 @@ fn event_loop_test_server(port_offset: u16) -> Server {
         user: "testuser".into(),
         upgrade_cmd: Some("true".into()),
         custom_command: None,
+        mcp: None,
     }
 }
 

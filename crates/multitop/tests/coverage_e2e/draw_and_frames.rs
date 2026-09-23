@@ -184,6 +184,7 @@ fn frame_upgrade_view_shows_command() {
         user: "admin".into(),
         upgrade_cmd: Some("sudo apt upgrade -y".into()),
         custom_command: None,
+        mcp: None,
     }]);
     a.panels[0].mode = Mode::Upgrade;
 

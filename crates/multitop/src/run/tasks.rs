@@ -1,5 +1,8 @@
 //! Per-panel task handles: monitors, aux views (fetch/docker), upgrades.
 
+use std::sync::Arc;
+
+use tokio::sync::watch;
 use tokio::task::JoinHandle;
 
 use crate::app::App;
@@ -29,6 +32,15 @@ pub struct Tasks {
     /// to abort an upgrade, because a view task and an upgrade never occupy the
     /// same place.
     pub upgrades: Vec<Option<JoinHandle<()>>>,
+    /// Ops polls, one per panel in the Ops view. A slot of their own
+    /// because they are the one view task that repeats: left in `aux`, a
+    /// poll outlived the view that wanted it until another view task
+    /// happened to replace it. [`Tasks::retire_ops`] ends each one the
+    /// moment its panel leaves the view, whatever moved it.
+    pub ops: Vec<Option<JoinHandle<()>>>,
+    /// The panes' render size, so a poll draws at the size of the moment
+    /// rather than the size it was started at. Set by the event loop.
+    pub dims: Option<Arc<watch::Receiver<(u16, u16)>>>,
 }
 
 impl Tasks {
@@ -38,7 +50,36 @@ impl Tasks {
             monitors: (0..n).map(|_| None).collect(),
             aux: (0..n).map(|_| None).collect(),
             upgrades: (0..n).map(|_| None).collect(),
+            ops: (0..n).map(|_| None).collect(),
+            dims: None,
         }
+    }
+
+    /// Start an Ops poll on `idx`, superseding the one there.
+    pub fn set_ops(&mut self, idx: usize, handle: JoinHandle<()>) {
+        if let Some(old) = self.ops[idx].replace(handle) {
+            old.abort();
+        }
+    }
+
+    /// End the poll of every panel not in the Ops view.
+    pub fn retire_ops(&mut self, panels: &[crate::panel::Panel]) {
+        for (slot, p) in self.ops.iter_mut().zip(panels) {
+            if p.mode != crate::panel::Mode::Ops {
+                if let Some(h) = slot.take() {
+                    h.abort();
+                }
+            }
+        }
+    }
+
+    /// The render size a new poll reads: the live one, or `dims` fixed when
+    /// no event loop runs (a test).
+    #[must_use]
+    pub fn dims_or(&self, dims: (u16, u16)) -> Arc<watch::Receiver<(u16, u16)>> {
+        self.dims
+            .clone()
+            .unwrap_or_else(|| Arc::new(watch::channel(dims).1))
     }
 
     /// Start a view task on `idx`, superseding whatever view task was there.
@@ -110,6 +151,7 @@ impl Tasks {
             .skip(n)
             .chain(self.aux.iter_mut().skip(n))
             .chain(self.upgrades.iter_mut().skip(n))
+            .chain(self.ops.iter_mut().skip(n))
             .flatten()
         {
             h.abort();
@@ -117,10 +159,12 @@ impl Tasks {
         self.monitors.truncate(n);
         self.aux.truncate(n);
         self.upgrades.truncate(n);
+        self.ops.truncate(n);
         while self.monitors.len() < n {
             self.monitors.push(None);
             self.aux.push(None);
             self.upgrades.push(None);
+            self.ops.push(None);
         }
     }
 
@@ -132,6 +176,7 @@ impl Tasks {
             .iter_mut()
             .chain(self.aux.iter_mut())
             .chain(self.upgrades.iter_mut())
+            .chain(self.ops.iter_mut())
             .flatten()
         {
             h.abort();
@@ -158,6 +203,7 @@ mod tests {
             user: "a".to_string(),
             upgrade_cmd: Some("true".to_string()),
             custom_command: None,
+            mcp: None,
         }
     }
 
@@ -181,6 +227,7 @@ mod tests {
         );
         assert_eq!(tasks.aux.len(), 4);
         assert_eq!(tasks.upgrades.len(), 4);
+        assert_eq!(tasks.ops.len(), 4);
         assert!(tasks.monitors.iter().all(Option::is_none));
 
         // Fitting to the size it already is changes nothing.
@@ -217,5 +264,26 @@ mod tests {
         // A panel that was not running is left alone rather than being marked
         // as having finished something it never started.
         assert_ne!(app.panels[1].upgrade_state, UpgradeState::STARTED);
+    }
+
+    /// A poll runs only while its panel is in the Ops view: leaving it, by
+    /// any key, ends the poll (and with it the ssh session it holds).
+    #[tokio::test]
+    async fn an_ops_poll_ends_when_its_panel_leaves_the_view() {
+        let mut app = App::new(vec![server("alpha"), server("beta")]);
+        let mut tasks = Tasks::new(2);
+        app.panels[0].mode = crate::panel::Mode::Ops;
+        app.panels[1].mode = crate::panel::Mode::Ops;
+        tasks.set_ops(0, tokio::spawn(std::future::pending::<()>()));
+        tasks.set_ops(1, tokio::spawn(std::future::pending::<()>()));
+        app.panels[1].mode = crate::panel::Mode::Monitor;
+        tasks.retire_ops(&app.panels);
+        assert!(
+            tasks.ops[0].is_some(),
+            "a panel still in Ops keeps its poll"
+        );
+        assert!(tasks.ops[1].is_none(), "a panel that left Ops still polls");
+        let fixed = tasks.dims_or((80, 24));
+        assert_eq!(*fixed.borrow(), (80, 24));
     }
 }

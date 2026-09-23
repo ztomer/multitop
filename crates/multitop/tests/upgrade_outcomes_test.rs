@@ -39,6 +39,7 @@ fn local_server(cmd: Option<&str>) -> Server {
         user: String::new(),
         upgrade_cmd: cmd.map(str::to_string),
         custom_command: None,
+        mcp: None,
     }
 }
 

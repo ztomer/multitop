@@ -25,6 +25,7 @@ fn server() -> Server {
         user: String::new(),
         upgrade_cmd: None,
         custom_command: None,
+        mcp: None,
     }
 }
 
@@ -70,6 +71,7 @@ async fn unterminated_final_line_is_not_appended_twice() {
         user: String::new(),
         upgrade_cmd: None,
         custom_command: None,
+        mcp: None,
     };
     let (tx, mut rx) = tokio::sync::mpsc::channel(256);
     let action = ExecAction {

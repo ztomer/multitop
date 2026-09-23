@@ -468,7 +468,7 @@ impl App {
     /// Called *after* the "already in this view" guard, never before. Running
     /// it first meant pressing a view's own key — a documented no-op that
     /// spawns nothing — silently threw the user's scroll position away.
-    fn leave_current_view(&mut self) {
+    pub(super) fn leave_current_view(&mut self) {
         for p in &mut self.panels {
             if p.mode == Mode::Upgrade {
                 p.upgrade_scroll_offset = p.scroll_offset;

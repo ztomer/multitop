@@ -3,7 +3,7 @@ use crate::app::App;
 use crate::panel::Mode;
 use crate::types::Msg;
 impl App {
-    fn accepts(&self, panel: usize, gen: u64) -> bool {
+    pub(super) fn accepts(&self, panel: usize, gen: u64) -> bool {
         self.panels.get(panel).is_some_and(|p| p.gen == gen)
     }
 
@@ -31,6 +31,12 @@ impl App {
                 lines,
             } => self.on_fetch_data(panel, gen, snap, lines),
             Msg::AuxBegin { panel, gen, header } => self.on_aux_begin(panel, gen, header),
+            Msg::Ops {
+                panel,
+                gen,
+                state,
+                dims,
+            } => self.on_ops(panel, gen, *state, dims),
             Msg::AuxRepaint {
                 panel,
                 gen,

@@ -12,6 +12,7 @@ mod spawn_failure_tests {
             user: "admin".to_string(),
             upgrade_cmd: None,
             custom_command: None,
+            mcp: None,
         }
     }
 

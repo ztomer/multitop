@@ -38,6 +38,7 @@ fn server(host: &str) -> Server {
         user: "root".to_string(),
         upgrade_cmd: Some("sudo apt update".to_string()),
         custom_command: None,
+        mcp: None,
     }
 }
 

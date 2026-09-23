@@ -3,9 +3,23 @@ use multitop_agent::fetch::FetchSnapshot;
 /// Work the runtime should start as a result of a state transition.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Command {
-    RunDocker { panel: usize, gen: u64 },
-    RunFetch { panel: usize, gen: u64 },
-    RunUpgrade { panel: usize, gen: u64 },
+    RunDocker {
+        panel: usize,
+        gen: u64,
+    },
+    RunFetch {
+        panel: usize,
+        gen: u64,
+    },
+    RunUpgrade {
+        panel: usize,
+        gen: u64,
+    },
+    /// Poll the panel's `mcp_host` for the Ops view.
+    RunOps {
+        panel: usize,
+        gen: u64,
+    },
 }
 
 /// Messages produced by the background tasks.
@@ -50,6 +64,13 @@ pub enum Msg {
         panel: usize,
         gen: u64,
         text: String,
+    },
+    /// What an Ops poll learned (or why it could not), drawn at `dims`.
+    Ops {
+        panel: usize,
+        gen: u64,
+        state: Box<crate::ops::OpsState>,
+        dims: (u16, u16),
     },
     FetchData {
         panel: usize,

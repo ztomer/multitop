@@ -120,6 +120,7 @@ impl Panel {
                     Mode::Docker => self.docker_matches(&haystack),
                     Mode::Fetch => self.fetch_matches(&haystack),
                     Mode::Upgrade => self.last_upgrade.iter().any(|l| haystack(l)),
+                    Mode::Ops => self.ops_matches(&haystack),
                 };
             }
         }
@@ -135,6 +136,7 @@ impl Panel {
             Mode::Docker => self.docker_matches(&hit),
             Mode::Fetch => self.fetch_matches(&hit),
             Mode::Upgrade => self.last_upgrade.iter().any(|l| hit(l)),
+            Mode::Ops => self.ops_matches(&hit),
         }
     }
 
@@ -164,6 +166,13 @@ impl Panel {
             || rows
                 .iter()
                 .any(|r| hit(&r.name) || hit(&r.image) || hit(&r.status))
+    }
+
+    /// The checks, jobs, containers and alerts the Ops view shows.
+    fn ops_matches(&self, hit: &impl Fn(&str) -> bool) -> bool {
+        self.last_ops
+            .as_ref()
+            .is_some_and(|s| s.terms().into_iter().any(hit))
     }
 
     /// Everything the Fetch card prints.

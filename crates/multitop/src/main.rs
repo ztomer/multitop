@@ -29,6 +29,7 @@ KEYS:
     ESC / q    Quit
     f          Toggle Fastfetch system info view on every panel
     d          Toggle the Docker view on every panel
+    p          Ops view: each host's mcp_host (health, cron, containers, alerts)
     s          Back to live stats
     u          Run each server's configured upgrade_cmd
 ";
@@ -131,6 +132,7 @@ fn resolve_servers(
         user: String::new(),
         upgrade_cmd: None,
         custom_command: None,
+        mcp: None,
     };
     let mut initial_theme: Option<String> = None;
 
@@ -146,6 +148,7 @@ fn resolve_servers(
                 user: String::new(),
                 upgrade_cmd: None,
                 custom_command: None,
+                mcp: None,
             })
             .collect();
         if opts.local && !list.iter().any(ssh::is_local) {

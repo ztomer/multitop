@@ -21,6 +21,7 @@ fn server(host: &str, user: &str, port: u16, cmd: Option<&str>) -> Server {
         user: user.to_string(),
         upgrade_cmd: cmd.map(ToString::to_string),
         custom_command: None,
+        mcp: None,
     }
 }
 

@@ -75,6 +75,13 @@ Additional views accessible via keys:
 - **Docker view** (`d`) — container list with CPU/memory usage, sorted by load
 - **Update view** (`u`) — per-server update status; press `u` again to run
 - **Alerts view** (`H`) — threshold breaches over the last 30 minutes, from the stats stream already running
+- **Ops view** (`p`) — what each host's `mcp_host` says that the agent does not
+  stream: its health checks' last verdicts, its cron jobs, its containers' health
+  and the alerts its cron wrapper logged in the last 24 hours. One line per
+  section, and under a section in trouble one line per thing in trouble. Needs
+  the host's `mcp` command in its `[[servers]]` entry; a host without one says
+  so. Polled every 30 s while the view is up, over the same ssh connection, and
+  never while it is not
 - **Settings screen** (`e`) — servers, their passwords, and the vault
 - **Filter** (`/`) — narrow the grid to hosts matching what you type, searching
   whatever the panes are currently showing
@@ -90,7 +97,7 @@ returning with **s** is instant rather than reconnecting. It is also what fills
 the graph history, so **G** has a past to draw the moment you press it.
 
 Stats and Graphs are the only views that survive a restart. Docker, Fetch,
-Alerts and Upgrade need a live task behind them, so panels always reopen in
+Ops, Alerts and Upgrade need a live task behind them, so panels always reopen in
 Stats (or Graphs, if that is where they were) — a restarted Docker view would
 otherwise sit on "connecting..." with nothing behind it.
 
@@ -106,8 +113,9 @@ otherwise sit on "connecting..." with nothing behind it.
 | **G** | Toggle the graphs view: CPU (with core clock), memory, and download/upload history per pane |
 | **u** | Show the update status view; press again to run the updates. **The run is scoped to the filter** — what is on screen is what gets upgraded |
 | **f** | Toggle the Fetch view |
+| **p** | The Ops view: health, cron, containers and alerts from each host's `mcp_host` |
 | **e** | Open Settings: servers, passwords, vault |
-| **/** | Filter the grid. Matches the host and user in every view, plus whatever the panes are showing right now: process names in **Stats** and **Graphs** (every process the host is running, not only the ones its table had room to draw), container names, images and status in **Docker**, the OS/kernel/model card in **Fetch**, the log in **Update**. **Enter** keeps it, **ESC** clears it |
+| **/** | Filter the grid. Matches the host and user in every view, plus whatever the panes are showing right now: process names in **Stats** and **Graphs** (every process the host is running, not only the ones its table had room to draw), container names, images and status in **Docker**, the OS/kernel/model card in **Fetch**, check, job and container names and alert subjects (and why a session failed) in **Ops**, the log in **Update**. **Enter** keeps it, **ESC** clears it |
 | **1**–**9** | Select a panel |
 | **t** | Cycle the active theme |
 | **H** | Toggle the alerts view: threshold breaches over the last 30 minutes |
@@ -152,6 +160,10 @@ user = ""            # optional
 # you, because the preamble authenticates sudo and the command then runs
 # without it.
 # upgrade_cmd = "sudo apt update && sudo apt upgrade -y"
+# The Ops view (`p`): the command, run by the host's login shell over the same
+# ssh session, that starts its mcp_host. A stateless 2026-07-28 MCP client
+# speaks to it; it only reads. Nothing listens on the host.
+# mcp = "/mnt/fast-nvme/projects/media_server/bin/mcp_host --root /mnt/fast-nvme/projects/media_server"
 ```
 
 Pass a different path with `--config`.

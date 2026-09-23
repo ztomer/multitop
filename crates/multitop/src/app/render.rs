@@ -70,6 +70,10 @@ impl App {
                         panel.show_frame(lines);
                     }
                 }
+                Mode::Ops => {
+                    let lines = crate::app::ops_view::frame(panel, dims, pal);
+                    panel.show_frame(lines);
+                }
                 Mode::Upgrade => {}
             }
         }

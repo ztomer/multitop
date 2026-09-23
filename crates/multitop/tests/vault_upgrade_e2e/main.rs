@@ -36,6 +36,7 @@ fn test_servers() -> Vec<Server> {
             user: "testuser".into(),
             upgrade_cmd: Some("echo upgrade-1".into()),
             custom_command: None,
+            mcp: None,
         },
         Server {
             host: "test-host-2".into(),
@@ -43,6 +44,7 @@ fn test_servers() -> Vec<Server> {
             user: "testuser".into(),
             upgrade_cmd: Some("echo upgrade-2".into()),
             custom_command: None,
+            mcp: None,
         },
     ]
 }

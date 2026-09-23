@@ -9,6 +9,11 @@ host = "192.168.0.33"
 port = 22
 user = ""
 # upgrade_cmd = "sudo apt update && sudo apt upgrade -y"
+# The Ops view (`p`) asks this host's mcp_host for health verdicts, cron
+# jobs, container health and alerts. The command runs in the host's login
+# shell over the same ssh session; nothing listens. Absent, the view says the
+# host has none.
+# mcp = "cd ~/prj/media_server && bin/mcp_host --root ."
 
 # How the panel banner draws the host name. "wide" uses fullwidth Latin glyphs
 # (U+FF01-FF5E), which Menlo, SF Mono, JetBrains Mono and Berkeley Mono do not

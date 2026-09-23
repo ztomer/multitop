@@ -58,6 +58,7 @@ fn test_state(token: Option<String>) -> (AppState, multitop::server::SharedState
             user: "root".to_string(),
             upgrade_cmd: None,
             custom_command: None,
+            mcp: None,
         }],
         theme: None,
         upgrade_history_lines: 5000,

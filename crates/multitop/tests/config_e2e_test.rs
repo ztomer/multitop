@@ -20,6 +20,7 @@ fn test_server(host: &str, user: &str, port: u16, upgrade_cmd: Option<&str>) -> 
         port,
         upgrade_cmd: upgrade_cmd.map(String::from),
         custom_command: None,
+        mcp: None,
     }
 }
 
@@ -418,5 +419,52 @@ notes = "staging"
         text.matches("production").count(),
         1,
         "and the first entry's key must not be copied onto the second: {text}"
+    );
+}
+
+/// `mcp` is the command that starts a host's `mcp_host` for the Ops view:
+/// read when present, absent when blank, and kept through a settings save
+/// (the file is the only place it is written).
+#[test]
+fn a_hosts_mcp_command_loads_and_survives_a_save() {
+    let tmp = TempDir::new().unwrap();
+    let config_path = tmp.path().join("config.toml");
+    fs::write(
+        &config_path,
+        r#"
+[[servers]]
+host = "media-server"
+port = 22
+user = ""
+mcp = "cd ~/prj/media_server && bin/mcp_host --root ."
+
+[[servers]]
+host = "pihole"
+port = 22
+user = ""
+mcp = "  "
+
+[[servers]]
+host = "nas"
+port = 22
+user = ""
+"#,
+    )
+    .unwrap();
+    let loaded = load(&config_path).unwrap();
+    let mcp: Vec<Option<&str>> = loaded.servers.iter().map(|s| s.mcp.as_deref()).collect();
+    assert_eq!(
+        mcp,
+        [
+            Some("cd ~/prj/media_server && bin/mcp_host --root ."),
+            None,
+            None
+        ]
+    );
+    multitop::config::save_servers(&config_path, &loaded.servers).unwrap();
+    let again = load(&config_path).unwrap();
+    assert_eq!(
+        again.servers[0].mcp, loaded.servers[0].mcp,
+        "a save dropped it"
     );
 }
