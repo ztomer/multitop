@@ -21,7 +21,7 @@ exit = "warn"
 # listed module that drops its last unsafe leaves the list).
 
 [workspace.package]
-version = "0.48.0"
+version = "0.48.1"
 edition = "2021"
 rust-version = "1.85"
 license = "MIT"
