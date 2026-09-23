@@ -10,6 +10,8 @@
 // through and through -- helpers included.
 #![cfg(test)]
 
+mod common;
+
 // Integration-test crate: helper fns outside #[test] are not covered by
 // clippy.toml's test exemption, so the restriction lints are expected here.
 use multitop::app::{App, Mode, Msg, VaultState};
@@ -25,12 +27,9 @@ const DIMS: (u16, u16) = (80, 24);
 
 fn test_server(host: &str) -> Server {
     Server {
-        host: host.to_string(),
-        port: 0,
         user: "admin".to_string(),
         upgrade_cmd: Some("true".to_string()),
-        custom_command: None,
-        mcp: None,
+        ..common::local_server(host)
     }
 }
 
@@ -361,20 +360,13 @@ async fn a_host_with_no_upgrade_command_is_not_recorded_as_having_started_one() 
     let _g = isolate().await;
     let mut app = App::new(vec![
         Server {
-            host: "alpha".into(),
-            port: 0,
             user: "a".into(),
             upgrade_cmd: Some("true".into()),
-            custom_command: None,
-            mcp: None,
+            ..common::local_server("alpha")
         },
         Server {
-            host: "beta".into(),
-            port: 0,
             user: "a".into(),
-            upgrade_cmd: None,
-            custom_command: None,
-            mcp: None,
+            ..common::local_server("beta")
         },
     ]);
 

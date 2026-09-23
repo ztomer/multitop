@@ -16,14 +16,10 @@ use multitop::tasks::spawn_upgrade;
 use tokio::sync::mpsc;
 
 fn test_server(host: &str) -> Server {
-    common::use_this_builds_agent();
     Server {
-        host: host.to_string(),
-        port: 0,
         user: "testuser".to_string(),
         upgrade_cmd: Some("echo test".to_string()),
-        custom_command: None,
-        mcp: None,
+        ..common::local_server(host)
     }
 }
 
@@ -302,16 +298,11 @@ async fn a_view_switch_during_an_upgrade_keeps_the_upgrade_tracked() {
 #[tokio::test]
 async fn stderr_is_still_read_after_stdout_has_closed() {
     let _store_guard = enable_mock_store().await;
-    common::use_this_builds_agent();
     let server = Server {
-        host: "localhost".to_string(),
-        port: 0,
-        user: String::new(),
         upgrade_cmd: Some(
             "exec 1>&-; sleep 0.2; printf 'the actual reason\\n' >&2; exit 3".to_string(),
         ),
-        custom_command: None,
-        mcp: None,
+        ..common::local_server("localhost")
     };
     let (tx, mut rx) = mpsc::channel::<Msg>(100);
 

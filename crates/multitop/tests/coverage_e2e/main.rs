@@ -52,14 +52,10 @@ use ratatui::style::{Color, Style};
 use secrecy::SecretString;
 
 fn test_server(host: &str) -> Server {
-    common::use_this_builds_agent();
     Server {
-        host: host.to_string(),
-        port: 0,
         user: "testuser".to_string(),
         upgrade_cmd: Some("true".to_string()),
-        custom_command: None,
-        mcp: None,
+        ..common::local_server(host)
     }
 }
 

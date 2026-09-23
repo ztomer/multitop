@@ -9,14 +9,10 @@ async fn spawn_upgrade_streams_output_for_local_command() {
     let _g = password_store::lock_for_test_async().await;
     password_store::enable_mock_store();
     password_store::clear_mock_store();
-    crate::common::use_this_builds_agent();
     let server = Server {
-        host: "127.0.0.1".into(),
-        port: 0,
         user: "testuser".into(),
         upgrade_cmd: Some("echo hello-from-upgrade".into()),
-        custom_command: None,
-        mcp: None,
+        ..crate::common::local_server("127.0.0.1")
     };
     let (tx, mut rx) = mpsc::channel(128);
 
@@ -42,14 +38,10 @@ async fn spawn_upgrade_no_password_succeeds() {
     password_store::enable_mock_store();
     password_store::clear_mock_store();
     // A simple command that needs no password.
-    crate::common::use_this_builds_agent();
     let server = Server {
-        host: "127.0.0.1".into(),
-        port: 0,
         user: "testuser".into(),
         upgrade_cmd: Some("echo no-pw-needed".into()),
-        custom_command: None,
-        mcp: None,
+        ..crate::common::local_server("127.0.0.1")
     };
     let (tx, mut rx) = mpsc::channel(128);
 
@@ -73,14 +65,10 @@ async fn spawn_upgrade_collapses_carriage_returns() {
     password_store::enable_mock_store();
     password_store::clear_mock_store();
     // printf with \r simulates a progress bar rewriting itself.
-    crate::common::use_this_builds_agent();
     let server = Server {
-        host: "127.0.0.1".into(),
-        port: 0,
         user: "testuser".into(),
         upgrade_cmd: Some("printf '10%%\\r20%%\\r30%%\\n'".into()),
-        custom_command: None,
-        mcp: None,
+        ..crate::common::local_server("127.0.0.1")
     };
     let (tx, mut rx) = mpsc::channel(128);
 

@@ -172,12 +172,9 @@ async fn drive_event_loop(
 
 fn event_loop_test_server(port_offset: u16) -> Server {
     Server {
-        host: format!("127.0.0.{}", port_offset % 255 + 1),
-        port: 0,
         user: "testuser".into(),
         upgrade_cmd: Some("true".into()),
-        custom_command: None,
-        mcp: None,
+        ..crate::common::local_server(&format!("127.0.0.{}", port_offset % 255 + 1))
     }
 }
 

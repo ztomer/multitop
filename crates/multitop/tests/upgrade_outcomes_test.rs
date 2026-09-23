@@ -32,14 +32,9 @@ use tokio::sync::mpsc;
 /// Port 0 makes the server local, so `spawn_command` runs the script here
 /// rather than reaching for `ssh`.
 fn local_server(cmd: Option<&str>) -> Server {
-    common::use_this_builds_agent();
     Server {
-        host: "localhost".to_string(),
-        port: 0,
-        user: String::new(),
         upgrade_cmd: cmd.map(str::to_string),
-        custom_command: None,
-        mcp: None,
+        ..common::local_server("localhost")
     }
 }
 

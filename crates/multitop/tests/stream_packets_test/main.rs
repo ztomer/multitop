@@ -11,6 +11,9 @@
 // through and through -- helpers included.
 #![cfg(test)]
 
+#[path = "../common/mod.rs"]
+mod common;
+
 // Integration-test crate: helper fns outside #[test] are not covered by
 // clippy.toml's test exemption, so the restriction lints are expected here.
 

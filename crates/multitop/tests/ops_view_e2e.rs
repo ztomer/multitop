@@ -6,6 +6,8 @@
 //! protocol and refuses any request without the 2026-07-28 `_meta`.
 #![cfg(test)]
 
+mod common;
+
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -40,12 +42,9 @@ for line in sys.stdin:
 
 fn local(host: &str, mcp: Option<String>) -> Server {
     Server {
-        host: host.to_string(),
-        port: 0,
         user: "t".to_string(),
-        upgrade_cmd: None,
-        custom_command: None,
         mcp,
+        ..common::local_server(host)
     }
 }
 

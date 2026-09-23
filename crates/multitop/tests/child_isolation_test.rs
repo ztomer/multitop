@@ -31,12 +31,8 @@ fn process_group_of(pid: u32) -> String {
 
 fn local_server() -> Server {
     Server {
-        host: "localhost".to_string(),
-        port: 0,
-        user: String::new(),
         upgrade_cmd: Some("sleep 5".to_string()),
-        custom_command: None,
-        mcp: None,
+        ..common::local_server("localhost")
     }
 }
 
@@ -54,7 +50,6 @@ async fn a_locally_spawned_upgrade_gets_its_own_process_group() {
     // Also skips the on-disk upgrade lock, which is not what is under test.
     password_store::enable_mock_store();
     password_store::clear_mock_store();
-    common::use_this_builds_agent();
 
     let request = multitop_agent::exec::ExecFrame::Request {
         command: "sleep 5".to_string(),

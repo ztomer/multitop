@@ -9,6 +9,8 @@
 // through and through -- helpers included.
 #![cfg(test)]
 
+mod common;
+
 use multitop::app::{App, Msg, VaultState};
 use multitop::config::Server;
 use multitop::panel::{Mode, UpgradeState};
@@ -22,23 +24,17 @@ use multitop_vault::{Vault, VaultConfig};
 
 fn test_server(host: &str) -> Server {
     Server {
-        host: host.to_string(),
-        port: 0,
         user: "testuser".to_string(),
         upgrade_cmd: Some("true".to_string()),
-        custom_command: None,
-        mcp: None,
+        ..common::local_server(host)
     }
 }
 
 fn local_server(upgrade_cmd: &str) -> Server {
     Server {
-        host: "127.0.0.1".to_string(),
-        port: 0,
         user: "testuser".to_string(),
         upgrade_cmd: Some(upgrade_cmd.to_string()),
-        custom_command: None,
-        mcp: None,
+        ..common::local_server("127.0.0.1")
     }
 }
 

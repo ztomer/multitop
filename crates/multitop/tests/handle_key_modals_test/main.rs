@@ -11,6 +11,9 @@
 // through and through -- helpers included.
 #![cfg(test)]
 
+#[path = "../common/mod.rs"]
+mod common;
+
 use std::sync::Arc;
 
 use crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
@@ -23,12 +26,9 @@ use tokio::sync::{mpsc, watch};
 
 fn test_server(host: &str) -> Server {
     Server {
-        host: host.to_string(),
-        port: 0,
         user: "admin".to_string(),
         upgrade_cmd: Some("true".to_string()),
-        custom_command: None,
-        mcp: None,
+        ..common::local_server(host)
     }
 }
 

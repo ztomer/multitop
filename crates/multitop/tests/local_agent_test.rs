@@ -84,17 +84,9 @@ async fn local_agent_streams_binary_packets() {
 
 #[tokio::test]
 async fn connect_local_server_succeeds_and_streams_snapshots() {
-    use multitop::config::Server;
     use multitop::stream::{connect, next_packet};
 
-    let server = Server {
-        host: "localhost".into(),
-        port: 0,
-        user: String::new(),
-        upgrade_cmd: None,
-        custom_command: None,
-        mcp: None,
-    };
+    let server = common::local_server("localhost");
 
     let mut stream = connect(&server, Mode::Monitor, SortBy::Cpu, |_| {})
         .await

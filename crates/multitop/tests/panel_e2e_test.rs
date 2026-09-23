@@ -6,6 +6,8 @@
 // through and through -- helpers included.
 #![cfg(test)]
 
+mod common;
+
 use multitop::app::Mode;
 use multitop::config::Server;
 use multitop::panel::UpgradeState;
@@ -27,12 +29,9 @@ fn isolate_keychain() -> tokio::sync::MutexGuard<'static, ()> {
 
 fn test_server(host: &str) -> Server {
     Server {
-        host: host.to_string(),
-        port: 0,
         user: "testuser".to_string(),
         upgrade_cmd: Some("echo test".to_string()),
-        custom_command: None,
-        mcp: None,
+        ..common::local_server(host)
     }
 }
 

@@ -72,14 +72,10 @@ async fn isolate_keychain_async() -> tokio::sync::MutexGuard<'static, ()> {
 
 /// Test helper: create a local Server (127.0.0.1 triggers local shell path).
 fn local_server(upgrade_cmd: &str) -> Server {
-    common::use_this_builds_agent();
     Server {
-        host: "127.0.0.1".to_string(),
-        port: 0,
         user: "testuser".to_string(),
         upgrade_cmd: Some(upgrade_cmd.to_string()),
-        custom_command: None,
-        mcp: None,
+        ..common::local_server("127.0.0.1")
     }
 }
 

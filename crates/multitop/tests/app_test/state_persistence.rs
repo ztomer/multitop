@@ -24,21 +24,10 @@ fn local_server_deduplication() {
     use multitop::ssh::is_local;
     let _keychain = isolate_keychain();
 
-    let s1 = Server {
-        host: "127.0.0.1".into(),
-        port: 0,
-        user: String::new(),
-        upgrade_cmd: None,
-        custom_command: None,
-        mcp: None,
-    };
+    let s1 = crate::common::local_server("127.0.0.1");
     let s2 = Server {
-        host: "localhost".into(),
         port: 22,
-        user: String::new(),
-        upgrade_cmd: None,
-        custom_command: None,
-        mcp: None,
+        ..crate::common::local_server("localhost")
     };
     let s3 = Server {
         host: "192.168.0.33".into(),

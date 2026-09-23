@@ -28,12 +28,9 @@ use tokio::io::AsyncReadExt;
 
 fn local_server(upgrade_cmd: &str) -> Server {
     Server {
-        host: "127.0.0.1".to_string(),
-        port: 0,
         user: "testuser".to_string(),
         upgrade_cmd: Some(upgrade_cmd.to_string()),
-        custom_command: None,
-        mcp: None,
+        ..common::local_server("127.0.0.1")
     }
 }
 
@@ -71,7 +68,6 @@ struct Ran {
 /// inside a payload, so a reader that carries on is reading from the wrong
 /// offset and inventing output.
 async fn run(command: &str) -> Ran {
-    common::use_this_builds_agent();
     let server = local_server(command);
     let mut child = ssh::spawn_exec(&server, &request(command))
         .await

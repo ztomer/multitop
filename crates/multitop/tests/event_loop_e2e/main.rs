@@ -30,14 +30,11 @@ use tokio_stream::StreamExt as _;
 /// ssh: `127.0.0.1` is `is_local`, so `spawn_command` uses `$SHELL -c` and the
 /// stream is real output, not a dying connection.
 fn local_server(port: u16, cmd: &str) -> Server {
-    common::use_this_builds_agent();
     Server {
-        host: "127.0.0.1".to_string(),
         port,
         user: "admin".to_string(),
         upgrade_cmd: Some(cmd.to_string()),
-        custom_command: None,
-        mcp: None,
+        ..common::local_server("127.0.0.1")
     }
 }
 

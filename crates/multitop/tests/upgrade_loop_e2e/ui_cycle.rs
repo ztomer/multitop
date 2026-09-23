@@ -274,12 +274,8 @@ fn test_ui_switching_panes_during_upgrade_preserves_task() {
 fn test_ui_no_upgrade_cmd_shows_message_without_command() {
     let _keychain = isolate_keychain();
     let mut app = App::new(vec![Server {
-        host: "127.0.0.1".into(),
-        port: 0,
         user: "test".into(),
-        upgrade_cmd: None,
-        custom_command: None,
-        mcp: None,
+        ..crate::common::local_server("127.0.0.1")
     }]);
 
     let cmds = app.run_upgrade();
