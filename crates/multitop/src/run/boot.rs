@@ -123,5 +123,11 @@ pub(super) fn boot_app(
     if let Some(idx) = initial_theme.and_then(theme_index) {
         app.theme_idx = idx;
     }
+    // Last, so it runs against a fully built App: the probe is a real terminal
+    // read, and doing it after the theme is settled means the value is stored
+    // once against the theme that will actually be used. The alternative --
+    // querying per frame -- would put a terminal round trip in the render path
+    // for an answer that cannot change while the process runs.
+    app.background = crate::background::detect();
     app
 }

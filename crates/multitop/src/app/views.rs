@@ -16,6 +16,7 @@ impl App {
             mode: AppMode::Running,
             sort: SortBy::Cpu,
             theme_idx: 0,
+            background: crate::background::Background::Unknown,
             config_path: None,
             filter_query: String::new(),
             upgrade_history_lines: crate::config::DEFAULT_UPGRADE_HISTORY_LINES,

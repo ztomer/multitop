@@ -19,6 +19,13 @@ pub struct App {
     pub mode: AppMode,
     pub sort: multitop_agent::SortBy,
     pub theme_idx: usize,
+    /// What the terminal is painting behind us, once at startup.
+    ///
+    /// Stored rather than queried on demand because the answer cannot change
+    /// while the process runs, and a per-frame query would put a terminal round
+    /// trip in the render path. `Unknown` is the honest value for a terminal that
+    /// answered neither probe, and the theme's own background is the fallback.
+    pub background: crate::background::Background,
     pub config_path: Option<std::path::PathBuf>,
     pub filter_query: String,
     pub upgrade_history_lines: usize,

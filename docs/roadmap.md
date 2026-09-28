@@ -81,14 +81,29 @@ two rendering paths and they are not symmetric:
 
 So the remaining work is three steps, all on the client:
 
-1. **Detect.** Nothing in the tree queries a background today — there is no `OSC
-   11`, no `COLORFGBG` read. One query at startup, in the client, with a
-   timeout and a fallback: `COLORFGBG` is free and wrong on some terminals,
-   `OSC 11` is right and not universally answered, so try `OSC 11`, fall back to
-   `COLORFGBG`, fall back to the theme's own `ratatui_keybar_bg`. A terminal that
-   answers neither is the overwhelmingly common case and must cost one failed read,
-   not a hang.
+1. ~~**Detect.**~~ **Done.** `crates/multitop/src/background.rs` queries `OSC 11`
+   at startup, falls back to `COLORFGBG`, then to the theme's own
+   `ratatui_keybar_bg`, and `boot_app` stores the result on `App`. `OSC 11` is
+   right and not universally answered; `COLORFGBG` is free and wrong on some
+   terminals. Three things that are easy to get wrong and are handled: the reply
+   is 16 bits per channel, so it is scaled by the width actually sent (`f` and
+   `ffff` are the same white, and reading either as a byte gives 15 or 255);
+   `COLORFGBG=7;0` is what an *unconfigured* emulator leaves behind, and index 7
+   is light grey, so treating it as a measurement adapts a dark terminal to a
+   light palette — it is refused; and a terminal that never answers is the common
+   case, so the read is bounded at 120 ms and a probe that hangs is a probe that
+   cannot ship. 15 tests, calibrated by sabotage: reversing the source priority,
+   removing the width scaling, accepting the unset default, and accepting a lone
+   `COLORFGBG` field each turn the right test red.
+
+   The bound is enforced by the call that waits, not checked around it —
+   `crossterm::event::poll` with the remaining budget — because a deadline in a
+   `while` condition around a blocking `stdin.read` is not a timeout at all. The
+   first version had exactly that bug and hung the entire tmux suite; it got
+   through one commit attempt because the release binary was older than the probe,
+   so the suite exercised a build without it.
 2. **Adapt once, in the one accessor every caller already goes through.**
+   *(Next step. Not started; the shape is below because it is not obvious.)*
    `App::current_theme` is the single source of the palette and has **17 call
    sites**: four in `app/views.rs`, three in `app/upgrade.rs`, two in
    `app/ops_view.rs`, and one each in `app/render.rs`, `app/apply.rs`,
@@ -99,6 +114,14 @@ So the remaining work is three steps, all on the client:
    cache keyed on (theme index, background), recomputed only when either changes.
    Theme-cycling re-adapts for free, and adapting per frame would be the obvious
    mistake — a bisection per role per cell.
+
+   The part that is not obvious: **26 signatures take `&Palette` across the two
+   crates**, and the renderers read `pal.reset` as a *field* rather than through
+   an accessor. An adapted palette is not a `Palette` — it is owned strings, and
+   the escapes have to be built from the adjusted RGB — so this is a two-crate
+   signature change, not a one-line swap in `current_theme`. The alternative worth
+   considering first: a `Palette`-shaped view over the adapted values, which keeps
+   26 call sites untouched. Worth measuring before committing to the refactor.
 
    The two `save_theme` sites want `Palette::name`, which is `&'static str` and
    unaffected; that is the one thing to check before changing the return type, and
