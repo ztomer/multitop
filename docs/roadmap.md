@@ -150,10 +150,29 @@ So the remaining work is three steps, all on the client:
    The two `save_theme` sites want `Palette::name`, which is `&'static str` and
    unaffected; that is the one thing to check before changing the return type, and
    the reason to check it rather than assume.
-3. **Prove it on a real light terminal.** A test that the arithmetic is right is
-   not a screenshot, and 1380 green tests have already demonstrated how a correct
-   module can be wired to nothing. This step needs the real app on a real light
-   backdrop, and it is the only one left.
+3. ~~**Prove it on a real light terminal.**~~ **Done, and it earned its keep.**
+   `tools/light_terminal_check.py` runs the built binary in a real pty, captures
+   what it actually drew, and measures every colour that came out. Two arms —
+   `COLORFGBG=0;15` measured against white, and this machine's own dark
+   terminal — plus a negative control that fails if the two draw identical
+   palettes.
+
+   **It found a defect 1380 green tests could not.** The alert banner hard-coded
+   `ESC[38;2;255;85;85m` for a breach and `ESC[38;2;241;250;140m` for a warning.
+   On a dark terminal those literals ARE the theme's values, so nothing looked
+   wrong; and they do not pass through `PaletteView`, so the adaptation never saw
+   them. Measured on the real app, the alert red came out at **3.14:1** — the
+   only one of eight rendered colours under the bar. The other seven had been
+   adapted and cleared it. Both branches now take `theme.meter_high()` and
+   `theme.meter_mid()`.
+
+   `tools/check_no_hard_coded_colour.py` closes the class: a 24-bit colour
+   literal anywhere in either render crate outside the palette and the colour
+   arithmetic fails the build. Calibrated by reinstating the literal.
+
+   Both arms now clear 4.5:1 and draw visibly different palettes. The verdict
+   is about colours and contrast, which is what the arithmetic controls; the
+   visual pass beyond that is a judgement no number makes.
 
 The one thing worth deciding before writing code: whether a user on a light
 terminal should get an *automatic* adaptation or a `light = true` config setting

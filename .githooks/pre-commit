@@ -146,6 +146,17 @@ if ! python3 tools/check_doc_paths.py >"$log" 2>&1; then
 fi
 ok "documented paths exist"
 
+info "checking the render path asks the palette for colours"
+if ! python3 tools/check_no_hard_coded_colour.py --self-test >"$log" 2>&1; then
+    cat "$log" >&2
+    die "the hard-coded-colour checker's own self-test failed -- it cannot be trusted"
+fi
+if ! python3 tools/check_no_hard_coded_colour.py >"$log" 2>&1; then
+    cat "$log" >&2
+    die "a colour is hard-coded in the render path -- it will never be adapted"
+fi
+ok "render-path colours come from the palette"
+
 info "checking for magic numbers"
 if ! python3 tools/check_magic_numbers.py --self-test >"$log" 2>&1; then
     cat "$log" >&2

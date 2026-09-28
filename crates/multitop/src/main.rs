@@ -24,6 +24,7 @@ OPTIONS:
         --serve-token <TOKEN>  Bearer token for --serve (auto-generated if omitted)
     -h, --help             Print this help
     -V, --version          Print version
+    --print-background    Which background the terminal reported, and from where
 
 KEYS:
     ESC / q    Quit
@@ -59,6 +60,26 @@ fn parse_cli<I: IntoIterator<Item = String>>(argv: I) -> Startup {
             "-h" | "--help" => return Startup::Print(USAGE.to_string()),
             "-V" | "--version" => {
                 return Startup::Print(format!("multitop {}", env!("CARGO_PKG_VERSION")))
+            }
+            "--print-background" => {
+                // Which branch the palette took, and what it decided. A probe
+                // that reports "it looked fine" is how a feature ends up wired to
+                // nothing and green: the background is detected, stored, adapted
+                // -- and none of that is visible from the outside, so a real
+                // check needs a real question. This is the app's own answer, on
+                // the app's own terminal, through the same `detect` the render
+                // path uses.
+                let found = multitop::background::detect();
+                return Startup::Print(format!(
+                    "background: {:?}\n  source: {}\n  luminance: {:.4}\n  \"{}\" is set: {}",
+                    found,
+                    found.source(),
+                    found
+                        .or_theme(multitop_agent::color::KARE.own_background())
+                        .relative_luminance(),
+                    "COLORFGBG",
+                    std::env::var("COLORFGBG").unwrap_or_else(|_| "<unset>".into()),
+                ));
             }
             "-c" | "--config" => match iter.next() {
                 Some(p) => opts.config_path = Some(PathBuf::from(p)),

@@ -346,6 +346,9 @@ BENCH_DURATION_SECS=60 BENCH_REMOTE_HOST=<host> BENCH_REMOTE_USER=<user> \
 | `install.sh` | Install built binary to `$(brew --prefix)/bin` |
 | `tools/gate_lock.py` | Single-flight lock for gate runs (hooks + `gate.sh --full`) |
 | `tools/push_probe.sh` | Staged push path diagnostic (reachability, auth, permissions) |
+| `tools/light_terminal_check.py` | Runs the built binary on a light and a dark background and measures every colour it actually drew |
+| `tools/check_no_hard_coded_colour.py` | Fails a 24-bit colour literal in either render crate — it would bypass the palette's adaptation |
+| `multitop --print-background` | Which background the terminal reported, and from which probe |
 | `Cargo.toml` | Workspace version + dependencies |
 | `crates/multitop/Cargo.toml` | Package metadata |
 | `config.example.toml` | Sample configuration |

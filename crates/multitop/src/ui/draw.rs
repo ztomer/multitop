@@ -291,13 +291,25 @@ fn header_name_color(
     alert_color: Option<ratatui::style::Color>,
     theme: &PaletteView,
 ) -> (String, String) {
+    // The alert tint takes the palette's OWN alert colour, not a literal.
+    //
+    // These two were hard-coded, which is invisible on a dark terminal — the
+    // literals ARE the theme's values — and invisible to the light-terminal work
+    // for the same reason: a hard-coded escape does not go through the view, so
+    // the adaptation never sees it. A capture of the real app on a white
+    // terminal is what found it, measuring the rendered pixels: the alert red
+    // came out at rgb(255,85,85), 3.14:1, the only one of eight rendered
+    // colours under the bar. Every other one was adapted and cleared it.
+    //
+    // The two branches map to the roles the alert means: a breached alert is
+    // `meter_high`, a warning is `meter_mid`.
     match alert_color {
         Some(ratatui::style::Color::Red) => (
-            format!("\x1b[38;2;255;85;85m{}", theme.bold),
+            format!("{}{}", theme.meter_high(), theme.bold),
             theme.reset.to_string(),
         ),
         Some(ratatui::style::Color::Yellow) => (
-            format!("\x1b[38;2;241;250;140m{}", theme.bold),
+            format!("{}{}", theme.meter_mid(), theme.bold),
             theme.reset.to_string(),
         ),
         _ => (
