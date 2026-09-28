@@ -110,6 +110,33 @@ _HISTORY = re.compile(
 )
 
 
+def resolves(root: Path, relative: Path) -> str | None:
+    """Whether `relative` names a file under `root`, uniquely, by its tail.
+
+    A doc may name a file relative to a base it has just stated -- "four in
+    `app/views.rs`, all under `crates/multitop/src`" -- and a reader resolves
+    that without trouble. Resolving from the repository root alone flagged every
+    one of them, which is how this checker produced six false positives on the
+    first real multi-file sentence it saw in a doc.
+
+    So a token that is not at the root is also looked for as a SUFFIX, and
+    accepted only when exactly one file in the tree ends that way. Ambiguity is
+    not accepted: if two files match, the reference does not identify one, which
+    is the same defect this checker exists to catch, in a different shape.
+    """
+    if (root / relative).exists():
+        return str(relative)
+    tail = relative.parts
+    matches = [
+        path
+        for path in root.rglob(relative.name)
+        if path.is_file() and path.parts[-len(tail):] == tail
+    ]
+    if len(matches) == 1:
+        return str(matches[0].relative_to(root))
+    return None
+
+
 def candidate(token: str) -> str | None:
     """Return the path this token names, or None if it is not one."""
     token = _LINE_SUFFIX.sub("", token)
@@ -259,7 +286,11 @@ def offenders(root: Path, deleted: set[str]):
         paragraphs = _paragraphs(text)
         for lineno, token, is_command, _line in instructions(text):
             named = candidate(token)
-            if named is None or (root / named).exists():
+            if named is None:
+                continue
+            # Resolved, not merely probed: a token may be named relative to a
+            # base the sentence has just stated.
+            if resolves(root, Path(named)) is not None:
                 continue
             # In PROSE a bare filename is shorthand -- "`build.rs` panics for
             # release" names the one build.rs in the tree and nobody reads it as
@@ -390,6 +421,36 @@ def self_test() -> int:
                   f"deletion exemption has a hole and the commit that made it "
                   f"was gated by this checker")
             return 1
+
+    # A path named relative to a base the sentence states, and one that is
+    # genuinely missing. Both were false-positives in the first draft of this
+    # rule, on text that was perfectly clear to a reader.
+    (root / "src" / "app").mkdir(parents=True)
+    (root / "src" / "app" / "views.rs").write_text("//\n", encoding="utf-8")
+    (root / "RELEASE.md").write_text(
+        "# Release\n\nFour in `app/views.rs`, all under `src`.\n",
+        encoding="utf-8",
+    )
+    if offenders(root, never):
+        print("self-test FAILED: a path named relative to a stated base was "
+              "reported -- a reader resolves that without trouble")
+        return 1
+
+    # Ambiguity is NOT resolution. The second file has to share the whole TAIL,
+    # not just the basename: `other/views.rs` does not compete with
+    # `app/views.rs`, and testing against it asserted a stricter rule than the
+    # one the code implements -- a test that passes for the wrong reason is the
+    # same failure as one that fails.
+    (root / "crates").mkdir()
+    (root / "crates" / "app").mkdir()
+    (root / "crates" / "app" / "views.rs").write_text("//\n", encoding="utf-8")
+    if not offenders(root, never):
+        print("self-test FAILED: an ambiguous tail was accepted -- two files "
+              "end the same way, so the reference identifies neither")
+        return 1
+    (root / "crates" / "app" / "views.rs").unlink()
+    (root / "crates" / "app").rmdir()
+    (root / "crates").rmdir()
 
     print("check_doc_paths self-test: ok")
     return 0
