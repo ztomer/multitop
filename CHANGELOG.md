@@ -7,7 +7,7 @@ This file starts at v0.47.0 — earlier history is in git (`git log`), and the
 per-defect record is `docs/detection-record.md`, which is the more useful
 document for anything before this point.
 
-## Unreleased
+## v0.49.0 — the upgrade stops being drawn 80 columns wide _(2026-09-27)_
 
 ### Fixed
 - **The upgrade is rendered at the wrong width.** Every remote channel was
