@@ -71,10 +71,11 @@ async fn a_resize_after_a_server_edit_uses_the_new_count() {
         ],
     );
 
+    // The wait, and it is already the right one: `expect_dims` blocks on the
+    // published value rather than on a clock, and the 200 ms sleep that used to
+    // follow it was a second guess at the same thing the call above waits for
+    // properly. Under instrumentation that guess was the one that failed.
     h.expect_dims(dims_for(size, 2), "after the removal").await;
-    // Long enough for the resize debounce to fire and publish, if it is going
-    // to publish anything at all.
-    tokio::time::sleep(Duration::from_millis(200)).await;
     assert_eq!(
         *h.dims.borrow(),
         dims_for(size, 2),

@@ -100,6 +100,16 @@ fn state_says_finished(cfg: &std::path::Path, account: &str) -> bool {
         .is_some_and(toml::Value::is_integer)
 }
 
+/// Whether the loop has written its state file at all.
+///
+/// The mark that it has *acted*, as opposed to having been sent something. A
+/// suite that waits on this is waiting on the loop rather than on a clock, and
+/// that is the difference between a test that passes and one that passes
+/// usually.
+fn state_file_exists(cfg: &std::path::Path) -> bool {
+    multitop::state::state_file_path(cfg).is_file()
+}
+
 /// Whether the state file records `started_at` for the host -- the durable
 /// mark of a run actually beginning. The confirm deferral must keep this absent
 /// while a credential lookup is still in flight.
@@ -224,6 +234,70 @@ impl PacedHarness {
     const fn finish(&mut self) -> tokio::task::JoinHandle<multitop::run::LoopOutcome> {
         self.loop_task.take().expect("task only taken once")
     }
+}
+
+/// Press `code` until `acted` says the loop has acted on it, or fail naming it.
+///
+/// # Why this is not a sleep
+///
+/// The sequences this replaces were `sleep(300ms)` between presses, which is a
+/// guess at how long an interactive login shell, a credential read and one
+/// event-loop poll take: three subprocesses and a scheduler, none of which
+/// have a fixed duration. Under `llvm-cov` the guess is simply too short, and
+/// `event_loop_e2e` and `upgrade_loop_e2e` between them failed the coverage
+/// gate on a loaded machine while passing six times out of six in isolation.
+/// A suite that fires under load is a gate people learn to distrust, and
+/// `Harness::expect_dims` in this file already carries the note: *"Ceiling, not
+/// a sleep: 5s tripped under parallel-suite load."* This is that, for the
+/// other wait in the same file.
+///
+/// # Why pressing again is correct, not a retry
+///
+/// The thing being waited for is the credential lookup, and the app **defers
+/// the confirm until it lands** -- so a press that arrives early is queued and
+/// consumed the moment the answer is in, rather than lost. Pressing on an
+/// interval until the durable mark appears is the same action at a pace the
+/// machine can keep up with. A `started_at` appearing after a later press is
+/// not a different outcome; it is the first press arriving.
+///
+/// The ceiling is a backstop, not the assertion: `acted` returning true early
+/// is the pass, and the tests still assert on the state the loop reached.
+async fn press_until<F>(
+    tx: &tokio::sync::mpsc::Sender<std::io::Result<Event>>,
+    code: KeyCode,
+    acted: F,
+    what: &str,
+) where
+    // `Send + Sync` because these are awaited on a multi-thread runtime: a
+    // predicate holding a `&Path` is neither by default, and the future has to
+    // be movable across workers to be awaitable there at all.
+    F: Fn() -> bool + Send + Sync,
+{
+    let ceiling = tokio::time::timeout(Duration::from_secs(30), async {
+        while !acted() {
+            tx.send(Ok(key(code)))
+                .await
+                .expect("the loop is still reading events");
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+    })
+    .await;
+    assert!(ceiling.is_ok(), "{what}: the loop never acted within 30s");
+}
+
+/// Wait until `ready` says the loop has acted, or fail. For the waits where
+/// nothing needs re-sending -- a run finishing, a resize landing.
+async fn settle<F>(ready: F, what: &str)
+where
+    F: Fn() -> bool + Send + Sync,
+{
+    let done = tokio::time::timeout(Duration::from_secs(30), async {
+        while !ready() {
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+    })
+    .await;
+    assert!(done.is_ok(), "{what}: never happened within 30s");
 }
 
 impl Drop for Harness {

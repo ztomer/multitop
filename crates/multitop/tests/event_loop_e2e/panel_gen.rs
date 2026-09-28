@@ -14,7 +14,14 @@ async fn monitor_packets_use_the_panel_gen_after_a_view_switch() {
 
     // Enter the upgrade view -- this increments panel.gen -- then confirm.
     tx.send(Ok(key(KeyCode::Char('u')))).await.expect("key");
-    tokio::time::sleep(Duration::from_millis(300)).await;
+    // The loop has to have read the press before the next one means anything;
+    // a fixed beat is a guess, and under instrumentation it is a guess that is
+    // wrong. Wait on the state file instead -- the loop's own durable output.
+    settle(
+        || state_file_exists(&h.cfg),
+        "the loop never wrote its state file",
+    )
+    .await;
     for _ in 0..2 {
         tx.send(Ok(key(KeyCode::Char('u')))).await.expect("key");
     }

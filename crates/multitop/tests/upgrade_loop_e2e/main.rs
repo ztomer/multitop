@@ -16,8 +16,6 @@
 // through and through -- helpers included.
 #![cfg(test)]
 
-use std::time::Duration;
-
 use multitop::app::{App, Msg, VaultState};
 use multitop::config::Server;
 use multitop::panel::{Mode, UpgradeState};
@@ -107,15 +105,32 @@ struct MsgCollector {
     rx: mpsc::Receiver<Msg>,
 }
 
+/// How long the exec channel may be silent before it counts as finished.
+///
+/// One number for both readers, because "quiet for a while" means the same
+/// thing to each, and the two used to disagree (5 s and 10 s) for no stated
+/// reason -- the sort of drift that makes a flaky suite hard to argue about.
+const QUIET: std::time::Duration = std::time::Duration::from_secs(60);
+
 impl MsgCollector {
     const fn new(rx: mpsc::Receiver<Msg>) -> Self {
         Self { rx }
     }
 
+    /// Collect until the channel goes quiet for [`QUIET`].
+    ///
+    /// The window is a CEILING on "nothing more is coming", not a guess at how
+    /// long a run takes, and it has to be generous: these are local upgrades
+    /// and they go through the same interactive login shell a remote one
+    /// always did, so a run pays the rc-file startup before its first line --
+    /// which under `llvm-cov` on a loaded machine is comfortably more than five
+    /// seconds, and a window that closes early stops the collection SILENTLY.
+    /// A truncated list then fails some later assertion about output that was
+    /// never missing, which is how a timing window becomes an unexplained
+    /// failure three files away.
     async fn collect_all(&mut self) -> Vec<Msg> {
         let mut msgs = Vec::new();
-        while let Ok(Some(msg)) = tokio::time::timeout(Duration::from_secs(5), self.rx.recv()).await
-        {
+        while let Ok(Some(msg)) = tokio::time::timeout(QUIET, self.rx.recv()).await {
             msgs.push(msg);
         }
         msgs
@@ -123,7 +138,7 @@ impl MsgCollector {
 
     async fn wait_for_done(&mut self) -> Option<Msg> {
         loop {
-            match tokio::time::timeout(Duration::from_secs(10), self.rx.recv()).await {
+            match tokio::time::timeout(QUIET, self.rx.recv()).await {
                 Ok(Some(msg)) => {
                     if matches!(msg, Msg::AuxDone { .. } | Msg::Status { .. }) {
                         return Some(msg);

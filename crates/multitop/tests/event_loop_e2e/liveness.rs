@@ -34,17 +34,21 @@ async fn the_loop_still_quits_after_the_upgrade_completes() {
     let cmd = "i=0; while [ $i -lt 300 ]; do echo tick-$i; i=$((i+1)); sleep 0.01; done";
     let servers = vec![local_server(42022, cmd)];
     let (mut h, tx) = PacedHarness::start(servers, (80, 24));
+    let account = "admin@127.0.0.1:42022";
 
     // Entering the upgrade view dispatches the credential-store lookup off the
     // loop thread, and the confirm is deferred until that answer lands (the
-    // header reads `checking` meanwhile). The mock store answers instantly, so
-    // a beat between the enter and the confirm queuing makes the ordering
-    // deterministic: enter, let the answer land, then confirm.
-    tx.send(Ok(key(KeyCode::Char('u')))).await.expect("key");
-    tokio::time::sleep(Duration::from_millis(300)).await;
-    for _ in 0..2 {
-        tx.send(Ok(key(KeyCode::Char('u')))).await.expect("key");
-    }
+    // header reads `checking` meanwhile). Entering the view dispatches the
+    // lookup; the confirm is deferred until it lands. So: press `u` until the
+    // run has actually started on the durable record, which is also pressing
+    // the key at a pace this machine keeps up with -- see `press_until`.
+    press_until(
+        &tx,
+        KeyCode::Char('u'),
+        || state_says_started(&h.cfg, account),
+        "the upgrade never started",
+    )
+    .await;
 
     // Completion, proven from the durable record rather than assumed. The
     // streamer takes ~3s, so a wedged loop would have all the time in the
@@ -107,21 +111,51 @@ async fn a_quit_key_lands_while_the_upgrade_channel_is_flooded() {
     let servers = vec![local_server(42023, cmd)];
     let (mut h, tx) = PacedHarness::start(servers, (80, 24));
 
-    // Enter first, then let the deferred credential answer land (the confirm is
-    // gated on it), then queue the modal and the confirm so the run definitely
-    // starts and the channel has a flood to build.
-    tx.send(Ok(key(KeyCode::Char('u')))).await.expect("key");
-    tokio::time::sleep(Duration::from_millis(300)).await;
-    for _ in 0..2 {
-        tx.send(Ok(key(KeyCode::Char('u')))).await.expect("key");
-    }
-    // Let the burst build to full throttle before asking for anything.
-    tokio::time::sleep(Duration::from_millis(250)).await;
+    // Press `u` until the run has started on the durable record, so the
+    // channel has a flood to build. The confirm is deferred until the
+    // credential lookup lands, and a press sent before that is queued rather
+    // than lost -- so this is the same action, paced.
+    press_until(
+        &tx,
+        KeyCode::Char('u'),
+        || state_says_started(&h.cfg, "admin@127.0.0.1:42023"),
+        "the flood run never started",
+    )
+    .await;
 
     tx.send(Ok(key(KeyCode::Char('s')))).await.expect("key");
     tx.send(Ok(key(KeyCode::Char('q')))).await.expect("key");
-    tokio::time::sleep(Duration::from_millis(250)).await;
-    tx.send(Ok(key(KeyCode::Char('q')))).await.expect("key");
+    // The second `q` confirms. Sent on an interval rather than after a guess:
+    // the first one only ARMS quit while an upgrade is in flight, and how long
+    // that takes to be read is the loop's business, not a number to guess.
+    let mut reads = 0usize;
+    let ok = tokio::time::timeout(Duration::from_secs(30), async {
+        loop {
+            reads += 1;
+            // A closed channel IS the loop having quit, which is the thing being
+            // waited for -- so it ends the wait rather than failing it. What
+            // this test cares about is that the loop ANSWERED the key, and
+            // fewer than two reads means the first `q` armed quit and nothing
+            // confirmed it.
+            if tx.send(Ok(key(KeyCode::Char('q')))).await.is_err() {
+                return true;
+            }
+            if h.loop_task
+                .as_ref()
+                .is_some_and(tokio::task::JoinHandle::is_finished)
+            {
+                return true;
+            }
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+    })
+    .await
+    .unwrap_or(false);
+    assert!(
+        ok && reads >= 2,
+        "the loop never confirmed the quit: {reads} key(s) reached it, and \
+         the second `q` is the one that confirms"
+    );
 
     let outcome = tokio::time::timeout(Duration::from_secs(15), h.finish())
         .await
@@ -201,14 +235,26 @@ fn the_loop_stays_live_while_a_credential_load_blocks() {
 
         // Entering the upgrade view dispatches the lookup; the answer takes 15s.
         tx.send(Ok(key(KeyCode::Char('u')))).await.expect("key");
-        tokio::time::sleep(Duration::from_millis(200)).await;
 
-        // Queue confirm; the pane header reads `checking` and the confirm must be
-        // deferred, not start a run on a password the store has not returned.
-        tx.send(Ok(key(KeyCode::Char('u')))).await.expect("key");
-        tokio::time::sleep(Duration::from_millis(200)).await;
-        tx.send(Ok(key(KeyCode::Char('u')))).await.expect("key");
-        tokio::time::sleep(Duration::from_millis(300)).await;
+        // Queue the confirm and the go. The store has NOT answered, so the run
+        // must not start -- that is the assertion, and it needs the keys to
+        // have been READ, which a sleep cannot promise. So wait for the durable
+        // evidence that the loop acted at all (the pane's view has changed),
+        // and then assert the run did not start.
+        //
+        // The observable is the state file: it has no `started_at` entry, and
+        // the config it would be written to is only touched by the loop.
+        tokio::time::timeout(Duration::from_secs(30), async {
+            loop {
+                tx.send(Ok(key(KeyCode::Char('u')))).await.expect("key");
+                if state_file_exists(&h.cfg) {
+                    return;
+                }
+                tokio::time::sleep(Duration::from_millis(20)).await;
+            }
+        })
+        .await
+        .expect("the loop never wrote its state file, so it never acted");
         assert!(
             !state_says_started(&h.cfg, "admin@127.0.0.1:42024"),
             "the confirm must be deferred while the credential lookup is in flight"
@@ -218,7 +264,7 @@ fn the_loop_stays_live_while_a_credential_load_blocks() {
         // cancels it first; a second `q` then quits, with no upgrade in flight
         // to arm it.
         tx.send(Ok(key(KeyCode::Char('q')))).await.expect("key");
-        tokio::time::sleep(Duration::from_millis(250)).await;
+        tokio::time::sleep(Duration::from_millis(50)).await;
         tx.send(Ok(key(KeyCode::Char('q')))).await.expect("key");
 
         let outcome = tokio::time::timeout(Duration::from_secs(15), h.finish())

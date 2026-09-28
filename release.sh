@@ -133,46 +133,26 @@ done
 info "bumping ${TAP}/${FORMULA_PATH} → ${VER} (tarball + both resources) ..."
 CUR_SHA="$(gh api "repos/${TAP}/contents/${FORMULA_PATH}" --jq .sha)"
 CUR_FORMULA="$(gh api "repos/${TAP}/contents/${FORMULA_PATH}" --jq .content | base64 --decode)"
-# The transform is a quoted heredoc, never `python3 -c "..."`: the program has
-# double quotes in it (`sha256 "..."`), and inside a bash double-quoted string
-# they closed and reopened the argument, so the regexes lost their quotes and
-# the agent-sha line was never matched (v0.47.3: "agent sha line not found").
-# The formula travels by environment for the same reason.
-NEW_FORMULA="$(CUR_FORMULA="${CUR_FORMULA}" NEW_TAG="${TAG}" TARBALL_SHA="${TARBALL_SHA}" SHA_X64="${SHA_X64}" SHA_ARM="${SHA_ARM}" python3 - <<'PY'
-
-import os, re, sys
-s = os.environ['CUR_FORMULA']
-new_tag = os.environ['NEW_TAG']
-old = re.search(r'multitop/archive/refs/tags/(v[\d.]+)\.tar\.gz', s)
-assert old, 'source tarball url not found'
-old_tag = old.group(1)
-s = s.replace('multitop/archive/refs/tags/%s.tar.gz' % old_tag,
-              'multitop/archive/refs/tags/%s.tar.gz' % new_tag)
-s = re.sub(r'sha256 "[0-9a-f]+"', 'sha256 "' + os.environ['TARBALL_SHA'] + '"', s, count=1)
-lines = s.split('\n')
-out, pending = [], None
-for line in lines:
-    # Anchor on releases/download/ so ENV[...] filenames and comments below
-    # (same strings, no version, no following sha) are never touched.
-    if 'releases/download/v' in line and 'multitop-agent-x86_64-unknown-linux-musl' in line:
-        line = line.replace('/%s/' % old_tag, '/%s/' % new_tag)
-        pending = os.environ['SHA_X64']
-    elif 'releases/download/v' in line and 'multitop-agent-aarch64-unknown-linux-musl' in line:
-        line = line.replace('/%s/' % old_tag, '/%s/' % new_tag)
-        pending = os.environ['SHA_ARM']
-    elif pending and re.search(r'sha256 "[0-9a-f]+"', line):
-        line = re.sub(r'sha256 "[0-9a-f]+"', 'sha256 "' + pending + '"', line, count=1)
-        pending = None
-    out.append(line)
-assert pending is None, 'agent sha line not found after agent url'
-s = '\n'.join(out)
-# Command substitution strips trailing newlines; the formula must end with one.
-if not s.endswith('\n'):
-    s += '\n'
-assert old_tag not in [l for l in out if 'multitop-agent-' in l or 'archive/refs/tags' in l], 'stale tag left behind'
-sys.stdout.write(s)
-PY
-)"
+# The transform is tools/bump_formula.py, not a heredoc here.
+#
+# It used to be a quoted heredoc inside a `$( )` inside a double-quoted
+# assignment, and the first attempt at fixing the bug it exists to fix put an
+# unbalanced quote in a *comment* inside that nesting -- which `bash -n`
+# reported seventy lines from the cause. A release-path transform that cannot
+# be read is one that cannot be fixed under pressure, and out here it is also
+# directly testable, which the heredoc was not. `python3 -c "..."` is the other
+# thing never to do: the program has double quotes in it (`sha256 "..."`), and
+# inside a bash double-quoted string they closed and reopened the argument, so
+# the regexes lost their quotes (v0.47.3: "agent sha line not found").
+#
+# What the new one fixes is in its docstring. The short version: the old one
+# paired a digest with a url by LINE ORDER, which works only while every url in
+# the formula names the same tag. Two agent urls were left at v0.47.3 by a
+# release four versions earlier, so on v0.49.0 it matched nothing, changed
+# nothing, and every assertion still passed -- `pending` had never been armed.
+# The formula shipped 0.49.0 digests beside 0.47.3 urls and Homebrew refused it.
+NEW_FORMULA="$(CUR_FORMULA="${CUR_FORMULA}" NEW_TAG="${TAG}" TARBALL_SHA="${TARBALL_SHA}" SHA_X64="${SHA_X64}" SHA_ARM="${SHA_ARM}" \
+  python3 tools/bump_formula.py)"
 if [ "${NEW_FORMULA}" = "${CUR_FORMULA}" ]; then
   die "tap transform produced no change — refusing to push an empty bump"
 fi

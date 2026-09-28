@@ -34,9 +34,16 @@ document for anything before this point.
   hung up, which is exactly the diagnosis the rule exists to protect. The
   vocabulary is now built from the format strings in the `ssh` binary itself,
   so every phrase matched is one only `ssh` prints.
-- **A gate that fired under load.** `event_loop_e2e`'s liveness test failed
-  about a third of the time on a busy machine — 6 of 20 runs on unmodified
-  `main` — against a 10-second deadline for a real forked pty and 300 echoes.
+- **Three timing suites that fired under load, which is what the coverage gate
+  caught.** A `sleep` standing in for "the loop has read the key" passes when
+  the machine is quiet and fails when it is not — 6 of 20 warm runs on
+  unmodified `main` for one of them — and one collector gave each message 5
+  seconds and stopped collecting *silently* when the window closed, so a
+  truncated list failed a later assertion about output that was never missing.
+  Every wait is now on a condition: the key is re-sent until the loop's own
+  durable record shows it acted, which is correct rather than a retry because
+  the app defers a confirm until the credential lookup lands, so an early press
+  is queued rather than lost.
 - **`tools/lint_linux.sh` had never run here.** `cp -r` cannot stat git's
   fsmonitor socket through a bind mount, and the three commands shared one `&&`
   line, so the failure skipped only the `cd` and cargo then reported
@@ -44,6 +51,21 @@ document for anything before this point.
   the directory it was in. Now copies with `tar --exclude`, and says so when
   the copy produces no manifest. `✓ linux clippy clean` for the first time on
   a macOS checkout.
+- **`brew upgrade` was broken by v0.49.0, for about ten minutes, and the
+  release script is why.** The Homebrew transform paired a digest with a url by
+  LINE ORDER — it armed `pending` on a url line and wrote the sha onto the next
+  sha line. That works only while every url in the formula names the same tag,
+  and two agent urls had been left at v0.47.3 by a release four versions
+  earlier. So on v0.49.0 it matched nothing, changed nothing, and every
+  assertion it had still passed: `pending` had simply never been armed. The
+  formula shipped 0.49.0 digests beside v0.47.3 urls, and `brew fetch` refused
+  it. The final check that should have caught it only looked for the *tarball's*
+  old tag, so a different old tag walked straight past. Fixed in
+  `tools/bump_formula.py`, which rewrites one resource block at a time by name
+  with every count asserted, and requires every tag anywhere in the formula to
+  be the tag being released. `tests/test_bump_formula.py` runs the v0.49.0
+  input through both transforms: the old one ships the breakage silently, the
+  new one repairs it.
 - **Two constants claimed to be the resize debounce.** `consts::RESIZE_DEBOUNCE`
   said 250 ms; `run::RESIZE_DEBOUNCE`, which is the one the loop reads, says
   30 ms. Nothing referenced the first, and a reader asking "how long until a
