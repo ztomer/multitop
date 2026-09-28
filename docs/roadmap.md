@@ -12,30 +12,67 @@ whether any of it exists.
 
 ### A palette for light terminals
 
+**Partly done (2026-09-28).** The mechanism and a real palette defect are fixed;
+background detection and the render wiring are not, so the item stays open.
+
 Found 2026-09-23 screenshotting the Ops view on a light backdrop. All 8 themes
 (`KARE`, `DRACULA`, `NORD`, `GRUVBOX`, `CATPPUCCIN`, `TOKYO_NIGHT`, `MONOKAI`,
-`CYBERPUNK` in `crates/agent/src/color.rs`) are dark, so yellow — the `⚠` glyph
-and the warn state — and cyan, which every host banner is drawn in, wash out to
-near-invisible on a light terminal. This is true in every view, not just Ops.
+`CYBERPUNK` in `crates/agent/src/color.rs`) are dark, so yellow — the `⚠` glyph,
+the warn state — and cyan, which every host banner is drawn in, wash out to
+near-invisible. This is true in every view, not just Ops.
 
-Meaning survives; legibility does not. That matters because the UI house rule
-is that no distinction may ride on one channel: a distinction carried by colour
-that the background has eaten is not carried at all, so every place yellow or
-cyan is the only signal is a legibility bug, not a style preference.
+Meaning survives; legibility does not. That matters because the UI house rule is
+that no distinction may ride on one channel: a distinction carried by colour that
+the background has eaten is not carried at all, so every place yellow or cyan is
+the only signal is a legibility bug, not a style preference.
 
-Two shapes of fix, and the second is much cheaper:
+**Measured, not assumed.** `adapt_tests.rs` asserts the claim arithmetically for
+all eight themes, so it cannot rot into an opinion and a ninth theme is covered by
+the same assertions. On a near-white terminal the roles land at:
 
-* a light variant per theme — 8 themes × the whole palette, and a design pass
-  across every view, since nothing today distinguishes "the theme's background"
-  from "the terminal's background"
-* background detection — ask what the terminal is actually painting, and derive
-  a foreground that survives it. One mechanism instead of 16 palettes, and it is
-  correct on a terminal whose background is an image, which per-theme variants
-  never can be.
+| role | contrast on light |
+|------|-------------------|
+| `text` | 1.03 – 1.34 : 1 |
+| `primary` (the banner) | 1.35 – 2.05 : 1 |
+| `meter_mid` (the warn yellow) | 1.09 – 1.95 : 1 |
 
-The second is the one worth building. The obstruction to check first: the
-palette is a fixed table of ANSI escapes, so a derived variant needs a place to
-live that is not a table entry.
+**Done — the mechanism.** `crates/agent/src/surface.rs` is the colour arithmetic
+(WCAG luminance and ratio, HSL, CIE76 ΔE) and `crates/agent/src/adapt.rs` is the
+palette-level adaptation. One affine map on relative luminance, fitted across the
+palette's own range, with the brightest role landing on the ratio threshold. It is
+one mechanism for all eight themes rather than sixteen palettes, and it is
+correct on a terminal whose background is an image, which per-theme variants
+never can be.
+
+**The obvious implementation was wrong, and the test says so.** Adjusting each
+role independently until it reaches the floor drives every failing role to the
+*same* luminance, so Kare's `primary` and `secondary` came out 1.01 : 1 apart on a
+light terminal — the same colour. That buys legibility by spending a distinction.
+`adapting_never_reduces_the_separation_two_roles_had` is the check, and it is
+judged by ΔE rather than by contrast, because contrast is a function of luminance
+alone and a cyan and a green at one lightness are 1.0 : 1 in contrast terms while
+being obviously different colours.
+
+**Done — a real defect this turned up, which was not on the roadmap.** Measuring
+the palettes against *each theme's own* background (they are not all the same
+value, and using one theme's for another asks a question about neither) found four
+roles below the legibility floor in three shipped themes, and one below a
+de-emphasis floor: Nord `secondary` 4.41 : 1, and `meter_high` at 3.05 : 1 in
+Nord, 4.29 : 1 in Gruvbox, 3.93 : 1 in Monokai. `meter_high` is the colour for
+high meters *and for alerts*, and the house rule is that alarm is for faults, so
+an alert at 3.05 : 1 is the one colour on screen that must not be marginal. All
+four were lifted along the hue line, keeping each theme's hue, and the floors are
+now tests.
+
+**Not done, and it is the part that makes this reach a terminal.** The background
+is not detected yet. The obstruction is architectural and worth writing down: the
+agent renders on the *remote* host but its escapes are interpreted by the *local*
+terminal, so the remote side cannot answer the question for itself. Detection is
+therefore `OSC 11` on the local side, and either the answer is passed to the
+agent or the local side rewrites the escapes as frames pass through. Then
+`adapt` has to be called from the render path, which is what the four
+`reachability:` notes in the new modules record — they are honest about the debt
+rather than hiding it behind a test that passes.
 
 ### Mobile companion, Android
 

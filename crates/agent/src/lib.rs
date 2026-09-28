@@ -17,6 +17,7 @@
 
 use std::os::unix::fs::FileTypeExt;
 
+pub mod adapt;
 pub mod color;
 pub mod consts;
 pub mod conv;
@@ -29,6 +30,7 @@ pub mod emit;
 pub mod exec;
 pub mod fetch;
 pub mod fmt;
+pub mod lab;
 pub mod monitor;
 pub mod proc;
 pub mod proc_disk;
@@ -36,6 +38,7 @@ pub mod proc_sys;
 pub mod proto;
 pub mod render;
 pub mod render_layout;
+pub mod surface;
 pub mod sys;
 pub mod sys_temps;
 
