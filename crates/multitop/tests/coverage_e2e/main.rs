@@ -51,6 +51,13 @@ use ratatui::backend::TestBackend;
 use ratatui::style::{Color, Style};
 use secrecy::SecretString;
 
+/// The palette these tests draw with: a view over Kare's own stated background,
+/// so the escapes are the theme's own.
+#[must_use]
+pub fn pal() -> multitop_agent::palette_view::PaletteView {
+    multitop_agent::palette_view::PaletteView::for_theme(&multitop_agent::color::THEMES[0])
+}
+
 fn test_server(host: &str) -> Server {
     Server {
         user: "testuser".to_string(),

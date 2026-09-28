@@ -37,7 +37,7 @@ fn a_sample_that_is_not_a_number_cannot_poison_the_scale() {
     let mut h = History::default();
     h.record(&snapshot(50.0, 50, f64::NAN, -1.0));
     h.record(&snapshot(50.0, 50, 1000.0, 1000.0));
-    let text = render_graphs(&h, 20, 9, PLAIN).join("\n");
+    let text = render_graphs(&h, 20, 9, &plain()).join("\n");
     assert!(
         text.chars().any(|c| ('\u{2801}'..='\u{28ff}').contains(&c)),
         "a bad sample emptied the graph:\n{text}"
@@ -145,7 +145,7 @@ fn a_graph_with_no_room_draws_nothing_rather_than_panicking() {
 
 #[test]
 fn a_panel_with_no_samples_says_so_instead_of_drawing_a_flat_line() {
-    let out = render_graphs(&History::default(), 40, 9, PLAIN);
+    let out = render_graphs(&History::default(), 40, 9, &plain());
     let text = out.join("\n");
     assert!(
         text.contains("no samples yet"),
@@ -157,7 +157,7 @@ fn a_panel_with_no_samples_says_so_instead_of_drawing_a_flat_line() {
 fn the_four_graphs_carry_headings_and_the_current_readings() {
     let mut h = History::default();
     h.record(&snapshot(75.0, 50, 1024.0, 4096.0));
-    let text = render_graphs(&h, 40, 20, PLAIN).join("\n");
+    let text = render_graphs(&h, 40, 20, &plain()).join("\n");
 
     assert!(text.contains("CPU"), "{text}");
     assert!(
@@ -193,7 +193,7 @@ fn the_first_line_is_left_for_the_banner_to_overwrite() {
     h.record(&snapshot(75.0, 50, 0.0, 0.0));
 
     for rows in [1usize, 2, 4, 9, 20] {
-        let out = render_graphs(&h, 40, rows, PLAIN);
+        let out = render_graphs(&h, 40, rows, &plain());
         assert_eq!(
             out.first().map(String::as_str),
             Some(""),
@@ -212,7 +212,7 @@ fn the_cpu_heading_carries_the_current_clock() {
     let mut snap = snapshot(40.0, 50, 0.0, 0.0);
     snap.cpu_mhz = Some(3600.0);
     h.record(&snap);
-    let text = render_graphs(&h, 40, 20, PLAIN).join("\n");
+    let text = render_graphs(&h, 40, 20, &plain()).join("\n");
     assert!(
         text.contains("3.60 GHz"),
         "no clock on the CPU heading:\n{text}"
@@ -223,7 +223,7 @@ fn the_cpu_heading_carries_the_current_clock() {
     let mut snap = snapshot(40.0, 50, 0.0, 0.0);
     snap.cpu_mhz = Some(800.0);
     slow.record(&snap);
-    assert!(render_graphs(&slow, 40, 20, PLAIN)
+    assert!(render_graphs(&slow, 40, 20, &plain())
         .join("\n")
         .contains("800 MHz"));
 }
@@ -237,7 +237,7 @@ fn a_machine_that_publishes_no_clock_says_so_rather_than_showing_zero() {
     snap.cpu_mhz = None;
     h.record(&snap);
 
-    let text = render_graphs(&h, 40, 20, PLAIN).join("\n");
+    let text = render_graphs(&h, 40, 20, &plain()).join("\n");
     assert!(
         text.contains("-- MHz"),
         "an absent clock was not marked:\n{text}"
@@ -254,7 +254,7 @@ fn both_directions_of_the_link_share_one_scale() {
     // each graph to its own peak would draw them the same height.
     let mut h = History::default();
     h.record(&snapshot(10.0, 10, 1_000_000.0, 1_000.0));
-    let out = render_graphs(&h, 20, 20, PLAIN);
+    let out = render_graphs(&h, 20, 20, &plain());
 
     let dots = |from: usize| -> usize {
         out[from + 1..]
@@ -283,7 +283,7 @@ fn the_graphs_fill_the_rows_they_are_given() {
         h.record(&snapshot(f64::from(i) * 5.0, 10, 0.0, 0.0));
     }
     for rows in 3..=20usize {
-        let out = render_graphs(&h, 30, rows, PLAIN);
+        let out = render_graphs(&h, 30, rows, &plain());
         assert!(
             out.len() <= rows,
             "at {rows} rows the graphs drew {} lines and would be clipped",
@@ -298,7 +298,7 @@ fn a_pane_with_room_for_only_one_graph_draws_cpu_properly() {
     // real graph beats three useless ones.
     let mut h = History::default();
     h.record(&snapshot(60.0, 10, 0.0, 0.0));
-    let out = render_graphs(&h, 30, 4, PLAIN);
+    let out = render_graphs(&h, 30, 4, &plain());
     let text = out.join("\n");
     assert!(text.contains("CPU"), "{text}");
     assert!(
@@ -315,7 +315,7 @@ fn a_pane_with_room_for_only_one_graph_draws_cpu_properly() {
 fn a_single_row_pane_is_a_heading_and_no_plot() {
     let mut h = History::default();
     h.record(&snapshot(60.0, 10, 0.0, 0.0));
-    assert_eq!(render_graphs(&h, 30, 1, PLAIN).len(), 1);
+    assert_eq!(render_graphs(&h, 30, 1, &plain()).len(), 1);
 }
 
 #[test]
@@ -325,7 +325,7 @@ fn render_alerts_empty_and_active() {
         &empty_h,
         40,
         10,
-        PLAIN,
+        &plain(),
         multitop::graphs::AlertConfig::default(),
     );
     assert!(res.join("\n").contains("waiting for first Monitor packet"));
@@ -335,7 +335,7 @@ fn render_alerts_empty_and_active() {
             &empty_h,
             40,
             0,
-            PLAIN,
+            &plain(),
             multitop::graphs::AlertConfig::default(),
         )
         .len(),
@@ -350,7 +350,7 @@ fn render_alerts_empty_and_active() {
         &h,
         40,
         10,
-        PLAIN,
+        &plain(),
         multitop::graphs::AlertConfig {
             cpu: Some(50),
             mem: Some(85),
@@ -366,7 +366,7 @@ fn render_alerts_empty_and_active() {
         &h,
         40,
         10,
-        PLAIN,
+        &plain(),
         multitop::graphs::AlertConfig {
             cpu: Some(99),
             mem: Some(99),
@@ -381,7 +381,7 @@ fn render_alerts_empty_and_active() {
         &h,
         40,
         10,
-        PLAIN,
+        &plain(),
         multitop::graphs::AlertConfig {
             cpu: Some(99),
             mem: Some(99),

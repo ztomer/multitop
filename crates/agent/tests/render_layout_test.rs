@@ -9,6 +9,16 @@ use multitop_agent::conv::count;
 use multitop_agent::proc::{Proc, Usage};
 use multitop_agent::render::*;
 
+/// The palette to draw with in these tests.
+///
+/// A view over the theme's own stated background, so the escapes are the
+/// theme's own and an assertion naming a colour is asserting what the theme
+/// says. `for_theme` rather than a chosen background on purpose: a test that
+/// picks its own background is testing a palette the product never builds.
+fn pal() -> multitop_agent::palette_view::PaletteView {
+    multitop_agent::palette_view::PaletteView::for_theme(&ANSI)
+}
+
 /// Rows the rendered frame will occupy, composed from the two pieces the agent
 /// itself uses to size a frame.
 ///
@@ -69,7 +79,7 @@ fn proc_rows_stay_aligned_across_pid_and_cpu_ranges() {
         .map(|&(pid, cpu)| proc(pid, "name", cpu, 1 << 20))
         .collect();
     let s = Snapshot { procs, ..snap() };
-    let out = render(&s, 60, 0, bar_len_for(60), &ANSI);
+    let out = render(&s, 60, 0, bar_len_for(60), &pal());
     let widths: Vec<usize> = out
         .iter()
         .skip_while(|l| !l.contains("PID"))
@@ -91,7 +101,7 @@ fn two_column_rows_align() {
         })
         .collect();
     let s = Snapshot { procs, ..snap() };
-    let out = render(&s, 100, 0, 68, &ANSI);
+    let out = render(&s, 100, 0, 68, &pal());
     let rows: Vec<usize> = out
         .iter()
         .filter(|l| l.contains('\u{2502}'))
@@ -107,7 +117,7 @@ fn core_grid_cells_are_fixed_width() {
         cores: (0..16).map(|i| (i, count(i * 7 % 100), None)).collect(),
         ..snap()
     };
-    let out = render(&s, 100, 0, 48, &ANSI);
+    let out = render(&s, 100, 0, 48, &pal());
     let rows: Vec<String> = out
         .iter()
         .filter(|l| l.contains(':') && l.contains('%'))
@@ -127,7 +137,7 @@ fn core_grid_indices_are_right_aligned() {
         cores: (0..12).map(|i| (i, 5.0, None)).collect(),
         ..snap()
     };
-    let joined = strip_ansi(&render(&s, 100, 0, 48, &ANSI).join("\n"));
+    let joined = strip_ansi(&render(&s, 100, 0, 48, &pal()).join("\n"));
     assert!(joined.contains(" 0:") && joined.contains("11:"), "{joined}");
 }
 
@@ -135,7 +145,7 @@ fn core_grid_indices_are_right_aligned() {
 fn two_columns_when_wide() {
     let procs: Vec<Proc> = (1..=4).map(|i| proc(i, "p", f64::from(i), 1000)).collect();
     let s = Snapshot { procs, ..snap() };
-    let out = render(&s, 80, 0, 48, &ANSI);
+    let out = render(&s, 80, 0, 48, &pal());
     assert_eq!(
         out.iter().map(|l| l.matches("PID").count()).sum::<usize>(),
         2
@@ -148,7 +158,7 @@ fn two_columns_pair_rows() {
         procs: vec![proc(1, "left", 1.0, 1000), proc(2, "right", 2.0, 2000)],
         ..snap()
     };
-    let out = render(&s, 80, 0, 48, &ANSI);
+    let out = render(&s, 80, 0, 48, &pal());
     assert_eq!(
         out.iter()
             .filter(|l| l.contains("left") || l.contains("right"))
@@ -165,7 +175,7 @@ fn two_columns_odd_count_keeps_all() {
         proc(3, "cc", 3.0, 3),
     ];
     let s = Snapshot { procs, ..snap() };
-    let all = strip_ansi(&render(&s, 80, 0, 48, &ANSI).join("\n"));
+    let all = strip_ansi(&render(&s, 80, 0, 48, &pal()).join("\n"));
     for name in ["aa", "bb", "cc"] {
         assert!(all.contains(name), "missing {name}");
     }
@@ -177,7 +187,7 @@ fn single_column_when_narrow() {
         procs: vec![proc(1, "a", 1.0, 1000), proc(2, "b", 2.0, 2000)],
         ..snap()
     };
-    let out = render(&s, 60, 0, 28, &ANSI);
+    let out = render(&s, 60, 0, 28, &pal());
     assert_eq!(
         out.iter().map(|l| l.matches("PID").count()).sum::<usize>(),
         1
@@ -190,7 +200,7 @@ fn single_column_when_one_proc() {
         procs: vec![proc(1, "solo", 1.0, 1000)],
         ..snap()
     };
-    let out = render(&s, 80, 0, 48, &ANSI);
+    let out = render(&s, 80, 0, 48, &pal());
     assert_eq!(
         out.iter().map(|l| l.matches("PID").count()).sum::<usize>(),
         1
@@ -234,7 +244,7 @@ fn predicted_core_rows_match_rendered_rows() {
                 cores: (0..cores).map(|i| (i, 10.0, None)).collect(),
                 ..snap()
             };
-            let drawn = render(&s, cols, 0, bar_len, &ANSI)
+            let drawn = render(&s, cols, 0, bar_len, &pal())
                 .iter()
                 .filter(|l| l.contains(':') && l.contains('%'))
                 .count();
@@ -255,7 +265,7 @@ fn predicted_frame_height_matches_render() {
                 let s = full(cores, procs, cols);
                 assert_eq!(
                     frame_height(&s, cols, 0),
-                    render(&s, cols, 0, bar_len_for(cols), &ANSI).len(),
+                    render(&s, cols, 0, bar_len_for(cols), &pal()).len(),
                     "cols={cols} cores={cores} procs={procs}"
                 );
             }
@@ -283,7 +293,7 @@ fn predicted_frame_height_matches_render_at_every_height() {
                     let s = full(cores, procs, cols);
                     assert_eq!(
                         frame_height(&s, cols, lines),
-                        render(&s, cols, lines, bar_len_for(cols), &ANSI).len(),
+                        render(&s, cols, lines, bar_len_for(cols), &pal()).len(),
                         "cols={cols} lines={lines} cores={cores} procs={procs}"
                     );
                 }
@@ -305,7 +315,7 @@ fn a_budgeted_frame_never_overflows_the_rows_it_was_given() {
                     cols,
                     lines,
                     bar_len_for(cols),
-                    &ANSI,
+                    &pal(),
                 )
                 .len();
                 // Below the irreducible chrome height nothing can fit, so the
@@ -376,16 +386,16 @@ fn wide_panels_budget_two_per_row() {
 
 #[test]
 fn empty_snapshot_renders_without_panic() {
-    assert!(!render(&Snapshot::default(), 1, 0, 1, &ANSI).is_empty());
+    assert!(!render(&Snapshot::default(), 1, 0, 1, &pal()).is_empty());
 }
 
 #[test]
 fn tier_adapts_to_lines() {
     let s = full(4, 10, 80);
-    assert_eq!(render(&s, 80, 2, 48, &ANSI).len(), 2, "TooSmall");
-    assert_eq!(render(&s, 80, 4, 48, &ANSI).len(), 2, "Micro");
+    assert_eq!(render(&s, 80, 2, 48, &pal()).len(), 2, "TooSmall");
+    assert_eq!(render(&s, 80, 4, 48, &pal()).len(), 2, "Micro");
     assert_eq!(
-        render(&s, 80, 6, 48, &ANSI).len(),
+        render(&s, 80, 6, 48, &pal()).len(),
         4,
         "Minimal (Header, CPU, MEM, DSK)"
     );

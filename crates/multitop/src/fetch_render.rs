@@ -1,8 +1,8 @@
 use std::sync::OnceLock;
 
-use multitop_agent::color::Palette;
 use multitop_agent::fetch::FetchSnapshot;
 use multitop_agent::fmt::center_header;
+use multitop_agent::palette_view::PaletteView;
 
 /// A logo from the neofetch database.
 #[derive(Debug)]
@@ -94,15 +94,15 @@ fn parse_db(bytes: &[u8]) -> LogoDb {
     LogoDb { logos }
 }
 
-const fn color_for(ci: u8, pal: &Palette) -> &'static str {
+fn color_for(ci: u8, pal: &PaletteView) -> &str {
     match ci {
-        1 => pal.red,
-        2 => pal.green,
-        3 => pal.yellow,
-        4 => pal.blue,
-        5 => pal.purple,
-        6 => pal.cyan,
-        _ => pal.white,
+        1 => pal.red.as_str(),
+        2 => pal.green.as_str(),
+        3 => pal.yellow.as_str(),
+        4 => pal.blue.as_str(),
+        5 => pal.purple.as_str(),
+        6 => pal.cyan.as_str(),
+        _ => pal.white.as_str(),
     }
 }
 
@@ -186,7 +186,7 @@ pub fn render_fetch(
     snap: &FetchSnapshot,
     cols: usize,
     max_rows: usize,
-    pal: &Palette,
+    pal: &PaletteView,
 ) -> Vec<String> {
     let mut out = Vec::with_capacity(crate::consts::FETCH_LINE_CAPACITY);
     out.push(center_header(&snap.user_host, cols, pal));
@@ -289,7 +289,7 @@ mod tests {
     #[test]
     fn center_header_widths() {
         // center_header is from multitop_agent::fmt - converts to fullwidth
-        let result = multitop_agent::fmt::center_header("test", 20, &KARE);
+        let result = multitop_agent::fmt::center_header("test", 20, &PaletteView::for_theme(&KARE));
         // Converts ASCII to fullwidth: test -> ｔｅｓｔ
         assert!(result.contains("ｔｅｓｔ") || result.contains("test"));
         assert!(result.len() >= 4);
@@ -347,7 +347,7 @@ mod tests {
             memory_str: "1GiB/2GiB".into(),
             disk_str: "10GiB/20GiB".into(),
         };
-        let result = render_fetch(&snap, 80, 24, &KARE);
+        let result = render_fetch(&snap, 80, 24, &PaletteView::for_theme(&KARE));
         assert_ne!(result, [] as [std::string::String; 0]);
         assert!(result
             .iter()

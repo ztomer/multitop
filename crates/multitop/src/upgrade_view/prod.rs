@@ -9,7 +9,7 @@
 //! Pure string building: no terminal, no clock, no I/O. `now` is passed in so
 //! the relative times are testable.
 
-use multitop_agent::color::Palette;
+use multitop_agent::palette_view::PaletteView;
 
 use crate::config::Server;
 use crate::state::{HostUpdate, Outcome};
@@ -136,13 +136,13 @@ pub const fn badge(status: &Status) -> &'static str {
     }
 }
 
-fn label(pal: &Palette, text: &str) -> String {
+fn label(pal: &PaletteView, text: &str) -> String {
     format!("{}{text}{}", pal.muted(), pal.reset)
 }
 
 /// Colour for the state badge: green when it is safe to go, amber when the
 /// user should look before pressing again.
-const fn badge_color(status: &Status, pal: &Palette) -> &'static str {
+fn badge_color<'a>(status: &Status, pal: &'a PaletteView) -> &'a str {
     match status.state() {
         HostState::Running => pal.meter_mid(),
         HostState::NotConfigured => pal.muted(),
@@ -152,7 +152,7 @@ const fn badge_color(status: &Status, pal: &Palette) -> &'static str {
 }
 
 /// The "Last run" value: when it happened, how it ended, and how long it took.
-fn last_run_text(status: &Status, pal: &Palette, now: u64) -> String {
+fn last_run_text(status: &Status, pal: &PaletteView, now: u64) -> String {
     match status.state() {
         // The record is this run, so say how long it has been going rather than
         // reading its shape as a verdict on a run that has not ended.
@@ -171,7 +171,7 @@ fn last_run_text(status: &Status, pal: &Palette, now: u64) -> String {
 
 /// The "Last run" value for a run that has ended. Only reachable once
 /// [`Status::state`] has established that nothing is in flight.
-fn finished_run_text(status: &Status, pal: &Palette, now: u64) -> String {
+fn finished_run_text(status: &Status, pal: &PaletteView, now: u64) -> String {
     match status.record.outcome() {
         Outcome::Never => format!("{}never{}", pal.muted(), pal.reset),
         Outcome::Interrupted => {
@@ -205,7 +205,7 @@ fn finished_run_text(status: &Status, pal: &Palette, now: u64) -> String {
 /// Kept under ~40 visible columns per line: with four panels the grid is two
 /// columns wide, and `ui::visible` hard-truncates rather than wrapping, so a
 /// longer sentence loses exactly the part that tells the user what to do.
-fn next_action(status: &Status, pal: &Palette) -> Vec<String> {
+fn next_action(status: &Status, pal: &PaletteView) -> Vec<String> {
     let state = status.state();
     if state == HostState::Running {
         return vec![format!(
@@ -257,7 +257,7 @@ fn next_action(status: &Status, pal: &Palette) -> Vec<String> {
 /// Putting the host name there too would have been invisible and redundant
 /// with the banner.
 #[must_use]
-pub fn header(status: &Status, pal: &Palette, now: u64, width: usize) -> Vec<String> {
+pub fn header(status: &Status, pal: &PaletteView, now: u64, width: usize) -> Vec<String> {
     // Overwritten by the panel banner; see the note above.
     let mut out = vec![String::new()];
 

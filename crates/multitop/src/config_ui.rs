@@ -37,21 +37,9 @@ pub fn draw(f: &mut Frame, app: &App) {
         return;
     };
     let theme = app.current_theme();
-    let accent = Color::Rgb(
-        theme.ratatui_accent.0,
-        theme.ratatui_accent.1,
-        theme.ratatui_accent.2,
-    );
-    let border = Color::Rgb(
-        theme.ratatui_border.0,
-        theme.ratatui_border.1,
-        theme.ratatui_border.2,
-    );
-    let bg = Color::Rgb(
-        theme.ratatui_keybar_bg.0,
-        theme.ratatui_keybar_bg.1,
-        theme.ratatui_keybar_bg.2,
-    );
+    let accent = Color::Rgb(theme.accent.0, theme.accent.1, theme.accent.2);
+    let border = Color::Rgb(theme.border.0, theme.border.1, theme.border.2);
+    let bg = Color::Rgb(theme.keybar_bg.0, theme.keybar_bg.1, theme.keybar_bg.2);
     // The row used to be 75 fixed columns before the credential state, so at 80
     // the Password header read `Pas` and the rows read `✓ S`; at 40 the column
     // was gone. This is the one screen where the user deletes a host and edits

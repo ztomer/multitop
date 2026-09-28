@@ -163,7 +163,18 @@ fn plain(lines: &[String]) -> Vec<String> {
         .collect()
 }
 
-const PAL: &multitop_agent::color::Palette = &multitop_agent::color::KARE;
+/// The palette these tests render with: a view over Kare's own stated
+/// background, so the escapes are Kare's own. Every assertion below that names a
+/// colour is therefore asserting what the theme says, and none of them has to
+/// know that a view exists.
+///
+/// A function rather than a `const`, because a view OWNS its escapes and a
+/// `const` cannot allocate. Each call builds a fresh one, which costs a dozen
+/// small allocations per test rather than nothing — and nothing would mean
+/// testing a `Palette`, which is not what production renders with.
+fn pal() -> multitop_agent::palette_view::PaletteView {
+    multitop_agent::palette_view::PaletteView::for_theme(&multitop_agent::color::KARE)
+}
 
 #[test]
 fn a_troubled_host_names_each_thing_in_trouble_under_its_section() {
@@ -173,7 +184,7 @@ fn a_troubled_host_names_each_thing_in_trouble_under_its_section() {
         80,
         40,
         NOW,
-        PAL,
+        &pal(),
     ));
     assert!(
         f[0].contains("ｍｅｄｉａ"),
@@ -214,7 +225,7 @@ fn a_clean_host_is_four_lines_and_absences_are_stated_not_alarmed() {
         80,
         40,
         NOW,
-        PAL,
+        &pal(),
     ));
     assert_eq!(
         &f[2..],
@@ -233,7 +244,7 @@ fn a_clean_host_is_four_lines_and_absences_are_stated_not_alarmed() {
         80,
         40,
         NOW,
-        PAL,
+        &pal(),
     ));
     assert!(
         f.contains(&"⚠ cron    could not read: tools/call: no answer in 10s".to_string()),
@@ -243,21 +254,21 @@ fn a_clean_host_is_four_lines_and_absences_are_stated_not_alarmed() {
 
 #[test]
 fn every_state_says_what_it_is() {
-    let f = plain(&render("h", &OpsState::NotConfigured, 80, 10, NOW, PAL));
+    let f = plain(&render("h", &OpsState::NotConfigured, 80, 10, NOW, &pal()));
     assert_eq!(f[1], "· ops     no mcp_host command for this host");
     assert!(
         f[2].contains("mcp = \""),
         "the action sits beside the status: {f:?}"
     );
     assert_eq!(
-        plain(&render("h", &OpsState::Asking, 80, 10, NOW, PAL))[1],
+        plain(&render("h", &OpsState::Asking, 80, 10, NOW, &pal()))[1],
         "→ asking mcp_host..."
     );
     let failed = OpsState::Failed {
         why: "ssh: connect to host h port 22: Connection refused".into(),
         last: None,
     };
-    let f = plain(&render("h", &failed, 80, 10, NOW, PAL));
+    let f = plain(&render("h", &failed, 80, 10, NOW, &pal()));
     assert_eq!(
         f,
         [
@@ -269,14 +280,21 @@ fn every_state_says_what_it_is() {
         why: "gone".into(),
         last: Some(Box::new(snapshot())),
     };
-    let f = plain(&render("h", &stale, 80, 40, NOW, PAL));
+    let f = plain(&render("h", &stale, 80, 40, NOW, &pal()));
     assert_eq!(f[2], "  the last answer, 12s old:");
     assert_eq!(f[3], "✗ health  1 of 2 failing");
 }
 
 #[test]
 fn the_frame_fits_the_pane() {
-    let f = render("h", &OpsState::Ready(Box::new(snapshot())), 30, 6, NOW, PAL);
+    let f = render(
+        "h",
+        &OpsState::Ready(Box::new(snapshot())),
+        30,
+        6,
+        NOW,
+        &pal(),
+    );
     assert_eq!(f.len(), 6);
     let p = plain(&f);
     assert_eq!(p[5], "  +7 more");
@@ -324,7 +342,7 @@ fn a_container_without_a_health_check_is_not_counted_as_unhealthy() {
         80,
         40,
         NOW,
-        PAL,
+        &pal(),
     ));
     assert!(
         f.contains(&"⚠ docker  3 running · 2 healthy · 1 unchecked".to_string()),
@@ -344,7 +362,7 @@ fn a_container_without_a_health_check_is_not_counted_as_unhealthy() {
         80,
         40,
         NOW,
-        PAL,
+        &pal(),
     ));
     assert!(
         f.contains(&"✓ docker  1 running, all healthy".to_string()),

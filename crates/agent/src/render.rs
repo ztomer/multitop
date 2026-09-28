@@ -7,10 +7,11 @@
 //! `_calc_core_rows` omitted the one-column gutter that `_render_output`
 //! added. Anything that needs to know how tall a frame is must go through
 //! these types, never re-derive it.
+use crate::palette_view::PaletteView;
 
 use std::fmt::Write as _;
 
-use crate::color::{strip_ansi, Palette};
+use crate::color::strip_ansi;
 use crate::fmt::{center_header, core_bar, fmt_rate, fmt_size, make_bar, SIZE_PAIR_W, SIZE_W};
 use crate::proc::{Proc, Usage};
 
@@ -196,7 +197,7 @@ pub fn truncate_name(name: &str, width: usize) -> String {
     s
 }
 
-fn proc_cell(p: &Proc, name_w: usize, pal: &Palette) -> String {
+fn proc_cell(p: &Proc, name_w: usize, pal: &PaletteView) -> String {
     let cpu_c = if p.cpu >= crate::consts::PROC_BUSY_PCT {
         pal.meter_mid()
     } else {
@@ -222,7 +223,7 @@ fn proc_cell(p: &Proc, name_w: usize, pal: &Palette) -> String {
     s
 }
 
-fn proc_header(name_w: usize, pal: &Palette) -> String {
+fn proc_header(name_w: usize, pal: &PaletteView) -> String {
     format!(
         "{}{}{:>PID_W$}  {:<name_w$}  {:>CPU_W$}  {:>MEM_W$}{}",
         pal.primary(),
@@ -241,7 +242,7 @@ fn push_core_rows(
     unit: TempUnit,
     cols: usize,
     bar_len: usize,
-    pal: &Palette,
+    pal: &PaletteView,
 ) {
     const LABEL_W: usize = " CPU ".len();
     let max_idx = cores.iter().map(|(i, _, _)| *i).max().unwrap_or(0);
@@ -296,7 +297,7 @@ fn push_core_rows(
     }
 }
 
-fn push_proc_table(out: &mut Vec<String>, procs: &[Proc], cols: usize, pal: &Palette) {
+fn push_proc_table(out: &mut Vec<String>, procs: &[Proc], cols: usize, pal: &PaletteView) {
     if procs.is_empty() {
         return;
     }
@@ -338,7 +339,7 @@ pub fn render(
     cols: usize,
     lines: usize,
     bar_len: usize,
-    pal: &Palette,
+    pal: &PaletteView,
 ) -> Vec<String> {
     let chrome = Chrome::of(snap, cols, lines);
     let tier = chrome.tier;
@@ -449,7 +450,7 @@ pub fn render_to_buf(
     cols: usize,
     lines: usize,
     bar_len: usize,
-    pal: &Palette,
+    pal: &PaletteView,
     buf: &mut String,
 ) {
     let frame = render(snap, cols, lines, bar_len, pal);

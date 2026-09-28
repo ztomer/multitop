@@ -15,7 +15,7 @@ fn the_loop_emits_a_frame_before_it_ever_waits() {
         &mut monitor,
         &Args::default(),
         false,
-        &ANSI,
+        &pal(),
         &mut out,
         &mut next,
     );
@@ -37,7 +37,7 @@ fn the_loop_runs_until_the_tick_source_stops_it() {
         &mut monitor,
         &Args::default(),
         false,
-        &ANSI,
+        &pal(),
         &mut out,
         &mut next,
     );
@@ -73,7 +73,7 @@ fn the_loop_stops_when_the_reader_hangs_up() {
         &mut monitor,
         &Args::default(),
         false,
-        &ANSI,
+        &pal(),
         &mut sink,
         &mut next,
     );
@@ -95,7 +95,14 @@ fn the_loop_draws_to_a_terminal_when_there_is_one() {
         once = false;
         go.then_some(1.0)
     };
-    monitor_loop(&mut monitor, &args, true, &PLAIN, &mut out, &mut next);
+    monitor_loop(
+        &mut monitor,
+        &args,
+        true,
+        &multitop_agent::palette_view::PaletteView::for_theme(&PLAIN),
+        &mut out,
+        &mut next,
+    );
 
     let text = String::from_utf8(out).unwrap();
     assert!(text.contains(&fullwidth("web-01")));

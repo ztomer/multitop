@@ -4,7 +4,7 @@ use super::*;
 fn a_piped_fetch_view_is_a_packet_the_client_can_decode() {
     let snap = fetch_snapshot();
     let mut out = Vec::new();
-    emit_fetch(&snap, 80, false, &ANSI, &mut out).unwrap();
+    emit_fetch(&snap, 80, false, &pal(), &mut out).unwrap();
 
     let hello = decode_packet(&out).expect("hello packet");
     assert!(matches!(hello, Payload::Hello(_)));
@@ -19,7 +19,14 @@ fn a_piped_fetch_view_is_a_packet_the_client_can_decode() {
 #[test]
 fn a_fetch_view_on_a_terminal_is_text_with_every_field_labelled() {
     let mut out = Vec::new();
-    emit_fetch(&fetch_snapshot(), 80, true, &PLAIN, &mut out).unwrap();
+    emit_fetch(
+        &fetch_snapshot(),
+        80,
+        true,
+        &multitop_agent::palette_view::PaletteView::for_theme(&PLAIN),
+        &mut out,
+    )
+    .unwrap();
     let text = String::from_utf8(out).unwrap();
 
     // The header is drawn in fullwidth glyphs, so it is the transformed
@@ -40,8 +47,8 @@ fn a_fetch_view_on_a_terminal_is_text_with_every_field_labelled() {
 #[test]
 fn a_fetch_view_that_cannot_be_written_reports_the_failure() {
     let mut sink = FailsAfter { writes_left: 0 };
-    assert!(emit_fetch(&fetch_snapshot(), 80, false, &ANSI, &mut sink).is_err());
-    assert!(emit_fetch(&fetch_snapshot(), 80, true, &ANSI, &mut sink).is_err());
+    assert!(emit_fetch(&fetch_snapshot(), 80, false, &pal(), &mut sink).is_err());
+    assert!(emit_fetch(&fetch_snapshot(), 80, true, &pal(), &mut sink).is_err());
 }
 
 // ------------------------------------------------------------------ docker
@@ -54,7 +61,7 @@ fn a_piped_docker_view_is_a_packet_carrying_every_row() {
         docker_rows(),
         &Args::default(),
         false,
-        &ANSI,
+        &pal(),
         &mut out,
     )
     .unwrap();
@@ -78,7 +85,15 @@ fn a_docker_view_on_a_terminal_is_a_drawn_table() {
         ..Args::default()
     };
     let mut out = Vec::new();
-    emit_docker("web-01", docker_rows(), &args, true, &PLAIN, &mut out).unwrap();
+    emit_docker(
+        "web-01",
+        docker_rows(),
+        &args,
+        true,
+        &multitop_agent::palette_view::PaletteView::for_theme(&PLAIN),
+        &mut out,
+    )
+    .unwrap();
     let text = String::from_utf8(out).unwrap();
 
     assert!(text.contains("NAME"));
@@ -90,7 +105,15 @@ fn a_docker_view_on_a_terminal_is_a_drawn_table() {
 #[test]
 fn an_empty_docker_view_says_so_rather_than_drawing_a_bare_frame() {
     let mut out = Vec::new();
-    emit_docker("web-01", vec![], &Args::default(), true, &PLAIN, &mut out).unwrap();
+    emit_docker(
+        "web-01",
+        vec![],
+        &Args::default(),
+        true,
+        &multitop_agent::palette_view::PaletteView::for_theme(&PLAIN),
+        &mut out,
+    )
+    .unwrap();
     assert!(String::from_utf8(out)
         .unwrap()
         .contains("No running containers"));
@@ -104,11 +127,19 @@ fn a_docker_view_that_cannot_be_written_reports_the_failure() {
         docker_rows(),
         &Args::default(),
         false,
-        &ANSI,
+        &pal(),
         &mut sink
     )
     .is_err());
-    assert!(emit_docker("h", docker_rows(), &Args::default(), true, &ANSI, &mut sink).is_err());
+    assert!(emit_docker(
+        "h",
+        docker_rows(),
+        &Args::default(),
+        true,
+        &pal(),
+        &mut sink
+    )
+    .is_err());
 }
 
 // ----------------------------------------------------------------- monitor
@@ -121,7 +152,7 @@ fn a_piped_monitor_frame_is_a_packet_the_client_can_decode() {
         &snapshot(),
         &Args::default(),
         false,
-        &ANSI,
+        &pal(),
         &mut buf,
         &mut out,
     )
@@ -145,7 +176,7 @@ fn a_monitor_frame_on_a_terminal_repaints_in_place() {
     };
     let mut buf = String::new();
     let mut out = Vec::new();
-    emit_monitor(&snapshot(), &args, true, &ANSI, &mut buf, &mut out).unwrap();
+    emit_monitor(&snapshot(), &args, true, &pal(), &mut buf, &mut out).unwrap();
     let text = String::from_utf8(out).unwrap();
 
     // Home-and-clear, so consecutive frames overwrite rather than scroll.
@@ -166,14 +197,14 @@ fn the_render_buffer_is_reused_without_accumulating_frames() {
     };
     let mut buf = String::from("left over from an earlier frame");
     let mut out = Vec::new();
-    emit_monitor(&snapshot(), &args, true, &ANSI, &mut buf, &mut out).unwrap();
+    emit_monitor(&snapshot(), &args, true, &pal(), &mut buf, &mut out).unwrap();
     assert!(
         !buf.contains("left over"),
         "stale frame text survived into the next frame"
     );
 
     let first = buf.len();
-    emit_monitor(&snapshot(), &args, true, &ANSI, &mut buf, &mut out).unwrap();
+    emit_monitor(&snapshot(), &args, true, &pal(), &mut buf, &mut out).unwrap();
     assert_eq!(buf.len(), first, "the buffer grew across frames");
 }
 

@@ -34,7 +34,12 @@ fn plain(lines: &[String]) -> String {
 }
 
 fn render(status: &Status) -> String {
-    plain(&header(status, &multitop_agent::color::ANSI, NOW, 40))
+    plain(&header(
+        status,
+        &multitop_agent::palette_view::PaletteView::for_theme(&multitop_agent::color::ANSI),
+        NOW,
+        40,
+    ))
 }
 
 #[test]
@@ -295,7 +300,14 @@ mod header_width_tests {
                     running,
                     upgradable: None,
                 };
-                for line in header(&status, &multitop_agent::color::ANSI, 1_800_000_000, PANE) {
+                for line in header(
+                    &status,
+                    &multitop_agent::palette_view::PaletteView::for_theme(
+                        &multitop_agent::color::ANSI,
+                    ),
+                    1_800_000_000,
+                    PANE,
+                ) {
                     let w = visible_width(&line);
                     // The command row is data, not guidance: it is allowed to be
                     // clipped, and the separator rule is built to the width.

@@ -9,7 +9,7 @@
 //! the Monitor packets it is already receiving. Nothing here talks to the
 //! agent.
 
-use multitop_agent::color::Palette;
+use multitop_agent::palette_view::PaletteView;
 
 use crate::history::History;
 
@@ -116,7 +116,7 @@ struct Plot<'a> {
 }
 
 /// A heading with the current reading, then the plot underneath it.
-fn plot(spec: &Plot<'_>, cols: usize, rows: usize, pal: &Palette) -> Vec<String> {
+fn plot(spec: &Plot<'_>, cols: usize, rows: usize, pal: &PaletteView) -> Vec<String> {
     let Plot {
         heading,
         reading,
@@ -159,7 +159,12 @@ fn plot(spec: &Plot<'_>, cols: usize, rows: usize, pal: &Palette) -> Vec<String>
 /// first time round. Every other renderer emits a throwaway first line for the
 /// same reason; this one now says so out loud.
 #[must_use]
-pub fn render_graphs(history: &History, cols: usize, rows: usize, pal: &Palette) -> Vec<String> {
+pub fn render_graphs(
+    history: &History,
+    cols: usize,
+    rows: usize,
+    pal: &PaletteView,
+) -> Vec<String> {
     render_graphs_with_zoom(history, cols, rows, pal, 1)
 }
 
@@ -168,7 +173,7 @@ pub fn render_graphs_with_zoom(
     history: &History,
     cols: usize,
     rows: usize,
-    pal: &Palette,
+    pal: &PaletteView,
     zoom: u8,
 ) -> Vec<String> {
     let mut out = vec![String::new()];
@@ -278,7 +283,7 @@ pub fn render_alerts(
     history: &History,
     cols: usize,
     rows: usize,
-    pal: &Palette,
+    pal: &PaletteView,
     cfg: AlertConfig,
 ) -> Vec<String> {
     let mut out = vec![String::new()];
@@ -361,7 +366,7 @@ fn cpu_plot<'a>(
     history: &History,
     samples: &'a [f64],
     reading: &'a str,
-    pal: &Palette,
+    pal: &'a PaletteView,
 ) -> Plot<'a> {
     Plot {
         heading: "CPU",

@@ -40,6 +40,7 @@ fn the_confirmation_on_screen_is_the_one_whose_keys_are_live() {
     assert!(app.quit_armed() && app.show_upgrade_modal(), "both are set");
 
     let theme = app.current_theme();
+    let theme = &*theme;
     let row: String = multitop::ui::keybar_content(&app, theme, 80, multitop::app::Mode::Monitor)
         .spans
         .iter()

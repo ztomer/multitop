@@ -140,12 +140,13 @@ fn visible_upgrade_composes() {
 fn keybar_badges_shed() {
     use multitop_agent::SortBy;
     use ratatui::style::{Color, Style};
-    let pal = &multitop_agent::color::THEMES[0];
+    let pal =
+        multitop_agent::palette_view::PaletteView::for_theme(&multitop_agent::color::THEMES[0]);
     let label = Style::default().fg(Color::DarkGray);
     let key_hi = Style::default().fg(Color::White);
     let sort_label = Style::default().fg(Color::DarkGray);
     let badges =
-        multitop::ui::keybar_badges(SortBy::Cpu, pal, label, key_hi, sort_label, Color::Yellow);
+        multitop::ui::keybar_badges(SortBy::Cpu, &pal, label, key_hi, sort_label, Color::Yellow);
     assert_eq!(badges.len(), 5);
 }
 

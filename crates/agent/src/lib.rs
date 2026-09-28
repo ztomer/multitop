@@ -32,6 +32,7 @@ pub mod fetch;
 pub mod fmt;
 pub mod lab;
 pub mod monitor;
+pub mod palette_view;
 pub mod proc;
 pub mod proc_disk;
 pub mod proc_sys;
@@ -233,7 +234,7 @@ pub fn monitor_loop<W: std::io::Write>(
     monitor: &mut monitor::Monitor,
     args: &Args,
     is_tty: bool,
-    pal: &color::Palette,
+    pal: &crate::palette_view::PaletteView,
     out: &mut W,
     next_tick: &mut dyn FnMut() -> Option<f64>,
 ) {
@@ -336,6 +337,9 @@ pub fn run_agent<I: IntoIterator<Item = String>>(raw: I) {
     }
     let is_tty = io::stdout().is_terminal();
     let pal = palette_for_env();
+    // The TTY path cannot measure its own background, so this view is the
+    // identity: the theme's own escapes, unadapted. See `emit.rs`.
+    let view = crate::palette_view::PaletteView::for_theme(pal);
     let host = proc::host_info(args.display_ip.as_deref());
     let mut out = io::stdout().lock();
 
@@ -345,12 +349,12 @@ pub fn run_agent<I: IntoIterator<Item = String>>(raw: I) {
                 &fetch::sample_fetch(&host),
                 args.cols,
                 is_tty,
-                pal,
+                &view,
                 &mut out,
             );
         }
         Mode::Docker => {
-            let _ = emit_docker(&host, docker::collect(), &args, is_tty, pal, &mut out);
+            let _ = emit_docker(&host, docker::collect(), &args, is_tty, &view, &mut out);
         }
         Mode::Exec => exec::serve::serve(&host, args.cols, args.lines, &mut out),
         Mode::Monitor => {
@@ -370,7 +374,7 @@ pub fn run_agent<I: IntoIterator<Item = String>>(raw: I) {
                 last = Instant::now();
                 Some(elapsed)
             };
-            monitor_loop(&mut monitor, &args, is_tty, pal, &mut out, &mut next_tick);
+            monitor_loop(&mut monitor, &args, is_tty, &view, &mut out, &mut next_tick);
         }
     }
 }

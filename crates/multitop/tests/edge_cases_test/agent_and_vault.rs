@@ -77,7 +77,14 @@ async fn a_memory_tie_is_broken_by_cpu_and_then_by_name() {
         row("alpha", 9.0, 1000),
     ];
 
-    let frame = render("h", 100, 24, &rows, &PLAIN, SortBy::Mem);
+    let frame = render(
+        "h",
+        100,
+        24,
+        &rows,
+        &multitop_agent::palette_view::PaletteView::for_theme(&PLAIN),
+        SortBy::Mem,
+    );
     let body: Vec<&String> = frame
         .iter()
         .filter(|l| l.contains("alpha") || l.contains("bravo") || l.contains("charlie"))

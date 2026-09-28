@@ -28,6 +28,13 @@ use multitop_agent::SortBy;
 use tokio::io::AsyncReadExt;
 use tokio::io::BufReader;
 
+/// The palette these tests draw with: a view over a theme's own stated
+/// background, so the escapes are that theme's own and an assertion naming a
+/// colour is asserting what the theme says.
+fn pal() -> multitop_agent::palette_view::PaletteView {
+    multitop_agent::palette_view::PaletteView::for_theme(&multitop_agent::color::KARE)
+}
+
 /// One framed packet off the agent's stdout, length-driven like the client.
 ///
 /// A helper is outside clippy's test exemption, so it reports rather than
@@ -116,7 +123,7 @@ async fn connect_local_server_succeeds_and_streams_snapshots() {
             80,
             24,
             multitop_agent::render::bar_len_for(80),
-            &multitop_agent::color::ANSI,
+            &pal(),
         );
         assert!(
             rendered.iter().any(|l| l.contains("CPU")),

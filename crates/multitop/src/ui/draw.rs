@@ -4,18 +4,15 @@ use crate::modals::Waiting;
 use crate::ui::keybar::{badge_span, keybar_content};
 use crate::ui::layout::{regions, SIDE_MARGIN};
 use crate::ui::windowing::pane_lines;
+use multitop_agent::palette_view::PaletteView;
 use ratatui::layout::Rect;
 use ratatui::style::{Color, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::Paragraph;
 use ratatui::Frame;
 
-fn draw_no_matches(f: &mut Frame, app: &App, theme: &multitop_agent::color::Palette) {
-    let bg_color = Color::Rgb(
-        theme.ratatui_keybar_bg.0,
-        theme.ratatui_keybar_bg.1,
-        theme.ratatui_keybar_bg.2,
-    );
+fn draw_no_matches(f: &mut Frame, app: &App, theme: &PaletteView) {
+    let bg_color = Color::Rgb(theme.keybar_bg.0, theme.keybar_bg.1, theme.keybar_bg.2);
     let area = f.area();
     let (body, keybar) = (
         Rect {
@@ -110,17 +107,14 @@ pub fn draw(f: &mut Frame, app: &mut App) {
     // the two up is how a panel ends up wearing another host's data.
     let shown = app.filtered_indices();
     let theme = app.current_theme();
+    let theme = &*theme;
     if shown.is_empty() {
         draw_no_matches(f, app, theme);
         draw_modals(f, app);
         return;
     }
     let (panel_areas, keybar) = regions(f.area(), shown.len());
-    let bg_color = Color::Rgb(
-        theme.ratatui_keybar_bg.0,
-        theme.ratatui_keybar_bg.1,
-        theme.ratatui_keybar_bg.2,
-    );
+    let bg_color = Color::Rgb(theme.keybar_bg.0, theme.keybar_bg.1, theme.keybar_bg.2);
 
     // Collected rather than written in the loop, which holds `app` immutably.
     let mut effective_offsets: Vec<(usize, usize)> = Vec::with_capacity(shown.len());
@@ -178,7 +172,7 @@ pub fn draw(f: &mut Frame, app: &mut App) {
 fn banner_row(
     app: &App,
     panel: &crate::panel::Panel,
-    theme: &multitop_agent::color::Palette,
+    theme: &PaletteView,
     width: u16,
     badge_offset: usize,
 ) -> String {
@@ -295,7 +289,7 @@ fn alert_tint(app: &App, snap: &multitop_agent::render::Snapshot) -> Option<Colo
 
 fn header_name_color(
     alert_color: Option<ratatui::style::Color>,
-    theme: &multitop_agent::color::Palette,
+    theme: &PaletteView,
 ) -> (String, String) {
     match alert_color {
         Some(ratatui::style::Color::Red) => (

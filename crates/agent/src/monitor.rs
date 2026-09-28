@@ -156,7 +156,14 @@ mod tests {
                     );
                     assert_eq!(
                         height,
-                        render(&s, cols, lines, bar_len_for(cols), &ANSI).len()
+                        render(
+                            &s,
+                            cols,
+                            lines,
+                            bar_len_for(cols),
+                            &crate::palette_view::PaletteView::for_theme(&ANSI)
+                        )
+                        .len()
                     );
                 }
             }

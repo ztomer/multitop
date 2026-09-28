@@ -10,6 +10,16 @@ use multitop_agent::color::{strip_ansi, ANSI};
 use multitop_agent::docker::*;
 use multitop_agent::fmt::SIZE_MAX;
 
+/// The palette to draw with in these tests.
+///
+/// A view over the theme's own stated background, so the escapes are the
+/// theme's own and an assertion naming a colour is asserting what the theme
+/// says. `for_theme` rather than a chosen background on purpose: a test that
+/// picks its own background is testing a palette the product never builds.
+fn pal() -> multitop_agent::palette_view::PaletteView {
+    multitop_agent::palette_view::PaletteView::for_theme(&ANSI)
+}
+
 fn row(name: &str, status: &str, cpu: f64) -> Row {
     Row {
         name: name.into(),
@@ -211,20 +221,20 @@ use multitop_agent::SortBy;
 
 #[test]
 fn render_empty_says_so() {
-    let out = render("h", 80, 0, &[], &ANSI, SortBy::Cpu);
+    let out = render("h", 80, 0, &[], &pal(), SortBy::Cpu);
     assert_eq!(out.len(), 2);
     assert!(out[1].contains("No running containers"));
 }
 
 #[test]
 fn render_host_header_is_fullwidth() {
-    assert!(render("h", 80, 0, &[], &ANSI, SortBy::Cpu)[0].contains('\u{ff48}'));
+    assert!(render("h", 80, 0, &[], &pal(), SortBy::Cpu)[0].contains('\u{ff48}'));
 }
 
 #[test]
 fn render_lists_containers() {
     let rows = vec![row("web", "Up 3 hours", 5.0), row("db", "Exited (0)", 70.0)];
-    let out = render("h", 80, 0, &rows, &ANSI, SortBy::Cpu);
+    let out = render("h", 80, 0, &rows, &pal(), SortBy::Cpu);
     let all = out.join("\n");
     assert!(all.contains("web"));
     assert!(all.contains("db"));
@@ -234,34 +244,41 @@ fn render_lists_containers() {
 
 #[test]
 fn render_colors_by_status() {
+    // Against the view's own bands, not the palette's raw fields. The view is
+    // adapted -- `for_theme` is the identity only where the palette already
+    // clears the floor, and it does not everywhere -- so `ANSI.green` is not
+    // always the escape drawn. The subject of this test is WHICH BAND a status
+    // lands in, so that is what it asserts.
+    let view = pal();
     let rows = vec![row("up", "Up 1 hour", 1.0), row("gone", "Exited (0)", 1.0)];
-    let out = render("h", 80, 0, &rows, &ANSI, SortBy::Cpu);
+    let out = render("h", 80, 0, &rows, &view, SortBy::Cpu);
     assert!(out
         .iter()
         .find(|l| l.contains("up "))
         .unwrap()
-        .contains(ANSI.green));
+        .contains(view.meter_low()));
     assert!(out
         .iter()
         .find(|l| l.contains("gone"))
         .unwrap()
-        .contains(ANSI.yellow));
+        .contains(view.meter_mid()));
 }
 
 #[test]
 fn render_flags_busy_containers() {
-    let out = render("h", 80, 0, &[row("busy", "Up", 75.0)], &ANSI, SortBy::Cpu);
+    let view = pal();
+    let out = render("h", 80, 0, &[row("busy", "Up", 75.0)], &view, SortBy::Cpu);
     assert!(out
         .iter()
         .find(|l| l.contains("busy"))
         .unwrap()
-        .contains(ANSI.yellow));
-    let out = render("h", 80, 0, &[row("calm", "Up", 5.0)], &ANSI, SortBy::Cpu);
+        .contains(view.meter_mid()));
+    let out = render("h", 80, 0, &[row("calm", "Up", 5.0)], &view, SortBy::Cpu);
     assert!(out
         .iter()
         .find(|l| l.contains("calm"))
         .unwrap()
-        .contains(ANSI.green));
+        .contains(view.meter_low()));
 }
 
 #[test]
@@ -271,7 +288,7 @@ fn render_truncates_long_fields() {
         "Up 3 hours and counting",
         1.0,
     )];
-    let out = strip_ansi(&render("h", 80, 0, &rows, &ANSI, SortBy::Cpu).join("\n"));
+    let out = strip_ansi(&render("h", 80, 0, &rows, &pal(), SortBy::Cpu).join("\n"));
     assert!(out.contains("..."));
 }
 
@@ -320,7 +337,7 @@ fn render_rows_are_aligned() {
     ];
 
     for cols in [80usize, 100, 118, 200] {
-        let out = render("h", cols, 0, &rows, &ANSI, SortBy::Cpu);
+        let out = render("h", cols, 0, &rows, &pal(), SortBy::Cpu);
         let widths: Vec<usize> = out[1..out.len() - 1]
             .iter()
             .filter(|l| !l.contains('\u{2500}'))
@@ -359,14 +376,14 @@ fn mem_string_formats_both_sides() {
 
 #[test]
 fn render_survives_narrow_panel() {
-    let out = render("h", 4, 0, &[row("x", "Up", 1.0)], &ANSI, SortBy::Cpu);
+    let out = render("h", 4, 0, &[row("x", "Up", 1.0)], &pal(), SortBy::Cpu);
     assert!(!out.is_empty());
 }
 
 #[test]
 fn render_respects_max_rows_budget() {
     let rows: Vec<_> = (0..10).map(|i| row(&format!("c{i}"), "Up", 1.0)).collect();
-    let out = render("h", 80, 6, &rows, &ANSI, SortBy::Cpu);
+    let out = render("h", 80, 6, &rows, &pal(), SortBy::Cpu);
     assert_eq!(out.len(), 6);
     assert!(out
         .iter()

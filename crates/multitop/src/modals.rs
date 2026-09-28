@@ -118,17 +118,10 @@ pub fn draw_command_palette(f: &mut Frame, app: &App) {
     let y = (area.height.saturating_sub(popup_height)) / 2;
     let rect = Rect::new(x, y, popup_width, popup_height);
 
-    let theme = &multitop_agent::color::THEMES[0];
-    let border = Color::Rgb(
-        theme.ratatui_border.0,
-        theme.ratatui_border.1,
-        theme.ratatui_border.2,
-    );
-    let accent = Color::Rgb(
-        theme.ratatui_accent.0,
-        theme.ratatui_accent.1,
-        theme.ratatui_accent.2,
-    );
+    let theme = app.current_theme();
+    let theme = &*theme;
+    let border = Color::Rgb(theme.border.0, theme.border.1, theme.border.2);
+    let accent = Color::Rgb(theme.accent.0, theme.accent.1, theme.accent.2);
 
     let block = ratatui::widgets::Block::default()
         .title(" Command Palette  : to open ")
@@ -405,16 +398,8 @@ pub fn draw_vault_password_prompt(f: &mut Frame, app: &App) {
     let popup_width = (64u16).min(area.width.saturating_sub(2));
 
     let theme = app.current_theme();
-    let border_color = Color::Rgb(
-        theme.ratatui_border.0,
-        theme.ratatui_border.1,
-        theme.ratatui_border.2,
-    );
-    let accent_color = Color::Rgb(
-        theme.ratatui_accent.0,
-        theme.ratatui_accent.1,
-        theme.ratatui_accent.2,
-    );
+    let border_color = Color::Rgb(theme.border.0, theme.border.1, theme.border.2);
+    let accent_color = Color::Rgb(theme.accent.0, theme.accent.1, theme.accent.2);
 
     // The same prompt serves unlocking an existing vault and choosing the
     // master password for a new one; only the wording differs.

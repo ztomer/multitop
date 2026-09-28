@@ -11,6 +11,16 @@ use multitop_agent::conv::count;
 use multitop_agent::proc::{Proc, Usage};
 use multitop_agent::render::*;
 
+/// The palette to draw with in these tests.
+///
+/// A view over the theme's own stated background, so the escapes are the
+/// theme's own and an assertion naming a colour is asserting what the theme
+/// says. `for_theme` rather than a chosen background on purpose: a test that
+/// picks its own background is testing a palette the product never builds.
+fn pal() -> multitop_agent::palette_view::PaletteView {
+    multitop_agent::palette_view::PaletteView::for_theme(&ANSI)
+}
+
 const fn usage(total: u64, used: u64, pct: f64) -> Usage {
     Usage { total, used, pct }
 }
@@ -42,7 +52,7 @@ fn labeled(out: &[String], label: &str) -> Vec<String> {
 
 #[test]
 fn host_line_is_fullwidth() {
-    assert!(render(&snap(), 80, 0, 50, &ANSI)[0].contains('\u{ff48}'));
+    assert!(render(&snap(), 80, 0, 50, &pal())[0].contains('\u{ff48}'));
 }
 
 #[test]
@@ -51,7 +61,7 @@ fn host_line_never_overflows_narrow_panel() {
         host: "a-very-long-hostname (10.0.0.1)".into(),
         ..snap()
     };
-    assert!(strip_ansi(&render(&s, 20, 0, 4, &ANSI)[0]).contains('\u{ff41}'));
+    assert!(strip_ansi(&render(&s, 20, 0, 4, &pal())[0]).contains('\u{ff41}'));
 }
 
 #[test]
@@ -62,7 +72,7 @@ fn single_core_uses_aggregate_bar() {
         proc_names: Vec::new(),
         ..snap()
     };
-    let out = render(&s, 80, 0, 50, &ANSI);
+    let out = render(&s, 80, 0, 50, &pal());
     assert!(out[1].contains("CPU") && out[1].contains("42%") && out[1].contains('['));
 }
 
@@ -72,7 +82,7 @@ fn dual_core_shows_per_core_cells() {
         cores: vec![(0, 75.0, None), (1, 25.0, None)],
         ..snap()
     };
-    let out = render(&s, 80, 0, 50, &ANSI);
+    let out = render(&s, 80, 0, 50, &pal());
     for want in ["CPU", "0:", "1:", "75%", "25%"] {
         assert!(out[1].contains(want), "missing {want} in {:?}", out[1]);
     }
@@ -84,7 +94,7 @@ fn many_cores_wrap_to_multiple_rows() {
         cores: (0..8).map(|i| (i, count(i) * 10.0, None)).collect(),
         ..snap()
     };
-    let out = render(&s, 40, 0, 20, &ANSI);
+    let out = render(&s, 40, 0, 20, &pal());
     assert!(
         out.iter()
             .filter(|l| l.contains(':') && l.contains('%'))
@@ -99,7 +109,7 @@ fn mem_shown_when_total_present() {
         mem: usage(1 << 31, 1 << 30, 50.0),
         ..snap()
     };
-    let rows = labeled(&render(&s, 80, 0, 50, &ANSI), "MEM");
+    let rows = labeled(&render(&s, 80, 0, 50, &pal()), "MEM");
     assert_eq!(rows.len(), 1);
     assert!(rows[0].contains("50%") && rows[0].contains("GiB"));
 }
@@ -110,7 +120,7 @@ fn mem_omitted_when_zero() {
         disk: usage(1 << 40, 1 << 38, 80.0),
         ..snap()
     };
-    assert!(labeled(&render(&s, 80, 0, 50, &ANSI), "MEM").is_empty());
+    assert!(labeled(&render(&s, 80, 0, 50, &pal()), "MEM").is_empty());
 }
 
 #[test]
@@ -119,7 +129,7 @@ fn disk_shown_when_total_present() {
         disk: usage(1 << 40, 1 << 38, 80.0),
         ..snap()
     };
-    let rows = labeled(&render(&s, 80, 0, 50, &ANSI), "DSK");
+    let rows = labeled(&render(&s, 80, 0, 50, &pal()), "DSK");
     assert_eq!(rows.len(), 1);
     assert!(rows[0].contains("80%") && rows[0].contains("TiB"));
 }
@@ -130,7 +140,7 @@ fn disk_omitted_when_zero() {
         mem: usage(1 << 31, 1 << 30, 50.0),
         ..snap()
     };
-    assert!(labeled(&render(&s, 80, 0, 50, &ANSI), "DSK").is_empty());
+    assert!(labeled(&render(&s, 80, 0, 50, &pal()), "DSK").is_empty());
 }
 
 #[test]
@@ -140,7 +150,7 @@ fn net_shown_when_traffic() {
         tx_rate: 3e6,
         ..snap()
     };
-    let rows = find(&render(&s, 80, 0, 50, &ANSI), "NET");
+    let rows = find(&render(&s, 80, 0, 50, &pal()), "NET");
     assert_eq!(rows.len(), 1);
     assert!(rows[0].contains('\u{2191}') && rows[0].contains('\u{2193}'));
 }
@@ -152,7 +162,7 @@ fn net_omitted_when_idle() {
         tx_rate: 500.0,
         ..snap()
     };
-    assert!(find(&render(&s, 80, 0, 50, &ANSI), "NET").is_empty());
+    assert!(find(&render(&s, 80, 0, 50, &pal()), "NET").is_empty());
 }
 
 #[test]
@@ -171,13 +181,13 @@ fn procs_are_listed_with_header() {
         ],
         ..snap()
     };
-    let all = render(&s, 80, 0, 50, &ANSI).join("\n");
+    let all = render(&s, 80, 0, 50, &pal()).join("\n");
     assert!(all.contains("python3") && all.contains("bash") && all.contains("PID"));
 }
 
 #[test]
 fn empty_proc_list_draws_no_table() {
-    let out = render(&snap(), 80, 0, 50, &ANSI);
+    let out = render(&snap(), 80, 0, 50, &pal());
     assert!(!out.iter().any(|l| l.contains("PID")));
 }
 
@@ -187,7 +197,7 @@ fn long_proc_name_is_truncated() {
         procs: vec![proc(1, "verylongprocessnameishere", 1.0, 1000)],
         ..snap()
     };
-    assert!(render(&s, 80, 0, 50, &ANSI).join("\n").contains("..."));
+    assert!(render(&s, 80, 0, 50, &pal()).join("\n").contains("..."));
 }
 
 #[test]
@@ -212,24 +222,31 @@ fn hot_proc_is_highlighted() {
         procs: vec![proc(1, "hungry", 95.0, 1000)],
         ..snap()
     };
-    let out = render(&s, 80, 0, 50, &ANSI);
+    let view = pal();
+    let out = render(&s, 80, 0, 50, &view);
     assert!(out
         .iter()
         .find(|l| l.contains("hungry"))
         .unwrap()
-        .contains(ANSI.yellow));
+        .contains(view.meter_mid()));
 }
 
 #[test]
 fn highlight_threshold_is_ten_percent() {
+    // The view's mid band, for the reason the other colour assertions here name:
+    // the view is adapted, so the palette's raw `yellow` is not the escape the
+    // renderer emits. What this test is about is the THRESHOLD -- 9.9 is not
+    // highlighted, 10.0 is -- and that is independent of which exact escape the
+    // band carries.
+    let view = pal();
     for (cpu, hot) in [(9.9, false), (10.0, true)] {
         let s = Snapshot {
             procs: vec![proc(1, "solo", cpu, 0)],
             ..snap()
         };
-        let out = render(&s, 80, 0, 50, &ANSI);
+        let out = render(&s, 80, 0, 50, &view);
         let line = out.iter().find(|l| l.contains("solo")).unwrap();
-        assert_eq!(line.contains(ANSI.yellow), hot, "cpu={cpu}");
+        assert_eq!(line.contains(view.meter_mid()), hot, "cpu={cpu}");
     }
 }
 
@@ -243,10 +260,10 @@ fn mem_and_dsk_rows_have_constant_width() {
         mem: usage(1 << 30, 1 << 20, 12.5),
         ..snap()
     };
-    let wa = strip_ansi(&labeled(&render(&a, 80, 0, 48, &ANSI), "MEM")[0])
+    let wa = strip_ansi(&labeled(&render(&a, 80, 0, 48, &pal()), "MEM")[0])
         .chars()
         .count();
-    let wb = strip_ansi(&labeled(&render(&b, 80, 0, 48, &ANSI), "MEM")[0])
+    let wb = strip_ansi(&labeled(&render(&b, 80, 0, 48, &pal()), "MEM")[0])
         .chars()
         .count();
     assert_eq!(wa, wb);
@@ -259,7 +276,7 @@ fn mem_and_dsk_rows_match_each_other() {
         disk: usage(1 << 40, 1 << 38, 80.0),
         ..snap()
     };
-    let out = render(&s, 80, 0, 48, &ANSI);
+    let out = render(&s, 80, 0, 48, &pal());
     assert_eq!(
         strip_ansi(&labeled(&out, "MEM")[0]).chars().count(),
         strip_ansi(&labeled(&out, "DSK")[0]).chars().count()
@@ -272,7 +289,7 @@ fn percentage_is_right_aligned() {
         mem: usage(1 << 31, 1 << 30, 50.0),
         ..snap()
     };
-    assert!(strip_ansi(&labeled(&render(&s, 80, 0, 48, &ANSI), "MEM")[0]).contains("  50%"));
+    assert!(strip_ansi(&labeled(&render(&s, 80, 0, 48, &pal()), "MEM")[0]).contains("  50%"));
 }
 
 #[test]
@@ -304,7 +321,7 @@ fn proc_rows_stay_aligned_across_all_size_magnitudes() {
     let s = Snapshot { procs, ..snap() };
 
     for cols in [60usize, 80, 120] {
-        let out = render(&s, cols, 0, bar_len_for(cols), &ANSI);
+        let out = render(&s, cols, 0, bar_len_for(cols), &pal());
         let widths: Vec<usize> = out
             .iter()
             .skip_while(|l| !l.contains("PID"))

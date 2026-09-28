@@ -71,11 +71,14 @@ fn main() {
 
     // 2. Benchmark Local Snapshot Rendering
     let snap = sample_snapshot(1);
-    let pal = &color::ANSI;
+    // The view, because that is what the render path now takes -- a benchmark
+    // against a type production no longer uses measures the wrong thing, which
+    // is how a perf gate ends up certifying a fast path nobody takes.
+    let pal = multitop_agent::palette_view::PaletteView::for_theme(&color::ANSI);
     let render_iters = 50_000;
     let start = Instant::now();
     for _ in 0..render_iters {
-        let lines = render::render(&snap, 120, 40, render::bar_len_for(120), pal);
+        let lines = render::render(&snap, 120, 40, render::bar_len_for(120), &pal);
         std::hint::black_box(lines);
     }
     let elapsed = start.elapsed();
@@ -104,7 +107,7 @@ fn main() {
         let mut app = App::new(servers);
         for (i, p) in (0u32..).zip(app.panels.iter_mut()) {
             let snap = sample_snapshot(i);
-            p.view = render::render(&snap, 80, 24, render::bar_len_for(80), pal);
+            p.view = render::render(&snap, 80, 24, render::bar_len_for(80), &pal);
         }
 
         let backend = TestBackend::new(160, 50);

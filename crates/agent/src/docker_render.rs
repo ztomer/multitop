@@ -1,6 +1,6 @@
-use crate::color::Palette;
 use crate::docker::{truncate, Row, CPU_W, MEM_W, NAME_W, STATUS_W};
 use crate::fmt::center_header;
+use crate::palette_view::PaletteView;
 
 #[must_use]
 pub fn render(
@@ -8,7 +8,7 @@ pub fn render(
     cols: usize,
     max_rows: usize,
     rows: &[Row],
-    pal: &Palette,
+    pal: &PaletteView,
     sort_by: crate::SortBy,
 ) -> Vec<String> {
     let mut out = Vec::with_capacity(rows.len() + 4);

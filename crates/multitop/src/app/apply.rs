@@ -88,12 +88,20 @@ impl App {
         if epoch != self.panels_epoch {
             return false;
         }
+        // The palette is cloned to an Rc BEFORE the mutable borrow of the panel,
+        // and the borrow of `self` ends with the statement. That ordering is the
+        // whole reason the palette is behind an Rc: `current_theme` used to
+        // return a `&'static`, so it did not care that `self` was already
+        // borrowed mutably, and a view reachable only by borrowing `self` collides
+        // with every `&mut panels` in the render path. Cloning the handle is a
+        // pointer copy; cloning the twelve owned escapes would not be.
         let pal = self.current_theme();
         let sort = self.sort;
         let accepts = self.accepts(panel, gen);
         let Some(p) = self.panels.get_mut(panel) else {
             return false;
         };
+        let pal = &*pal;
 
         match &payload {
             // The banner host name is drawn on every panel whatever

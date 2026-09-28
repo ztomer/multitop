@@ -26,6 +26,24 @@ pub struct App {
     /// trip in the render path. `Unknown` is the honest value for a terminal that
     /// answered neither probe, and the theme's own background is the fallback.
     pub background: crate::background::Background,
+    /// The palette to draw with, adapted for the background we detected.
+    ///
+    /// Held rather than computed on demand: adapting allocates the escapes, and
+    /// a render path that allocated per frame would be worse than the bug it
+    /// fixes. `boot_app` builds it once, `cycle_theme` rebuilds it.
+    ///
+    /// A shared handle, not a plain field, and that is not a micro-optimisation.
+    /// The render path needs the palette while it holds `&mut` borrows of the
+    /// panels it is drawing, so a palette reachable only by borrowing `self` is a
+    /// borrow conflict at six call sites. Cloning the handle is a pointer copy,
+    /// so the conflict disappears and so does any temptation to clone the twelve
+    /// owned escapes instead.
+    ///
+    /// `Arc` rather than `Rc` because the `App` is moved onto a tokio task in the
+    /// event-loop tests, and `Rc` is not `Send`. An `Rc` would compile everywhere
+    /// else and fail in exactly one place, which is the worst way to find out;
+    /// the atomic it costs is on a path that was already a channel send.
+    pub palette_view: std::sync::Arc<multitop_agent::palette_view::PaletteView>,
     pub config_path: Option<std::path::PathBuf>,
     pub filter_query: String,
     pub upgrade_history_lines: usize,

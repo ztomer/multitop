@@ -11,6 +11,16 @@ use multitop_agent::color::{strip_ansi, ANSI};
 use multitop_agent::fetch::FetchSnapshot;
 use multitop_agent::fmt::fullwidth;
 
+/// The palette to draw with in these tests.
+///
+/// A view over the theme's own stated background, so the escapes are the
+/// theme's own and an assertion naming a colour is asserting what the theme
+/// says. `for_theme` rather than a chosen background on purpose: a test that
+/// picks its own background is testing a palette the product never builds.
+fn pal() -> multitop_agent::palette_view::PaletteView {
+    multitop_agent::palette_view::PaletteView::for_theme(&ANSI)
+}
+
 fn snap(os: &str, kernel: &str) -> FetchSnapshot {
     FetchSnapshot {
         user_host: "user@host".into(),
@@ -48,7 +58,7 @@ fn first_logo_chars(out: &[String]) -> Vec<char> {
 
 #[test]
 fn os_macos_gets_apple_logo() {
-    let out = fetch_render::render_fetch(&snap("macOS 15.0", "Darwin 24.0.0"), 80, 24, &ANSI);
+    let out = fetch_render::render_fetch(&snap("macOS 15.0", "Darwin 24.0.0"), 80, 24, &pal());
     let first = first_logo_chars(&out);
     // Apple logo starts with spaces followed by the Apple shape
     // The neofetch Apple logo begins: "                    c.'"
@@ -61,7 +71,7 @@ fn os_macos_gets_apple_logo() {
 
 #[test]
 fn os_darwin_kernel_gets_apple_logo() {
-    let out = fetch_render::render_fetch(&snap("Some OS", "Darwin 24.0.0"), 80, 24, &ANSI);
+    let out = fetch_render::render_fetch(&snap("Some OS", "Darwin 24.0.0"), 80, 24, &pal());
     let first = first_logo_chars(&out);
     assert!(
         first.contains(&'c'),
@@ -71,8 +81,12 @@ fn os_darwin_kernel_gets_apple_logo() {
 
 #[test]
 fn os_ubuntu_gets_circle_logo() {
-    let out =
-        fetch_render::render_fetch(&snap("Ubuntu 24.04 LTS", "6.8.0-45-generic"), 80, 24, &ANSI);
+    let out = fetch_render::render_fetch(
+        &snap("Ubuntu 24.04 LTS", "6.8.0-45-generic"),
+        80,
+        24,
+        &pal(),
+    );
     // Ubuntu logo has ".-/+" and "ossssoo" patterns
     let p = logo_line(&out, 1);
     assert!(
@@ -83,7 +97,8 @@ fn os_ubuntu_gets_circle_logo() {
 
 #[test]
 fn os_ubuntu_derivatives_get_own_logos() {
-    let out = fetch_render::render_fetch(&snap("Kubuntu 24.04", "6.8.0-45-generic"), 80, 24, &ANSI);
+    let out =
+        fetch_render::render_fetch(&snap("Kubuntu 24.04", "6.8.0-45-generic"), 80, 24, &pal());
     let os_line = plain(&out)
         .iter()
         .find(|l| l.contains("OS"))
@@ -92,8 +107,12 @@ fn os_ubuntu_derivatives_get_own_logos() {
     assert!(os_line.contains("Kubuntu"), "Kubuntu OS name should appear");
 
     // Kubuntu should NOT match the same entry as Ubuntu
-    let ubuntu_out =
-        fetch_render::render_fetch(&snap("Ubuntu 24.04 LTS", "6.8.0-45-generic"), 80, 24, &ANSI);
+    let ubuntu_out = fetch_render::render_fetch(
+        &snap("Ubuntu 24.04 LTS", "6.8.0-45-generic"),
+        80,
+        24,
+        &pal(),
+    );
     let kubuntu_line = logo_line(&out, 1);
     let ubuntu_line = logo_line(&ubuntu_out, 1);
     assert_ne!(
@@ -108,7 +127,7 @@ fn os_debian_gets_swirl_logo() {
         &snap("Debian GNU/Linux 12", "6.1.0-21-amd64"),
         80,
         24,
-        &ANSI,
+        &pal(),
     );
     let p = logo_line(&out, 1);
     assert!(
@@ -123,7 +142,7 @@ fn os_fedora_gets_infinity_logo() {
         &snap("Fedora Linux 40", "6.9.3-200.fc40.x86_64"),
         80,
         24,
-        &ANSI,
+        &pal(),
     );
     let p = logo_line(&out, 1);
     assert!(
@@ -134,7 +153,7 @@ fn os_fedora_gets_infinity_logo() {
 
 #[test]
 fn os_arch_gets_arch_logo() {
-    let out = fetch_render::render_fetch(&snap("Arch Linux", "6.9-arch1"), 80, 24, &ANSI);
+    let out = fetch_render::render_fetch(&snap("Arch Linux", "6.9-arch1"), 80, 24, &pal());
     let p = logo_line(&out, 1);
     // Arch logo starts with backtick-tick shapes from neofetch: "                   -`"
     assert!(
@@ -149,7 +168,7 @@ fn os_freebsd_gets_beastie_logo() {
         &snap("FreeBSD 13.2-RELEASE", "13.2-RELEASE-p6"),
         80,
         24,
-        &ANSI,
+        &pal(),
     );
     let p = logo_line(&out, 1);
     assert!(
@@ -160,7 +179,7 @@ fn os_freebsd_gets_beastie_logo() {
 
 #[test]
 fn os_windows_gets_windows_logo() {
-    let out = fetch_render::render_fetch(&snap("Windows 10", "10.0.19045"), 80, 24, &ANSI);
+    let out = fetch_render::render_fetch(&snap("Windows 10", "10.0.19045"), 80, 24, &pal());
     let os_line = plain(&out)
         .iter()
         .find(|l| l.contains("OS"))
@@ -173,7 +192,7 @@ fn os_windows_gets_windows_logo() {
 
 #[test]
 fn os_windows11_gets_windows_logo() {
-    let out = fetch_render::render_fetch(&snap("Windows 11", "10.0.22621"), 80, 24, &ANSI);
+    let out = fetch_render::render_fetch(&snap("Windows 11", "10.0.22621"), 80, 24, &pal());
     let os_line = plain(&out)
         .iter()
         .find(|l| l.contains("OS"))
@@ -188,7 +207,7 @@ fn os_windows11_gets_windows_logo() {
 
 #[test]
 fn os_generic_linux_gets_tux_logo() {
-    let out = fetch_render::render_fetch(&snap("Linux", "6.6.0-generic"), 80, 24, &ANSI);
+    let out = fetch_render::render_fetch(&snap("Linux", "6.6.0-generic"), 80, 24, &pal());
     let p = logo_line(&out, 1);
     assert!(
         p.contains('#'),
@@ -198,7 +217,7 @@ fn os_generic_linux_gets_tux_logo() {
 
 #[test]
 fn os_manjaro_gets_arch_derived_logo() {
-    let out = fetch_render::render_fetch(&snap("Manjaro Linux", "6.6.0-1-MANJARO"), 80, 24, &ANSI);
+    let out = fetch_render::render_fetch(&snap("Manjaro Linux", "6.6.0-1-MANJARO"), 80, 24, &pal());
     let p = logo_line(&out, 1);
     assert!(
         p.contains("██"),
@@ -208,7 +227,7 @@ fn os_manjaro_gets_arch_derived_logo() {
 
 #[test]
 fn os_endeavouros_gets_arch_derived_logo() {
-    let out = fetch_render::render_fetch(&snap("EndeavourOS", "6.6.0-arch1"), 80, 24, &ANSI);
+    let out = fetch_render::render_fetch(&snap("EndeavourOS", "6.6.0-arch1"), 80, 24, &pal());
     let plain_lines = plain(&out);
     // EndeavourOS has a tall logo; check that at least one of the visible logo/detail
     // rows contains mountain shapes (backtick/tick characters)
@@ -222,7 +241,7 @@ fn os_endeavouros_gets_arch_derived_logo() {
 #[test]
 fn os_raspbian_gets_debian_logo() {
     let out =
-        fetch_render::render_fetch(&snap("Raspbian GNU/Linux 11", "6.1.0-rpi7"), 80, 24, &ANSI);
+        fetch_render::render_fetch(&snap("Raspbian GNU/Linux 11", "6.1.0-rpi7"), 80, 24, &pal());
     let os_line = plain(&out)
         .iter()
         .find(|l| l.contains("OS"))
@@ -242,7 +261,8 @@ fn os_raspbian_gets_debian_logo() {
 #[test]
 fn os_unknown_os_still_renders() {
     // Should not panic — should render a header + at least some detail
-    let out = fetch_render::render_fetch(&snap("Commodore 64 OS/2", "2.0.0-kernel"), 80, 24, &ANSI);
+    let out =
+        fetch_render::render_fetch(&snap("Commodore 64 OS/2", "2.0.0-kernel"), 80, 24, &pal());
     assert!(out.len() >= 2, "unknown OS should render {out:?}");
     let header = &plain(&out)[0];
     assert!(
@@ -257,7 +277,7 @@ fn os_unknown_os_still_renders() {
 
 #[test]
 fn alignment_header_is_centered() {
-    let out = fetch_render::render_fetch(&snap("Ubuntu 24.04", "6.8.0"), 80, 24, &ANSI);
+    let out = fetch_render::render_fetch(&snap("Ubuntu 24.04", "6.8.0"), 80, 24, &pal());
     let header = strip_ansi(&out[0]);
     let fw = fullwidth("user@host");
     assert!(
@@ -268,7 +288,7 @@ fn alignment_header_is_centered() {
 
 #[test]
 fn alignment_label_column_is_fixed_width() {
-    let out = fetch_render::render_fetch(&snap("Ubuntu 24.04", "6.8.0"), 80, 24, &ANSI);
+    let out = fetch_render::render_fetch(&snap("Ubuntu 24.04", "6.8.0"), 80, 24, &pal());
     let plain_lines = plain(&out);
     let detail_lines: Vec<&str> = plain_lines[1..]
         .iter()
@@ -295,7 +315,7 @@ fn alignment_label_column_is_fixed_width() {
 
 #[test]
 fn alignment_colon_position_is_consistent() {
-    let out = fetch_render::render_fetch(&snap("Ubuntu 24.04", "6.8.0"), 80, 24, &ANSI);
+    let out = fetch_render::render_fetch(&snap("Ubuntu 24.04", "6.8.0"), 80, 24, &pal());
     let plain_lines = plain(&out);
     let detail_lines: Vec<&str> = plain_lines[1..]
         .iter()
@@ -317,7 +337,7 @@ fn alignment_colon_position_is_consistent() {
 
 #[test]
 fn alignment_each_line_starts_with_space_prefix() {
-    let out = fetch_render::render_fetch(&snap("Ubuntu 24.04", "6.8.0"), 80, 24, &ANSI);
+    let out = fetch_render::render_fetch(&snap("Ubuntu 24.04", "6.8.0"), 80, 24, &pal());
     let plain_lines = plain(&out);
     // Skip header (index 0) and color bar (last)
     for (i, line) in plain_lines.iter().enumerate().skip(1) {
@@ -338,7 +358,7 @@ fn alignment_each_line_starts_with_space_prefix() {
 
 #[test]
 fn sizing_shows_full_logo_when_there_is_room() {
-    let out = fetch_render::render_fetch(&snap("Ubuntu 24.04", "6.8.0"), 80, 24, &ANSI);
+    let out = fetch_render::render_fetch(&snap("Ubuntu 24.04", "6.8.0"), 80, 24, &pal());
     // The full Ubuntu logo (20 lines) is shown, plus a color bar → 22 total rows
     assert!(out.len() >= 20, "full logo + details + color bar shown");
     for label in &["OS", "Kernel", "Uptime", "Host", "CPU", "Memory", "Disk"] {
@@ -351,14 +371,14 @@ fn sizing_shows_full_logo_when_there_is_room() {
 
 #[test]
 fn sizing_9_rows_shows_7_details_plus_color_bar() {
-    let out = fetch_render::render_fetch(&snap("Ubuntu 24.04", "6.8.0"), 80, 9, &ANSI);
+    let out = fetch_render::render_fetch(&snap("Ubuntu 24.04", "6.8.0"), 80, 9, &pal());
     // 9 rows → max_body = 7 → 7 details + color bar = header + 7 + 1 = 9
     assert_eq!(out.len(), 9, "at 80x9: header + 7 details + color bar");
 }
 
 #[test]
 fn sizing_8_rows_omits_color_bar() {
-    let out = fetch_render::render_fetch(&snap("Ubuntu 24.04", "6.8.0"), 80, 8, &ANSI);
+    let out = fetch_render::render_fetch(&snap("Ubuntu 24.04", "6.8.0"), 80, 8, &pal());
     // 8 rows → max_body = 6 → shows 6 details, no room for color bar
     assert!(
         out.len() <= 8,
@@ -369,27 +389,27 @@ fn sizing_8_rows_omits_color_bar() {
 
 #[test]
 fn sizing_3_rows_shows_header_and_2_details() {
-    let out = fetch_render::render_fetch(&snap("Ubuntu 24.04", "6.8.0"), 40, 3, &ANSI);
+    let out = fetch_render::render_fetch(&snap("Ubuntu 24.04", "6.8.0"), 40, 3, &pal());
     assert_eq!(out.len(), 3, "at 40x3: header + 2 detail rows");
 }
 
 #[test]
 fn sizing_2_rows_shows_header_and_1_detail() {
-    let out = fetch_render::render_fetch(&snap("Ubuntu 24.04", "6.8.0"), 80, 2, &ANSI);
+    let out = fetch_render::render_fetch(&snap("Ubuntu 24.04", "6.8.0"), 80, 2, &pal());
     // 2 rows → max_body = 1 → header + 1 detail
     assert_eq!(out.len(), 2, "at 80x2: header + 1 detail");
 }
 
 #[test]
 fn sizing_0_rows_does_not_panic() {
-    let out = fetch_render::render_fetch(&snap("Ubuntu 24.04", "6.8.0"), 80, 0, &ANSI);
+    let out = fetch_render::render_fetch(&snap("Ubuntu 24.04", "6.8.0"), 80, 0, &pal());
     assert!(!out.is_empty(), "should at least have a header");
 }
 
 #[test]
 fn sizing_logo_lines_match_detail_lines_when_logo_is_tall() {
     // The Ubuntu logo has 20 lines — many more than the 7 details
-    let out = fetch_render::render_fetch(&snap("Ubuntu 24.04", "6.8.0"), 80, 24, &ANSI);
+    let out = fetch_render::render_fetch(&snap("Ubuntu 24.04", "6.8.0"), 80, 24, &pal());
     let detail_count = plain(&out)[1..]
         .iter()
         .filter(|l| l.contains(" : "))
@@ -407,7 +427,7 @@ fn sizing_logo_lines_match_detail_lines_when_logo_is_tall() {
 #[test]
 fn sizing_logo_lines_pad_when_logo_is_short() {
     // Alpine has only 4 lines — fewer than 7 details
-    let out = fetch_render::render_fetch(&snap("Alpine Linux 3.18", "6.6.0"), 80, 24, &ANSI);
+    let out = fetch_render::render_fetch(&snap("Alpine Linux 3.18", "6.6.0"), 80, 24, &pal());
     let detail_count = plain(&out)[1..]
         .iter()
         .filter(|l| l.contains(" : "))
@@ -425,8 +445,8 @@ fn sizing_logo_lines_pad_when_logo_is_short() {
 
 #[test]
 fn sizing_wide_panel_does_not_affect_row_count() {
-    let narrow = fetch_render::render_fetch(&snap("Ubuntu 24.04", "6.8.0"), 40, 24, &ANSI);
-    let wide = fetch_render::render_fetch(&snap("Ubuntu 24.04", "6.8.0"), 200, 24, &ANSI);
+    let narrow = fetch_render::render_fetch(&snap("Ubuntu 24.04", "6.8.0"), 40, 24, &pal());
+    let wide = fetch_render::render_fetch(&snap("Ubuntu 24.04", "6.8.0"), 200, 24, &pal());
     // A narrow panel may drop the logo, producing fewer rows than a wide one.
     assert!(!narrow.is_empty(), "narrow should produce output");
     assert!(!wide.is_empty(), "wide should produce output");

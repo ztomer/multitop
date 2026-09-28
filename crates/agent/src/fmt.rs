@@ -1,5 +1,6 @@
 //! Size / rate formatting and bar drawing. Output is byte-identical to the
 //! Python original — these strings are load-bearing for panel column widths.
+use crate::palette_view::PaletteView;
 
 const KI: u64 = 1024;
 const MI: u64 = KI * 1024;
@@ -89,7 +90,7 @@ pub fn make_bar(pct: f64, length: usize, color: &str, reset: &str) -> String {
 
 /// Unbracketed bar used inside a per-core cell, colored by its own load.
 #[must_use]
-pub fn core_bar(pct: f64, length: usize, p: &crate::color::Palette) -> String {
+pub fn core_bar(pct: f64, length: usize, p: &PaletteView) -> String {
     let filled = filled_cells(pct, length).min(HASH_BAR.len());
     let unfilled = length.saturating_sub(filled).min(DOT_BAR.len());
     let color = p.cpu_bar(pct);
@@ -133,12 +134,11 @@ pub fn fullwidth_display_width(s: &str) -> usize {
         .sum()
 }
 
-use crate::color::Palette;
 use crate::conv::{count, unsigned, whole_i64, whole_usize};
 
 /// Center-aligned header line: `────── ｈｏｓｔｎａｍｅ ──────`
 #[must_use]
-pub fn center_header(host: &str, cols: usize, pal: &Palette) -> String {
+pub fn center_header(host: &str, cols: usize, pal: &PaletteView) -> String {
     let fw = fullwidth(host);
     let disp_w = fullwidth_display_width(host);
     if cols <= disp_w {
@@ -324,7 +324,7 @@ mod tests {
 
     #[test]
     fn core_bar_has_no_brackets() {
-        let bar = core_bar(50.0, 10, &ANSI);
+        let bar = core_bar(50.0, 10, &PaletteView::for_theme(&ANSI));
         assert!(!bar.contains('['.to_string().as_str()) || bar.contains("\x1b["));
         assert_eq!(strip_ansi(&bar).len(), 10);
         assert!(bar.contains('#'));
@@ -333,20 +333,41 @@ mod tests {
 
     #[test]
     fn core_bar_colors_by_own_load() {
-        assert!(core_bar(10.0, 10, &ANSI).starts_with(ANSI.green));
-        assert!(core_bar(60.0, 10, &ANSI).starts_with(ANSI.yellow));
-        assert!(core_bar(90.0, 10, &ANSI).starts_with(ANSI.red));
+        // Against the VIEW's own accessors, not the palette's raw fields. The
+        // view is adapted -- and for ANSI it really is adapted, because its
+        // `muted` measures 3.68:1 on the background the theme states, below the
+        // 4.5 floor -- so comparing against `ANSI.green` here was asserting that
+        // the bar draws a colour the theme no longer uses. The bands themselves
+        // are the subject: low, mid, high, in order.
+        let view = PaletteView::for_theme(&ANSI);
+        assert!(core_bar(10.0, 10, &view).starts_with(view.meter_low()));
+        assert!(core_bar(60.0, 10, &view).starts_with(view.meter_mid()));
+        assert!(core_bar(90.0, 10, &view).starts_with(view.meter_high()));
+        // And the three are distinct, so "colours by load" is not three
+        // assertions of the same thing.
+        assert_ne!(view.meter_low(), view.meter_mid());
+        assert_ne!(view.meter_mid(), view.meter_high());
     }
 
     #[test]
     fn core_bar_zero_and_full() {
-        assert_eq!(core_bar(0.0, 10, &ANSI).matches('.').count(), 10);
-        assert_eq!(core_bar(100.0, 10, &ANSI).matches('#').count(), 10);
+        assert_eq!(
+            core_bar(0.0, 10, &PaletteView::for_theme(&ANSI))
+                .matches('.')
+                .count(),
+            10
+        );
+        assert_eq!(
+            core_bar(100.0, 10, &PaletteView::for_theme(&ANSI))
+                .matches('#')
+                .count(),
+            10
+        );
     }
 
     #[test]
     fn core_bar_length() {
-        let bar = core_bar(50.0, 8, &ANSI);
+        let bar = core_bar(50.0, 8, &PaletteView::for_theme(&ANSI));
         assert_eq!(bar.len(), 8 + ANSI.reset.len() + ANSI.cpu_bar(50.0).len());
     }
 
@@ -372,7 +393,7 @@ mod tests {
     #[test]
     fn center_header_is_centered() {
         use crate::color::strip_ansi;
-        let line = strip_ansi(&center_header("h", 40, &ANSI));
+        let line = strip_ansi(&center_header("h", 40, &PaletteView::for_theme(&ANSI)));
         assert!(line.contains("\u{ff48}"));
         let left_rules = line.chars().take_while(|c| *c == '\u{2500}').count();
         let right_rules = line.chars().rev().take_while(|c| *c == '\u{2500}').count();

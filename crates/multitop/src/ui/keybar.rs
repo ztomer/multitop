@@ -1,4 +1,5 @@
 use crate::app::App;
+use multitop_agent::palette_view::PaletteView;
 use ratatui::style::{Color, Style};
 use ratatui::text::{Line, Span};
 
@@ -57,7 +58,7 @@ fn filter_prompt(query: &str, label: Style, accent: Color) -> Line<'static> {
 #[must_use]
 pub fn keybar_badges(
     sort: multitop_agent::SortBy,
-    theme: &multitop_agent::color::Palette,
+    theme: &PaletteView,
     label: Style,
     key_hi: Style,
     sort_label: Style,
@@ -175,23 +176,15 @@ fn keybar_initials(
 #[must_use]
 pub fn keybar_line(
     sort: multitop_agent::SortBy,
-    theme: &multitop_agent::color::Palette,
+    theme: &PaletteView,
     keybar_width: u16,
     active_mode: crate::app::Mode,
     filter: FilterHint<'_>,
 ) -> Line<'static> {
     const SPACES: &str = "                                                                                                                                                                                                                                                                ";
     let label = Style::default().fg(Color::DarkGray);
-    let border_color = Color::Rgb(
-        theme.ratatui_border.0,
-        theme.ratatui_border.1,
-        theme.ratatui_border.2,
-    );
-    let accent_color = Color::Rgb(
-        theme.ratatui_accent.0,
-        theme.ratatui_accent.1,
-        theme.ratatui_accent.2,
-    );
+    let border_color = Color::Rgb(theme.border.0, theme.border.1, theme.border.2);
+    let accent_color = Color::Rgb(theme.accent.0, theme.accent.1, theme.accent.2);
     let active_mode_style = Style::default()
         .bg(accent_color)
         .fg(Color::Black)
@@ -316,16 +309,12 @@ pub fn keybar_line(
 #[must_use]
 pub fn keybar_content(
     app: &App,
-    theme: &multitop_agent::color::Palette,
+    theme: &PaletteView,
     keybar_width: u16,
     active_mode: crate::app::Mode,
 ) -> Line<'static> {
     let label = Style::default().fg(Color::DarkGray);
-    let accent_color = Color::Rgb(
-        theme.ratatui_accent.0,
-        theme.ratatui_accent.1,
-        theme.ratatui_accent.2,
-    );
+    let accent_color = Color::Rgb(theme.accent.0, theme.accent.1, theme.accent.2);
     let key_hi = Style::default()
         .fg(Color::White)
         .add_modifier(ratatui::style::Modifier::BOLD);

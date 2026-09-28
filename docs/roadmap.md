@@ -102,8 +102,12 @@ So the remaining work is three steps, all on the client:
    first version had exactly that bug and hung the entire tmux suite; it got
    through one commit attempt because the release binary was older than the probe,
    so the suite exercised a build without it.
-2. **Adapt once, in the one accessor every caller already goes through.**
-   *(Next step. Not started; the shape is below because it is not obvious.)*
+2. ~~**Adapt once, in the one accessor every caller already goes through.**~~
+   **Done.** `PaletteView` (`crates/agent/src/palette_view.rs`) reads like a
+   `Palette` — same field names, same accessor names, same `status_color` /
+   `cpu_bar` / `mem_bar` classification — so the render path takes `&PaletteView`
+   and the bodies do not change. The App holds one, behind an `Arc`, and rebuilds
+   it on theme-cycle and at boot.
    `App::current_theme` is the single source of the palette and has **17 call
    sites**: four in `app/views.rs`, three in `app/upgrade.rs`, two in
    `app/ops_view.rs`, and one each in `app/render.rs`, `app/apply.rs`,
@@ -115,21 +119,41 @@ So the remaining work is three steps, all on the client:
    Theme-cycling re-adapts for free, and adapting per frame would be the obvious
    mistake — a bisection per role per cell.
 
-   The part that is not obvious: **26 signatures take `&Palette` across the two
-   crates**, and the renderers read `pal.reset` as a *field* rather than through
-   an accessor. An adapted palette is not a `Palette` — it is owned strings, and
-   the escapes have to be built from the adjusted RGB — so this is a two-crate
-   signature change, not a one-line swap in `current_theme`. The alternative worth
-   considering first: a `Palette`-shaped view over the adapted values, which keeps
-   26 call sites untouched. Worth measuring before committing to the refactor.
+   The measurement that made it small: the 26 signatures all either pass the
+   palette to `format!` or read `pal.reset` as a field, and **neither needs a
+   `'static` lifetime** — so a view with owned escapes and `&str` returns
+   satisfies them as they stand. No refactor. Counting them properly cost ten
+   minutes and saved an afternoon; the first draft of this entry assumed all 26
+   would need editing.
+
+   Three things the view needed that `Palette` did not have, each a real finding:
+   the three `ratatui_*` colours (the keybar background, the border, the accent)
+   are painted as `ratatui::Color` rather than as escapes and are adapted too —
+   a dark theme's keybar on a light terminal is a black bar across a white screen;
+   `Arc` rather than `Rc`, because the `App` is moved onto a tokio task in the
+   event-loop tests and `Rc` is not `Send`, and an `Rc` fails in exactly one
+   place; and `App::current_theme` returns the handle, not a borrow, because a
+   palette reachable only by borrowing `self` collides with every `&mut panels` in
+   the render path.
+
+   **The bug this cost, and why the test that catches it is shaped the way it is.**
+   For one commit the app detected the background correctly, stored it correctly,
+   adapted correctly — and rendered with the view built in `App::new`, *before*
+   detection ran, against a default. 1373 tests passed. Every one of them tested a
+   module; none tested the connection. So the test that covers it goes through
+   `boot_app_with`, a seam added for exactly this: a test that calls
+   `rebuild_palette_view` itself proves the function works and cannot prove
+   anything calls it. Removing the rebuild from boot fails it with
+   `primary is 1.32:1` — the roadmap's own headline number, which is the right
+   thing for a failure message to say.
 
    The two `save_theme` sites want `Palette::name`, which is `&'static str` and
    unaffected; that is the one thing to check before changing the return type, and
    the reason to check it rather than assume.
 3. **Prove it on a real light terminal.** A test that the arithmetic is right is
-   not a screenshot. Per `user-pov-debug`, this needs the real app on a real light
-   backdrop, and the four `reachability:` notes in `surface.rs`/`adapt.rs` are the
-   record of the debt until the call sites exist.
+   not a screenshot, and 1380 green tests have already demonstrated how a correct
+   module can be wired to nothing. This step needs the real app on a real light
+   backdrop, and it is the only one left.
 
 The one thing worth deciding before writing code: whether a user on a light
 terminal should get an *automatic* adaptation or a `light = true` config setting

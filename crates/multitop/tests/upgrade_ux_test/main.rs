@@ -175,7 +175,7 @@ fn start_upgrade(h: &mut Harness) {
 
 /// Rendered text of the keybar row, whatever it is showing right now.
 fn keybar_text(app: &App, width: u16) -> String {
-    let theme = multitop_agent::color::ANSI;
+    let theme = app.current_theme();
     multitop::ui::keybar_content(app, &theme, width, Mode::Monitor)
         .spans
         .iter()

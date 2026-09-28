@@ -7,8 +7,8 @@
 //! answer that could not be read, or alerts (events, not a current fault),
 //! `·` a stated absence (no Docker here), `→` asking.
 
-use multitop_agent::color::Palette;
 use multitop_agent::fmt::center_header;
+use multitop_agent::palette_view::PaletteView;
 
 use super::{Alert, Check, Container, Job, OpsState, Part, Snapshot};
 
@@ -35,12 +35,12 @@ impl Tone {
         }
     }
 
-    const fn color(self, pal: &Palette) -> &'static str {
+    fn color(self, pal: &PaletteView) -> &str {
         match self {
-            Self::Good => pal.green,
-            Self::Bad => pal.red,
-            Self::Warn => pal.yellow,
-            Self::Quiet => pal.gray,
+            Self::Good => pal.green.as_str(),
+            Self::Bad => pal.red.as_str(),
+            Self::Warn => pal.yellow.as_str(),
+            Self::Quiet => pal.gray.as_str(),
         }
     }
 }
@@ -80,7 +80,7 @@ pub fn age(ts: i64, now: i64) -> String {
 struct Frame<'a> {
     out: Vec<String>,
     cols: usize,
-    pal: &'a Palette,
+    pal: &'a PaletteView,
 }
 
 impl Frame<'_> {
@@ -282,7 +282,7 @@ pub fn render(
     cols: usize,
     rows: usize,
     now: i64,
-    pal: &Palette,
+    pal: &PaletteView,
 ) -> Vec<String> {
     let mut f = Frame {
         out: vec![center_header(host, cols, pal)],

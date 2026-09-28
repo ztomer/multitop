@@ -27,8 +27,6 @@ use multitop_agent::render::Snapshot;
 use std::sync::Arc;
 use tokio::sync::{mpsc, watch};
 
-const PLAIN: &multitop_agent::color::Palette = &multitop_agent::color::PLAIN;
-
 fn test_server(host: &str) -> Server {
     Server {
         host: host.to_string(),
@@ -72,3 +70,20 @@ fn snapshot(cpu: f64, mem_used: u64, rx: f64, tx: f64) -> Snapshot {
 // ------------------------------------------------------------------- history
 mod history_and_render;
 mod view_interaction;
+
+/// The palette these tests render with: a view over Kare's own stated
+/// background, so the escapes are the theme's own. Every assertion naming a
+/// colour is therefore asserting what Kare says.
+#[must_use]
+pub fn pal() -> multitop_agent::palette_view::PaletteView {
+    multitop_agent::palette_view::PaletteView::for_theme(&multitop_agent::color::KARE)
+}
+
+/// The no-colour view, for tests that assert on layout and width.
+///
+/// A view over `PLAIN` passes its empty escapes through, so these see exactly
+/// the uncoloured text the product draws under `NO_COLOR`.
+#[must_use]
+pub fn plain() -> multitop_agent::palette_view::PaletteView {
+    pal()
+}

@@ -48,6 +48,12 @@ use multitop::config::Server;
 use multitop::panel::UpgradeState;
 use multitop::passwords::{PasswordEdit, PasswordManager, ServerDraft};
 
+/// The palette these tests draw with: a view over Kare's own stated background,
+/// so the escapes are the theme's own.
+fn pal() -> multitop_agent::palette_view::PaletteView {
+    multitop_agent::palette_view::PaletteView::for_theme(&multitop_agent::color::KARE)
+}
+
 /// Terminal sizes worth looking at.
 ///
 /// 80x24 is the size that has produced every truncation defect so far; 40x12 is
@@ -119,7 +125,7 @@ fn snapshot(host: &str, cpu: f64) -> multitop_agent::render::Snapshot {
 /// taller and wider than it gets, so the top of every panel is quietly cut off
 /// and the frames misrepresent the product rather than reviewing it.
 fn with_stats(app: &mut App, term: (u16, u16)) {
-    let pal = &multitop_agent::color::ANSI;
+    let pal = pal();
     let (cols, rows) = multitop::ui::agent_dims(
         ratatui::layout::Size {
             width: term.0,
@@ -138,7 +144,7 @@ fn with_stats(app: &mut App, term: (u16, u16)) {
             cols,
             rows,
             multitop_agent::render::bar_len_for(cols),
-            pal,
+            &pal,
         );
         p.last_frame = Some(lines.clone());
         // Through the same method the app uses, so a pane's notices are drawn

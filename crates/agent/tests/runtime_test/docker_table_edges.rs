@@ -11,7 +11,13 @@ fn a_frame_with_no_room_at_all_still_produces_something() {
         // all rather than a negative or wrapped count.
         let _ = chrome.cpu_rows();
         assert!(chrome.height() >= 1, "chrome claimed a zero-height frame");
-        let frame = render(&snap, cols, lines, bar_len_for(cols), &PLAIN);
+        let frame = render(
+            &snap,
+            cols,
+            lines,
+            bar_len_for(cols),
+            &multitop_agent::palette_view::PaletteView::for_theme(&PLAIN),
+        );
         assert_eq!(
             frame.len(),
             chrome.height() + chrome.table_height(snap.procs.len()),
@@ -29,8 +35,22 @@ fn the_docker_table_can_be_ordered_by_memory_instead_of_cpu() {
     // `db` uses the most memory; `web` uses the most CPU. Which one leads
     // has to follow the sort the user picked.
     let rows = docker_rows();
-    let by_cpu = render("h", 100, 24, &rows, &PLAIN, SortBy::Cpu);
-    let by_mem = render("h", 100, 24, &rows, &PLAIN, SortBy::Mem);
+    let by_cpu = render(
+        "h",
+        100,
+        24,
+        &rows,
+        &multitop_agent::palette_view::PaletteView::for_theme(&PLAIN),
+        SortBy::Cpu,
+    );
+    let by_mem = render(
+        "h",
+        100,
+        24,
+        &rows,
+        &multitop_agent::palette_view::PaletteView::for_theme(&PLAIN),
+        SortBy::Mem,
+    );
 
     // Frame layout: header, column titles, rule, then the body rows.
     let first_body = |frame: &[String]| frame[3].clone();
@@ -41,8 +61,22 @@ fn the_docker_table_can_be_ordered_by_memory_instead_of_cpu() {
     let mut rows = docker_rows();
     rows[0].cpu_pct = 99.0; // web: most cpu
     rows[0].mem_bytes = 1; //        least memory
-    let by_cpu = render("h", 100, 24, &rows, &PLAIN, SortBy::Cpu);
-    let by_mem = render("h", 100, 24, &rows, &PLAIN, SortBy::Mem);
+    let by_cpu = render(
+        "h",
+        100,
+        24,
+        &rows,
+        &multitop_agent::palette_view::PaletteView::for_theme(&PLAIN),
+        SortBy::Cpu,
+    );
+    let by_mem = render(
+        "h",
+        100,
+        24,
+        &rows,
+        &multitop_agent::palette_view::PaletteView::for_theme(&PLAIN),
+        SortBy::Mem,
+    );
     assert!(first_body(&by_cpu).contains("web"));
     assert!(first_body(&by_mem).contains("db"));
 }
@@ -63,7 +97,14 @@ fn a_docker_table_taller_than_the_frame_says_how_much_it_hid() {
         })
         .collect();
 
-    let frame = render("h", 100, 12, &rows, &PLAIN, SortBy::Mem);
+    let frame = render(
+        "h",
+        100,
+        12,
+        &rows,
+        &multitop_agent::palette_view::PaletteView::for_theme(&PLAIN),
+        SortBy::Mem,
+    );
     let text = frame.join("\n");
     assert!(
         text.contains("more"),

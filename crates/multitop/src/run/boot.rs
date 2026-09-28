@@ -115,6 +115,28 @@ pub(super) fn boot_app(
     config_path: &std::path::Path,
     initial_theme: Option<&str>,
 ) -> App {
+    boot_app_with(
+        servers,
+        config_path,
+        initial_theme,
+        crate::background::detect(),
+    )
+}
+
+/// The boot path, with the background supplied.
+///
+/// The seam exists because the wiring is the part that breaks: for one commit
+/// this detected a background, stored it, and then rendered with the view built
+/// in `App::new` — before detection ran, against a default. Every module's own
+/// test passed. A test that calls `rebuild_palette_view` itself cannot see that,
+/// because it IS the rebuild, so the only way to test the connection is to drive
+/// the function that makes it and let the background in from outside.
+pub(super) fn boot_app_with(
+    servers: &[Server],
+    config_path: &std::path::Path,
+    initial_theme: Option<&str>,
+    background: crate::background::Background,
+) -> App {
     let mut app = App::new(servers.to_vec());
     app.config_path = Some(config_path.to_path_buf());
     apply_config(&mut app, config_path);
@@ -128,6 +150,96 @@ pub(super) fn boot_app(
     // once against the theme that will actually be used. The alternative --
     // querying per frame -- would put a terminal round trip in the render path
     // for an answer that cannot change while the process runs.
-    app.background = crate::background::detect();
+    // Detect, then REBUILD. The view was built in `App::new` against a default
+    // background, so setting the detected one is not enough -- without this the
+    // app detects the background correctly and then renders as though it had
+    // not, and no test noticed, because nothing asserted the two were connected.
+    app.background = background;
+    app.rebuild_palette_view();
     app
+}
+
+#[cfg(test)]
+mod tests {
+    //! The boot path, driven end to end, because that is the only way to see the
+    //! wiring.
+    //!
+    //! A test that calls `rebuild_palette_view` itself proves the function works
+    //! and cannot prove anything calls it — and for one commit the app detected a
+    //! background, stored it, and then rendered with a view built before the
+    //! detection, while every one of those tests stayed green. The assertion
+    //! here goes through `boot_app_with`, which is the function that has to make
+    //! the connection, so removing the rebuild fails this test.
+
+    use super::boot_app_with;
+    use crate::background::Background;
+    use crate::config::Server;
+    use multitop_agent::adapt::MIN_TEXT_CONTRAST;
+    use multitop_agent::surface::Rgb;
+
+    /// A near-white terminal: the case the whole feature exists for.
+    const LIGHT: Rgb = Rgb::new(252, 252, 250);
+
+    fn config_in(dir: &std::path::Path) -> std::path::PathBuf {
+        let path = dir.join("config.toml");
+        std::fs::write(&path, "").expect("write an empty config");
+        path
+    }
+
+    fn server(host: &str) -> Server {
+        Server {
+            host: host.to_string(),
+            port: 0,
+            user: "a".to_string(),
+            upgrade_cmd: Some("true".to_string()),
+            custom_command: None,
+            mcp: None,
+        }
+    }
+
+    #[test]
+    fn the_boot_path_adapts_the_palette_to_the_background_it_detected() {
+        let dir = tempfile::tempdir().expect("a temp dir");
+        let app = boot_app_with(
+            &[server("alpha")],
+            &config_in(dir.path()),
+            None,
+            Background::Reported(LIGHT),
+        );
+        // Read the app's OWN view. A freshly built one would prove the module,
+        // not the wiring.
+        let drawn = app.current_theme();
+        for (name, escape) in [
+            ("primary", drawn.primary()),
+            ("secondary", drawn.secondary()),
+            ("muted", drawn.muted()),
+            ("text", drawn.text()),
+            ("meter_low", drawn.meter_low()),
+            ("meter_mid", drawn.meter_mid()),
+            ("meter_high", drawn.meter_high()),
+        ] {
+            let colour = Rgb::from_ansi(escape)
+                .unwrap_or_else(|| panic!("{name} is not a colour: {escape:?}"));
+            assert!(
+                colour.contrast_ratio(LIGHT) >= MIN_TEXT_CONTRAST,
+                "after boot on a light terminal, {name} is {:.2}:1: {escape:?}",
+                colour.contrast_ratio(LIGHT)
+            );
+        }
+    }
+
+    #[test]
+    fn boot_stores_the_background_it_was_given() {
+        // The other half of the same connection, and the half that is easy to
+        // believe without checking: a stored background nobody reads is the
+        // silent version of the bug above.
+        let dir = tempfile::tempdir().expect("a temp dir");
+        let app = boot_app_with(
+            &[server("alpha")],
+            &config_in(dir.path()),
+            None,
+            Background::Reported(LIGHT),
+        );
+        assert_eq!(app.background, Background::Reported(LIGHT));
+    }
 }

@@ -1,6 +1,6 @@
 //! Render payload dispatcher for monitor, docker, and fetch payloads.
 
-use multitop_agent::color::Palette;
+use multitop_agent::palette_view::PaletteView;
 use multitop_agent::proto::Payload;
 use multitop_agent::render::{bar_len_for, render};
 use multitop_agent::SortBy;
@@ -13,7 +13,7 @@ pub fn render_payload(
     payload: &Payload,
     dims: (u16, u16),
     sort: SortBy,
-    pal: &Palette,
+    pal: &PaletteView,
 ) -> Vec<String> {
     let (cols, height) = dims;
     let bar_len = bar_len_for(cols as usize);

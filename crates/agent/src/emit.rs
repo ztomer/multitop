@@ -9,7 +9,7 @@
 //!
 //! These are re-exported from the crate root, so no caller changes.
 
-use crate::{color, docker, fetch, proto, render, Args};
+use crate::{docker, fetch, proto, render, Args};
 
 pub(crate) fn emit_hello<W: std::io::Write>(out: &mut W) -> std::io::Result<()> {
     let hello = proto::Hello::new(crate::consts::AGENT_VERSION.to_string());
@@ -28,7 +28,7 @@ pub fn emit_fetch<W: std::io::Write>(
     snap: &fetch::FetchSnapshot,
     cols: usize,
     is_tty: bool,
-    pal: &color::Palette,
+    pal: &crate::palette_view::PaletteView,
     out: &mut W,
 ) -> std::io::Result<()> {
     if !is_tty {
@@ -71,7 +71,7 @@ pub fn emit_docker<W: std::io::Write>(
     rows: Vec<docker::Row>,
     args: &Args,
     is_tty: bool,
-    pal: &color::Palette,
+    pal: &crate::palette_view::PaletteView,
     out: &mut W,
 ) -> std::io::Result<()> {
     if is_tty {
@@ -99,7 +99,7 @@ pub fn emit_monitor<W: std::io::Write>(
     snap: &render::Snapshot,
     args: &Args,
     is_tty: bool,
-    pal: &color::Palette,
+    pal: &crate::palette_view::PaletteView,
     buf: &mut String,
     out: &mut W,
 ) -> std::io::Result<()> {

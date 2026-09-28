@@ -17,6 +17,12 @@ impl App {
             sort: SortBy::Cpu,
             theme_idx: 0,
             background: crate::background::Background::Unknown,
+            palette_view: std::sync::Arc::new(
+                multitop_agent::palette_view::PaletteView::for_background(
+                    &multitop_agent::color::THEMES[0],
+                    multitop_agent::color::THEMES[0].own_background(),
+                ),
+            ),
             config_path: None,
             filter_query: String::new(),
             upgrade_history_lines: crate::config::DEFAULT_UPGRADE_HISTORY_LINES,
@@ -234,6 +240,7 @@ impl App {
         }
         self.leave_current_view();
         let pal = self.current_theme();
+        let pal = pal.as_ref();
         let vault_locked = self.vault.is_some() && matches!(self.vault_state, VaultState::Locked);
         for i in 0..self.panels.len() {
             if self.panels[i].upgrade_state != crate::panel::UpgradeState::STARTED {
@@ -267,6 +274,7 @@ impl App {
         }
         self.leave_current_view();
         let pal = self.current_theme();
+        let pal = pal.as_ref();
         for i in 0..self.panels.len() {
             // Same rule as `switch_stats`: a panel mid-upgrade keeps its gen,
             // or the in-flight task's output is discarded.
@@ -298,6 +306,7 @@ impl App {
         }
         self.leave_current_view();
         let pal = self.current_theme();
+        let pal = pal.as_ref();
         let mut cmds = Vec::with_capacity(self.panels.len());
         for i in 0..self.panels.len() {
             let gen = self.bump(i);
@@ -326,6 +335,7 @@ impl App {
         }
         self.leave_current_view();
         let pal = self.current_theme();
+        let pal = pal.as_ref();
         let mut cmds = Vec::with_capacity(self.panels.len());
         for i in 0..self.panels.len() {
             let gen = self.bump(i);

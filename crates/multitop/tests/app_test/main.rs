@@ -51,6 +51,7 @@ fn text(p: &Panel) -> String {
     p.view.join("\n")
 }
 mod mode_and_frames;
+mod palette_wiring;
 mod scroll_and_cache;
 mod state_persistence;
 mod upgrade_output;

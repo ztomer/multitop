@@ -9,6 +9,13 @@ use multitop::ui::{
 };
 use ratatui::layout::{Rect, Size};
 
+/// The palette these tests draw with: a view over a theme's own stated
+/// background, so the escapes are that theme's own and an assertion naming a
+/// colour is asserting what the theme says.
+fn pal() -> multitop_agent::palette_view::PaletteView {
+    multitop_agent::palette_view::PaletteView::for_theme(&multitop_agent::color::KARE)
+}
+
 const fn size(w: u16, h: u16) -> Size {
     Size {
         width: w,
@@ -136,10 +143,10 @@ fn visible_scrolls_backwards_into_history() {
 
 #[test]
 fn keybar_lists_every_binding() {
-    let theme = &multitop_agent::color::KARE;
+    let theme = pal();
     let text: String = keybar_line(
         multitop_agent::SortBy::Cpu,
-        theme,
+        &theme,
         120,
         multitop::app::Mode::Monitor,
         multitop::ui::FilterHint::Off,
@@ -157,10 +164,10 @@ fn keybar_lists_every_binding() {
 
 #[test]
 fn keybar_shows_sort_by_cpu_and_theme() {
-    let theme = &multitop_agent::color::KARE;
+    let theme = pal();
     let text: String = keybar_line(
         multitop_agent::SortBy::Cpu,
-        theme,
+        &theme,
         120,
         multitop::app::Mode::Monitor,
         multitop::ui::FilterHint::Off,
@@ -176,10 +183,10 @@ fn keybar_shows_sort_by_cpu_and_theme() {
 
 #[test]
 fn keybar_shows_sort_by_mem() {
-    let theme = &multitop_agent::color::KARE;
+    let theme = pal();
     let text: String = keybar_line(
         multitop_agent::SortBy::Mem,
-        theme,
+        &theme,
         120,
         multitop::app::Mode::Monitor,
         multitop::ui::FilterHint::Off,
@@ -205,7 +212,7 @@ fn keybar_shows_sort_by_mem() {
 /// must be closed.
 #[test]
 fn the_keybar_never_slices_a_word_at_any_width() {
-    let theme = &multitop_agent::color::KARE;
+    let theme = pal();
     for width in 8u16..=200 {
         for mode in [
             multitop::app::Mode::Monitor,
@@ -218,7 +225,7 @@ fn the_keybar_never_slices_a_word_at_any_width() {
                 multitop::ui::FilterHint::Active("db"),
             ] {
                 let text: String =
-                    keybar_line(multitop_agent::SortBy::Cpu, theme, width, mode, hint)
+                    keybar_line(multitop_agent::SortBy::Cpu, &theme, width, mode, hint)
                         .spans
                         .iter()
                         .map(|s| s.content.as_ref())
@@ -252,10 +259,10 @@ fn the_keybar_never_slices_a_word_at_any_width() {
 /// Quit survives a terminal too narrow for anything else.
 #[test]
 fn the_keybar_keeps_the_way_out_when_it_keeps_nothing_else() {
-    let theme = &multitop_agent::color::KARE;
+    let theme = pal();
     let text: String = keybar_line(
         multitop_agent::SortBy::Cpu,
-        theme,
+        &theme,
         8,
         multitop::app::Mode::Monitor,
         multitop::ui::FilterHint::Off,

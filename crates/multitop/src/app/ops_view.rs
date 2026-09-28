@@ -9,7 +9,11 @@ use crate::panel::{Mode, Panel, UpgradeState};
 /// The frame for `panel` in the Ops view at `dims`. A host with no `mcp`
 /// command says how to add one; one asked and not yet answered says so.
 #[must_use]
-pub fn frame(panel: &Panel, dims: (u16, u16), pal: &multitop_agent::color::Palette) -> Vec<String> {
+pub fn frame(
+    panel: &Panel,
+    dims: (u16, u16),
+    pal: &multitop_agent::palette_view::PaletteView,
+) -> Vec<String> {
     let state = match (&panel.server.mcp, &panel.last_ops) {
         (None, _) => &OpsState::NotConfigured,
         (Some(_), Some(s)) => s,
@@ -40,6 +44,7 @@ impl App {
         }
         self.leave_current_view();
         let pal = self.current_theme();
+        let pal = pal.as_ref();
         let mut cmds = Vec::new();
         for i in 0..self.panels.len() {
             // A panel mid-upgrade keeps its gen, or its run's output is lost.
@@ -72,6 +77,7 @@ impl App {
             return false;
         }
         let pal = self.current_theme();
+        let pal = pal.as_ref();
         let p = &mut self.panels[panel];
         p.last_ops = Some(state);
         if p.mode == Mode::Ops {

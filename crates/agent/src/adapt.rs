@@ -125,7 +125,10 @@ impl Adapted {
 }
 
 impl Role {
-    const fn index(self) -> usize {
+    /// This role's position in [`Role::all`], which is also its position in the
+    /// view's escape array.
+    #[must_use]
+    pub const fn index(self) -> usize {
         match self {
             Self::Primary => slot::PRIMARY,
             Self::Secondary => slot::SECONDARY,
@@ -176,13 +179,24 @@ pub fn adapt(theme: &Palette, bg: Rgb, min_ratio: f32) -> Option<Adapted> {
     // The luminance a colour must be AT OR BELOW (light background) or AT OR
     // ABOVE (dark background) to reach the ratio. Closed form, no search.
     let bg_l = bg.relative_luminance();
-    let min_ratio = min_ratio * RATIO_MARGIN;
-    let threshold = if bg_is_light(bg) {
+    let light = bg_is_light(bg);
+    // Two thresholds, and the difference between them is the whole bug this
+    // section had. `RATIO_MARGIN` buys headroom for 8-bit rounding on the way
+    // OUT, so the map's output clears the floor rather than landing on it. It
+    // must not narrow the decision about whether to run at all: a role that
+    // already clears the UNMARGINED floor is fine, and testing against the
+    // margined figure re-tinted 3 of 253 role/background pairs that needed
+    // nothing, purely because the margin is stricter than the requirement.
+    let unmargined = if light {
         (bg_l + CONTRAST_OFFSET) / min_ratio - CONTRAST_OFFSET
     } else {
         min_ratio.mul_add(bg_l + CONTRAST_OFFSET, -CONTRAST_OFFSET)
     };
-    let light = bg_is_light(bg);
+    let threshold = if light {
+        (bg_l + CONTRAST_OFFSET) / (min_ratio * RATIO_MARGIN) - CONTRAST_OFFSET
+    } else {
+        (min_ratio * RATIO_MARGIN).mul_add(bg_l + CONTRAST_OFFSET, -CONTRAST_OFFSET)
+    };
 
     let mut lo = f32::INFINITY;
     let mut hi = f32::NEG_INFINITY;
@@ -190,6 +204,38 @@ pub fn adapt(theme: &Palette, bg: Rgb, min_ratio: f32) -> Option<Adapted> {
         let l = c.relative_luminance();
         lo = lo.min(l);
         hi = hi.max(l);
+    }
+
+    // The identity when the palette already reads on this background.
+    //
+    // A uniform affine rescale is NOT the identity, so this has to be explicit:
+    // the map moves a palette that already fits. Measured, without the
+    // short-circuit, that changed 43 of 56 role/background pairs on a DARK
+    // terminal. And that is correct rather than a bug — the measurement also
+    // shows `muted` sitting at 2.8:1 to 4.7:1 on dark, below the 4.5 floor in
+    // every one of the eight themes, so there is always something to fix and the
+    // map always has work to do. Cyberpunk's `muted` at 2.8:1 is below even the
+    // lower de-emphasis floor, which is a real finding about that palette.
+    //
+    // The short-circuit is therefore not about dark terminals. It is the case
+    // where a background needs nothing: the brightest role already under the
+    // light threshold, or the darkest already over the dark one. Which end
+    // decides depends on the direction, and testing the wrong one is how the
+    // first version short-circuited almost never.
+    let constrained_is_the_brightest = light;
+    let already_legible = if constrained_is_the_brightest {
+        hi <= unmargined
+    } else {
+        lo >= unmargined
+    };
+    if already_legible {
+        let mut out = [Rgb::new(0, 0, 0); ROLE_COUNT];
+        let mut index = 0;
+        while index < ROLE_COUNT {
+            out[index] = originals[index];
+            index += 1;
+        }
+        return Some(Adapted { roles: out });
     }
 
     // Where the adapted range sits. The constrained end is the one that has to
@@ -239,7 +285,7 @@ pub const DARKEST_ROLE_FRACTION: f32 = 0.34;
 /// `[Rgb; ROLE_COUNT]` in this file. As bare numbers it is a correspondence
 /// nobody can grep for, and reordering the `match` would silently re-label every
 /// colour in the palette.
-mod slot {
+pub mod slot {
     pub const PRIMARY: usize = 0;
     pub const SECONDARY: usize = 1;
     pub const MUTED: usize = 2;
@@ -291,7 +337,25 @@ impl Role {
         }
     }
 
-    /// Every role, for the checks that must hold for all of them.
+    /// The role at `index`, the inverse of [`Role::index`].
+    ///
+    /// Taken from [`Role::all`] rather than written as a second `match`, because
+    /// clippy is right that a `match` over the slots is seven identical-looking
+    /// arms: the slots ARE the variants in order, and writing the order twice is
+    /// a correspondence that can drift silently. Reading it from the one list
+    /// there is removes the second copy rather than satisfying the lint.
+    ///
+    /// An out-of-range index cannot be expressed to a caller — every index comes
+    /// from `Role::all().into_iter().enumerate()` or from `Role::index` — so the
+    /// fallback is unreachable, and it is `Primary` rather than a panic because
+    /// this is a `const fn` on a render path.
+    #[must_use]
+    pub fn from_index(index: usize) -> Self {
+        Self::all().into_iter().nth(index).unwrap_or(Self::Primary)
+    }
+
+    /// Every role, for the checks that must hold for all of them, in the array
+    /// order the view indexes by.
     #[must_use]
     pub const fn all() -> [Self; ROLE_COUNT] {
         [

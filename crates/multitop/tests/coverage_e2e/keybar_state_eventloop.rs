@@ -8,13 +8,13 @@ use super::*;
 fn keybar_badges_shed_whole() {
     let _g = isolate_keychain();
 
-    let pal = &multitop_agent::color::THEMES[0];
+    let pal = pal();
     let label = Style::default().fg(Color::DarkGray);
     let key_hi = Style::default().fg(Color::White);
     let sort_label = Style::default().fg(Color::DarkGray);
     let accent = Color::Yellow;
 
-    let badges = keybar_badges(SortBy::Cpu, pal, label, key_hi, sort_label, accent);
+    let badges = keybar_badges(SortBy::Cpu, &pal, label, key_hi, sort_label, accent);
     assert_eq!(
         badges.len(),
         5,

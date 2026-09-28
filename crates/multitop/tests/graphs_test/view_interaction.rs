@@ -172,7 +172,7 @@ async fn the_keybar_offers_the_graph_view() {
     let _g = isolate().await;
     let line = multitop::ui::keybar_line(
         multitop_agent::SortBy::Cpu,
-        PLAIN,
+        &plain(),
         120,
         Mode::Monitor,
         multitop::ui::FilterHint::Off,

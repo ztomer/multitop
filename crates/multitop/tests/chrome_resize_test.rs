@@ -21,11 +21,23 @@ use tokio::sync::watch;
 
 use multitop::app::Msg;
 use multitop::render_payload::render_payload;
-use multitop_agent::color;
 use multitop_agent::proc::{Proc, Usage};
 use multitop_agent::proto::Payload;
 use multitop_agent::render::{Snapshot, TempUnit};
 use multitop_agent::SortBy;
+
+/// The no-colour view, for the tests that assert on layout and width rather than
+/// on colour. A view over `PLAIN` passes its empty escapes through, so these see
+/// exactly the uncoloured text the product draws under `NO_COLOR`.
+fn plain() -> multitop_agent::palette_view::PaletteView {
+    multitop_agent::palette_view::PaletteView::for_theme(&multitop_agent::color::PLAIN)
+}
+
+/// The palette these tests draw with: a view over a theme's own stated
+/// background, so the escapes are that theme's own.
+fn pal() -> multitop_agent::palette_view::PaletteView {
+    multitop_agent::palette_view::PaletteView::for_theme(&multitop_agent::color::KARE)
+}
 
 fn sample_snapshot() -> Snapshot {
     Snapshot {
@@ -109,8 +121,8 @@ fn frame_lines(msg: Msg) -> Vec<String> {
 fn render_payload_monitor_produces_more_lines_at_larger_dims() {
     let payload = Payload::Monitor(sample_snapshot());
 
-    let small = render_payload(&payload, (40, 10), SortBy::Cpu, &color::ANSI);
-    let large = render_payload(&payload, (200, 60), SortBy::Cpu, &color::ANSI);
+    let small = render_payload(&payload, (40, 10), SortBy::Cpu, &pal());
+    let large = render_payload(&payload, (200, 60), SortBy::Cpu, &pal());
 
     assert!(
         large.len() > small.len(),
@@ -124,8 +136,8 @@ fn render_payload_monitor_produces_more_lines_at_larger_dims() {
 fn render_payload_fetch_produces_more_lines_at_larger_dims() {
     let payload = sample_fetch();
 
-    let small = render_payload(&payload, (40, 5), SortBy::Cpu, &color::ANSI);
-    let large = render_payload(&payload, (80, 24), SortBy::Cpu, &color::ANSI);
+    let small = render_payload(&payload, (40, 5), SortBy::Cpu, &pal());
+    let large = render_payload(&payload, (80, 24), SortBy::Cpu, &pal());
 
     assert!(
         large.len() > small.len(),
@@ -139,8 +151,8 @@ fn render_payload_fetch_produces_more_lines_at_larger_dims() {
 fn render_payload_docker_produces_more_lines_at_larger_dims() {
     let payload = sample_docker();
 
-    let small = render_payload(&payload, (40, 6), SortBy::Cpu, &color::ANSI);
-    let large = render_payload(&payload, (80, 24), SortBy::Cpu, &color::ANSI);
+    let small = render_payload(&payload, (40, 6), SortBy::Cpu, &pal());
+    let large = render_payload(&payload, (80, 24), SortBy::Cpu, &pal());
 
     assert!(
         large.len() > small.len(),
@@ -152,8 +164,12 @@ fn render_payload_docker_produces_more_lines_at_larger_dims() {
 
 #[test]
 fn render_payload_plain_palette_has_no_ansi_escapes() {
+    // `plain()`, not `pal()`. My rewire gave every palette in this file the same
+    // helper and defaulted it to Kare, so a test asserting that the NO-COLOUR
+    // render emits no escapes was handed a full-colour theme and failed on its
+    // own premise. The test name is the specification and the helper hid it.
     let payload = Payload::Monitor(sample_snapshot());
-    let lines = render_payload(&payload, (80, 24), SortBy::Cpu, &color::PLAIN);
+    let lines = render_payload(&payload, (80, 24), SortBy::Cpu, &plain());
     for (i, line) in lines.iter().enumerate() {
         assert!(
             !line.contains('\x1b'),
@@ -187,7 +203,7 @@ async fn monitor_loop_re_reads_dims_each_frame() {
     let dims_rx = Arc::new(dims_rx);
 
     tokio::spawn(async move {
-        let pal = &color::ANSI;
+        let pal = &pal();
         while let Some(payload) = payload_rx.recv().await {
             let dims = *dims_rx.borrow();
             let lines = render_payload(&payload, dims, SortBy::Cpu, pal);
@@ -277,7 +293,7 @@ fn resize_path_must_not_call_restart_all_agents() {
 
 #[test]
 fn render_payload_handles_every_variant() {
-    let pal = &color::ANSI;
+    let pal = &pal();
     let dims = (80, 24);
     let sort = SortBy::Cpu;
 

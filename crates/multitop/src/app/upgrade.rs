@@ -9,6 +9,7 @@ impl App {
     #[must_use]
     pub fn upgrade_pane_header(&self, panel: usize) -> Vec<String> {
         let pal = self.current_theme();
+        let pal = pal.as_ref();
         let Some(p) = self.panels.get(panel) else {
             return Vec::new();
         };
@@ -47,6 +48,7 @@ impl App {
 
     pub fn note_nothing_to_upgrade(&mut self) {
         let pal = self.current_theme();
+        let pal = pal.as_ref();
         let note = format!(
             "{}\u{26a0} No host has an upgrade_cmd \u{2014} nothing to run.{}",
             pal.meter_high(),
@@ -172,6 +174,7 @@ impl App {
     pub fn run_upgrade(&mut self) -> Vec<Command> {
         self.reset_scroll();
         let pal = self.current_theme();
+        let pal = pal.as_ref();
         // Vault first, same as the view does. The store half of this loads is
         // empty in the real flow: the confirm that reaches here is gated on no
         // lookup being in flight, and enter_upgrade_view already dispatched

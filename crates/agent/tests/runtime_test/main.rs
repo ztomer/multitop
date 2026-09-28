@@ -110,3 +110,14 @@ mod cli_words_and_entry;
 mod docker_table_edges;
 mod event_loop_and_ticks;
 mod render_views;
+
+/// The palette to draw with in these tests.
+///
+/// A view over the theme's own stated background, so the escapes are the
+/// theme's own and an assertion naming a colour is asserting what the theme
+/// says. `for_theme` rather than a chosen background on purpose: a test that
+/// picks its own background is testing a palette the product never builds.
+#[must_use]
+pub fn pal() -> multitop_agent::palette_view::PaletteView {
+    multitop_agent::palette_view::PaletteView::for_theme(&ANSI)
+}
