@@ -7,6 +7,43 @@ This file starts at v0.47.0 — earlier history is in git (`git log`), and the
 per-defect record is `docs/detection-record.md`, which is the more useful
 document for anything before this point.
 
+## v0.50.0 — every theme was illegible on a light terminal _(2026-09-28)_
+
+**If you run multitop in a light-coloured terminal, your colours have changed**,
+and the alert banner has changed most. Dark terminals are unaffected: the theme
+values you had are the values you still have.
+
+### Added
+- **Background detection.** The client asks the terminal what colour it is
+  (OSC 11), then `COLORFGBG`, then falls back to the theme's own keybar
+  background, and adapts all eight palettes for what it finds.
+  `multitop --print-background` reports which, and from which source.
+- **`tools/light_terminal_check.py`** — runs the built binary in a pty and
+  measures every colour it actually drew, on a light and a dark background, with
+  a negative control that fails if the two arms draw identical palettes.
+
+### Fixed
+- **The alert banner was unreadable on a light terminal, and 1380 tests could not
+  have told you.** The breach and warning branches hard-coded colour escapes.
+  On a dark terminal those literals *are* the theme's values, so nothing looked
+  wrong, and a literal does not pass through the adaptation layer, so nothing
+  could fix it. Measured on the real app, the alert red came out at **3.14:1**
+  on white — the only one of eight rendered colours under the 4.5:1 bar. Both
+  branches now ask the palette.
+- **The detected background reached nothing.** For one commit the client probed
+  the terminal, stored the answer, adapted a palette for it, and then rendered
+  with a view built *before* the probe ran. Everything was green and the app was
+  unchanged. `tools/check_no_hard_coded_colour.py` now fails any colour literal
+  in either render crate, and the wiring test drives `boot_app_with` and reads
+  the `App`'s own view — a test that calls the rebuild itself would have proved
+  the function works and not that anything calls it.
+- **Four themes were illegible on their own background, not just on light.**
+  Nord's gray, purple and red; Gruvbox's red; Monokai's red. Corrected, and the
+  contrast table is in the detection record.
+- **The OSC 11 probe accepted its own echo as a reply.** Terminal.app echoes what
+  the app writes, so the "response" was the query. The reply is now distinguished
+  from the echo.
+
 ## v0.49.1 — the release script and the docs could not be trusted _(2026-09-28)_
 
 Housekeeping only. No behaviour in the shipped binary changed; the pane-width
