@@ -121,7 +121,7 @@ pub(super) fn focus_and_navigation_keys(
                 let gen = app.bump(panel);
                 let server = app.panels[panel].server.clone();
                 let pass = app.panels[panel].sudo_password.clone();
-                let handle = crate::tasks::spawn_tail(panel, gen, server, pass, tx.clone());
+                let handle = crate::tasks::spawn_tail(panel, gen, server, pass, dims, tx.clone());
                 tasks.set_aux(panel, handle);
             }
             return true;

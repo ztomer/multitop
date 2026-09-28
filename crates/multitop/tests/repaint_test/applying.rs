@@ -215,7 +215,7 @@ async fn upgrade_stderr_progress_collapses_to_one_line() {
     );
 
     let (tx, mut rx) = mpsc::channel::<Msg>(512);
-    let handle = spawn_upgrade(0, 1, local_server(script), None, tx);
+    let handle = spawn_upgrade(0, 1, local_server(script), None, (80, 24), tx);
 
     let mut app = app_mid_upgrade();
     app.panels[0].upgrade_gen = 1;
@@ -262,7 +262,7 @@ async fn upgrade_stderr_sudo_failure_is_still_diagnosed() {
     let script = r"printf 'are you root?\n' >&2; exit 1";
 
     let (tx, mut rx) = mpsc::channel::<Msg>(512);
-    let handle = spawn_upgrade(0, 1, local_server(script), None, tx);
+    let handle = spawn_upgrade(0, 1, local_server(script), None, (80, 24), tx);
 
     let mut app = app_mid_upgrade();
     app.panels[0].upgrade_gen = 1;
@@ -310,7 +310,7 @@ async fn a_block_repainted_ten_times_stays_one_block_in_the_log() {
     );
 
     let (tx, mut rx) = mpsc::channel::<Msg>(512);
-    let handle = spawn_upgrade(0, 1, local_server(script), None, tx);
+    let handle = spawn_upgrade(0, 1, local_server(script), None, (80, 24), tx);
 
     let mut app = app_mid_upgrade();
     app.panels[0].upgrade_gen = 1;
@@ -353,6 +353,7 @@ async fn output_that_never_moves_the_cursor_is_untouched_by_any_of_this() {
         1,
         local_server("printf 'alpha\\nbeta\\ngamma\\n'; exit 0"),
         None,
+        (80, 24),
         tx,
     );
 
@@ -399,7 +400,7 @@ async fn a_block_rewound_trailing_its_choreography_stays_one_block() {
     );
 
     let (tx, mut rx) = mpsc::channel::<Msg>(512);
-    let handle = spawn_upgrade(0, 1, local_server(script), None, tx);
+    let handle = spawn_upgrade(0, 1, local_server(script), None, (80, 24), tx);
 
     let mut app = app_mid_upgrade();
     app.panels[0].upgrade_gen = 1;

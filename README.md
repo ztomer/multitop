@@ -247,6 +247,11 @@ renders Ratatui views locally in real-time. Terminal window resizes happen
 multiplexed (`ControlMaster`), so the Docker and upgrade views reuse the
 session the monitor already opened.
 
+Every remote view is told the size of the pane it is drawn into, and lays its
+output out for it: a 200-column terminal gets a 198-column pty, so `apt` and
+`docker` build their progress bars and tables for the window you are reading
+rather than for a fixed eighty. Resizing takes effect on the next run or poll.
+
 When monitoring locally (`--local` or `--local-only`), `multitop` executes
 the local agent directly without SSH overhead or network connections.
 

@@ -238,12 +238,20 @@ pub async fn upload_agent(server: &Server, arch: Arch, token: &str) -> Result<()
 /// symptom and hides the cause. It stands in only when the remote said nothing
 /// at all, where it is the only thing there is to say.
 ///
+/// Lines about the local control socket are not a remote complaint at all, so
+/// they never win: a plain file at the `ControlPath` makes OpenSSH print two
+/// such lines and then upload perfectly well, and the second of them would have
+/// become "Could not install agent on <host>: `ControlSocket` … already exists,
+/// disabling multiplexing" -- a sentence about this machine's `~/.ssh`, naming a
+/// full local path, offered as the reason a remote host could not be reached.
+///
 /// Separated from [`upload_agent`] because reaching that path needs a host that
 /// refuses a multi-megabyte write partway through.
 pub fn upload_failure(host: &str, stderr: &str, wrote: Option<&str>) -> String {
     let detail = stderr
         .lines()
         .map(str::trim)
+        .filter(|line| !line.is_empty() && !crate::ssh_opts::is_mux_noise(line))
         .rfind(|line| !line.is_empty())
         .unwrap_or_else(|| wrote.unwrap_or("unknown error"));
     format!("Could not install agent on {host}: {detail}")

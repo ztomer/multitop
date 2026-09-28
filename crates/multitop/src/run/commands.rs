@@ -70,6 +70,7 @@ pub fn execute_cmds(
                         gen,
                         app.panels[panel].server.clone(),
                         password,
+                        dims,
                         tx.clone(),
                     ),
                 );

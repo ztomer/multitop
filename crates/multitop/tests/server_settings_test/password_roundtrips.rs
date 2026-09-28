@@ -17,6 +17,7 @@ async fn test_save_password_in_upgrade_mode_triggers_upgrade_resume() {
             resume_upgrade: false,
         },
         &mut app,
+        (80, 24),
         &tx,
         &mut tasks,
     );
@@ -71,6 +72,7 @@ fn test_save_server_with_password() {
             password: Some("new_password".to_string()),
         },
         &mut app,
+        (80, 24),
         &tx,
         &mut tasks,
     );
@@ -100,6 +102,7 @@ fn test_delete_password_removes_from_keychain() {
     multitop::password_actions::apply(
         PasswordAction::Delete { panel: 0 },
         &mut app,
+        (80, 24),
         &tx,
         &mut tasks,
     );
@@ -132,6 +135,7 @@ fn test_save_resume_upgrade_false() {
             resume_upgrade: false,
         },
         &mut app,
+        (80, 24),
         &tx,
         &mut tasks,
     );
@@ -169,6 +173,7 @@ fn test_apply_servers_preserves_existing_passwords() {
     multitop::password_actions::apply(
         PasswordAction::ApplyServers(vec![s1, s2, s3]),
         &mut app,
+        (80, 24),
         &tx,
         &mut tasks,
     );

@@ -155,6 +155,76 @@ pub fn active_multiplex_opts() -> &'static [String] {
     })
 }
 
+/// Whether a line of `ssh` stderr is the multiplexer talking about itself, and
+/// so says nothing about the host.
+///
+/// One definition, and every stderr reader asks it. The rule used to live in the
+/// upgrade reader alone while three other readers of the same pipe had their own
+/// idea of what to keep -- which is the arrangement that let a line of `ssh`'s
+/// own bookkeeping become the answer an operator was shown:
+///
+/// * the monitor stream keeps the **last** non-empty stderr line as the reason
+///   a panel went dead;
+/// * the exec reader treats **any** non-empty stderr line as clearing a
+///   `===NEEDAGENT===` report; and
+/// * an upload failure names the last non-empty stderr line.
+///
+/// A plain file left at the `ControlPath` -- by an older build, a stray backup, a
+/// filesystem restored from a snapshot -- makes OpenSSH print two lines about the
+/// socket and then run the command unmultiplexed, so it is a real condition and
+/// a reachable one. None of the three had ever seen those lines.
+///
+/// # The list is ssh's own vocabulary, read out of the binary
+///
+/// Every entry is a phrase from the format strings in `ssh` itself, so it names
+/// this machine's socket and nothing a remote command prints:
+///
+/// ```text
+/// $ strings "$(command -v ssh)" | grep -iE 'multiplex|control socket|shared connection'
+/// ControlSocket %s already exists, disabling multiplexing
+/// Control socket connect(%.100s): %s
+/// Control socket "%.100s" does not exist
+/// Stale control socket %.100s, unlinking
+/// Shared connection to %s closed.
+/// Allow shared connection to %s?
+/// Terminate shared connection to %s?
+/// Disable further multiplexing on shared connection to %s?
+/// unsupported multiplexing protocol version %u (expected %u)
+/// multiplex uid mismatch: peer euid %u != uid %u
+/// ```
+///
+/// # What it deliberately does NOT match
+///
+/// `Connection to %s closed by remote host.` -- the old rule caught that too, on
+/// a bare `contains("connection to") && contains("closed")`, and it is the
+/// remote host telling us it hung up. Dropping it turns a diagnosis into a
+/// silence, which is the failure this rule exists to prevent rather than one it
+/// licenses. The distinguishing word is *shared*: that is what makes the
+/// teardown this machine's business rather than the host's.
+#[must_use]
+pub fn is_mux_noise(line: &str) -> bool {
+    let lower = line.to_lowercase();
+    MUX_NOISE_PHRASES
+        .iter()
+        .any(|phrase| lower.contains(phrase))
+}
+
+/// Phrases only `ssh` prints about its own control socket.
+///
+/// A substring of a format string rather than a whole line, because `ssh`
+/// interpolates the host and the path into them. Kept as one named list so a
+/// test quotes the vocabulary instead of retyping a sentence it then matches
+/// against itself -- see `control_socket_test`.
+pub const MUX_NOISE_PHRASES: &[&str] = &[
+    "controlsocket ",
+    "control socket ",
+    "stale control socket",
+    "shared connection ",
+    "multiplex uid mismatch",
+    "unsupported multiplexing protocol version",
+    "failed to multiplex into the shared connection",
+];
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Arch {
     X86_64,

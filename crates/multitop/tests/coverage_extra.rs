@@ -69,6 +69,7 @@ fn apply_cycle_banner_style_no_config() {
     apply(
         PasswordAction::CycleBannerStyle,
         &mut app,
+        (80, 24),
         &tx,
         &mut multitop::run::Tasks::new(1),
     );
@@ -100,6 +101,7 @@ fn apply_import_ssh_hosts_no_file() {
     apply(
         PasswordAction::ImportSshHosts,
         &mut app,
+        (80, 24),
         &tx,
         &mut multitop::run::Tasks::new(1),
     );
@@ -136,6 +138,7 @@ fn apply_save_with_empty_password_deletes() {
             resume_upgrade: false,
         },
         &mut app,
+        (80, 24),
         &tx,
         &mut multitop::run::Tasks::new(1),
     );
@@ -167,6 +170,7 @@ fn apply_delete_action() {
     apply(
         PasswordAction::Delete { panel: 0 },
         &mut app,
+        (80, 24),
         &tx,
         &mut multitop::run::Tasks::new(1),
     );
@@ -216,6 +220,7 @@ fn apply_apply_servers() {
     apply(
         PasswordAction::ApplyServers(new_servers),
         &mut app,
+        (80, 24),
         &tx,
         &mut multitop::run::Tasks::new(1),
     );

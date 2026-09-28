@@ -30,6 +30,7 @@ async fn test_saving_a_password_does_not_restart_a_running_upgrade() {
             resume_upgrade: false,
         },
         &mut app,
+        (80, 24),
         &tx,
         &mut tasks,
     );
@@ -69,6 +70,7 @@ async fn test_saving_a_password_resumes_a_finished_upgrade() {
             resume_upgrade: false,
         },
         &mut app,
+        (80, 24),
         &tx,
         &mut tasks,
     );
@@ -122,6 +124,7 @@ fn a_failed_server_edit_is_not_reported_as_a_saved_password() {
             password: Some("new_password".to_string()),
         },
         &mut app,
+        (80, 24),
         &tx,
         &mut tasks,
     );
@@ -178,6 +181,7 @@ fn a_server_edit_that_interrupts_an_upgrade_still_says_so_after_saving_the_passw
             password: Some("new_password".to_string()),
         },
         &mut app,
+        (80, 24),
         &tx,
         &mut tasks,
     );
@@ -252,6 +256,7 @@ async fn a_resumed_upgrade_records_that_it_started() {
             resume_upgrade: true,
         },
         &mut app,
+        (80, 24),
         &tx,
         &mut tasks,
     );

@@ -283,6 +283,7 @@ async fn a_leading_notice_is_kept_whether_or_not_a_second_one_follows() {
             resume_upgrade: false,
         },
         &mut app,
+        (80, 24),
         &tx,
         &mut tasks,
     );
@@ -296,6 +297,7 @@ async fn a_leading_notice_is_kept_whether_or_not_a_second_one_follows() {
     multitop::password_actions::apply(
         multitop::passwords::PasswordAction::ImportSshHosts,
         &mut app,
+        (80, 24),
         &tx,
         &mut tasks,
     );

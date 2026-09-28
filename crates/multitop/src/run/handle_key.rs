@@ -61,7 +61,7 @@ pub fn handle_key(
     if confirmation_keys(key, app, dims, tx, tasks) {
         return;
     }
-    if vault_and_password_keys(key, app, tx, tasks) {
+    if vault_and_password_keys(key, app, dims, tx, tasks) {
         return;
     }
     if filter_keys(key, app) {
@@ -102,6 +102,7 @@ pub fn handle_key(
                             i,
                             app.panels[i].gen,
                             app.panels[i].server.clone(),
+                            dims,
                             tx.clone(),
                         );
                     }
@@ -225,6 +226,7 @@ fn overlay_keys(
 fn vault_and_password_keys(
     key: KeyEvent,
     app: &mut App,
+    dims: (u16, u16),
     tx: &Sender<Msg>,
     tasks: &mut Tasks,
 ) -> bool {
@@ -333,7 +335,7 @@ fn vault_and_password_keys(
 
     if app.password_manager.is_some() {
         let action = crate::passwords::handle_key(app, key.code);
-        crate::password_actions::apply(action, app, tx, tasks);
+        crate::password_actions::apply(action, app, dims, tx, tasks);
         return true;
     }
 

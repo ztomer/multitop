@@ -8,7 +8,7 @@ mod spawn;
 mod upgrade;
 mod verdict;
 
-pub use kill::{spawn_custom, spawn_journal, spawn_kill, spawn_renice, spawn_tail};
+pub use kill::{spawn_custom, spawn_journal, spawn_kill, spawn_renice, spawn_tail, ProcessAction};
 pub use painted::*;
 pub use spawn::{spawn_docker, spawn_fetch, spawn_ops};
 pub use upgrade::{spawn_upgradable_check, spawn_upgrade};

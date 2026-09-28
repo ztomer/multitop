@@ -68,6 +68,7 @@ async fn test_upgrade_vault_password_preloaded() {
         gen,
         updated_server,
         app.panels[0].sudo_password.clone(),
+        (80, 24),
         tx,
     );
 
@@ -92,11 +93,11 @@ async fn test_upgrade_lock_prevents_concurrent() {
 
     // First upgrade holds lock with a sleep
     let s1 = local_server("echo first ; sleep 1 ; ls -l");
-    let h1 = spawn_upgrade(0, 1, s1, None, tx.clone());
+    let h1 = spawn_upgrade(0, 1, s1, None, (80, 24), tx.clone());
 
     // Second upgrade should be blocked by lock
     let s2 = local_server("echo second ; ls -l");
-    let h2 = spawn_upgrade(1, 2, s2, None, tx);
+    let h2 = spawn_upgrade(1, 2, s2, None, (80, 24), tx);
 
     let mut collector = MsgCollector::new(rx);
     let msgs = collector.collect_all().await;

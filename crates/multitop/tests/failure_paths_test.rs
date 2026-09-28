@@ -202,6 +202,7 @@ async fn saving_with_the_vault_open_puts_the_password_in_both_places() {
             resume_upgrade: false,
         },
         &mut app,
+        (80, 24),
         &tx,
         &mut tasks,
     );
@@ -252,10 +253,11 @@ async fn removing_with_the_vault_open_clears_it_from_both_places() {
         password: "hunter2".into(),
         resume_upgrade: false,
     };
-    apply(save, &mut app, &tx, &mut tasks);
+    apply(save, &mut app, (80, 24), &tx, &mut tasks);
     apply(
         PasswordAction::Delete { panel: 0 },
         &mut app,
+        (80, 24),
         &tx,
         &mut tasks,
     );

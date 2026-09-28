@@ -60,14 +60,14 @@ pub fn serve<W: Write>(host: &str, cols: usize, lines: usize, out: &mut W) {
         } else if cols != 0 {
             fit(cols)
         } else {
-            80
+            crate::consts::DEFAULT_PTY_COLS
         },
         rows: if want_rows != 0 {
             want_rows
         } else if lines != 0 {
             fit(lines)
         } else {
-            24
+            crate::consts::DEFAULT_PTY_ROWS
         },
         host,
         lock_path: None,

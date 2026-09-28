@@ -83,7 +83,7 @@ async fn collect_until_done(rx: mpsc::Receiver<Msg>) -> Vec<Msg> {
 /// later for some other reason - or to pass. The task is the thing under test.
 async fn run(server: Server, sudo: Option<String>, cap: usize) -> Vec<Msg> {
     let (tx, rx) = mpsc::channel::<Msg>(cap);
-    let handle = spawn_upgrade(0, 1, server, sudo, tx);
+    let handle = spawn_upgrade(0, 1, server, sudo, (80, 24), tx);
     let msgs = collect_until_done(rx).await;
     handle.await.expect("the spawned task must not panic");
     msgs
@@ -257,13 +257,13 @@ async fn test_remote_upgrade_lock_contention() {
 
     // Launch first (holds lock)
     let (tx, rx) = mpsc::channel::<Msg>(200);
-    let h1 = spawn_upgrade(0, 1, server1, None, tx.clone());
+    let h1 = spawn_upgrade(0, 1, server1, None, (80, 24), tx.clone());
 
     // Wait briefly for lock acquisition
     tokio::time::sleep(Duration::from_millis(500)).await;
 
     // Launch second (should be blocked or fail)
-    let h2 = spawn_upgrade(1, 2, server2, None, tx);
+    let h2 = spawn_upgrade(1, 2, server2, None, (80, 24), tx);
 
     let msgs = collect_messages(rx).await;
     let _ = h1.await;
@@ -392,7 +392,7 @@ async fn test_remote_upgrade_large_output() {
 async fn test_remote_upgrade_finishes_without_an_agent() {
     let server = ssh_server("ls -l");
     let (tx, _rx) = mpsc::channel::<Msg>(100);
-    let handle = spawn_upgrade(0, 1, server, None, tx);
+    let handle = spawn_upgrade(0, 1, server, None, (80, 24), tx);
     tokio::time::timeout(Duration::from_secs(30), handle)
         .await
         .expect("the upgrade task finishes within 30s")

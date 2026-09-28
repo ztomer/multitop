@@ -61,6 +61,7 @@ fn test_apply_servers_updates_panels_dynamically() {
     multitop::password_actions::apply(
         PasswordAction::ApplyServers(new_servers),
         &mut app,
+        (80, 24),
         &tx,
         &mut tasks,
     );

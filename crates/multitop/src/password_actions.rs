@@ -110,7 +110,13 @@ fn prepend_notice(app: &mut App, before: Option<String>) {
 /// away from reaching it, and the fix is not a guard but removing the second
 /// copy: `app.panels[i].server` is the same fact, and cannot go stale because it
 /// *is* what `replace_panels` writes.
-pub fn apply(action: PasswordAction, app: &mut App, tx: &Sender<Msg>, tasks: &mut Tasks) {
+pub fn apply(
+    action: PasswordAction,
+    app: &mut App,
+    dims: (u16, u16),
+    tx: &Sender<Msg>,
+    tasks: &mut Tasks,
+) {
     match action {
         PasswordAction::None => {}
         PasswordAction::ApplyServers(new_servers) => {
@@ -121,7 +127,7 @@ pub fn apply(action: PasswordAction, app: &mut App, tx: &Sender<Msg>, tasks: &mu
             servers: new_servers,
             target_idx,
             password,
-        } => on_apply_server_edit(new_servers, target_idx, password, app, tx, tasks),
+        } => on_apply_server_edit(new_servers, target_idx, password, app, dims, tx, tasks),
         PasswordAction::Delete { panel } => on_delete(panel, app),
         PasswordAction::RotateVaultPassword { current, new } => {
             on_rotate_vault_password(current, new, app, tx);
@@ -132,7 +138,7 @@ pub fn apply(action: PasswordAction, app: &mut App, tx: &Sender<Msg>, tasks: &mu
             panel,
             password,
             resume_upgrade,
-        } => on_save(panel, password, resume_upgrade, app, tx, tasks),
+        } => on_save(panel, password, resume_upgrade, app, dims, tx, tasks),
     }
 }
 
@@ -141,6 +147,7 @@ fn on_apply_server_edit(
     target_idx: usize,
     password: Option<String>,
     app: &mut App,
+    dims: (u16, u16),
     tx: &Sender<Msg>,
     tasks: &mut Tasks,
 ) {
@@ -167,7 +174,7 @@ fn on_apply_server_edit(
                 resume_upgrade: false,
             }
         });
-        apply(follow_up, app, tx, tasks);
+        apply(follow_up, app, dims, tx, tasks);
         prepend_notice(app, reported);
     }
 }
@@ -303,6 +310,7 @@ fn on_save(
     password: String,
     resume_upgrade: bool,
     app: &mut App,
+    dims: (u16, u16),
     tx: &Sender<Msg>,
     tasks: &mut Tasks,
 ) {
@@ -354,13 +362,11 @@ fn on_save(
     let should_resume =
         (resume_upgrade || app.panels[panel].mode == crate::app::Mode::Upgrade) && !already_running;
     // From the panel, not from a caller's list: see `apply`'s own note.
-    if should_resume
-        && app
-            .panels
-            .get(panel)
-            .and_then(|p| p.server.upgrade_cmd.as_ref())
-            .is_some()
-    {
+    let has_command = app
+        .panels
+        .get(panel)
+        .is_some_and(|p| p.server.upgrade_cmd.is_some());
+    if should_resume && has_command {
         let gen = app.bump(panel);
         let palette = app.current_theme();
         app.panels[panel].mode = crate::app::Mode::Upgrade;
@@ -388,7 +394,8 @@ fn on_save(
         // empties.
         app.mark_upgrades_started(&[panel]);
         let server = app.panels[panel].server.clone();
-        let handle = crate::tasks::spawn_upgrade(panel, gen, server, Some(password), tx.clone());
+        let handle =
+            crate::tasks::spawn_upgrade(panel, gen, server, Some(password), dims, tx.clone());
         tasks.set_upgrade(panel, handle);
     }
 }

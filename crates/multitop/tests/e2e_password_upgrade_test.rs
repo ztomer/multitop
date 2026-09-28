@@ -69,7 +69,7 @@ async fn test_e2e_password_storage_and_os_keyring_lifecycle() {
     let (tx, _rx) = tokio::sync::mpsc::channel::<Msg>(100);
     let mut tasks = multitop::run::Tasks::new(1);
 
-    multitop::password_actions::apply(save_action, &mut app, &tx, &mut tasks);
+    multitop::password_actions::apply(save_action, &mut app, (80, 24), &tx, &mut tasks);
 
     // Verify in-memory panel state
     assert_eq!(
@@ -84,7 +84,7 @@ async fn test_e2e_password_storage_and_os_keyring_lifecycle() {
 
     // Delete password
     let delete_action = PasswordAction::Delete { panel: 0 };
-    multitop::password_actions::apply(delete_action, &mut app, &tx, &mut tasks);
+    multitop::password_actions::apply(delete_action, &mut app, (80, 24), &tx, &mut tasks);
 
     assert_eq!(app.panels[0].sudo_password, None);
     assert!(!app.panels[0].password_saved);
@@ -126,7 +126,14 @@ async fn test_e2e_spawn_upgrade_streams_output_with_stored_password() {
     let (tx, mut rx) = tokio::sync::mpsc::channel::<Msg>(100);
 
     // Spawn upgrade task with password
-    let handle = spawn_upgrade(0, 1, server, Some("e2e_dummy_sudo_pass".to_string()), tx);
+    let handle = spawn_upgrade(
+        0,
+        1,
+        server,
+        Some("e2e_dummy_sudo_pass".to_string()),
+        (80, 24),
+        tx,
+    );
 
     let mut begin_received = false;
     let mut stream_line_received = false;
@@ -185,7 +192,7 @@ async fn test_e2e_spawn_upgrade_emits_in_stream_tip_on_sudo_failure() {
     );
     let (tx, mut rx) = tokio::sync::mpsc::channel::<Msg>(100);
 
-    let handle = spawn_upgrade(0, 2, server, None, tx);
+    let handle = spawn_upgrade(0, 2, server, None, (80, 24), tx);
 
     let mut tip_received = false;
 
@@ -223,7 +230,7 @@ async fn test_e2e_carriage_return_progress_logs_one_line() {
         Some("printf '%s\\r%s\\r%s\\n' 'Fetch 10' 'Fetch 60' 'Fetch 100'"),
     );
     let (tx, mut rx) = tokio::sync::mpsc::channel::<Msg>(100);
-    let handle = spawn_upgrade(0, 7, server, None, tx);
+    let handle = spawn_upgrade(0, 7, server, None, (80, 24), tx);
 
     let mut progress = Vec::new();
     while let Ok(Some(msg)) =

@@ -65,7 +65,7 @@ fn spawn_initial_tasks(
             let pass = panel.sudo_password.clone();
             tasks.set_aux(
                 i,
-                crate::tasks::spawn_custom(i, gen, server, cmd, pass, tx.clone()),
+                crate::tasks::spawn_custom(i, gen, server, cmd, pass, dims_rx.clone(), tx.clone()),
             );
             // Custom panels start as Fetch so the card is visible without `f`.
             // The monitor stream is not needed for them.

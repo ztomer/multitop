@@ -23,6 +23,12 @@ reader has to go and find out why:
                 nothing on that line says so.
     binding     `let budget = 32;` -- the roadmap's own example.
     exit        an exit code, which another program's script branches on.
+    window      `cols: 80,` in a struct literal. A size *policy* written at the
+                point of use, and the shape the exec channel's hard-coded
+                80x24 lived in: a field whose own documentation says it exists
+                to stop a tool choosing the wrong geometry, initialised with a
+                number nobody derived from anything. `cols`, `rows`, `width`,
+                `height`, `lines` and their `term_` forms.
 
 Deliberately NOT flagged: 0, 1, 2, 3 and 4 (arithmetic and small offsets that
 read as themselves), anything inside a string literal (format widths are not
@@ -67,6 +73,7 @@ RULES: list[tuple[str, re.Pattern[str]]] = [
     ("capacity", re.compile(rf"\b(?:with_capacity|truncate|nth)\(\s*{_N}\s*\)")),
     ("array", re.compile(rf"\[\s*0u8\s*;\s*{_N}\s*\]")),
     ("exit", re.compile(rf"\bexit\(\s*{_N}\s*\)")),
+    ("window", re.compile(rf"\b(?:term_)?(?:cols|rows|columns|lines|width|height)\s*:\s*{_N}\b")),
 ]
 
 NOTE = re.compile(r"magic-ok:")
@@ -189,6 +196,8 @@ fn f(pct: f64) -> bool {
     let mut buf = [0u8; 256];
     let _ = &mut buf;
     pct >= 80.0
+    let request = Request { cols: 80, rows: 24 };
+    let _ = request;
 }
 """
 
@@ -220,7 +229,10 @@ def self_test() -> int:
             return 1
         hits = scan(DIRTY)
         rules = {rule for _, rule, _, _ in hits}
-        if {"threshold", "array"} - rules:
+        # Named here, not derived from RULES: a self-test that reads its
+        # expectations out of the thing it is testing cannot fail when the thing
+        # is broken.
+        if {"threshold", "array", "window"} - rules:
             print(
                 "magic-numbers self-test: dirty source was NOT flagged "
                 f"(saw {sorted(rules)})",

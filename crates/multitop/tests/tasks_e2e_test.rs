@@ -39,7 +39,7 @@ async fn test_spawn_upgrade_generation_tracking() {
     let server = test_server("127.0.0.1");
     let (tx, mut rx) = mpsc::channel::<Msg>(100);
 
-    let handle = spawn_upgrade(0, 42, server.clone(), None, tx.clone());
+    let handle = spawn_upgrade(0, 42, server.clone(), None, (80, 24), tx.clone());
 
     let msg = rx.recv().await.unwrap();
     match msg {
@@ -70,6 +70,7 @@ async fn test_spawn_upgrade_sets_mode_and_state() {
             resume_upgrade: true,
         },
         &mut app,
+        (80, 24),
         &tx,
         &mut tasks,
     );
@@ -98,6 +99,7 @@ async fn test_spawn_upgrade_saves_state_file() {
             resume_upgrade: true,
         },
         &mut app,
+        (80, 24),
         &tx,
         &mut tasks,
     );
@@ -124,6 +126,7 @@ async fn test_task_cancellation_on_panel_switch() {
             resume_upgrade: true,
         },
         &mut app,
+        (80, 24),
         &tx,
         &mut tasks,
     );
@@ -138,6 +141,7 @@ async fn test_task_cancellation_on_panel_switch() {
             resume_upgrade: true,
         },
         &mut app,
+        (80, 24),
         &tx,
         &mut tasks,
     );
@@ -171,6 +175,7 @@ async fn test_task_cancellation_on_panel_switch() {
             resume_upgrade: true,
         },
         &mut app,
+        (80, 24),
         &tx,
         &mut tasks,
     );
@@ -197,10 +202,10 @@ async fn test_concurrent_upgrade_generations_isolated() {
     let (tx, mut rx) = mpsc::channel::<Msg>(100);
 
     // Spawn upgrade with gen=1
-    let handle1 = spawn_upgrade(0, 1, server.clone(), None, tx.clone());
+    let handle1 = spawn_upgrade(0, 1, server.clone(), None, (80, 24), tx.clone());
 
     // Spawn upgrade with gen=2 (simulates panel switch)
-    let handle2 = spawn_upgrade(0, 2, server.clone(), None, tx.clone());
+    let handle2 = spawn_upgrade(0, 2, server.clone(), None, (80, 24), tx.clone());
 
     // Our own sender goes away so a channel with nothing left to say ends the
     // loop below instead of parking it forever.
@@ -257,6 +262,7 @@ async fn a_view_switch_during_an_upgrade_keeps_the_upgrade_tracked() {
             resume_upgrade: true,
         },
         &mut app,
+        (80, 24),
         &tx,
         &mut tasks,
     );
@@ -306,7 +312,7 @@ async fn stderr_is_still_read_after_stdout_has_closed() {
     };
     let (tx, mut rx) = mpsc::channel::<Msg>(100);
 
-    let handle = spawn_upgrade(0, 1, server, None, tx);
+    let handle = spawn_upgrade(0, 1, server, None, (80, 24), tx);
     let mut saw_reason = false;
     let mut note = None;
     let collect = async {
@@ -359,6 +365,7 @@ async fn a_server_edit_stops_running_upgrades_and_says_so() {
             resume_upgrade: true,
         },
         &mut app,
+        (80, 24),
         &tx,
         &mut tasks,
     );
@@ -383,6 +390,7 @@ async fn a_server_edit_stops_running_upgrades_and_says_so() {
     multitop::password_actions::apply(
         multitop::passwords::PasswordAction::ApplyServers(vec![servers[1].clone()]),
         &mut app,
+        (80, 24),
         &tx,
         &mut tasks,
     );

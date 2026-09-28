@@ -49,10 +49,11 @@ pub fn spawn_upgrade(
     gen: u64,
     server: Server,
     pass: Option<String>,
+    dims: (u16, u16),
     tx: Sender<Msg>,
 ) -> JoinHandle<()> {
     tokio::spawn(async move {
-        let outcome = run_upgrade(idx, gen, &server, pass.as_deref(), &tx).await;
+        let outcome = run_upgrade(idx, gen, &server, pass.as_deref(), dims, &tx).await;
         // The one exit. Everything above returns an `Outcome`; nothing above
         // returns from this task.
         let _ = tx
@@ -71,6 +72,7 @@ async fn run_upgrade(
     gen: u64,
     server: &Server,
     pass: Option<&str>,
+    dims: (u16, u16),
     tx: &Sender<Msg>,
 ) -> Outcome {
     let Some(command) = server.upgrade_cmd.clone() else {
@@ -93,8 +95,15 @@ async fn run_upgrade(
         // host-wide lock would block each other for reasons that have nothing
         // to do with what they are testing.
         use_lock: !crate::password_store::is_mock_enabled(),
-        cols: 80,
-        rows: 24,
+        // The window the child is told it has, which is the window its output
+        // is drawn into. It was a literal `80, 24` here while every other
+        // remote channel -- Monitor, Docker, Fetch, Ops -- was handed the live
+        // pane size, so `apt` laid out its progress bar and its "After this
+        // operation" table for eighty columns and the pane drew the result into
+        // two hundred. The same field, and the same argument, on the process
+        // actions' `ExecAction::dims`.
+        cols: dims.0,
+        rows: dims.1,
     };
 
     let _ = tx
@@ -213,7 +222,7 @@ async fn attempt_once(
                 continue;
             }
             let trimmed = line.trim();
-            if trimmed.is_empty() || is_connection_noise(&trimmed.to_lowercase()) {
+            if trimmed.is_empty() || ssh::is_mux_noise(trimmed) {
                 continue;
             }
             report.preamble = Some(trimmed.to_string());
@@ -235,12 +244,6 @@ async fn attempt_once(
     }
     let _ = child.wait().await;
     report
-}
-
-/// Whether a stderr line is `ssh` describing its own teardown.
-fn is_connection_noise(lower: &str) -> bool {
-    lower.contains("shared connection to")
-        || (lower.contains("connection to") && lower.contains("closed"))
 }
 
 /// Read the framed stream, painting as it goes.
@@ -357,7 +360,7 @@ async fn apply_frame(
                 if paint.text.trim().is_empty() && paint.back == 0 && paint.erase_below == 0 {
                     continue;
                 }
-                if is_connection_noise(&paint.text.trim().to_lowercase()) {
+                if ssh::is_mux_noise(paint.text.trim()) {
                     continue;
                 }
                 let _ = tx
@@ -403,6 +406,7 @@ pub fn spawn_upgradable_check(
     idx: usize,
     gen: u64,
     server: Server,
+    dims: (u16, u16),
     tx: Sender<Msg>,
 ) -> Option<JoinHandle<()>> {
     let handle = tokio::runtime::Handle::try_current().ok()?;
@@ -413,8 +417,13 @@ pub fn spawn_upgradable_check(
                     .to_string(),
             password: None,
             use_lock: false,
-            cols: 80,
-            rows: 24,
+            // The same window the upgrade itself gets, and for the same reason:
+            // one policy, not two that agree today. This particular output is
+            // parsed rather than drawn, so the width is incidental -- which is
+            // exactly the argument that let the constant in here in the first
+            // place.
+            cols: dims.0,
+            rows: dims.1,
         };
         if let Ok(mut child) = ssh::spawn_exec(&server, &request).await {
             let mut out = String::new();

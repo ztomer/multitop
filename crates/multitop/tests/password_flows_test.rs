@@ -58,7 +58,7 @@ impl Harness {
     }
 
     fn run(&mut self, action: PasswordAction) {
-        apply(action, &mut self.app, &self.tx, &mut self.tasks);
+        apply(action, &mut self.app, (80, 24), &self.tx, &mut self.tasks);
     }
 
     fn notice(&self) -> String {

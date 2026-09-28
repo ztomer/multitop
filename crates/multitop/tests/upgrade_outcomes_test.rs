@@ -62,7 +62,14 @@ impl Run {
 
 async fn run_upgrade(cmd: Option<&str>, pass: Option<&str>) -> Result<Run, String> {
     let (tx, mut rx) = mpsc::channel::<Msg>(256);
-    let handle = spawn_upgrade(0, 1, local_server(cmd), pass.map(str::to_string), tx);
+    let handle = spawn_upgrade(
+        0,
+        1,
+        local_server(cmd),
+        pass.map(str::to_string),
+        (80, 24),
+        tx,
+    );
 
     let mut lines = Vec::new();
     let mut note = None;

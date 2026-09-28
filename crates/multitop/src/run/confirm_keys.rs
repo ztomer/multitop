@@ -42,7 +42,7 @@ pub(super) fn confirmation_keys(
             return true;
         }
         Some(Confirm::Kill) => {
-            kill_confirm_keys(key, app, tx, tasks);
+            kill_confirm_keys(key, app, dims, tx, tasks);
             return true;
         }
         Some(Confirm::Upgrade) => {
@@ -104,7 +104,13 @@ pub(super) fn confirmation_keys(
 
 /// The keys while a kill is awaiting confirmation: only the advertised key
 /// kills, Esc stands down, everything else is swallowed.
-pub(super) fn kill_confirm_keys(key: KeyEvent, app: &mut App, tx: &Sender<Msg>, tasks: &mut Tasks) {
+pub(super) fn kill_confirm_keys(
+    key: KeyEvent,
+    app: &mut App,
+    dims: (u16, u16),
+    tx: &Sender<Msg>,
+    tasks: &mut Tasks,
+) {
     match key.code {
         // Same discipline as Upgrade: only the advertised key kills.
         // `Enter` is what an operator hits to dismiss, not to authorize
@@ -116,12 +122,15 @@ pub(super) fn kill_confirm_keys(key: KeyEvent, app: &mut App, tx: &Sender<Msg>, 
                     let server = app.panels[ec.panel].server.clone();
                     let pass = app.panels[ec.panel].sudo_password.clone();
                     let handle = crate::tasks::spawn_kill(
-                        ec.panel,
-                        gen,
-                        server,
-                        ec.pid,
-                        ec.name,
-                        pass,
+                        crate::tasks::ProcessAction {
+                            idx: ec.panel,
+                            gen,
+                            server,
+                            pid: ec.pid,
+                            name: ec.name,
+                            pass,
+                            dims,
+                        },
                         tx.clone(),
                     );
                     tasks.set_aux(ec.panel, handle);
@@ -138,12 +147,15 @@ pub(super) fn kill_confirm_keys(key: KeyEvent, app: &mut App, tx: &Sender<Msg>, 
                     let server = app.panels[ec.panel].server.clone();
                     let pass = app.panels[ec.panel].sudo_password.clone();
                     let handle = crate::tasks::spawn_journal(
-                        ec.panel,
-                        gen,
-                        server,
-                        ec.pid,
-                        ec.name,
-                        pass,
+                        crate::tasks::ProcessAction {
+                            idx: ec.panel,
+                            gen,
+                            server,
+                            pid: ec.pid,
+                            name: ec.name,
+                            pass,
+                            dims,
+                        },
                         tx.clone(),
                     );
                     tasks.set_aux(ec.panel, handle);
@@ -159,12 +171,15 @@ pub(super) fn kill_confirm_keys(key: KeyEvent, app: &mut App, tx: &Sender<Msg>, 
                     let server = app.panels[ec.panel].server.clone();
                     let pass = app.panels[ec.panel].sudo_password.clone();
                     let handle = crate::tasks::spawn_renice(
-                        ec.panel,
-                        gen,
-                        server,
-                        ec.pid,
-                        ec.name,
-                        pass,
+                        crate::tasks::ProcessAction {
+                            idx: ec.panel,
+                            gen,
+                            server,
+                            pid: ec.pid,
+                            name: ec.name,
+                            pass,
+                            dims,
+                        },
                         tx.clone(),
                     );
                     tasks.set_aux(ec.panel, handle);

@@ -53,6 +53,38 @@ What found each defect, kept because the answer changed and the change is the po
 | Upgrade stderr bypassed the painter while stdout used it: `keep_stderr` buffered per line and flushed as appends at end of run, so `apt` progress on stderr duplicated per tick (and out of order). The `0e79f64` fix had closed the same class in `exec_runner` only | user (update screen double printouts) | stderr through the shared `Painter` with `paint_msg` routing in `tasks/upgrade.rs`; `keep_stderr`/`Report::errbuf`/`MAX_UPGRADE_ERR_LINES` deleted; e2e `upgrade_stderr_progress_collapses_to_one_line` (red: 6 copies, green: 1) + sudo-help/blank/shared-cursor guards |
 | `exec_runner::drain_stdout` sent the painter's `finish()` as a bare `AuxLine`, duplicating an unterminated last line | review while fixing the above (same class, other reader) | finish routes through `paint_msg`; `drain_stdout` generic over the stream; duplex-fed synthetic-packet test (red: 2 copies, green: 1) |
 | End of update not detected on remote targets: `apt list --upgradable` in PTY spawned interactive `less` pager, and `spawn_upgradable_check` read raw stdout instead of decoding binary framed packets | user | `export PAGER=cat` in shell wrapper + non-interactive env + binary frame packet decoding in `spawn_upgradable_check` |
+| The upgrade's pty was told `cols: 80, rows: 24` while the pane it is drawn into was up to ~200 columns wide -- measured live, `stty size` inside a run on a 199-column terminal answered `24 80`, so `apt` laid out its progress bar and its "After this operation" table for eighty columns and the pane drew the result into two hundred | a report of "rendering problems when upgrading", checked by asking the child its own window rather than by reading the source | The pane's live size, which `Monitor`, `Docker`, `Fetch` and `Ops` were already given, is now a **required** parameter of every exec spawner (`ExecAction::dims`, `spawn_upgrade`, `ProcessAction`), so a new call site cannot compile without deciding. `exec_window_test` asks from inside the run; `check_magic_numbers.py` gained a `window` rule, because the hole in the gate was precisely that a struct field initialised to a literal is not a `let` binding and none of the six rules could see it |
+| The rule that recognises `ssh` narrating its own multiplexer existed in the **upgrade** reader only. Three other readers of the same pipe had never seen it, so one condition gave three answers: the monitor stream offered `ControlSocket … already exists, disabling multiplexing` to a panel as *the reason it went dark*, the exec reader let those two lines clear a genuine `===NEEDAGENT===`, and a failed-upload message quoted a full local path. Reachable with a plain file at the `ControlPath` — measured, not theorised | reading the four readers against each other after the pty finding | One definition beside the socket it describes (`ssh_opts::is_mux_noise`, built from `strings` on the `ssh` binary itself), asked by all four. The vocabulary is narrowed to phrases only `ssh` prints, so the remote host's own `Connection to %s closed by remote host.` is kept — the old `contains("connection to") && contains("closed")` was swallowing it, and a test found that rather than me |
+| `event_loop_e2e::liveness::the_loop_still_quits_after_the_upgrade_completes` failed under load, not because of anything it tests: 10 s against a real forked pty and 300 `sleep 0.01` echoes. Measured, warm, twenty runs each: **6/20 on unmodified `main`**, 0/20 on the branch. A gate that fires when the machine is busy reports a wedge that is not there, and people learn to `--no-verify` past it | the full gate going red during this work, then `git stash` and the same command on clean `main` — the first measurement said the opposite, and was wrong because the stash had left the machine recompiling | The deadline is 60 s, and the subject of the test is the `s`-then-`q` pair that follows, not how fast a subprocess gets scheduled |
+
+### What the mux work did *not* cause, measured
+
+Checked before fixing anything, because the report named the multiplexer and
+the obvious move would have been to blame it:
+
+* **The bytes are identical across all three transports.** `test_exec_live.py`
+  passes 9 tests / 36 subtests against all three hosts, including one that
+  plants a plain file at the `ControlPath` to force the unmultiplexed path on
+  purpose, and one that compares cold, warm and unmultiplexed byte for byte.
+  `ssh -tt` is gone; the agent owns the pty; the transport no longer decides
+  anything the pane draws.
+* **`ssh` is silent on stderr in normal operation.** Measured on OpenSSH
+  10.3p1: a cold socket, a warm socket with a second channel open, a dead
+  socket left behind — no output in any of the three. The only chatter that
+  exists is the two lines for a non-socket at `ControlPath`, which is what the
+  second finding is about.
+
+One measurement from this round was wrong and is recorded because the mistake is
+the reusable part: reproducing the pty's byte stream with `pty.fork()` and the
+agent's own `wrap()` script appeared to show the `Started` marker going
+unrecognised on every host — which would have meant the whole run's output was
+withheld until the process exited. It was the probe that was wrong: `pty.fork()`
+puts fds 0, 1 **and 2** on the slave, so the login shell's terminal chatter
+arrived on stdout, where the agent deliberately keeps it apart
+(`pty.rs`: *the reason a run failed is nearly always on stderr*). The agent's
+own frames carried clean output at every host. A harness that does not reproduce
+the thing under test will find a defect that is not there, and the way to tell
+is the same as ever — check the claim against the product's own output.
 
 ### The streak is broken, and that is the point
 
@@ -93,3 +125,39 @@ And twice a test passed while asserting nothing: `not in_flight` is true of a pa
 ### The pattern that closes them
 
 E2e tests that drive real `KeyEvent`s and **count what the presses actually started**, plus structural gates for the rest.
+
+### Resizing, measured rather than reasoned about
+
+The question is the obvious one about the fix above — a pane's width is now
+what a run is told — and the answer is not uniform, so it was measured on the
+real app over a multiplexed connection (`tmux resize-window`, live host, the
+build under test):
+
+| | before | after |
+|---|---|---|
+| The pane itself | redraws at the new size on the next frame | unchanged — `visible_upgrade` refits every line against the live width each frame, so the *log* always fits |
+| A run **started after** the resize | `24 80`, whatever the pane | `29 198` / `29 108` / `29 148` / `29 88` on terminals of 200 / 110 / 150 / 90 columns |
+| A run **already in flight** | `24 80` | keeps the pty it was given, for the life of the run |
+| The repeating polls (`Ops`, a `command=` panel) | followed the resize | unchanged — a fresh pty per poll, so they always did |
+| How long until it lands | 30 ms | 30 ms — and the 250 ms in `consts.rs` was dead |
+
+The in-flight row is the deliberate one, and the reason is the screen model
+rather than convenience: a pty's window is set once at `openpty`, and changing
+it mid-run means `ioctl(TIOCSWINSZ)` on the master, which sends `SIGWINCH` to
+the child's process group. `apt`, `docker` and `pip` all re-wrap and re-render
+on it, and `tasks/painted.rs` is explicitly column-agnostic — *modelling
+columns properly would mean tracking which cells the SGR sequences in the text
+apply to, and a half-done version of that corrupts colour*. A mid-run re-wrap
+feeds that model the one input it documents not handling. So: **a pty is
+per-run, and a run's geometry is fixed when it starts.**
+
+Multi-panel grids are the case where "the pane" and "the screen" could have
+come apart, and `ui/layout.rs` now pins it: `agent_dims` and `ui::draw` both
+measure `regions()`, so for 1–9 panels the published size is never larger than
+any pane's drawable area, and for one panel it is exactly the pane. The
+multi-panel test found the one exception, which is a real property rather than a
+bug: past a very short terminal the `MIN_AGENT_ROWS` floor can publish more
+rows than the shortest pane has (8 rows, two panels, three each, four
+published). A geometry below the floor is worse than a clipped row, so the
+trade stands — and it is now named instead of being a claim the other test
+appears to make.

@@ -130,3 +130,29 @@ pub const CPUFREQ_PROBE_CORES: usize = 32;
 /// what the machine at the other end can make this packet cost, not a budget
 /// anyone is expected to spend.
 pub const MAX_FILTER_NAMES: usize = 512;
+
+/// Columns a pty is given when nobody has said how wide it is.
+///
+/// The fallback, and nothing more: the client knows its pane's width and puts
+/// it in the request frame, so this only decides what a hand-run
+/// `multitop-agent exec` with no positional arguments gets. Eighty is the
+/// classic terminal and what `ssh` itself assumes.
+///
+/// It used to be written in three places -- here, in `pty::spawn`'s winsize
+/// fallback, and in `serve`'s argument fallback -- and the client's own exec
+/// callers carried a fourth pair that no amount of care here would have
+/// reached. One name, so the three that remain cannot drift.
+pub const DEFAULT_PTY_COLS: u16 = 80;
+/// [`DEFAULT_PTY_COLS`] as the `usize` the agent's own argument parser carries.
+///
+/// Two types for one policy is a small thing, and worth naming rather than
+/// casting at three call sites: `Args` holds `usize` because it is parsed from
+/// `argv`, while a `winsize` field is a `u16`, and `DEFAULT_PTY_COLS as usize`
+/// written at each would be a fourth place to get it wrong.
+pub const DEFAULT_PTY_COLS_USIZE: usize = DEFAULT_PTY_COLS as usize;
+/// Rows a pty is given when nobody has said how tall it is. See
+/// [`DEFAULT_PTY_COLS`].
+pub const DEFAULT_PTY_ROWS: u16 = 24;
+/// [`DEFAULT_PTY_ROWS`] as the `usize` the agent's own argument parser carries.
+/// See [`DEFAULT_PTY_COLS_USIZE`].
+pub const DEFAULT_PTY_ROWS_USIZE: usize = DEFAULT_PTY_ROWS as usize;

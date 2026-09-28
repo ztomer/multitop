@@ -230,7 +230,7 @@ fn password_action_apply_servers_replaces_panels() {
 
     let (tx, _rx) = tokio::sync::mpsc::channel(8);
     let mut tasks = Tasks::new(1);
-    apply(action, &mut a, &tx, &mut tasks);
+    apply(action, &mut a, (80, 24), &tx, &mut tasks);
 
     assert_eq!(a.panels.len(), 2);
     assert_eq!(a.panels[0].server.host, "h2");
@@ -247,7 +247,7 @@ fn password_action_delete_removes_password() {
     let action = PasswordAction::Delete { panel: 0 };
     let (tx, _rx) = tokio::sync::mpsc::channel(8);
     let mut tasks = Tasks::new(1);
-    apply(action, &mut a, &tx, &mut tasks);
+    apply(action, &mut a, (80, 24), &tx, &mut tasks);
 
     assert!(a.panels[0].sudo_password.is_none());
     assert!(!a.panels[0].password_saved);
@@ -267,7 +267,7 @@ fn password_action_save_stores_password() {
     };
     let (tx, _rx) = tokio::sync::mpsc::channel(8);
     let mut tasks = Tasks::new(1);
-    apply(action, &mut a, &tx, &mut tasks);
+    apply(action, &mut a, (80, 24), &tx, &mut tasks);
 
     assert_eq!(a.panels[0].sudo_password.as_deref(), Some("my-password"));
     assert!(a.panels[0].password_saved);

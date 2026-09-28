@@ -172,10 +172,20 @@ pub fn bootstrap(
 }
 
 /// The last non-empty line the remote wrote to stderr, if any.
+///
+/// `ssh`'s own multiplexing chatter is not an answer about the host, and this
+/// function's whole job is to hand the panel a reason. It used to take the last
+/// non-empty line whatever it was, so a plain file left at the `ControlPath` --
+/// which makes OpenSSH print `ControlSocket … already exists, disabling
+/// multiplexing` and carry on unmultiplexed -- put that sentence in a monitor
+/// panel as the explanation for a stream that had died, and threw away the line
+/// before it, which was about the socket. Filtered by the one shared rule now
+/// (`crate::ssh::is_mux_noise`), which is the same one the upgrade and exec
+/// readers ask.
 async fn last_stderr_line(stderr: &mut Lines<BufReader<ChildStderr>>) -> Option<String> {
     let mut detail = None;
     while let Ok(Some(l)) = stderr.next_line().await {
-        if !l.trim().is_empty() {
+        if !l.trim().is_empty() && !crate::ssh::is_mux_noise(l.trim()) {
             detail = Some(l);
         }
     }

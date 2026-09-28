@@ -123,8 +123,8 @@ impl Default for Args {
             mode: Mode::Monitor,
             tell: None,
             display_ip: None,
-            cols: 80,
-            lines: 24,
+            cols: crate::consts::DEFAULT_PTY_COLS_USIZE,
+            lines: crate::consts::DEFAULT_PTY_ROWS_USIZE,
             sort: SortBy::Cpu,
         }
     }

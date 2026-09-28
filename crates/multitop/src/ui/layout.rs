@@ -79,3 +79,106 @@ pub fn agent_dims(size: Size, panels: usize) -> (u16, u16) {
         .max(MIN_AGENT_ROWS);
     (cols, rows)
 }
+
+#[cfg(test)]
+mod agent_dims_tests {
+    use super::*;
+    use ratatui::layout::Size;
+
+    fn size(w: u16, h: u16) -> Size {
+        Size {
+            width: w,
+            height: h,
+        }
+    }
+
+    /// The property a run depends on, and the reason it is a test rather than a
+    /// comment: the size a remote child is told its pty has must be the size of
+    /// the pane its output is drawn into, for **every** panel count.
+    ///
+    /// This is the multi-panel answer, pinned. It was a live question -- with
+    /// four hosts in a 2x2 grid on a 200-column terminal, is the upgrade told
+    /// 198 columns (the screen) or 98 (its own pane)? -- and the answer is the
+    /// pane, because `agent_dims` and `ui::draw` both measure `regions()` and
+    /// there is no second copy of the grid arithmetic to disagree with.
+    #[test]
+    fn the_published_size_is_the_pane_a_run_is_drawn_into() {
+        for panels in 1..=9usize {
+            let term = size(200, 40);
+            let (cols, rows) = agent_dims(term, panels);
+            let (grid, _) = regions(Rect::new(0, 0, term.width, term.height), panels);
+            for pane in &grid {
+                let drawable = pane.width.saturating_sub(SIDE_MARGIN * 2);
+                assert!(
+                    cols <= drawable,
+                    "{panels} panels: told {cols} columns for a pane {drawable} wide"
+                );
+                assert!(
+                    rows <= pane.height,
+                    "{panels} panels: told {rows} rows for a pane {} tall",
+                    pane.height
+                );
+            }
+        }
+    }
+
+    /// And for a single panel -- the case almost every upgrade runs in -- it is
+    /// exactly the pane, not a rounded-down or padded approximation of it.
+    #[test]
+    fn a_single_panel_is_told_its_own_width() {
+        assert_eq!(agent_dims(size(200, 40), 1), (198, 39));
+        assert_eq!(agent_dims(size(80, 24), 1), (78, 23));
+    }
+
+    /// The floor is the render floor, and it is why a very narrow terminal
+    /// cannot shrink the geometry further: below it the agent's own column
+    /// arithmetic degenerates, so the pane clips rather than the child being
+    /// asked for a window nothing can honour.
+    #[test]
+    fn a_terminal_too_narrow_to_honour_still_gets_the_render_floor() {
+        // 20 columns wide: 18 drawable, floored to 40. The height is the pane's
+        // own, because a 9-row pane is above the floor.
+        assert_eq!(agent_dims(size(20, 10), 1), (MIN_AGENT_COLS, 9));
+    }
+
+    /// Columns are always equal across a row; heights can differ by one when the
+    /// split lands oddly. `agent_dims` takes the minimum on purpose -- a frame
+    /// rendered for the taller pane is clipped in the shorter one.
+    #[test]
+    fn the_smaller_pane_governs() {
+        for h in 12..40u16 {
+            let (grid, _) = regions(Rect::new(0, 0, 200, h), 2);
+            let shortest = grid.iter().map(|p| p.height).min().unwrap_or(0);
+            assert!(
+                agent_dims(size(200, h), 2).1 <= shortest,
+                "height {h}: published more rows than the shortest pane has"
+            );
+        }
+    }
+
+    /// The floor is a floor, and past it the published size stops describing
+    /// the pane. Stated because the test above would otherwise read as a
+    /// universal claim, and it is not one.
+    ///
+    /// Twelve rows of terminal, two panels: six and five rows each, and the
+    /// minimum is floored to four -- which happens to fit. Eight rows is where
+    /// it stops: three rows a pane, four published, and the agent renders a
+    /// row the pane cannot show. That is the intended trade (a geometry below
+    /// the floor is worse than a clipped row) and the only case where the
+    /// published size is larger than the space, so it is named rather than left
+    /// for the next reader to trip over.
+    #[test]
+    fn the_floor_can_exceed_a_pane_that_is_tiny() {
+        let (grid, _) = regions(Rect::new(0, 0, 200, 8), 2);
+        let shortest = grid.iter().map(|p| p.height).min().unwrap_or(0);
+        assert_eq!(
+            shortest, 3,
+            "the premise: 8 rows cannot give two panels four each"
+        );
+        assert_eq!(
+            agent_dims(size(200, 8), 2).1,
+            MIN_AGENT_ROWS,
+            "and the published height is the floor, not the pane"
+        );
+    }
+}

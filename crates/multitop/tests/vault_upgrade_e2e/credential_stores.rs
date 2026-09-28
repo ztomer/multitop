@@ -107,6 +107,7 @@ async fn deleting_a_password_removes_it_from_the_vault_too() {
     multitop::password_actions::apply(
         multitop::passwords::PasswordAction::Delete { panel: 0 },
         &mut app,
+        (80, 24),
         &tx,
         &mut tasks,
     );

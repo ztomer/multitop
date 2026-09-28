@@ -22,6 +22,19 @@ pub struct ExecAction<'a> {
     pub server: &'a Server,
     pub command: &'a str,
     pub pass: Option<&'a str>,
+    /// The pane this run is drawn into, as `(cols, rows)`.
+    ///
+    /// Required rather than defaulted, because a default is how this was a
+    /// constant: every one of these calls passed `cols: 80, rows: 24` into a
+    /// field whose own comment says it exists "to stop `apt` deciding it has 80
+    /// columns on a 200-column panel" -- so the field was there, it was filled
+    /// in with the very number it exists to prevent, and a live 199-column pane
+    /// answered `stty size` with `24 80`. `journalctl -f` and `tail -F` were
+    /// formatting for a screen nobody was looking at.
+    ///
+    /// Making it a parameter is the fix; a helper that clamped a missing value
+    /// would put the constant back one layer down.
+    pub dims: (u16, u16),
     pub tx: &'a Sender<Msg>,
     pub header: &'a str,
     pub action_desc: &'a str,
@@ -105,8 +118,8 @@ pub async fn attempt_once(action: &ExecAction<'_>) -> Result<String, Option<Stri
         command: action.command.to_string(),
         password: credential.map(str::to_string),
         use_lock: false,
-        cols: 80,
-        rows: 24,
+        cols: action.dims.0,
+        rows: action.dims.1,
     };
     let mut child = match ssh::spawn_exec(action.server, &request).await {
         Ok(c) => c,
@@ -296,6 +309,16 @@ async fn handle_exec_frame(
     }
 }
 
+/// Read the exec channel's stderr, which carries only what `ssh` and the
+/// bootstrap have to say: `Permission denied`, `===NEEDAGENT=== <arch>`, and
+/// `ssh`'s own multiplexing chatter.
+///
+/// The chatter used to be treated as a real line here, and the rule was "any
+/// non-empty line means the agent is not missing" -- so the two lines OpenSSH
+/// writes when something that is not a socket sits at the `ControlPath`
+/// discarded a genuine `NEEDAGENT` and the panel reported a missing agent that
+/// was not missing. One shared rule now (`crate::ssh::is_mux_noise`), the same
+/// one the upgrade reader and the monitor stream ask.
 async fn read_need_agent(stderr: ChildStderr) -> Option<String> {
     let mut lines = BufReader::new(stderr).lines();
     let mut report_need_agent = None;
@@ -304,7 +327,7 @@ async fn read_need_agent(stderr: ChildStderr) -> Option<String> {
             report_need_agent = Some(arch.to_string());
             continue;
         }
-        if !line.trim().is_empty() {
+        if !line.trim().is_empty() && !ssh::is_mux_noise(line.trim()) {
             report_need_agent = None;
         }
     }

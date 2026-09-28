@@ -10,7 +10,7 @@ async fn test_upgrade_single_server_streams_exact_output() {
     let _store_guard = enable_test_mock_store().await;
     let server = local_server("ls -l ; ls -l");
     let (tx, rx) = mpsc::channel::<Msg>(100);
-    let handle = spawn_upgrade(0, 1, server, None, tx);
+    let handle = spawn_upgrade(0, 1, server, None, (80, 24), tx);
 
     let mut collector = MsgCollector::new(rx);
     let done = collector.wait_for_done().await.expect("Expected AuxDone");
@@ -40,9 +40,9 @@ async fn test_upgrade_multi_server_concurrent_output() {
     let s2 = local_server("echo UPGRADE_2 ; ls -l");
     let s3 = local_server("echo UPGRADE_3 ; ls -l");
 
-    let h1 = spawn_upgrade(0, 1, s1, None, tx.clone());
-    let h2 = spawn_upgrade(1, 2, s2, None, tx.clone());
-    let h3 = spawn_upgrade(2, 3, s3, None, tx.clone());
+    let h1 = spawn_upgrade(0, 1, s1, None, (80, 24), tx.clone());
+    let h2 = spawn_upgrade(1, 2, s2, None, (80, 24), tx.clone());
+    let h3 = spawn_upgrade(2, 3, s3, None, (80, 24), tx.clone());
 
     drop(tx);
 
@@ -87,7 +87,7 @@ async fn test_upgrade_failure_reports_nonzero_exit() {
     let _store_guard = enable_test_mock_store().await;
     let server = local_server("ls -l ; exit 1");
     let (tx, rx) = mpsc::channel::<Msg>(100);
-    let handle = spawn_upgrade(0, 1, server, None, tx);
+    let handle = spawn_upgrade(0, 1, server, None, (80, 24), tx);
 
     let mut collector = MsgCollector::new(rx);
     let done = collector.wait_for_done().await.expect("Expected AuxDone");
@@ -174,7 +174,7 @@ async fn test_upgrade_empty_output_handled() {
     let _store_guard = enable_test_mock_store().await;
     let server = local_server("true");
     let (tx, rx) = mpsc::channel::<Msg>(100);
-    let handle = spawn_upgrade(0, 1, server, None, tx);
+    let handle = spawn_upgrade(0, 1, server, None, (80, 24), tx);
 
     let mut collector = MsgCollector::new(rx);
     let done = collector.wait_for_done().await.expect("Expected AuxDone");
@@ -200,7 +200,7 @@ async fn test_upgrade_carriage_return_cleaned() {
     let _store_guard = enable_test_mock_store().await;
     let server = local_server("printf 'step1\\rstep2\\rstep3\\n'");
     let (tx, rx) = mpsc::channel::<Msg>(100);
-    let handle = spawn_upgrade(0, 1, server, None, tx);
+    let handle = spawn_upgrade(0, 1, server, None, (80, 24), tx);
 
     let mut collector = MsgCollector::new(rx);
     let msgs = collector.collect_all().await;

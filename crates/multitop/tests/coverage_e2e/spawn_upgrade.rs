@@ -16,7 +16,7 @@ async fn spawn_upgrade_streams_output_for_local_command() {
     };
     let (tx, mut rx) = mpsc::channel(128);
 
-    let handle = multitop::tasks::spawn_upgrade(0, 1, server, None, tx);
+    let handle = multitop::tasks::spawn_upgrade(0, 1, server, None, (80, 24), tx);
     let msgs = collect_messages(&mut rx).await;
 
     // Verify we got output.
@@ -45,7 +45,7 @@ async fn spawn_upgrade_no_password_succeeds() {
     };
     let (tx, mut rx) = mpsc::channel(128);
 
-    let handle = multitop::tasks::spawn_upgrade(0, 1, server, None, tx);
+    let handle = multitop::tasks::spawn_upgrade(0, 1, server, None, (80, 24), tx);
     let msgs = collect_messages(&mut rx).await;
 
     let has_done = msgs.iter().any(|m| matches!(m, Msg::AuxDone { .. }));
@@ -72,7 +72,7 @@ async fn spawn_upgrade_collapses_carriage_returns() {
     };
     let (tx, mut rx) = mpsc::channel(128);
 
-    let handle = multitop::tasks::spawn_upgrade(0, 1, server, None, tx);
+    let handle = multitop::tasks::spawn_upgrade(0, 1, server, None, (80, 24), tx);
     let msgs = collect_messages(&mut rx).await;
 
     // The progress bar collapsed to one line ("30%"), not three.
@@ -130,7 +130,7 @@ fn password_action_cycle_banner() {
     let action = PasswordAction::CycleBannerStyle;
     let (tx, _rx) = tokio::sync::mpsc::channel(8);
     let mut tasks = Tasks::new(1);
-    apply(action, &mut a, &tx, &mut tasks);
+    apply(action, &mut a, (80, 24), &tx, &mut tasks);
 
     // Banner style cycled.
     assert!(matches!(
@@ -148,5 +148,5 @@ fn password_action_import_ssh_hosts_no_op_when_empty() {
     let action = PasswordAction::ImportSshHosts;
     let (tx, _rx) = tokio::sync::mpsc::channel(8);
     let mut tasks = Tasks::new(1);
-    apply(action, &mut a, &tx, &mut tasks);
+    apply(action, &mut a, (80, 24), &tx, &mut tasks);
 }
