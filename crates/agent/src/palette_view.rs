@@ -44,12 +44,14 @@ const ESCAPE_SUFFIX: char = 'm';
 /// The field and method names match [`Palette`] exactly, which is the entire
 /// mechanism: the 26 places that take `&Palette` take `&PaletteView` instead and
 /// their bodies do not change.
-// The per-role fields are read by the renderers that take a palette — the 26
-// `&Palette` signatures this type exists to satisfy — and by nothing here yet,
-// because the view is not wired into `App::current_theme` yet. Clippy reports them
-// as never read, and it is right: they are written and not yet consumed. Deleting
-// them to silence that would delete the reason the type exists.
-#[allow(dead_code)] // TODO: remove when App::current_theme returns a PaletteView.
+///
+/// The per-role fields are read by those renderers, and by nothing inside this
+/// module, which is what a `dead_code` warning here used to say: the view was
+/// built, held, and rendered with the wrong instance for one commit. It is worth
+/// writing down that the warning was RIGHT and the code was wrong, because the
+/// fix for it was never a suppression — it was wiring the view into
+/// `App::current_theme`, and the check that proves it (`boot_app_with`) reads the
+/// `App`'s own view rather than calling the rebuild itself.
 pub struct PaletteView {
     /// One escape per role, in [`Role::all`] order, for the accessors.
     pub(crate) escapes: [String; slot::COUNT],
