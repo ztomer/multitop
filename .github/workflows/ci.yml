@@ -67,6 +67,8 @@ jobs:
           python3 tools/check_keychain_isolation.py
           python3 tools/check_row0_owner.py --self-test
           python3 tools/check_row0_owner.py
+          python3 tools/check_doc_paths.py --self-test
+          python3 tools/check_doc_paths.py
           python3 tools/check_magic_numbers.py --self-test
            python3 tools/check_magic_numbers.py
            python3 tools/check_agent_version.py --self-test

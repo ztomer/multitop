@@ -7,6 +7,63 @@ This file starts at v0.47.0 — earlier history is in git (`git log`), and the
 per-defect record is `docs/detection-record.md`, which is the more useful
 document for anything before this point.
 
+## v0.49.1 — the release script and the docs could not be trusted _(2026-09-28)_
+
+Housekeeping only. No behaviour in the shipped binary changed; the pane-width
+fix, the mux-noise fix and everything in v0.49.0 are what this builds on. What
+changed is that two of the things that certify the build were themselves wrong.
+
+### Fixed
+- **`RELEASE.md` step one named a script deleted on 2026-09-14.** "Run the gates
+  first -- `python3 scripts/local-ci.py`" was correct the day it was written and
+  wrong from the day after, with no signal: the file was eleven days past the
+  script's death and every release in that window would have started with
+  `No such file or directory`. Nothing in the repo could see it, because no gate
+  looked. A doc that no longer applies is worse than no doc, because it is
+  trusted.
+- **`DEVELOPMENT.md` had the same defect, worse.** It told a reader to run
+  `python3 scripts/release.py v0.23.0 --cut` in a copy-pasteable block --
+  thirteen minor versions stale, and naming the second of two release tools.
+- **A second release tool was still shipped, carrying the bug it was written to
+  prevent.** `scripts/release.py` (429 lines) rewrote the Homebrew formula with
+  `re.sub(r'sha256 "[^"]*"', ..., no count)`, which sets **every** `sha256` line
+  in the file -- tarball and both agent binaries -- to the tarball's digest, and
+  it had no concept of the agent resources at all. Used, it would produce a
+  formula that installs and then fails every agent checksum. Deleted rather than
+  fixed: the last release was cut with `release.sh`, this predates the change
+  that made the formula carry agents, and the previous release tool
+  (`local-ci.py`, retired 2026-09-14) was deleted for exactly the same reason --
+  a second copy of a list, drifting.
+- **`tools/check_no_emoji.py` no longer exists** and the development docs still
+  named it. It moved to the shared house gates; the table now says so and where.
+
+### Added
+- **`tools/check_doc_paths.py`** -- a gate that fails when a doc names a path
+  that does not exist. It found the two defects above on the real tree, which is
+  the only reason to believe it works; the `--self-test` cases were all
+  insufficient on their own, and calibrating against the real defect caught three
+  design flaws in the checker itself (a code-fence-only scope that missed the
+  prose the defect was actually in; a deletion exemption so permissive it
+  blessed the very sentence it was written to catch; and a per-line marker test
+  that could not see a marker three lines up a wrapped sentence).
+  Scope is deliberately a floor: a path in a command, a "Key Files" label, or
+  multi-segment prose in an instructing doc must exist, and a path git records
+  as deleted is accepted **in prose only** -- naming a removed file in a command
+  is wrong however true the removal is. The oracle is `git log
+  --diff-filter=D`, not a hand-kept allowlist, so a new deletion needs nobody to
+  remember the docs.
+- **The roadmap is a backlog again.** It had accumulated a hand-over notes
+  section that was 24 days stale and carried two wrong file:line pointers; those
+  invariants live in `DEVELOPMENT.md`, which is where a developer looks. The
+  mobile companion entry claimed greenfield while the serving half shipped
+  (`--serve`, `--serve-token`, 404 lines of `/api/*`), and named a WebSocket
+  transport for work that is an HTTP client.
+
+### Removed
+- **`scripts/release.py`** and **`scripts/clean_slskd_history.py`** (see above,
+  and: the latter is a tool for a different project's slskd music server and has
+  no referent in this repository at all).
+
 ## v0.49.0 — the upgrade stops being drawn 80 columns wide _(2026-09-27)_
 
 ### Fixed

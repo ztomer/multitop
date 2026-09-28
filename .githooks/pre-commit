@@ -135,6 +135,17 @@ if ! python3 tools/check_row0_owner.py >"$log" 2>&1; then
 fi
 ok "row 0 belongs to the banner alone"
 
+info "checking the docs name paths that exist"
+if ! python3 tools/check_doc_paths.py --self-test >"$log" 2>&1; then
+    cat "$log" >&2
+    die "the doc-paths checker's own self-test failed -- it cannot be trusted"
+fi
+if ! python3 tools/check_doc_paths.py >"$log" 2>&1; then
+    cat "$log" >&2
+    die "a doc names a path that does not exist -- a reader following it runs nothing"
+fi
+ok "documented paths exist"
+
 info "checking for magic numbers"
 if ! python3 tools/check_magic_numbers.py --self-test >"$log" 2>&1; then
     cat "$log" >&2

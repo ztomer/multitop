@@ -308,6 +308,15 @@ cargo test --workspace
 
 The test suite covers panel rendering across multiple terminal dimensions, window resizing, docker table parsing/formatting, `/proc` parsing, vault operations (init, unlock, rate limiting, rollback, biometric), and TUI app state transitions across dedicated test files in `tests/`.
 
+## Documentation
+
+| Document | What it is for |
+|----------|----------------|
+| [DEVELOPMENT.md](DEVELOPMENT.md) | Build, the gate of record, the checker inventory, and the hand-over invariants (`Hello`, agent embedding, signing) |
+| [RELEASE.md](RELEASE.md) | Cutting a release, and why there is exactly one release script |
+| [docs/roadmap.md](docs/roadmap.md) | The forward-looking backlog: light-terminal palettes, the Android companion, post-quantum KEM |
+| [docs/detection-record.md](docs/detection-record.md) | Per-defect record since v0.47.0 — what was wrong, why, and what now stops it recurring |
+
 ## Design notes
 
 - **Center-aligned headers.** Server headers are dynamically centered within horizontal rule borders on window resize.

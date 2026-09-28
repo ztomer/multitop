@@ -38,7 +38,7 @@ it bumps the version, refreshes `Cargo.lock`, commits, tags, pushes, publishes
 the GitHub release, and updates the Homebrew tap:
 
 ```bash
-python3 scripts/release.py v0.23.0 --cut
+./release.sh v0.49.1
 ```
 
 Do not run the steps by hand: that is how `v0.21.0` and `v0.22.0` ended up
@@ -54,7 +54,7 @@ red, which is how ten deprecations once shipped green.
 | Gate | Command | What it stops |
 |------|---------|---------------|
 | Gate parity | `python3 tools/check_gate_parity.py` | A gate named in one of the three lists and not the others |
-| No emoji | `python3 tools/check_no_emoji.py` | Decorative emoji anywhere, including as unicode escapes |
+| No emoji | `structural.sh` (gates_of_heck) | Decorative emoji anywhere, including as unicode escapes. Lived at `tools/check_no_emoji.py` until the shared house gates took it |
 | Test-only code | `python3 tools/check_test_only_code.py` | A function exercised only by tests, whose live duplicate is then untested |
 | Key hints | `python3 tools/check_key_hints.py` | A user-facing string naming a key nothing binds |
 | Keychain isolation | `python3 tools/check_keychain_isolation.py` | A test reaching the real OS keychain and stopping the suite on a dialog |
@@ -162,7 +162,7 @@ other platform's half is linted from this machine.
 
 ### Hello + agent embedding
 
-Every stream starts with `Hello` (`agent_version` + `proto_version`/`min`) — see `crates/agent/src/proto/mod.rs:31`. The client validates `is_valid`/`is_compatible`, rejects duplicate Hello, and never downgrades a newer remote. `build.rs` panics for `release` when `CARGO_PKG_VERSION` not inside the musl binary (stale `0.44.0` inside `0.44.1` looped forever); `tools/check_agent_version.py` gates the same in the hook, CI and the pre-push list. Always build the release with `./build.sh` — `cargo build -p multitop` alone embeds `missing` or stale.
+Every stream starts with `Hello` (`agent_version` + `proto_version`/`min`) — see `crates/agent/src/proto/mod.rs` — `Hello` at :86, `is_valid` :105, `is_compatible` :135, `needs_replacement` :159. The client validates `is_valid`/`is_compatible`, rejects duplicate Hello, and never downgrades a newer remote. `build.rs` panics for `release` when `CARGO_PKG_VERSION` not inside the musl binary (stale `0.44.0` inside `0.44.1` looped forever); `tools/check_agent_version.py` gates the same in the hook, CI and the pre-push list. Always build the release with `./build.sh` — `cargo build -p multitop` alone embeds `missing` or stale.
 
 `build.sh` also `codesign --identifier com.ztomer.multitop` for `TARGET/*multitop` + `~/.cargo/bin/multitop`; `tools/check_codesign.py` (auto-fixes) keeps `Always Allow` in `login.keychain` from expiring on each ad-hoc build (`multitop-abc123`).
 
@@ -339,10 +339,12 @@ BENCH_DURATION_SECS=60 BENCH_REMOTE_HOST=<host> BENCH_REMOTE_USER=<user> \
 
 | File | Purpose |
 |------|---------|
-| `scripts/release.py` | Automated release (GitHub + Homebrew) |
+| `release.sh` | The release: gates, bump, tag, GitHub release + agent assets, Homebrew formula, `brew fetch` proof |
 | `build.sh` | Build script with agent embedding |
+| `scripts/convert_logos.py` | Rasterise `logos.bin.zst` patterns to PNGs, for editing |
+| `scripts/repack_logos.py` | Repack edited logos back into `crates/multitop/data/logos.bin.zst` |
 | `install.sh` | Install built binary to `$(brew --prefix)/bin` |
-| `tools/gate_lock.py` | Single-flight lock for gate runs (hooks + local-ci) |
+| `tools/gate_lock.py` | Single-flight lock for gate runs (hooks + `gate.sh --full`) |
 | `tools/push_probe.sh` | Staged push path diagnostic (reachability, auth, permissions) |
 | `Cargo.toml` | Workspace version + dependencies |
 | `crates/multitop/Cargo.toml` | Package metadata |
