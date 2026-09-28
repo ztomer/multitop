@@ -127,3 +127,16 @@ mod reconnect_tests {
         );
     }
 }
+
+// `RESIZE_DEBOUNCE` and `RECONNECT_BACKOFF` used to be declared in
+// `consts.rs` as well, and that pair was worse than a duplicate: the two
+// declarations disagreed. `consts` said a resize settles in 250 ms and this
+// module said 30 ms, both named `RESIZE_DEBOUNCE`, and the loop reads *this*
+// one -- so the number anyone reading `consts.rs` for "how long until a resize
+// takes effect" would have quoted was eight times the real answer, for a
+// question that is exactly what a reader of a constants file asks. Nothing
+// referenced either: `rg` finds no reader outside this module.
+//
+// `consts.rs` is the right home for a value more than one subsystem reads, and
+// neither of these is. Deleted rather than reconciled, because a reconciled
+// pair would leave the next reader wondering which one is authoritative.

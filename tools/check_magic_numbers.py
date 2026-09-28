@@ -30,6 +30,14 @@ reader has to go and find out why:
                 number nobody derived from anything. `cols`, `rows`, `width`,
                 `height`, `lines` and their `term_` forms.
 
+                Scoped to struct-field initialisers on purpose. The same policy
+                can also be written as an if/else arm (`if rows == 0 { 24 }`),
+                and a rule for that shape would have to match a bare `{ 24 }`
+                anywhere in the tree, which is a different number entirely in a
+                hundred other places. That spelling was closed by naming the
+                constant at each of its three sites, not by a pattern -- and
+                which sites carry it is stated at each one.
+
 Deliberately NOT flagged: 0, 1, 2, 3 and 4 (arithmetic and small offsets that
 read as themselves), anything inside a string literal (format widths are not
 magic), `const`/`static` declarations (naming one is the fix, not the offence),

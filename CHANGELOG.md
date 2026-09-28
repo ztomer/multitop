@@ -7,6 +7,72 @@ This file starts at v0.47.0 — earlier history is in git (`git log`), and the
 per-defect record is `docs/detection-record.md`, which is the more useful
 document for anything before this point.
 
+## Unreleased
+
+### Fixed
+- **The upgrade is rendered at the wrong width.** Every remote channel was
+  handed the live pane size — Monitor, Docker, Fetch, Ops — and the two exec
+  callers that draw into that same pane passed `cols: 80, rows: 24`. Measured
+  on a live host over a multiplexed connection, `stty size` asked *inside* a run
+  on a 199-column terminal answered `24 80`: `apt` laid out its progress bar
+  and its "After this operation" table for eighty columns and the pane drew the
+  result into two hundred. `journalctl -f` and `tail -F` were following a
+  screen nobody was looking at. The pane's size is now a required argument of
+  every exec spawner, so the next one cannot be added without deciding.
+- **`ssh`'s own multiplexer chatter could be quoted as a diagnosis.** The rule
+  that recognises it lived in the upgrade reader alone. A plain file at the
+  `ControlPath` — measured on OpenSSH 10.3p1 — makes `ssh` print two lines
+  about the socket and carry on unmultiplexed, and the other three readers of
+  that pipe had never seen them: a monitor panel could be told
+  `ControlSocket … already exists, disabling multiplexing` was the reason it
+  went dark, those two lines could clear a genuine missing-agent report, and a
+  failed upload quoted a full local path. One definition, beside the socket it
+  describes, asked by all four.
+- **The remote host's own verdict is no longer swallowed.** The old rule also
+  matched `Connection to %s closed by remote host.` on a bare
+  `contains("connection to") && contains("closed")` — the host telling us it
+  hung up, which is exactly the diagnosis the rule exists to protect. The
+  vocabulary is now built from the format strings in the `ssh` binary itself,
+  so every phrase matched is one only `ssh` prints.
+- **A gate that fired under load.** `event_loop_e2e`'s liveness test failed
+  about a third of the time on a busy machine — 6 of 20 runs on unmodified
+  `main` — against a 10-second deadline for a real forked pty and 300 echoes.
+- **`tools/lint_linux.sh` had never run here.** `cp -r` cannot stat git's
+  fsmonitor socket through a bind mount, and the three commands shared one `&&`
+  line, so the failure skipped only the `cd` and cargo then reported
+  `could not find Cargo.toml in /tmp` — a message naming neither the cause nor
+  the directory it was in. Now copies with `tar --exclude`, and says so when
+  the copy produces no manifest. `✓ linux clippy clean` for the first time on
+  a macOS checkout.
+- **Two constants claimed to be the resize debounce.** `consts::RESIZE_DEBOUNCE`
+  said 250 ms; `run::RESIZE_DEBOUNCE`, which is the one the loop reads, says
+  30 ms. Nothing referenced the first, and a reader asking "how long until a
+  resize takes effect" in the constants file would have been wrong by 8×. Both
+  dead copies removed with their duplicate `RECONNECT_BACKOFF`.
+
+### Added
+- `exec_window_test`: the child's own `stty size` has to report the pane it is
+  drawn into, at a wide pane, a narrow one, and two at once.
+- `ui::layout` pins the geometry for 1–9 panels: the published size is never
+  larger than any pane it is drawn into, and for a single panel it is exactly
+  the pane. Includes the one case where the render floor publishes more rows
+  than the shortest pane has, which is a trade rather than an oversight and is
+  now named as one.
+- `check_magic_numbers.py` gained a `window` rule. The gate could not see this
+  class at all: a struct field initialised to a literal is not a `let`
+  binding, and none of its six rules matched one.
+
+### Verified
+- The upgrade's pty tracks the pane: 198×29, 118×39, 78×29, 58×29 on
+  terminals of 200, 120, 80 and 60 columns, over a shared `ControlMaster`
+  connection to a real host — against a hard `24 80` at every size.
+- The multiplexer is not the cause of anything else here, and that was checked
+  before anything was changed: cold, warm and deliberately-unmultiplexed
+  transports deliver identical bytes on all three hosts (`test_exec_live.py`,
+  9 tests / 36 subtests), and `ssh` writes nothing to stderr in normal
+  operation. Recorded in `docs/detection-record.md` along with one
+  measurement that was wrong and the reason it was.
+
 ## v0.48.1 — "unchecked", never read as unhealthy _(2026-09-23)_
 
 ### Fixed
