@@ -31,7 +31,19 @@ fn the_outcome_carries_both_the_error_and_the_killed_hosts() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn the_loop_still_quits_after_the_upgrade_completes() {
     let _keychain = isolate_keychain().await;
-    let cmd = "i=0; while [ $i -lt 300 ]; do echo tick-$i; i=$((i+1)); sleep 0.01; done";
+    // Forty lines, not three hundred, and the reduction is the fix rather than
+    // a concession. The subject of this test is what the loop does AFTER a run
+    // finishes; the volume of the run is not it -- that is the sibling test's
+    // subject, `a_quit_key_lands_while_the_upgrade_channel_is_flooded`, which
+    // is where a flood belongs.
+    //
+    // What 300 lines bought was a precondition that takes three seconds of
+    // sleeping and, under `llvm-cov` on a loaded machine, occasionally longer
+    // than any deadline the test could set without also making the failure
+    // indistinguishable from a wedge. So the test spent its time waiting to
+    // start testing. Forty lines with the same pacing is a run that finishes
+    // promptly at any load, and the thing under test is unchanged.
+    let cmd = "i=0; while [ $i -lt 40 ]; do echo tick-$i; i=$((i+1)); sleep 0.02; done";
     let servers = vec![local_server(42022, cmd)];
     let (mut h, tx) = PacedHarness::start(servers, (80, 24));
     let account = "admin@127.0.0.1:42022";

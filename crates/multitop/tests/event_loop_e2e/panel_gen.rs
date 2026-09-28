@@ -20,6 +20,7 @@ async fn monitor_packets_use_the_panel_gen_after_a_view_switch() {
     settle(
         || state_file_exists(&h.cfg),
         "the loop never wrote its state file",
+        || state_dump(&h.cfg),
     )
     .await;
     for _ in 0..2 {

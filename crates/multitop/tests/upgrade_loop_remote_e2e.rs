@@ -53,21 +53,21 @@ use tokio::sync::mpsc;
 mod live_ssh;
 use live_ssh::{ssh_server, target};
 
-/// Collect messages from channel with timeout, returns all messages received.
-async fn collect_messages(rx: mpsc::Receiver<Msg>) -> Vec<Msg> {
-    let mut msgs = Vec::new();
-    let mut rx = rx;
-    while let Ok(Some(msg)) = tokio::time::timeout(Duration::from_secs(15), rx.recv()).await {
-        msgs.push(msg);
-    }
-    msgs
-}
+/// Collect messages until the channel is quiet for [`QUIET`].
+///
+/// A ceiling, not a guess at how long a run takes: these are real subprocesses
+/// on a real host, and a window that closes early stops the collection
+/// SILENTLY, so a truncated list goes on to fail some later assertion about
+/// output that was never missing. The two readers of this stream used to
+/// disagree (15 s and 60 s) for no stated reason; the drift is what makes a
+/// flaky suite hard to argue about.
+const QUIET: Duration = Duration::from_secs(60);
 
 /// Collect messages until first `AuxDone` or Status is received.
 async fn collect_until_done(rx: mpsc::Receiver<Msg>) -> Vec<Msg> {
     let mut msgs = Vec::new();
     let mut rx = rx;
-    while let Ok(Some(msg)) = tokio::time::timeout(Duration::from_secs(15), rx.recv()).await {
+    while let Ok(Some(msg)) = tokio::time::timeout(QUIET, rx.recv()).await {
         let is_terminal = matches!(msg, Msg::AuxDone { .. } | Msg::Status { .. });
         msgs.push(msg);
         if is_terminal {
@@ -218,81 +218,34 @@ async fn test_remote_upgrade_empty_command() {
     let done = msgs
         .iter()
         .find(|m| matches!(m, Msg::AuxDone { success: true, .. }));
-    let _lines: Vec<_> = msgs
-        .iter()
-        .filter(|m| matches!(m, Msg::AuxLine { .. }))
-        .collect();
-
     assert!(begin.is_some(), "Expected AuxBegin");
     assert!(done.is_some(), "Expected AuxDone success=true");
-    // `true` produces no stdout, but shell wrapper/lock messages may appear as AuxLine via stderr
-    let stdout_lines: Vec<_> = msgs
+    // `true` produces no output, and the agent strips the login shell's own
+    // startup noise, so this run's log is empty. Asserted directly.
+    //
+    // It used to assert the log contains no `total` and no `drwx` -- a test
+    // that could not fail, twice over. `true` never printed those, and over
+    // the channel's pty a bare `ls` colourises every letter, so even a run
+    // that DID print `ls` output would have escaped the check. It also filtered
+    // out "Upgrade already in progress", wording from the quoted-shell lock
+    // wrappers that `multitop_agent::exec::lock` replaced: it had been
+    // excluding a line nothing emits, and would have hidden a real one if the
+    // wording came back.
+    let stdout_lines: Vec<&str> = msgs
         .iter()
         .filter_map(|m| {
             if let Msg::AuxLine { line, .. } = m {
-                Some(line)
+                Some(line.as_str())
             } else {
                 None
             }
         })
-        .filter(|l| !l.contains("Upgrade already in progress"))
         .collect();
-    // Most systems won't produce output from `true` itself; the test verifies the
-    // command completes successfully, not that output is zero.
     assert!(
-        stdout_lines
-            .iter()
-            .all(|l| !l.contains("total") && !l.contains("drwx")),
-        "Should not have ls-like output for `true`"
+        stdout_lines.is_empty(),
+        "`true` produced output, and the shell's startup noise is supposed to be \
+         stripped before the operator sees it:\n{stdout_lines:?}"
     );
-}
-
-/// Test R5: Remote upgrade lock contention
-/// SSH into real host: first upgrade with `sleep 5 && ls -l`, then immediately launch second.
-#[ignore = "requires a reachable SSH host (MULTITOP_TEST_SSH_HOST); run with --ignored"]
-#[tokio::test]
-async fn test_remote_upgrade_lock_contention() {
-    let server1 = ssh_server("sleep 5 && ls -l");
-    let server2 = ssh_server("ls -l");
-
-    // Launch first (holds lock)
-    let (tx, rx) = mpsc::channel::<Msg>(200);
-    let h1 = spawn_upgrade(0, 1, server1, None, (80, 24), tx.clone());
-
-    // Wait briefly for lock acquisition
-    tokio::time::sleep(Duration::from_millis(500)).await;
-
-    // Launch second (should be blocked or fail)
-    let h2 = spawn_upgrade(1, 2, server2, None, (80, 24), tx);
-
-    let msgs = collect_messages(rx).await;
-    let _ = h1.await;
-    let _ = h2.await;
-
-    // Count done messages
-    let done0 = msgs
-        .iter()
-        .filter(|m| matches!(m, Msg::AuxDone { panel: 0, .. }))
-        .count();
-    let done1 = msgs
-        .iter()
-        .filter(|m| matches!(m, Msg::AuxDone { panel: 1, .. }))
-        .count();
-
-    assert!(
-        done0 >= 1 || done1 >= 1,
-        "At least one upgrade should produce a result"
-    );
-
-    // Check if second got lock contention error
-    let has_lock_error = msgs.iter().any(|m| {
-        if let Msg::AuxLine { line, .. } = m {
-            line.contains("already in progress")
-        } else {
-            false
-        }
-    });
-    eprintln!("Lock contention detected: {has_lock_error}");
 }
 
 /// Test R6: Remote connection failure

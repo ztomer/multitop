@@ -273,7 +273,7 @@ async fn press_until<F>(
     // be movable across workers to be awaitable there at all.
     F: Fn() -> bool + Send + Sync,
 {
-    let ceiling = tokio::time::timeout(Duration::from_secs(30), async {
+    let ceiling = tokio::time::timeout(SETTLE_CEILING, async {
         while !acted() {
             tx.send(Ok(key(code)))
                 .await
@@ -282,22 +282,57 @@ async fn press_until<F>(
         }
     })
     .await;
-    assert!(ceiling.is_ok(), "{what}: the loop never acted within 30s");
+    assert!(
+        ceiling.is_ok(),
+        "{what}: the loop never acted within {SETTLE_CEILING:?}"
+    );
 }
 
 /// Wait until `ready` says the loop has acted, or fail. For the waits where
 /// nothing needs re-sending -- a run finishing, a resize landing.
-async fn settle<F>(ready: F, what: &str)
+///
+/// A `describe` is carried alongside so a timeout can say WHAT WAS THERE. The
+/// first version printed only the directory listing, which named a path and no
+/// state; a wait that has run out of time is the one moment the answer is
+/// worth having, and "it did not happen" is not an answer.
+async fn settle<F, D>(ready: F, what: &str, describe: D)
 where
     F: Fn() -> bool + Send + Sync,
+    D: Fn() -> String + Send + Sync,
 {
-    let done = tokio::time::timeout(Duration::from_secs(30), async {
+    let done = tokio::time::timeout(SETTLE_CEILING, async {
         while !ready() {
             tokio::time::sleep(Duration::from_millis(20)).await;
         }
     })
     .await;
-    assert!(done.is_ok(), "{what}: never happened within 30s");
+    assert!(
+        done.is_ok(),
+        "{what}: never happened within {SETTLE_CEILING:?}.\n  observed: {}",
+        describe()
+    );
+}
+
+/// How long [`settle`] and [`press_until`] will wait.
+///
+/// Thirty seconds for work that normally takes three. It is a ceiling on "this
+/// is not going to happen", not a budget for how long it may take: the suite
+/// runs a real forked pty, a real interactive login shell and 300 echoes, all
+/// under `llvm-cov` in the coverage gate, so the instrumentation is the reason
+/// the ceiling is generous rather than tight.
+const SETTLE_CEILING: Duration = Duration::from_secs(30);
+
+/// The state file's contents, for a failure message.
+///
+/// A `started_at` with no `finished_at` beside it is a different failure from
+/// no record at all -- one is a run that began and did not end, the other is a
+/// run that never began -- and the two have nothing in common to fix.
+fn state_dump(cfg: &std::path::Path) -> String {
+    let path = multitop::state::state_file_path(cfg);
+    match std::fs::read_to_string(&path) {
+        Ok(text) => text.replace('\n', "\n  "),
+        Err(e) => format!("(no state file at {}: {e})", path.display()),
+    }
 }
 
 impl Drop for Harness {
