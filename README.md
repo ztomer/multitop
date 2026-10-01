@@ -160,9 +160,12 @@ user = ""            # optional
 # you, because the preamble authenticates sudo and the command then runs
 # without it.
 # upgrade_cmd = "sudo apt update && sudo apt upgrade -y"
-# The Ops view (`p`): the command, run by the host's login shell over the same
-# ssh session, that starts its mcp_host. A stateless 2026-07-28 MCP client
-# speaks to it; it only reads. Nothing listens on the host.
+# The Ops view (`p`): the command, run by the host's own shell over the same
+# ssh session, that starts its mcp_host. `ssh` passes it as a single argument
+# and the host runs `$SHELL -c <command>` -- not interactive, and not a login
+# shell, so `~/.profile` and `~/.zprofile` are never read and the PATH they
+# add (pipx writes to `~/.local/bin`) is not there. A stateless 2026-07-28
+# MCP client speaks to it; it only reads. Nothing listens on the host.
 # mcp = "/mnt/fast-nvme/projects/media_server/bin/mcp_host --root /mnt/fast-nvme/projects/media_server"
 ```
 

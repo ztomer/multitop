@@ -10,9 +10,14 @@ port = 22
 user = ""
 # upgrade_cmd = "sudo apt update && sudo apt upgrade -y"
 # The Ops view (`p`) asks this host's mcp_host for health verdicts, cron
-# jobs, container health and alerts. The command runs in the host's login
-# shell over the same ssh session; nothing listens. Absent, the view says the
-# host has none.
+# jobs, container health and alerts. `ssh` hands this string over as one
+# argument, so the host runs it as `$SHELL -c <command>`: your shell, but
+# NOT interactive and NOT a login shell, so ~/.profile and ~/.zprofile never
+# run and what they would have added to PATH is absent -- on this host
+# `~/.local/bin`, which is where pipx puts things. Name a binary the default
+# PATH can already resolve, or give its path. A local panel runs it under
+# `sh -c` instead. Nothing listens on the host; ssh starts mcp_host for this
+# session and it ends with it. Absent, the view says the host has none.
 # mcp = "cd ~/prj/media_server && bin/mcp_host --root ."
 
 # How the panel banner draws the host name. "wide" uses fullwidth Latin glyphs

@@ -28,10 +28,14 @@ pub struct Server {
     /// the panel runs this command on the host every `250ms` via the `Exec` pty
     /// and is rendered as a `Fetch` card.
     pub custom_command: Option<String>,
-    /// `mcp = "cd <repo> && bin/mcp_host --root ."`: the command, run by the
-    /// login shell over this host's ssh session, that starts its `mcp_host`
-    /// for the Ops view (servers ROADMAP 12.17b). Absent: the host has none,
-    /// and the view says so.
+    /// `mcp = "cd <repo> && bin/mcp_host --root ."`: the command, run over
+    /// this host's ssh session, that starts its `mcp_host` for the Ops view
+    /// (servers ROADMAP 12.17b). `ssh` passes it as one argument, so the
+    /// remote side runs `$SHELL -c <command>`: the user's shell, but neither
+    /// interactive nor a login shell, so `~/.profile` and `~/.zprofile` are
+    /// never read and the PATH entries they add are absent. Measured on .33
+    /// (2026-09-30): `zsh -l` carries `~/.local/bin`, the form above does
+    /// not. Absent: the host has none, and the view says so.
     pub mcp: Option<String>,
 }
 

@@ -7,6 +7,30 @@ This file starts at v0.47.0 — earlier history is in git (`git log`), and the
 per-defect record is `docs/detection-record.md`, which is the more useful
 document for anything before this point.
 
+## v0.51.0 — the remote MCP command is not a login shell _(2026-09-30)_
+
+**If you configured an `mcp` command that needs a binary from `~/.local/bin`,
+it may have been failing with `command not found`.** The docs, the example config
+and the doc comment all said the remote runs the command "in the host's login
+shell". It does not.
+
+Measured on `.33`, with a positive and a negative control:
+
+```
+zsh -l            -> PATH carries /home/ztomer/.local/bin
+ssh host '<cmd>'  -> ~/.local/bin absent
+```
+
+`mcp::spawn::open` passes the command as a single `ssh` argument, so the remote
+runs `$SHELL -c <command>` — not interactive, not a login shell. `~/.zprofile`,
+where pipx adds its directory, is never read. Corrected in all three places the
+claim appeared (`config.example.toml`, `README.md`, and the `types.rs` doc
+comment) rather than the one the failing run happened to hit.
+
+Also: `.158` is not Pi-hole — it is AdGuard Home with unbound, no `pihole` CLI
+and no `pihole-FTL`. Its hostname is still `pihole`, which is what keeps the
+label alive. Nothing in this repo called it Pi-hole, so nothing changed here.
+
 ## v0.50.0 — every theme was illegible on a light terminal _(2026-09-28)_
 
 **If you run multitop in a light-coloured terminal, your colours have changed**,
