@@ -80,6 +80,38 @@ fn test_state(token: Option<String>) -> (AppState, multitop::server::SharedState
     (app_state, shared)
 }
 
+/// The `tower` this crate declares can drive the `Router` `axum` builds.
+///
+/// This test exists because of a pin, and the pin was invisible until it was
+/// named. `crates/multitop/Cargo.toml` declared `tower = "0.4"` while `axum
+/// 0.7` already resolved `0.5`, so the tree carried two majors of one crate.
+/// It compiled anyway, and the reason is worth recording rather than
+/// rediscovering: `ServiceExt::oneshot` is a blanket impl over
+/// `tower_service::Service`, there is exactly one `tower-service` (0.3.3) in
+/// the tree, and so 0.4's extension trait was satisfying a `Router` that axum
+/// had built against 0.5. Two majors, no type error, nothing to notice.
+///
+/// So the claim is COMPILED rather than inferred: the `oneshot` below resolves
+/// through this crate's `tower` and is applied to an `axum::Router`. If the
+/// tree ever carried a second `tower-service`, this stops compiling instead of
+/// quietly working.
+///
+/// What this does NOT catch, so it is not claimed to: a re-pin of `tower`
+/// itself. `tower = "0.4"` compiled and passed right here -- that is the whole
+/// reason the pin was invisible. The gate that owns that case is
+/// `pinned-below-graph` in the rust gate, which fails on a direct dependency
+/// declared below what the graph already resolves.
+///
+/// It asserts a 200 as well, because a test that only proves a trait resolves
+/// proves the spelling and not the behaviour.
+#[tokio::test]
+async fn the_tower_this_crate_declares_drives_the_router_axum_builds() {
+    let (state, _) = test_state(Some("secret123".to_string()));
+    let req = Request::builder().uri("/").body(Body::empty()).unwrap();
+    let resp = router(state).oneshot(req).await.unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+}
+
 #[tokio::test]
 async fn test_index_page() {
     let (state, _) = test_state(Some("secret123".to_string()));
