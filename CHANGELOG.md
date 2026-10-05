@@ -7,6 +7,61 @@ This file starts at v0.47.0 — earlier history is in git (`git log`), and the
 per-defect record is `docs/detection-record.md`, which is the more useful
 document for anything before this point.
 
+## v0.52.0 — the gate is green, and it can now prove the binary is this build _(2026-10-05)_
+
+**Nothing you use changes.** This is the currency and freshness pass: 115 test
+assertions rewritten through one helper, a test leak fixed, three dependency
+majors moved, and a new gate that fails when the installed `multitop` is not the
+binary this source builds. Every vault on disk still opens -- there are tests
+that pin the exact bytes now, which is the only reason that sentence is a
+measurement rather than a hope.
+
+### Fixed
+- **A test could leak an `sshd`.** `ssh_tests.rs` reaped its child *after* a
+  `write_all` that could panic first, so a failing write skipped the reap and
+  left the upload script -- which starts an `sshd` and holds a port -- running on
+  the machine. The reap is now a guard's `Drop`, which unwinding runs. It has its
+  own test, because the house gate that caught the original cannot tell a guard
+  from a wrapper (see `docs/roadmap.md`).
+- **`painted_states` carried a `#[must_use]` that duplicated the return type's.**
+  `Iterator` is already `#[must_use]`, so the attribute was a second copy of a
+  property `impl DoubleEndedIterator` already had. Removed, not renamed.
+
+### Changed
+- **115 `assert!(x.is_empty())` sites are now one helper.** `clippy 1.99.0`
+  (2026-10-01) added `assert_is_empty`, and the house added
+  `check_no_empty_assert`, which also counts the message-carrying form clippy is
+  silent about. Rather than 115 type ascriptions, `crates/testassert` is one
+  `assert_empty!` / `assert_not_empty!` pair shared by all three crates. The
+  failure line names the expression, which is what identifies which of a dozen
+  assertions failed -- and it requires no trait of the value, because
+  `mlock::LockedMemory` has no `Debug` on purpose (it holds a vault key) and
+  `ratatui`'s `Modifier` has no `len()`.
+- **`tower` 0.4 -> 0.5, `sha2` 0.10 -> 0.11 (with `hkdf` and `argon2`), `zbus`
+  4 -> 5.** Each was pinned below a version the graph already resolved, so the
+  tree carried two majors of one crate and the house gate calls that FATAL. No
+  type crossed any of the three boundaries, and none does now. The lockfile's
+  duplicated crates: **31 -> 16**, and every one of the sixteen is transitive --
+  `secret-service 5.1.0` alone holds what is left of the 0.10 crypto generation.
+- **`tools/check_doc_paths.py` no longer fails on a shallow clone.** CI checks
+  out with `fetch-depth: 1`, so the checker could not see any deletion and
+  reported six docs that correctly record a removal as broken. `main` had been
+  red on CI since 2026-10-01 for that reason alone. It now refuses with the
+  three commands that fix it, and CI fetches the history it needs.
+
+### Added
+- **`tools/installed_freshness.py`** — fails when the installed binary is not
+  what this source builds, comparing **bytes**. The installed copy was 64,608
+  bytes away from a fresh build of the same commit, with the same version string,
+  because the stable toolchain was replaced after it was installed; no gate could
+  see it, and every end-to-end suite was evidence about the wrong artifact. Runs
+  on the pre-push list, because its subject is the machine's install.
+- **Known-answer tests for the vault's key derivation.** Argon2id, the HKDF
+  signing sub-key, the Ed25519 verifying key and SHA-256 are pinned to bytes
+  computed from the *previous* dependency generation. Every other vault test is a
+  roundtrip, which cannot detect a KDF change that makes existing vaults
+  unopenable -- which is the failure a major bump actually risks.
+
 ## v0.51.0 — the remote MCP command is not a login shell _(2026-09-30)_
 
 **If you configured an `mcp` command that needs a binary from `~/.local/bin`,
