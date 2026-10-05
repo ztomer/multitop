@@ -312,3 +312,105 @@ fn test_unwrap_argon2id_too_short_fails() {
     assert!(result.is_err());
     assert!(matches!(result, Err(VaultError::InvalidWrapperData(_))));
 }
+
+// ── known answers: the bytes an already-sealed vault depends on ─────────────
+//
+// Every other test in this file is a ROUNDTRIP, and a roundtrip cannot see the
+// failure that matters when a KDF dependency moves a major version. Sealing a
+// vault and opening it again proves the two halves of THIS build agree; it says
+// nothing about whether this build agrees with the build that sealed the
+// vault already sitting on the user's disk. If sha2 0.11, hkdf 0.13 or argon2
+// 0.6 changed a single default -- the salt, the output length, the parameter
+// interpretation -- every vault on every machine would become unopenable and
+// this file would still be green.
+//
+// So these pin the OUTPUT BYTES, to values produced by the PREVIOUS
+// generation (sha2 0.10.9 / hkdf 0.12.4 / argon2 0.5.3) on 2026-10-05. They
+// are the only tests in the crate that would notice a KDF change that is
+// supposed to be a no-op and is not.
+//
+// The Argon2 parameters are EXPLICIT rather than `Argon2Params::default()`,
+// which is `auto_detect()` and therefore a different machine's answer on every
+// host -- a vector that depends on the hardware is not a vector.
+
+/// The password every vector below is derived from. Not a secret; a fixed
+/// input is the point.
+const KAT_PASSWORD: &[u8] = b"correct horse battery staple";
+/// The salt every vector below is derived from.
+const KAT_SALT: [u8; 32] = [0x07; 32];
+/// The Argon2id tier the vector was taken at: the documented memory floor,
+/// three passes, no parallelism. 32 MiB and one pass, so the test costs
+/// something but not a second.
+const KAT_M_KIB: u32 = 32_768;
+const KAT_T: u8 = 3;
+const KAT_P: u8 = 1;
+
+/// Argon2id at the vault's own floor, byte for byte.
+///
+/// This is the derivation that turns a password into the key a vault's bytes
+/// are sealed with. If this number moves, every existing vault is unreadable.
+#[test]
+fn argon2id_matches_the_vectors_existing_vaults_were_sealed_with() {
+    let params = Argon2Params {
+        t: KAT_T,
+        m_kib: KAT_M_KIB,
+        p: KAT_P,
+    };
+    let argon2 = params.to_argon2().unwrap();
+    let mut derived = [0u8; 32];
+    argon2
+        .hash_password_into(KAT_PASSWORD, &KAT_SALT, &mut derived)
+        .unwrap();
+    assert_eq!(
+        hex::encode(derived),
+        "b5af6a4b543949d5eef52b724c0d80448d1a29b83e5e3de3059296a0d8322f80",
+        "Argon2id output changed: every vault sealed by an earlier build is now \
+         unopenable, and a roundtrip test would not have noticed"
+    );
+}
+
+/// The HKDF sub-key, and the Ed25519 public key it becomes.
+///
+/// Two halves in one test because they fail together: `derive_verifying_key` is
+/// `subkey(b"multitop-vault-signing")` fed to Ed25519, and the signature over
+/// an existing vault header is checked against the result.
+#[test]
+fn the_signing_subkey_matches_what_existing_vaults_derive() {
+    let key = VaultKey::from_bytes([0u8; 32]);
+
+    // The signing key itself, so a failure localises to the KDF rather than to
+    // Ed25519.
+    let signing = key.derive_signing_key();
+    assert_eq!(
+        hex::encode(signing.to_bytes()),
+        "87d43178f6b3ff9efae7a47d4e5131c6d23e81085391fff541c9c1f94bcf5278",
+        "the HKDF-SHA256 sub-key changed, so every stored signature stops verifying"
+    );
+
+    // And the public half, which is what a header actually carries.
+    assert_eq!(
+        hex::encode(key.derive_verifying_key().to_bytes()),
+        "78b934083975edfdd7b06b0462c417b2ae73167cc2d3dff0a368317661a79bca",
+        "the derived verifying key changed, so every stored header fails its \
+         signature check"
+    );
+}
+
+/// The rollback anchor's account hash, so a stored keychain entry still names
+/// the same account.
+///
+/// `rollback::account` is SHA-256 over the canonicalised vault path. It is
+/// pinned here because it is the one place a `sha2` bump is observable in data
+/// this crate wrote to the OS keychain rather than to a file: a changed digest
+/// reads every existing anchor as belonging to a different account, which
+/// silently disables rollback detection rather than failing loudly.
+#[test]
+fn sha256_matches_the_digest_stored_anchors_were_written_with() {
+    use sha2::{Digest, Sha256};
+    assert_eq!(
+        hex::encode(Sha256::digest(b"hello")),
+        "2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824",
+        "SHA-256 output changed, so every stored rollback anchor names a \
+         different account and rollback detection is off rather than broken"
+    );
+}

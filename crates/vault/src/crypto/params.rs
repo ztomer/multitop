@@ -5,7 +5,7 @@
 //! can be brute-forced; above the ceiling an unlock allocates more memory than
 //! the machine has, and the vault cannot be opened at all.
 
-use argon2::{Argon2, Params};
+use argon2::{Argon2, ParamsBuilder};
 
 /// Memory tiers, in MiB, that decide how many Argon2id passes to make. More
 /// memory means each pass costs an attacker more, so fewer passes buy the same
@@ -133,7 +133,20 @@ impl Argon2Params {
         // multi-gigabyte allocation unvouched-for. `argon2::Params` accepts
         // anything up to u32::MAX KiB -- 4 TiB -- so it is not the backstop.
         self.validate()?;
-        let params = Params::new(self.m_kib, u32::from(self.t), u32::from(self.p), None)
+        // `ParamsBuilder`, not `Params::new(m, t, p, None)`: argon2 0.6 gave
+        // `Params` private fields and moved construction behind a builder, so
+        // the four-argument call this used to make no longer exists. The builder
+        // setters take `&mut self` and return `&mut Self`, hence the chain on
+        // one binding. Validation still happens in `build()`, and still after
+        // `self.validate()` above -- the order matters, because `validate()` is
+        // the check that sizes the allocation before it is asked for.
+        let mut builder = ParamsBuilder::new();
+        builder
+            .m_cost(self.m_kib)
+            .t_cost(u32::from(self.t))
+            .p_cost(u32::from(self.p));
+        let params = builder
+            .build()
             .map_err(|e| crate::VaultError::Argon2Params(e.to_string()))?;
         Ok(Argon2::new(
             argon2::Algorithm::Argon2id,

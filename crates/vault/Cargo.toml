@@ -10,13 +10,31 @@ workspace = true
 
 [dependencies]
 # Crypto
+#
+# One RustCrypto generation for everything THIS CRATE declares. `sha2` was
+# pinned 0.10 while `ed25519-dalek 3` already resolved 0.11, so the tree carried
+# two generations of the same primitives and the house gate calls that pin
+# FATAL -- our pin is why two majors are in the tree, and the compiler reports
+# the consequence as an error naming the TYPE, never the pin.
+#
+# `hkdf` and `argon2` move in the same commit rather than their own because half
+# of this does not compile alone: argon2 0.6 sits on the same `digest` 0.11
+# line, so pinning sha2 without it, or it without sha2, is a lockfile that
+# resolves and a tree that does not build.
+#
+# NOT yet the whole tree, and worth not pretending otherwise: `sha2 0.10.9` and
+# `digest 0.10.7` are still in the lockfile, held by `zbus 4` -> `sha1`, which
+# is a Linux-only path this crate does not reach on macOS. zbus 5.19 pulls in no
+# hash crate at all, so that holdout goes with the zbus move. Two separate
+# commits on purpose -- the two subsystems fail separately, and only together do
+# they actually empty the duplicate set.
 aes-gcm = "0.11"
-argon2 = "0.5"
+argon2 = "0.6"
 ed25519-dalek = { version = "3.0", features = ["zeroize"] }
-hkdf = "0.12"
+hkdf = "0.13"
 rand = { version = "0.10", features = ["std"] }
 secrecy = "0.10"
-sha2 = "0.10"
+sha2 = "0.11"
 zeroize = { version = "1.8", features = ["derive"] }
 
 # Serialization
