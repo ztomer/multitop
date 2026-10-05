@@ -92,7 +92,7 @@ async fn changing_the_sort_in_the_docker_view_restarts_the_docker_pollers_too() 
     let mut k = Keys::new(2);
 
     let cmds = app.toggle_docker((80, 24));
-    assert!(!cmds.is_empty(), "entering the docker view must spawn work");
+    multitop_testassert::assert_not_empty!(cmds, "entering the docker view must spawn work");
     assert!(app.in_docker());
 
     k.press(&mut app, KeyCode::Char('m'));

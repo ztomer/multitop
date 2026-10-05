@@ -98,8 +98,8 @@ async fn the_loop_still_quits_after_the_upgrade_completes() {
         "loop ended with an error: {:?}",
         outcome.error
     );
-    assert!(
-        outcome.killed.is_empty(),
+    multitop_testassert::assert_empty!(
+        outcome.killed,
         "`q` came after the upgrade finished; nothing should have been killed"
     );
 }

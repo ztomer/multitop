@@ -4,7 +4,7 @@ use multitop_agent::conv::count;
 #[test]
 fn a_series_keeps_the_newest_samples_and_drops_the_oldest() {
     let mut s = Series::default();
-    assert!(s.is_empty());
+    multitop_testassert::assert_empty!(s);
     for i in 0..(SAMPLES + 10) {
         s.push(count(i));
     }
@@ -64,10 +64,10 @@ fn an_empty_series_has_nothing_to_offer_and_says_so() {
 #[test]
 fn a_snapshot_lands_in_all_four_series() {
     let mut h = History::default();
-    assert!(h.is_empty());
+    multitop_testassert::assert_empty!(h);
     h.record(&snapshot(42.0, 25, 1000.0, 2000.0));
 
-    assert!(!h.is_empty());
+    multitop_testassert::assert_not_empty!(h);
     assert_eq!(h.cpu.latest(), Some(42.0));
     // Memory comes from `Usage`'s own percent, not a second calculation here.
     assert_eq!(h.mem.latest(), Some(25.0));

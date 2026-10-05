@@ -120,7 +120,7 @@ fn mem_omitted_when_zero() {
         disk: usage(1 << 40, 1 << 38, 80.0),
         ..snap()
     };
-    assert!(labeled(&render(&s, 80, 0, 50, &pal()), "MEM").is_empty());
+    multitop_testassert::assert_empty!(labeled(&render(&s, 80, 0, 50, &pal()), "MEM"));
 }
 
 #[test]
@@ -140,7 +140,7 @@ fn disk_omitted_when_zero() {
         mem: usage(1 << 31, 1 << 30, 50.0),
         ..snap()
     };
-    assert!(labeled(&render(&s, 80, 0, 50, &pal()), "DSK").is_empty());
+    multitop_testassert::assert_empty!(labeled(&render(&s, 80, 0, 50, &pal()), "DSK"));
 }
 
 #[test]
@@ -162,7 +162,7 @@ fn net_omitted_when_idle() {
         tx_rate: 500.0,
         ..snap()
     };
-    assert!(find(&render(&s, 80, 0, 50, &pal()), "NET").is_empty());
+    multitop_testassert::assert_empty!(find(&render(&s, 80, 0, 50, &pal()), "NET"));
 }
 
 #[test]

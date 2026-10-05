@@ -16,7 +16,7 @@ fn starts_in_monitor_mode_showing_connecting() {
 fn empty_server_list_is_allowed() {
     let _keychain = isolate_keychain();
     let mut a = app(0);
-    assert!(a.panels.is_empty());
+    multitop_testassert::assert_empty!(a.panels);
     assert_eq!(a.toggle_docker((80, 24)), [] as [multitop::app::Command; 0]);
     assert_eq!(a.switch_stats(), [] as [multitop::app::Command; 0]);
 }

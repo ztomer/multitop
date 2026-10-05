@@ -163,10 +163,7 @@ async fn importing_from_a_missing_ssh_config_says_it_could_not_be_read() {
 
     h.run(PasswordAction::ImportSshHosts);
     let notice = h.notice();
-    assert!(
-        !notice.is_empty(),
-        "an import that did nothing said nothing"
-    );
+    multitop_testassert::assert_not_empty!(notice, "an import that did nothing said nothing");
 }
 
 // ------------------------------------------------------------ vault rotation

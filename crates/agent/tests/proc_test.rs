@@ -22,7 +22,7 @@ fn read_proc_empty_file_is_empty() {
 fn proc_stat_empty() {
     let stat = parse_proc_stat("");
     assert_eq!(stat.aggregate, CpuTimes::default());
-    assert!(stat.cores.is_empty());
+    multitop_testassert::assert_empty!(stat.cores);
 }
 
 #[test]
@@ -33,7 +33,7 @@ fn proc_stat_aggregate_only() {
         100 + 20 + 30 + 40 + 50 + 60 + 70 + 80 + 90 + 100
     );
     assert_eq!(stat.aggregate.idle, 90);
-    assert!(stat.cores.is_empty());
+    multitop_testassert::assert_empty!(stat.cores);
 }
 
 #[test]
@@ -55,7 +55,7 @@ fn proc_stat_ignores_non_cpu_lines() {
                 intr 100 200 300\n\
                 ctxt 5000\n";
     let stat = parse_proc_stat(data);
-    assert!(stat.cores.is_empty());
+    multitop_testassert::assert_empty!(stat.cores);
     assert!(stat.aggregate.total > 0);
 }
 
@@ -63,7 +63,7 @@ fn proc_stat_ignores_non_cpu_lines() {
 fn proc_stat_ignores_short_and_garbage_lines() {
     let stat = parse_proc_stat("cpu 1 2 3\ncpu0 a b c d e\ncpufreq 1 2 3 4 5\n");
     assert_eq!(stat.aggregate, CpuTimes::default());
-    assert!(stat.cores.is_empty());
+    multitop_testassert::assert_empty!(stat.cores);
 }
 
 #[test]
@@ -295,5 +295,5 @@ fn host_info_ignores_empty_ip() {
 
 #[test]
 fn hostname_is_non_empty() {
-    assert!(!hostname().is_empty());
+    multitop_testassert::assert_not_empty!(hostname());
 }

@@ -30,17 +30,14 @@ fn test_upgrade_skip_server_reaches_terminal_state() {
 
     let cmds = app.run_upgrade();
 
-    assert!(
-        cmds.is_empty(),
-        "no RunUpgrade command for a skipped server"
-    );
+    multitop_testassert::assert_empty!(cmds, "no RunUpgrade command for a skipped server");
     let p = &app.panels[0];
     assert_eq!(p.upgrade_state, UpgradeState::DONE, "skip must be terminal");
     assert!(
         p.upgrade_gen > 0,
         "skip must record the generation it was decided at"
     );
-    assert!(!p.last_upgrade.is_empty(), "skip message must be persisted");
+    multitop_testassert::assert_not_empty!(p.last_upgrade, "skip message must be persisted");
     let view = multitop::ui::pane_lines(&app, 0, usize::MAX, 0, 0)
         .0
         .join("\n");
@@ -97,8 +94,8 @@ fn test_upgrade_skip_message_persists_across_views() {
     // output follows it rather than being the whole view. The message itself
     // must still survive intact.
     let header = app.upgrade_pane_header(0);
-    assert!(
-        !header.is_empty(),
+    multitop_testassert::assert_not_empty!(
+        header,
         "expected a status header above the previous output"
     );
     let ring: Vec<String> = app.panels[0].last_upgrade.iter().cloned().collect();

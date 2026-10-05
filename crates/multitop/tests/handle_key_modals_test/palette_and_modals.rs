@@ -22,7 +22,7 @@ async fn test_command_palette_keys_and_execution() {
     keys.press(&mut app, KeyCode::Char(':'));
     keys.type_str(&mut app, "clear filter");
     keys.press(&mut app, KeyCode::Enter);
-    assert!(app.filter_query.is_empty());
+    multitop_testassert::assert_empty!(app.filter_query);
 
     // Sort mem and sort cpu
     keys.press(&mut app, KeyCode::Char(':'));

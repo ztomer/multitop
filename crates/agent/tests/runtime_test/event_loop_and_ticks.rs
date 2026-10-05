@@ -118,7 +118,7 @@ fn a_tick_samples_this_host_and_names_it() {
 
     let snap = monitor.tick(2.0, 120, 50, SortBy::Cpu);
     assert_eq!(snap.host, "my-host");
-    assert!(!snap.agent_version.is_empty());
+    multitop_testassert::assert_not_empty!(snap.agent_version);
     assert!(snap.cpu_pct >= 0.0);
     assert!(snap.mem.total > 0, "a tick must report real memory");
     assert!(snap.disk.total > 0, "a tick must report real disk");

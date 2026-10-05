@@ -26,7 +26,11 @@
 //! So: one entry point, fed bytes, idempotent in the only place it repeats.
 
 /// Every state a line passed through, in order, as carriage returns rewrote it.
-#[must_use]
+///
+/// No `#[must_use]` here, and that is deliberate. `Iterator` is already
+/// `#[must_use]`, so `impl DoubleEndedIterator` carries it and a dropped
+/// result warns without the attribute; adding one is `clippy::double_must_use`
+/// (measured 2026-10-04), which is a gate failure rather than a redundancy.
 pub fn painted_states(line: &str) -> impl DoubleEndedIterator<Item = &str> {
     line.trim_end_matches('\n')
         .split('\r')

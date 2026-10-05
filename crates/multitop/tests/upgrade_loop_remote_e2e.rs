@@ -138,7 +138,7 @@ async fn test_remote_upgrade_basic_command() {
 
     // Output contains real ls -l data
     let output_lines = aux_lines(&msgs);
-    assert!(!output_lines.is_empty(), "Should have output lines");
+    multitop_testassert::assert_not_empty!(output_lines, "Should have output lines");
     assert!(
         output_lines.len() >= 10,
         "Expected at least 10 lines, got {}",

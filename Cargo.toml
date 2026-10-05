@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["crates/agent", "crates/multitop", "crates/vault"]
+members = ["crates/agent", "crates/multitop", "crates/testassert", "crates/vault"]
 exclude = ["fuzz"]
 
 [workspace.lints.clippy]

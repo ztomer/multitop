@@ -85,10 +85,7 @@ fn a_bare_cursor_up_carries_to_the_next_line_that_has_text() {
     let mut p = Painter::new();
     one(&mut p, "one");
     one(&mut p, "two");
-    assert!(
-        line(&mut p, "\u{1b}[2A").is_empty(),
-        "movement alone draws nothing"
-    );
+    multitop_testassert::assert_empty!(line(&mut p, "\u{1b}[2A"), "movement alone draws nothing");
     assert_eq!(
         one(&mut p, "over one").back,
         2,
@@ -108,8 +105,8 @@ fn moving_back_down_returns_to_the_end() {
     let mut p = Painter::new();
     one(&mut p, "one");
     one(&mut p, "two");
-    assert!(line(&mut p, "\u{1b}[2A").is_empty());
-    assert!(line(&mut p, "\u{1b}[2B").is_empty());
+    multitop_testassert::assert_empty!(line(&mut p, "\u{1b}[2A"));
+    multitop_testassert::assert_empty!(line(&mut p, "\u{1b}[2B"));
     assert_eq!(one(&mut p, "three").back, 0, "back at the append point");
 }
 
@@ -117,7 +114,7 @@ fn moving_back_down_returns_to_the_end() {
 fn moving_up_past_the_top_stops_at_the_top() {
     let mut p = Painter::new();
     one(&mut p, "one");
-    assert!(line(&mut p, "\u{1b}[9B").is_empty());
+    multitop_testassert::assert_empty!(line(&mut p, "\u{1b}[9B"));
     assert_eq!(one(&mut p, "two").back, 0);
 }
 
@@ -374,7 +371,7 @@ fn a_trailing_rewind_split_across_chunks_counts_once() {
     // The choreography arrives with no newline yet: nothing to paint, and
     // -- crucially -- nothing recorded, or the reassembled whole would move
     // twice.
-    assert!(p.feed_bytes(b"\r\x1b[2K\x1b[1A").is_empty());
+    multitop_testassert::assert_empty!(p.feed_bytes(b"\r\x1b[2K\x1b[1A"));
     let paints = p.feed_bytes(b"\x1b[2KOVER\r\n");
     assert_eq!(paints.len(), 1);
     assert_eq!(paints[0].text, "OVER");

@@ -310,13 +310,13 @@ async fn asking_for_the_view_you_are_already_in_costs_nothing() {
     let _g = isolate().await;
     let mut app = test_app(&["alpha"]);
 
-    assert!(
-        !app.toggle_fetch(DIMS).is_empty(),
+    multitop_testassert::assert_not_empty!(
+        app.toggle_fetch(DIMS),
         "the first switch must spawn work"
     );
     assert!(app.in_fetch());
-    assert!(
-        app.toggle_fetch(DIMS).is_empty(),
+    multitop_testassert::assert_empty!(
+        app.toggle_fetch(DIMS),
         "switching to the view already showing re-spawned every agent"
     );
 
@@ -430,7 +430,7 @@ async fn a_message_for_a_panel_that_is_no_longer_there_is_dropped() {
         success: true,
     }));
     // Nothing reached the panel that is there.
-    assert!(app.panels[0].last_upgrade.is_empty());
+    multitop_testassert::assert_empty!(app.panels[0].last_upgrade);
 }
 
 #[tokio::test]

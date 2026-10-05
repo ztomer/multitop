@@ -114,8 +114,8 @@ async fn connect_local_server_succeeds_and_streams_snapshots() {
         .expect("payload present");
 
     if let Payload::Monitor(snap) = payload {
-        assert!(
-            !snap.host.is_empty(),
+        multitop_testassert::assert_not_empty!(
+            snap.host,
             "local snapshot host should not be empty"
         );
         let rendered = multitop_agent::render::render(

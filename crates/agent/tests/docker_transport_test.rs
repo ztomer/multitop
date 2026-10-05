@@ -270,7 +270,7 @@ fn a_daemon_that_lists_nothing_yields_no_rows_and_asks_for_no_stats() {
     // the join below would never return.
     let handle = serve_unix(listener, 1, |_| plain_response("[]"));
 
-    assert!(collect_from(&sock.endpoint()).is_empty());
+    multitop_testassert::assert_empty!(collect_from(&sock.endpoint()));
     handle.join().unwrap();
 }
 
@@ -381,5 +381,5 @@ fn a_cli_percentage_that_will_not_parse_reads_as_zero() {
 
 #[test]
 fn an_empty_cli_listing_yields_no_rows() {
-    assert!(rows_from_cli("", &HashMap::new()).is_empty());
+    multitop_testassert::assert_empty!(rows_from_cli("", &HashMap::new()));
 }

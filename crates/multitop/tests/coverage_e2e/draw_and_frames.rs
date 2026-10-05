@@ -28,7 +28,7 @@ async fn ui_draw_produces_frame() {
         .expect("draw ok");
 
     let buffer = terminal.backend().buffer();
-    assert!(!buffer.content.is_empty(), "frame produced output");
+    multitop_testassert::assert_not_empty!(buffer.content, "frame produced output");
 }
 
 #[tokio::test]
@@ -172,7 +172,7 @@ fn frame_fetch_view_shows_host() {
 
     let buffer = render_frame(&mut a, 100, 30);
     let text = buffer_text(&buffer);
-    assert!(!text.trim().is_empty(), "fetch view frame is non-empty");
+    multitop_testassert::assert_not_empty!(text.trim(), "fetch view frame is non-empty");
 }
 
 #[test]
@@ -289,7 +289,7 @@ fn frame_narrow_terminal_degrades() {
 
     let buffer = render_frame(&mut a, 40, 24);
     let text = buffer_text(&buffer);
-    assert!(!text.is_empty(), "narrow terminal still renders");
+    multitop_testassert::assert_not_empty!(text, "narrow terminal still renders");
 }
 
 #[test]
@@ -300,7 +300,7 @@ fn frame_password_manager_shows() {
 
     let buffer = render_frame(&mut a, 100, 30);
     let text = buffer_text(&buffer);
-    assert!(!text.is_empty(), "password manager renders");
+    multitop_testassert::assert_not_empty!(text, "password manager renders");
 }
 
 #[test]

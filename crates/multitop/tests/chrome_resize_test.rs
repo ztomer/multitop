@@ -298,11 +298,11 @@ fn render_payload_handles_every_variant() {
     let sort = SortBy::Cpu;
 
     let monitor = render_payload(&Payload::Monitor(sample_snapshot()), dims, sort, pal);
-    assert!(!monitor.is_empty(), "Monitor payload should produce output");
+    multitop_testassert::assert_not_empty!(monitor, "Monitor payload should produce output");
 
     let fetch = render_payload(&sample_fetch(), dims, sort, pal);
-    assert!(!fetch.is_empty(), "Fetch payload should produce output");
+    multitop_testassert::assert_not_empty!(fetch, "Fetch payload should produce output");
 
     let docker = render_payload(&sample_docker(), dims, sort, pal);
-    assert!(!docker.is_empty(), "Docker payload should produce output");
+    multitop_testassert::assert_not_empty!(docker, "Docker payload should produce output");
 }

@@ -46,3 +46,7 @@ harness = false
 [dev-dependencies]
 tempfile = "3.27.0"
 toml = { version = "1", default-features = false, features = ["parse", "serde", "display"] }
+# One definition of the emptiness assertions, shared with the other two crates'
+# tests. A dev-dependency, so it reaches `#[cfg(test)]` sites in `src/` too and
+# links into no shipped binary -- see crates/testassert/src/lib.rs.
+multitop-testassert = { path = "../testassert" }

@@ -98,7 +98,7 @@ fn upgrade_without_command_explains_itself() {
     let _keychain = isolate_keychain();
     let mut a = app(1);
     let cmds = a.run_upgrade();
-    assert!(cmds.is_empty(), "nothing to run");
+    multitop_testassert::assert_empty!(cmds, "nothing to run");
     assert!(multitop::ui::pane_lines(&a, 0, usize::MAX, 0, 0)
         .0
         .join("\n")

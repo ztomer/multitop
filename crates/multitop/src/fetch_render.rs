@@ -325,7 +325,7 @@ mod tests {
     #[test]
     fn load_db_non_empty() {
         let db = load_db();
-        assert!(!db.logos.is_empty());
+        multitop_testassert::assert_not_empty!(db.logos);
         // Should have common OS logos
         let has_linux = db
             .logos
@@ -364,6 +364,6 @@ mod db_tests {
     fn the_embedded_logo_db_decompresses() {
         let compressed = include_bytes!("../data/logos.bin.zst");
         let raw = zstd::decode_all(&compressed[..]).expect("the shipped logo db decompresses");
-        assert!(!parse_db(&raw).logos.is_empty(), "the logo db has entries");
+        multitop_testassert::assert_not_empty!(parse_db(&raw).logos, "the logo db has entries");
     }
 }

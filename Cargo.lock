@@ -1447,6 +1447,7 @@ dependencies = [
  "keyring",
  "libc",
  "multitop-agent",
+ "multitop-testassert",
  "multitop-vault",
  "ratatui",
  "regex",
@@ -1469,10 +1470,15 @@ version = "0.51.0"
 dependencies = [
  "libc",
  "mach2",
+ "multitop-testassert",
  "num-traits",
  "serde_json",
  "tempfile",
 ]
+
+[[package]]
+name = "multitop-testassert"
+version = "0.51.0"
 
 [[package]]
 name = "multitop-vault"
@@ -1487,6 +1493,7 @@ dependencies = [
  "hkdf",
  "keyring",
  "libc",
+ "multitop-testassert",
  "rand 0.10.2",
  "secrecy",
  "security-framework",

@@ -66,7 +66,7 @@ async fn a_locally_spawned_upgrade_gets_its_own_process_group() {
     let theirs = process_group_of(pid);
     let ours = process_group_of(std::process::id());
 
-    assert!(!theirs.is_empty(), "ps reported no group for the child");
+    multitop_testassert::assert_not_empty!(theirs, "ps reported no group for the child");
     assert_ne!(
         theirs, ours,
         "the upgrade shell shares multitop's process group, so it is in the \

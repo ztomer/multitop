@@ -94,7 +94,7 @@ fn legacy_state_file_without_hosts_still_loads() {
     let loaded = load_state(&config_path);
     assert_eq!(loaded.state.last_update, Some(1_722_000_000));
     assert_eq!(loaded.state.upgrade_started_at, Some(1_723_000_000));
-    assert!(loaded.state.hosts.is_empty());
+    multitop_testassert::assert_empty!(loaded.state.hosts);
 
     let _ = std::fs::remove_dir_all(&temp_dir);
 }

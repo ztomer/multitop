@@ -65,7 +65,7 @@ fn long_markerless_output_is_not_buffered() {
     let mut s = Sieve::new();
     let line = vec![b'x'; 4096];
     let out = feed_all(&mut s, &[&line]);
-    assert!(marks(&out).is_empty());
+    multitop_testassert::assert_empty!(marks(&out));
     let text: Vec<u8> = out
         .iter()
         .flat_map(|p| match p {

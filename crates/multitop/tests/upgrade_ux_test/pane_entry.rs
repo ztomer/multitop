@@ -17,10 +17,7 @@ async fn first_press_switches_to_the_upgrade_pane() {
         !h.app.upgrades_in_flight(),
         "the first press must not start an upgrade"
     );
-    assert!(
-        h.emitted().is_empty(),
-        "the first press must not queue any work"
-    );
+    multitop_testassert::assert_empty!(h.emitted(), "the first press must not queue any work");
 }
 
 /// The regression that motivated this work: the first press used to behave

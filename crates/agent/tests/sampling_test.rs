@@ -154,7 +154,7 @@ fn a_cpuinfo_without_a_model_yields_nothing() {
 fn every_fetch_field_is_populated_on_this_host() {
     let snap = fetch::sample_fetch("testhost");
     assert!(snap.user_host.ends_with("@testhost"));
-    assert!(!snap.agent_version.is_empty());
+    multitop_testassert::assert_not_empty!(snap.agent_version);
     // Each of these has a "give up" answer; none may come back blank, because
     // a blank field renders as a missing row rather than an honest "unknown".
     for (field, val) in [
@@ -172,11 +172,11 @@ fn every_fetch_field_is_populated_on_this_host() {
 
 #[test]
 fn the_individual_samplers_each_answer_without_proc() {
-    assert!(!fetch::sample_os().is_empty());
-    assert!(!fetch::sample_kernel().is_empty());
-    assert!(!fetch::sample_uptime().is_empty());
-    assert!(!fetch::sample_host_model().is_empty());
-    assert!(!fetch::sample_cpu_model().is_empty());
+    multitop_testassert::assert_not_empty!(fetch::sample_os());
+    multitop_testassert::assert_not_empty!(fetch::sample_kernel());
+    multitop_testassert::assert_not_empty!(fetch::sample_uptime());
+    multitop_testassert::assert_not_empty!(fetch::sample_host_model());
+    multitop_testassert::assert_not_empty!(fetch::sample_cpu_model());
 }
 
 #[test]
@@ -220,7 +220,7 @@ fn an_empty_file_reads_as_empty_rather_than_as_a_failure() {
     // `read_proc_into` reports "got nothing", which is what makes the caller
     // fall through to the platform sampler.
     assert!(!proc::read_proc_into(&path, &mut into));
-    assert!(into.is_empty());
+    multitop_testassert::assert_empty!(into);
     std::fs::remove_file(&path).unwrap();
 }
 
@@ -260,7 +260,7 @@ fn statvfs_answers_for_root_and_declines_for_nonsense() {
 #[test]
 fn a_hostname_is_always_produced() {
     let h = proc::hostname();
-    assert!(!h.is_empty());
+    multitop_testassert::assert_not_empty!(h);
     // With an explicit address the header carries it verbatim.
     assert_eq!(proc::host_info(Some("10.0.0.9")), format!("{h} (10.0.0.9)"));
     // An empty address is treated as absent, so the primary-IP lookup runs.
@@ -312,7 +312,7 @@ fn the_sampler_ranks_this_hosts_processes() {
 
     // Asking for none is not an error, and asking for more than exist just
     // returns what exists.
-    assert!(sampler.top(1.0, 0, SortBy::Cpu).is_empty());
+    multitop_testassert::assert_empty!(sampler.top(1.0, 0, SortBy::Cpu));
     assert!(sampler.top(1.0, 100_000, SortBy::Mem).len() < 100_000);
 }
 
@@ -438,10 +438,7 @@ fn the_name_list_is_deduplicated_sorted_and_bounded() {
     sorted.sort_unstable();
     assert_eq!(sorted, names, "the list is not in a stable order");
 
-    assert!(
-        !names.is_empty(),
-        "this process is running, so something scanned"
-    );
+    multitop_testassert::assert_not_empty!(names, "this process is running, so something scanned");
     assert!(
         names.len() <= 512,
         "the list is unbounded: {} names",

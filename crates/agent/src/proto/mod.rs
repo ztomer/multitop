@@ -290,7 +290,7 @@ mod framing_tests {
         match decoded {
             Payload::Docker { host, rows: got } => {
                 assert_eq!(host, "busy-host");
-                assert!(!got.is_empty(), "some rows must survive");
+                multitop_testassert::assert_not_empty!(got, "some rows must survive");
                 assert!(got.len() < 2000, "not all rows can fit in 64 KiB");
                 assert_eq!(got[0].name, "container-with-a-fairly-long-name-0");
             }

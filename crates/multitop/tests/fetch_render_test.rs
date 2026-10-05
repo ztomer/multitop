@@ -403,7 +403,7 @@ fn sizing_2_rows_shows_header_and_1_detail() {
 #[test]
 fn sizing_0_rows_does_not_panic() {
     let out = fetch_render::render_fetch(&snap("Ubuntu 24.04", "6.8.0"), 80, 0, &pal());
-    assert!(!out.is_empty(), "should at least have a header");
+    multitop_testassert::assert_not_empty!(out, "should at least have a header");
 }
 
 #[test]
@@ -448,8 +448,8 @@ fn sizing_wide_panel_does_not_affect_row_count() {
     let narrow = fetch_render::render_fetch(&snap("Ubuntu 24.04", "6.8.0"), 40, 24, &pal());
     let wide = fetch_render::render_fetch(&snap("Ubuntu 24.04", "6.8.0"), 200, 24, &pal());
     // A narrow panel may drop the logo, producing fewer rows than a wide one.
-    assert!(!narrow.is_empty(), "narrow should produce output");
-    assert!(!wide.is_empty(), "wide should produce output");
+    multitop_testassert::assert_not_empty!(narrow, "narrow should produce output");
+    multitop_testassert::assert_not_empty!(wide, "wide should produce output");
     assert!(
         narrow.len() <= wide.len(),
         "narrow ({}) should not have more rows than wide ({})",

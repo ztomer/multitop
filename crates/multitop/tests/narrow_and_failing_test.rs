@@ -144,7 +144,7 @@ async fn a_vault_that_cannot_be_created_says_why_and_leaves_the_prompt_up() {
     let Msg::VaultCreateFailed { ref error, .. } = msg else {
         panic!("expected a failure, got {msg:?}");
     };
-    assert!(!error.is_empty(), "the failure carried no reason");
+    multitop_testassert::assert_not_empty!(error, "the failure carried no reason");
 
     assert!(app.apply(msg));
     assert!(
@@ -292,7 +292,7 @@ async fn a_leading_notice_is_kept_whether_or_not_a_second_one_follows() {
         .as_ref()
         .and_then(|m| m.notice.clone())
         .unwrap_or_default();
-    assert!(!after_save.is_empty(), "the save said nothing");
+    multitop_testassert::assert_not_empty!(after_save, "the save said nothing");
 
     multitop::password_actions::apply(
         multitop::passwords::PasswordAction::ImportSshHosts,
@@ -306,7 +306,7 @@ async fn a_leading_notice_is_kept_whether_or_not_a_second_one_follows() {
         .as_ref()
         .and_then(|m| m.notice.clone())
         .unwrap_or_default();
-    assert!(!after_import.is_empty(), "the import said nothing");
+    multitop_testassert::assert_not_empty!(after_import, "the import said nothing");
     assert_ne!(
         after_import, after_save,
         "the import reported the save's notice"

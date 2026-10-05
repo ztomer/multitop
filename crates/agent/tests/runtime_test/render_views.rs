@@ -164,7 +164,7 @@ fn a_piped_monitor_frame_is_a_packet_the_client_can_decode() {
     assert_eq!(got.host, "web-01");
     assert_eq!(got.procs.len(), 1);
     // Nothing was drawn, so the render buffer stays untouched.
-    assert!(buf.is_empty());
+    multitop_testassert::assert_empty!(buf);
 }
 
 #[test]

@@ -221,7 +221,7 @@ async fn test_upgrade_carriage_return_cleaned() {
         })
         .collect();
 
-    assert!(!progress_lines.is_empty(), "Should have progress lines");
+    multitop_testassert::assert_not_empty!(progress_lines, "Should have progress lines");
     for line in &progress_lines {
         assert!(
             !line.contains('\r'),

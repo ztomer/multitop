@@ -163,7 +163,7 @@ fn handle_key_esc_clears_filter() {
         &tx,
         &mut tasks,
     );
-    assert!(a.filter_query.is_empty(), "Esc clears filter first");
+    multitop_testassert::assert_empty!(a.filter_query, "Esc clears filter first");
     assert!(!a.should_quit(), "Esc with filter doesn't quit");
 }
 
@@ -187,7 +187,7 @@ fn handle_key_esc_with_filter_clears_filter() {
         &tx,
         &mut tasks,
     );
-    assert!(a.filter_query.is_empty(), "Esc clears filter first");
+    multitop_testassert::assert_empty!(a.filter_query, "Esc clears filter first");
     assert!(!a.should_quit());
 }
 

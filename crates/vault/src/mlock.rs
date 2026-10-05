@@ -165,7 +165,7 @@ mod tests {
         match locked {
             Ok(m) => {
                 assert_eq!(m.len(), 2048);
-                assert!(!m.is_empty());
+                multitop_testassert::assert_not_empty!(m);
                 assert_eq!(m.as_ptr() as usize, m.data.as_ptr() as usize);
             }
             Err(e) => {
@@ -181,7 +181,7 @@ mod tests {
     #[test]
     fn test_locked_memory_noop() {
         let locked = LockedMemory::noop();
-        assert!(locked.is_empty());
+        multitop_testassert::assert_empty!(locked);
         assert_eq!(locked.len(), 0);
         // Drop should not panic
     }

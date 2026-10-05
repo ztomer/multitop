@@ -80,8 +80,8 @@ fn bounded_drain_caps_work_per_poll() {
     }
 
     // All 1000 lines landed in the ring (capped at upgrade_history_lines).
-    assert!(
-        !a.panels[0].last_upgrade.is_empty(),
+    multitop_testassert::assert_not_empty!(
+        a.panels[0].last_upgrade,
         "output must accumulate in the ring"
     );
 }
@@ -219,7 +219,7 @@ fn reentering_docker_shows_cached_data() {
 
     let cmds = a.toggle_docker((80, 24));
 
-    assert!(!cmds.is_empty(), "refresh task spawned");
+    multitop_testassert::assert_not_empty!(cmds, "refresh task spawned");
     assert!(
         a.panels[0].view.iter().any(|l| l.contains("my-container")),
         "cached container must be visible immediately, not a loading placeholder"
@@ -239,7 +239,7 @@ fn reentering_fetch_shows_cached_data() {
 
     let cmds = a.toggle_fetch((80, 24));
 
-    assert!(!cmds.is_empty(), "refresh task spawned");
+    multitop_testassert::assert_not_empty!(cmds, "refresh task spawned");
     // center_host renders as fullwidth; check for the detail rows instead.
     assert!(
         a.panels[0].view.iter().any(|l| l.contains("OS")),
@@ -255,7 +255,7 @@ fn first_visit_shows_loading_placeholder() {
 
     let cmds = a.toggle_docker((80, 24));
 
-    assert!(!cmds.is_empty(), "refresh task spawned");
+    multitop_testassert::assert_not_empty!(cmds, "refresh task spawned");
     assert!(
         a.panels[0].view.iter().any(|l| l.contains("loading")),
         "first visit must show loading placeholder"
@@ -428,7 +428,7 @@ fn interrupted_upgrade_noop_for_done() {
     a.panels[0].upgrade_state = UpgradeState::DONE;
     a.mark_upgrade_interrupted(0);
 
-    assert!(a.host_updates.is_empty(), "no state written for DONE panel");
+    multitop_testassert::assert_empty!(a.host_updates, "no state written for DONE panel");
 }
 
 // ===========================================================================

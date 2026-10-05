@@ -156,17 +156,14 @@ fn the_scan_can_fail() {
     );
     assert_eq!(scan("a.rs", by_host).len(), 1, "a local host name");
     let remote = concat!("Ser", "ver { host: \"web-01\".into(), port", ": 022 }");
-    assert!(scan("a.rs", remote).is_empty(), "a remote server");
+    multitop_testassert::assert_empty!(scan("a.rs", remote), "a remote server");
     let from_common = concat!(
         "Ser",
         "ver {\n    port",
         ": 0,\n    ..common::local_",
         "server(\"h\")\n}"
     );
-    assert!(
-        scan("a.rs", from_common).is_empty(),
-        "struct update from common"
-    );
+    multitop_testassert::assert_empty!(scan("a.rs", from_common), "struct update from common");
 
     let unseamed = concat!("fn t() {\n    let c = spawn_local_", "agent(m, s);\n}\n");
     assert_eq!(scan("a.rs", unseamed).len(), 1, "a direct spawn, no seam");
@@ -175,8 +172,5 @@ fn the_scan_can_fail() {
         "agent();\n    let c = spawn_local_",
         "agent(m, s);\n}\n"
     );
-    assert!(
-        scan("a.rs", seamed).is_empty(),
-        "a direct spawn after the seam"
-    );
+    multitop_testassert::assert_empty!(scan("a.rs", seamed), "a direct spawn after the seam");
 }

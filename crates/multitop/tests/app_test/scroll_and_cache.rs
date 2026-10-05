@@ -181,10 +181,7 @@ fn asking_for_the_view_already_showing_keeps_the_scroll_position() {
 
     a.toggle_docker((80, 24));
     a.panels[0].scroll_offset = 12;
-    assert!(
-        a.toggle_docker((80, 24)).is_empty(),
-        "a no-op spawns nothing"
-    );
+    multitop_testassert::assert_empty!(a.toggle_docker((80, 24)), "a no-op spawns nothing");
     assert_eq!(
         a.panels[0].scroll_offset, 12,
         "a no-op discarded the scroll"
@@ -223,7 +220,7 @@ fn toggle_docker_shows_cached_payload_immediately() {
     let cmds = a.toggle_docker((80, 24));
 
     // Commands spawned to refresh, and view shows cached data.
-    assert!(!cmds.is_empty(), "refresh task spawned");
+    multitop_testassert::assert_not_empty!(cmds, "refresh task spawned");
     assert!(
         a.panels[0].view.iter().any(|l| l.contains("web")),
         "cached container name visible"
@@ -242,7 +239,7 @@ fn toggle_fetch_shows_cached_payload_immediately() {
 
     let cmds = a.toggle_fetch((80, 24));
 
-    assert!(!cmds.is_empty(), "refresh task spawned");
+    multitop_testassert::assert_not_empty!(cmds, "refresh task spawned");
     // Cached fetch rendered into view (non-empty, has content beyond the loading row).
     assert!(
         a.panels[0].view.len() > 1,
@@ -313,5 +310,5 @@ fn mark_upgrade_interrupted_noop_for_done_panel() {
     a.mark_upgrade_interrupted(0);
 
     assert_eq!(a.panels[0].upgrade_state, UpgradeState::DONE);
-    assert!(a.host_updates.is_empty(), "no state written for DONE panel");
+    multitop_testassert::assert_empty!(a.host_updates, "no state written for DONE panel");
 }

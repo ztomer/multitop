@@ -386,7 +386,7 @@ fn wide_panels_budget_two_per_row() {
 
 #[test]
 fn empty_snapshot_renders_without_panic() {
-    assert!(!render(&Snapshot::default(), 1, 0, 1, &pal()).is_empty());
+    multitop_testassert::assert_not_empty!(render(&Snapshot::default(), 1, 0, 1, &pal()));
 }
 
 #[test]

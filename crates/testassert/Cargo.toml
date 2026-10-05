@@ -1,0 +1,16 @@
+[package]
+name = "multitop-testassert"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "Assertions shared by this workspace's tests; never linked into a shipped binary"
+
+[lints]
+workspace = true
+
+# A dev-dependency of all three shipped crates, and therefore reachable from
+# `#[cfg(test)] mod tests` inside `src/` as well as from `tests/`. It has to
+# be its own crate for that to be one definition: `multitop-agent`'s own tests
+# and `multitop-vault`'s have no common ancestor to hang a helper off, and the
+# two `src/` unit-test sites in `vault` cannot see a `tests/` module at all.

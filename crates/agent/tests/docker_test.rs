@@ -47,11 +47,11 @@ fn container_list_parsed() {
 
 #[test]
 fn container_list_tolerates_garbage() {
-    assert!(parse_container_list("").is_empty());
-    assert!(parse_container_list("not json").is_empty());
-    assert!(parse_container_list("{}").is_empty());
-    assert!(parse_container_list("[]").is_empty());
-    assert!(parse_container_list(r#"[{"Names":["/x"]}]"#).is_empty());
+    multitop_testassert::assert_empty!(parse_container_list(""));
+    multitop_testassert::assert_empty!(parse_container_list("not json"));
+    multitop_testassert::assert_empty!(parse_container_list("{}"));
+    multitop_testassert::assert_empty!(parse_container_list("[]"));
+    multitop_testassert::assert_empty!(parse_container_list(r#"[{"Names":["/x"]}]"#));
 }
 
 #[test]
@@ -185,8 +185,8 @@ fn chunked_body_decoded() {
 fn chunked_body_handles_extensions_and_truncation() {
     assert_eq!(decode_chunked(b"3;x=1\r\nabc\r\n0\r\n\r\n"), b"abc");
     assert_eq!(decode_chunked(b"9\r\nabc"), b"abc");
-    assert!(decode_chunked(b"").is_empty());
-    assert!(decode_chunked(b"zz\r\n").is_empty());
+    multitop_testassert::assert_empty!(decode_chunked(b""));
+    multitop_testassert::assert_empty!(decode_chunked(b"zz\r\n"));
 }
 
 #[test]
@@ -200,9 +200,9 @@ fn cli_ps_parsed() {
 
 #[test]
 fn cli_ps_skips_short_rows() {
-    assert!(parse_cli_ps("").is_empty());
-    assert!(parse_cli_ps("only\tone\n").is_empty());
-    assert!(parse_cli_ps("\ta\tb\n").is_empty());
+    multitop_testassert::assert_empty!(parse_cli_ps(""));
+    multitop_testassert::assert_empty!(parse_cli_ps("only\tone\n"));
+    multitop_testassert::assert_empty!(parse_cli_ps("\ta\tb\n"));
 }
 
 #[test]
@@ -214,7 +214,7 @@ fn cli_stats_parsed() {
 
 #[test]
 fn cli_stats_skips_short_rows() {
-    assert!(parse_cli_stats("web\t1%\n").is_empty());
+    multitop_testassert::assert_empty!(parse_cli_stats("web\t1%\n"));
 }
 
 use multitop_agent::SortBy;
@@ -377,7 +377,7 @@ fn mem_string_formats_both_sides() {
 #[test]
 fn render_survives_narrow_panel() {
     let out = render("h", 4, 0, &[row("x", "Up", 1.0)], &pal(), SortBy::Cpu);
-    assert!(!out.is_empty());
+    multitop_testassert::assert_not_empty!(out);
 }
 
 #[test]

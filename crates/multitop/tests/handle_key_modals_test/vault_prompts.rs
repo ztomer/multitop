@@ -70,10 +70,7 @@ async fn escape_declines_the_vault_offer_without_losing_the_password() {
     k.type_str(&mut app, "typed");
     k.press(&mut app, KeyCode::Esc);
     assert!(!app.vault_creating());
-    assert!(
-        app.vault_password_input().is_empty(),
-        "the typed password was kept"
-    );
+    multitop_testassert::assert_empty!(app.vault_password_input(), "the typed password was kept");
 }
 
 #[tokio::test]
@@ -90,10 +87,7 @@ async fn while_a_vault_is_being_created_only_escape_still_means_anything() {
 
     let mut k = Keys::new(1);
     k.type_str(&mut app, "more");
-    assert!(
-        app.vault_password_input().is_empty(),
-        "keys reached the field"
-    );
+    multitop_testassert::assert_empty!(app.vault_password_input(), "keys reached the field");
     assert!(
         app.vault_create_in_flight(),
         "a stray key cancelled the create"
@@ -153,10 +147,7 @@ async fn escape_leaves_the_unlock_prompt_and_clears_what_was_typed() {
     k.press(&mut app, KeyCode::Esc);
 
     assert!(!app.show_vault_password_prompt());
-    assert!(
-        app.vault_password_input().is_empty(),
-        "the password was kept"
-    );
+    multitop_testassert::assert_empty!(app.vault_password_input(), "the password was kept");
     assert!(
         app.vault_password_error().is_none(),
         "the stale error survived into the next prompt"

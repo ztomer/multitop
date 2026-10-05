@@ -70,5 +70,5 @@ fn a_snapshot_too_large_for_one_frame_is_dropped_and_leaves_the_stream_framed() 
     let Payload::Monitor(got) = decode_packet(&ok).expect("the next packet must decode") else {
         panic!("expected a Monitor payload");
     };
-    assert!(got.procs.is_empty(), "the following frame is intact");
+    multitop_testassert::assert_empty!(got.procs, "the following frame is intact");
 }

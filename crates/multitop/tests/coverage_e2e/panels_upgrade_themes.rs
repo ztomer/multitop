@@ -143,7 +143,7 @@ fn confirm_upgrade_runs_configured_hosts() {
     a.panels[0].mode = Mode::Upgrade;
 
     let cmds = a.confirm_upgrade();
-    assert!(!cmds.is_empty(), "upgrade commands scheduled");
+    multitop_testassert::assert_not_empty!(cmds, "upgrade commands scheduled");
     assert_eq!(a.panels[0].upgrade_state, UpgradeState::STARTED);
 }
 
@@ -162,7 +162,7 @@ fn confirm_upgrade_skips_hosts_without_cmd() {
     a.panels[0].mode = Mode::Upgrade;
 
     let cmds = a.confirm_upgrade();
-    assert!(cmds.is_empty(), "no commands for unconfigured hosts");
+    multitop_testassert::assert_empty!(cmds, "no commands for unconfigured hosts");
     assert_eq!(a.panels[0].upgrade_state, UpgradeState::DONE);
 }
 

@@ -177,7 +177,7 @@ mod tests {
             String::from_utf8(on).unwrap(),
             String::from_utf8(off).unwrap(),
         );
-        assert!(!on.is_empty(), "no modes were enabled");
+        multitop_testassert::assert_not_empty!(on, "no modes were enabled");
         assert_eq!(
             on.matches("\x1b[?").count(),
             off.matches("\x1b[?").count(),

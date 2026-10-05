@@ -117,8 +117,8 @@ fn an_empty_snapshot_still_round_trips() {
     else {
         panic!("wrong payload kind");
     };
-    assert!(got.cores.is_empty());
-    assert!(got.procs.is_empty());
+    multitop_testassert::assert_empty!(got.cores);
+    multitop_testassert::assert_empty!(got.procs);
 }
 
 #[test]
@@ -256,7 +256,7 @@ fn a_docker_payload_with_no_rows_round_trips() {
         panic!("wrong payload kind");
     };
     assert_eq!(host, "empty-host");
-    assert!(rows.is_empty());
+    multitop_testassert::assert_empty!(rows);
 }
 
 #[test]
@@ -407,8 +407,8 @@ fn a_monitor_packet_from_before_the_clock_field_still_decodes() {
         back.cpu_mhz, None,
         "a clock was read out of a packet without one"
     );
-    assert!(
-        !back.agent_version.is_empty(),
+    multitop_testassert::assert_not_empty!(
+        back.agent_version,
         "the version that triggers replacing the agent was lost"
     );
 }
@@ -467,7 +467,7 @@ fn a_name_list_too_large_for_one_packet_is_truncated_rather_than_split() {
     let Some(Payload::Monitor(back)) = multitop_agent::proto::decode_packet(&packet) else {
         panic!("an over-long list must still produce a readable packet");
     };
-    assert!(!back.proc_names.is_empty(), "everything was dropped");
+    multitop_testassert::assert_not_empty!(back.proc_names, "everything was dropped");
     assert!(back.proc_names.len() < 20_000, "nothing was dropped");
     for name in &back.proc_names {
         assert!(

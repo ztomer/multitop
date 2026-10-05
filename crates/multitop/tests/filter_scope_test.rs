@@ -349,10 +349,7 @@ async fn the_same_query_narrows_differently_once_the_view_changes() {
     app.panels[1].last_docker = Some(docker(&[("redis", "redis:7-alpine")]));
 
     app.filter_query = "billing".to_string();
-    assert!(
-        app.filtered_indices().is_empty(),
-        "the stats view found a container"
-    );
+    multitop_testassert::assert_empty!(app.filtered_indices(), "the stats view found a container");
 
     for p in &mut app.panels {
         p.mode = Mode::Docker;
@@ -402,8 +399,8 @@ fn an_agent_too_old_to_send_the_full_list_still_matches_what_it_drew() {
     let Some(Payload::Monitor(snap)) = &p.last_monitor else {
         panic!("monitor payload");
     };
-    assert!(
-        snap.proc_names.is_empty(),
+    multitop_testassert::assert_empty!(
+        snap.proc_names,
         "this test is meaningless if the fixture carries a name list"
     );
 

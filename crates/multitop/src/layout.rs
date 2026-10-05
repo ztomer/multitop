@@ -352,7 +352,7 @@ mod tests {
     #[test]
     fn a_wide_banner_falls_back_rather_than_vanishing() {
         let (got, cells) = fit_banner_styled("ztomer", "web-01", 1, BannerStyle::Wide);
-        assert!(!got.is_empty(), "a one-cell banner is still a banner");
+        multitop_testassert::assert_not_empty!(got, "a one-cell banner is still a banner");
         assert_eq!(cells, 1);
     }
 

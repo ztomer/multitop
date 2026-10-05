@@ -46,6 +46,11 @@ zbus = { version = "4", features = ["tokio"] }
 [dev-dependencies]
 tempfile = "3.10"
 hex = "0.4"
+# One definition of the emptiness assertions, shared with the other two crates'
+# tests. Reachable from `src/mlock.rs`'s `#[cfg(test)]` module only because it
+# is a dev-dependency rather than a `tests/` module -- see
+# crates/testassert/src/lib.rs.
+multitop-testassert = { path = "../testassert" }
 # Sealing the vault key to this machine's TPM. Linux only: there is no
 # tpm2-tss on macOS, which has the Secure Enclave instead.
 [target.'cfg(target_os = "linux")'.dependencies]

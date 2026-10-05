@@ -300,7 +300,7 @@ mod tests {
         let l = line_to_spans("\x1b[1m\x1b[0;31ma\x1b[0mb");
         assert_eq!(l.spans[1].content, "b");
         assert_eq!(l.spans[1].style.fg, None);
-        assert!(l.spans[1].style.add_modifier.is_empty());
+        multitop_testassert::assert_empty!(l.spans[1].style.add_modifier);
     }
 
     #[test]

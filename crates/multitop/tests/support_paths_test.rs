@@ -183,7 +183,7 @@ async fn a_state_file_that_is_not_there_is_an_ordinary_first_run() {
     let dir = tempfile::tempdir().unwrap();
     let loaded = state::load_state(&dir.path().join("config.toml"));
     assert!(loaded.notice.is_none(), "a first run must say nothing");
-    assert!(loaded.state.hosts.is_empty());
+    multitop_testassert::assert_empty!(loaded.state.hosts);
 }
 
 #[tokio::test]

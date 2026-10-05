@@ -279,8 +279,8 @@ fn test_ui_no_upgrade_cmd_shows_message_without_command() {
     }]);
 
     let cmds = app.run_upgrade();
-    assert!(
-        cmds.is_empty(),
+    multitop_testassert::assert_empty!(
+        cmds,
         "No RunUpgrade command for servers without upgrade_cmd"
     );
     assert!(

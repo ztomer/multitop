@@ -24,7 +24,7 @@ fn ring_lines_clear_and_empty() {
     ring.push("a".into());
     ring.clear();
     assert_eq!(ring.len(), 0);
-    assert!(ring.is_empty());
+    multitop_testassert::assert_empty!(ring);
 }
 
 #[test]

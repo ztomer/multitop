@@ -191,8 +191,8 @@ async fn the_password_is_never_in_argv_or_the_output() {
         .id()
         .expect("the ssh child should have a pid while running");
     let argv = args_of(pid);
-    assert!(
-        !argv.trim().is_empty(),
+    multitop_testassert::assert_not_empty!(
+        argv.trim(),
         "could not read the ssh process arguments, so the check would pass vacuously"
     );
     assert!(

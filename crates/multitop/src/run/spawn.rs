@@ -326,8 +326,8 @@ mod replace_agent_tests {
             reason.contains("multitop-agent"),
             "the message must name the binary to remove: {reason}"
         );
-        assert!(
-            !reason.is_empty(),
+        multitop_testassert::assert_not_empty!(
+            reason,
             "and must exist at all -- silence is the defect"
         );
     }
