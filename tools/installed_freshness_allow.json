@@ -1,0 +1,3 @@
+{
+  "_": "tools/installed_freshness_allow.json — the ONE way to skip the installed-binary freshness gate, and it is a ratchet rather than a switch. `{}` (what ships) means: no skip, and this machine must be running this build's bytes. Add a `skip` key only on a machine deliberately running a pinned older build — a bisect, or reproducing a report against the released binary — and say why in the value. Two properties keep it honest: a blank or missing reason is a hard failure rather than a skip, and a skip whose binaries now MATCH is itself a failure, so the file cannot quietly accumulate reasons for states that have passed."
+}
