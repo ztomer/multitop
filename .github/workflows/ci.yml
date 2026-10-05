@@ -19,6 +19,17 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          # fetch-depth: 0, and not for speed. tools/check_doc_paths.py exempts a
+          # doc that correctly records a DELETED path, and it learns which paths
+          # those are from `git log --diff-filter=D`. The default depth of 1 gives
+          # the runner exactly one commit, so every deletion before it is
+          # invisible: the self-test fails its claim about this repository's
+          # history and the checker reports six phantoms, which reads exactly
+          # like six real broken docs. main was red on this job from 2026-10-01
+          # for that reason alone, with eleven local gates green. A shallow clone
+          # is a fact about the checkout, so the checkout has to carry it.
+          fetch-depth: 0
 
       - uses: dtolnay/rust-toolchain@stable
         with:
