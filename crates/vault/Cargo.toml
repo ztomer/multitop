@@ -22,12 +22,13 @@ workspace = true
 # line, so pinning sha2 without it, or it without sha2, is a lockfile that
 # resolves and a tree that does not build.
 #
-# NOT yet the whole tree, and worth not pretending otherwise: `sha2 0.10.9` and
-# `digest 0.10.7` are still in the lockfile, held by `zbus 4` -> `sha1`, which
-# is a Linux-only path this crate does not reach on macOS. zbus 5.19 pulls in no
-# hash crate at all, so that holdout goes with the zbus move. Two separate
-# commits on purpose -- the two subsystems fail separately, and only together do
-# they actually empty the duplicate set.
+# NOT the whole tree, and worth not pretending otherwise. `sha2 0.10.9` and
+# `digest 0.10.7` are still in the lockfile, and the holder is neither of ours:
+# `cargo tree --target all -i digest@0.10.7` names `secret-service 5.1.0`,
+# reached through `keyring -> zbus-secret-service-keyring-store`. Transitive,
+# Linux-only, and not movable from here. So this commit ends OUR half of the
+# duplicate -- `goh.sh deps` reports no dependency pinned below the graph -- and
+# the 0.10 generation survives in the tree until keyring moves.
 aes-gcm = "0.11"
 argon2 = "0.6"
 ed25519-dalek = { version = "3.0", features = ["zeroize"] }
@@ -59,7 +60,24 @@ security-framework = "3.7"
 security-framework-sys = "2.17"
 
 #[cfg(target_os = "linux")]
-zbus = { version = "4", features = ["tokio"] }
+# 5, and one manifest line: every call this crate makes through zbus --
+# `Connection::system`, the four-argument `Proxy::new`, `call_method`,
+# `Message::body().deserialize()`, and the
+# `DeserializeOwned + zbus::zvariant::Type` bound on the reply helper --
+# compiles against 5.19.0 unchanged. Verified by compiling the module's
+# whole zbus surface in a scratch crate against 5.19.0 with this exact
+# feature set, on 2026-10-05, rather than by reading a migration guide.
+#
+# It also drops a hash crate we did not choose: zbus 4 held `sha1`, and with
+# it `rand 0.8` whose only parent in the tree was zbus 4. zbus 5.19 pulls in no
+# hash crate at all. What survives of the 0.10 generation is `secret-service`'s,
+# not ours -- see the sha2 note above.
+#
+# What is NOT verified here: the Linux BUILD of this crate. `fprintd.rs` is
+# `#[cfg(target_os = "linux")]`, so no macOS gate compiles it, and the
+# fingerprint DAEMON cannot be exercised without hardware. CI's ubuntu
+# jobs are what check that this compiles for the platform that ships it.
+zbus = { version = "5", features = ["tokio"] }
 
 [dev-dependencies]
 tempfile = "3.10"
