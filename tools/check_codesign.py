@@ -8,7 +8,13 @@ again. `build.sh` now does `codesign -s - --identifier com.ztomer.multitop`
 to give every build the same `Identifier=com.ztomer.multitop`.
 
 This gate checks the newest `multitop` binary that `find_binary()` would run
-has that identifier. A binary with a random identifier fails the gate before
+has that identifier. It BUILDS that binary first (`cargo build -p multitop`),
+so its subject is this tree's build: cargo decides freshness, the way
+tools/installed_freshness.py does. Until 2026-10-08 it read whatever was
+already in target/ and said it "runs after `cargo build` in every list that
+runs it" -- in all three it ran BEFORE the build, so it passed in a used
+checkout over a stale artefact and refused every fresh clone and the
+pre-push clean worktree with an empty scope. A binary with a random identifier fails the gate before
 it ever reaches a keychain prompt.
 
 Usage:
@@ -65,6 +71,31 @@ def find_binaries() -> list[Path]:
     return bins
 
 
+def cargo_build() -> bool:
+    """Build this tree's debug `multitop`; False (after printing why) on failure."""
+    try:
+        proc = subprocess.run(
+            ["cargo", "build", "-p", "multitop"],
+            cwd=REPO, capture_output=True, text=True, check=False,
+        )
+    except OSError as exc:
+        print(f"check_codesign: cannot run cargo: {exc}", file=sys.stderr)
+        return False
+    if proc.returncode != 0:
+        print("check_codesign: `cargo build -p multitop` failed", file=sys.stderr)
+        print(proc.stderr[-4000:], file=sys.stderr)
+        return False
+    return True
+
+
+def built_binaries(build=cargo_build, find=find_binaries) -> list[Path] | None:
+    """The binaries to check, after building this tree's. None when the build
+    failed: a gate that cannot produce its subject has not checked it."""
+    if not build():
+        return None
+    return find()
+
+
 def find_binary() -> Path | None:
     bins = find_binaries()
     if not bins:
@@ -115,6 +146,20 @@ def self_test() -> int:
     if bad == EXPECTED_ID:
         print("self-test: bad identifier was considered good", file=sys.stderr)
         return 1
+    # The subject is BUILT before it is looked for: an empty target/ is built
+    # into, and a failed build is a failure rather than an empty scope.
+    calls: list[str] = []
+    made: list[Path] = []
+    def fake_build() -> bool:
+        calls.append("build")
+        made.append(Path("target/debug/multitop"))
+        return True
+    if built_binaries(fake_build, lambda: list(made)) != [Path("target/debug/multitop")]:
+        print("self-test: the binary was looked for before it was built", file=sys.stderr)
+        return 1
+    if built_binaries(lambda: False, lambda: [Path("stale")]) is not None:
+        print("self-test: a failed build checked a stale artefact", file=sys.stderr)
+        return 1
     print("check_codesign self-test: passed")
     return 0
 
@@ -132,9 +177,11 @@ def main() -> int:
         # an excuse whose truth depends on which one ran it.
         print("check_codesign: not applicable (not macOS -- no codesign, no keychain prompt)")
         return 0
-    bins = find_binaries()
-    # This gate runs after `cargo build` in every list that runs it; no binary
-    # means the scope is gone (or the build did not happen), never "clean".
+    bins = built_binaries()
+    if bins is None:
+        return 1
+    # Built just now, so no binary means the scope moved (a renamed package,
+    # another target dir), never "clean".
     if scope_is_empty("check_codesign", len(bins), "multitop binaries (run cargo build -p multitop)"):
         return 1
     problems: list[Path] = []
