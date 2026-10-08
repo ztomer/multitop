@@ -57,15 +57,40 @@ async fn hosts_requires_token_when_set() {
     assert_eq!(resp2.status(), StatusCode::OK);
 }
 
-#[tokio::test]
-async fn snapshot_not_found_yet() {
+/// GET `uri` and return the status with the body as JSON (`Null` when the body
+/// is not JSON -- which is what an unmatched route answers).
+async fn get_json(uri: &str) -> (StatusCode, serde_json::Value) {
     let app = router(test_state(None));
-    let req = Request::builder()
-        .uri("/api/snapshot/test-host")
-        .body(Body::empty())
-        .unwrap();
+    let req = Request::builder().uri(uri).body(Body::empty()).unwrap();
     let resp = app.oneshot(req).await.unwrap();
-    assert_eq!(resp.status(), StatusCode::NOT_FOUND);
+    let status = resp.status();
+    let body = axum::body::to_bytes(resp.into_body(), 1024 * 1024)
+        .await
+        .unwrap();
+    (
+        status,
+        serde_json::from_slice(&body).unwrap_or(serde_json::Value::Null),
+    )
+}
+
+/// Each parameterised route reaches ITS handler. A bare 404 cannot show that:
+/// an unmatched route answers 404 too, so a route whose parameter syntax the
+/// router no longer reads (axum 0.8 moved `/:host` to `/{host}`) would pass a
+/// status-only check. The handler's own error body is the proof it ran.
+#[tokio::test]
+async fn parameterised_routes_reach_their_handlers() {
+    for (uri, error) in [
+        ("/api/snapshot/test-host", "no snapshot yet"),
+        ("/api/history/test-host", "no history yet"),
+    ] {
+        let (status, body) = get_json(uri).await;
+        assert_eq!(status, StatusCode::NOT_FOUND, "{uri}");
+        assert_eq!(body["error"], error, "{uri} did not reach its handler");
+    }
+    // The control: a path no route matches is a 404 with no handler body.
+    let (status, body) = get_json("/api/snapshot").await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+    assert_eq!(body, serde_json::Value::Null);
 }
 
 #[tokio::test]

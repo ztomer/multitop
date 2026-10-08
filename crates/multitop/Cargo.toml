@@ -31,7 +31,7 @@ secrecy = "0.10"
 regex = "1"
 serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1", features = ["std"] }
-axum = { version = "0.7", features = ["json"] }
+axum = { version = "0.8", features = ["json"] }
 # 0.5, and the reason this line ever mattered is in server_test.rs's
 # `the_tower_this_crate_declares_drives_the_router_axum_builds`. Declared 0.4
 # while axum 0.7 already resolved 0.5, so the tree carried two majors of one

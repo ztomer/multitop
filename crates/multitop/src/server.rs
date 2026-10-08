@@ -278,8 +278,8 @@ pub fn router(state: AppState) -> Router {
         .route("/", get(index))
         .route("/api/hosts", get(api_hosts))
         .route("/api/health", get(api_health))
-        .route("/api/snapshot/:host", get(api_snapshot))
-        .route("/api/history/:host", get(api_history))
+        .route("/api/snapshot/{host}", get(api_snapshot))
+        .route("/api/history/{host}", get(api_history))
         .route("/api/mtop", get(api_mtop_raw))
         .with_state(state)
 }
