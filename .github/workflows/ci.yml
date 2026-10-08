@@ -18,8 +18,14 @@ jobs:
     name: fmt / clippy / structural gates
     runs-on: ubuntu-latest
     steps:
+      # persist-credentials: false on EVERY checkout in this file: by default
+      # checkout leaves the job token in git config (http.<host>.extraheader),
+      # which the structural gate's no-credential-in-git-config check refuses
+      # (gates_of_heck 0560b72), and no step here does git network work after
+      # the clone (2026-10-08).
       - uses: actions/checkout@v4
         with:
+          persist-credentials: false
           # fetch-depth: 0, and not for speed. tools/check_doc_paths.py exempts a
           # doc that correctly records a DELETED path, and it learns which paths
           # those are from `git log --diff-filter=D`. The default depth of 1 gives
@@ -59,6 +65,7 @@ jobs:
       - name: Check out the shared gate harness
         uses: actions/checkout@v4
         with:
+          persist-credentials: false
           repository: ztomer/gates_of_heck
           path: .gates_of_heck
       - name: House structural gates
@@ -108,6 +115,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - uses: ./.github/actions/system-deps
@@ -126,6 +135,7 @@ jobs:
       - name: Check out the shared gate harness
         uses: actions/checkout@v4
         with:
+          persist-credentials: false
           repository: ztomer/gates_of_heck
           path: .gates_of_heck
 
@@ -158,6 +168,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: llvm-tools-preview
@@ -172,6 +184,7 @@ jobs:
       - name: Check out the shared gate harness
         uses: actions/checkout@v4
         with:
+          persist-credentials: false
           repository: ztomer/gates_of_heck
           path: .gates_of_heck
 
@@ -202,6 +215,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
 
       # Nightly on purpose, and only here. rust-toolchain.toml pins the
       # workspace to stable because nightly ICEs on multitop-vault under
