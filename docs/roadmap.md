@@ -13,19 +13,6 @@ below what the graph already resolves. What is left is here, and the two things
 this pass learned the hard way are recorded because neither is visible from the
 code.
 
-### Item 1 — `dirs` 5 -> 7, with evidence the path did not move
-
-Two majors, and the only thing holding `thiserror 1.0.69` in the tree, so it is
-genuinely worth doing. It is also the one dependency move in this repo that can
-break a user's data silently rather than loudly: `dirs` resolves the vault's
-config directory, and a path that resolves elsewhere is a vault that silently is
-not the vault -- a fresh empty vault where the real one was, with no error.
-
-So: its own commit, and evidence rather than a passing suite. Record the
-directory `dirs` resolves on this machine before and after, and open the file
-that lives there. A green test suite proves the code agrees with itself about a
-new path, which is the one thing a path change cannot show.
-
 ### Item 2 — dependency currency as a ratchet, not a gate
 
 `goh.sh deps` now runs in `rust_gate.sh` and reports three severities: FATAL for
