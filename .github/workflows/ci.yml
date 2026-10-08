@@ -64,7 +64,7 @@ jobs:
       - name: House structural gates
         env:
           GOH_DIR: ${{ github.workspace }}/.gates_of_heck
-        run: GOH_NO_NATIVE=1 bash .gates_of_heck/gates/structural.sh --full
+        run: bash .gates_of_heck/gates/structural.sh --full
 
       - name: Structural gates
         run: |

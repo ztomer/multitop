@@ -1,0 +1,25 @@
+#!/bin/bash
+# post-rewrite / pre-applypatch -- the conflict-marker check for commits git makes without running
+# pre-commit: a rebase's picks (post-rewrite, after the fact: git ignores its exit) and each patch of
+# `git am` / `rebase --apply` (pre-applypatch, which refuses it). One body, both names: the logic is
+# gates/sequencer_gate.sh in the shared checkout. Installed by gates_of_heck/install.sh.
+{ # parse-guard -- bash reads this group whole before running it (tests/test_parse_guard.py)
+set -euo pipefail
+hook="$(basename "$0")"
+GOH="${GOH_DIR:-${GOH:-$HOME/Projects/gates_of_heck}}"
+runner="$GOH/gates/sequencer_gate.sh"
+if [ ! -d "$GOH/gates" ]; then
+    echo "✗ $hook: cannot find gates_of_heck at $GOH (set GOH_DIR or run its install.sh)" >&2
+    exit 1
+fi
+if [ ! -f "$runner" ]; then
+    echo "⚠ $hook: $GOH predates gates/sequencer_gate.sh -- no conflict-marker check ran" >&2
+    exit 0
+fi
+# git binds the hook to its repository; drop that before anything is spawned (contract #12).
+# shellcheck source=/dev/null
+. "$GOH/gates/_git_env.sh"
+goh_hook_unbind || exit $?
+exec bash "$runner" "$hook" "$@"
+exit
+} # parse-guard

@@ -2,8 +2,8 @@
 # Coverage gate for the workspace — delegating shim.
 #
 # The gate itself lives in gates_of_heck (gates/coverage_gate.sh --lang rust),
-# which every caller here already reaches through this one path: the pre-commit
-# hook, tools/repo_gates.sh, CI and scripts/local-ci.py. One definition of the
+# which every caller here already reaches through this one path: the commit
+# gate (tools/commit_gates.sh), GOH_CI_STEPS in .gatesrc, and CI. One definition of the
 # floor and its exclusions; none of them can drift weaker than another.
 #
 # 95% floor on LINE coverage, ignoring files that are inherently untestable in

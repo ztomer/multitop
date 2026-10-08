@@ -6,8 +6,8 @@ and timing-sensitive suites flake under it -- an e2e upgrade going quiet
 for 5s, a coverage export timing out. The failures look like product
 defects for a while, and each one has now cost a debugging session.
 
-So the pre-commit hook and the pre-push hook (via tools/gate.sh --full)
-itself all take this lock first. Blocking, not fail-fast: the second run's
+So both gate scopes take this lock first: tools/gate.sh --staged (the
+pre-commit hook) and tools/gate.sh --full (the pre-push hook). Blocking, not fail-fast: the second run's
 verdict is still needed, it just waits its turn.
 
 Usage:

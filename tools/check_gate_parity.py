@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 """Keep the three lists of gates identical.
 
-The gates are named in three places -- the pre-commit hook, the CI workflow, and
-`GOH_CI_STEPS` in `.gatesrc` (what the pre-push hook runs) -- and two of them
-are lists somebody has to remember to add to. The third runs the checkers
+The gates are named in three places -- the commit gate (`tools/commit_gates.sh`,
+which the stock pre-commit hook reaches through `tools/gate.sh --staged`), the
+CI workflow, and `GOH_CI_STEPS` in `.gatesrc` (what the pre-push hook runs) --
+and two of them are lists somebody has to remember to add to. The third runs the checkers
 through `tools/checkers.sh`, which globs `tools/check_*.py`, so it is the set
 on disk by construction. They had already drifted once, in the direction that
 matters (when the third place was `scripts/local-ci.py`, retired 2026-09-14):
@@ -16,6 +17,13 @@ matters (when the third place was `scripts/local-ci.py`, retired 2026-09-14):
     locally is a red build nobody saw coming.
 
 A comment saying "these lists must not disagree" is not a gate. This is.
+
+The commit list lived in `.githooks/pre-commit` itself until 2026-10-08 (O39),
+when the hooks became gates_of_heck's stock delegates, which `install.sh` owns
+and overwrites. A list in a file nothing runs is the same hole as a missing
+list, only quieter, so the chain that makes it run is checked too: the hook
+must hand off to `tools/gate.sh --staged`, and that arm must run
+`tools/commit_gates.sh`.
 
 Usage:
     python3 tools/check_gate_parity.py [--self-test]
@@ -32,7 +40,11 @@ from pathlib import Path
 
 REPO = Path(__file__).resolve().parent.parent
 
+# The commit gate's own list, and the two links that make a commit run it.
+COMMIT_GATES = REPO / "tools" / "commit_gates.sh"
 HOOK = REPO / ".githooks" / "pre-commit"
+GATE_SH = REPO / "tools" / "gate.sh"
+COMMIT = "commit gate (tools/commit_gates.sh)"
 # ci.yml is renamed ci.yml.disabled when GitHub Actions is unavailable (no
 # credits on this account). The parity requirement does not go away when the
 # workflow stops running -- it is how the local gate keeps its shape, and it is
@@ -139,14 +151,48 @@ def proven_mismatches(hook_text: str, steps: str) -> list[str]:
 
 
 def proven_problems() -> list[str]:
-    hook = HOOK.read_text(encoding="utf-8")
+    hook = COMMIT_GATES.read_text(encoding="utf-8")
     problems = [
-        f"pre-commit hook proves a step GOH_CI_STEPS does not spell that way: {s!r}"
+        f"{COMMIT} proves a step GOH_CI_STEPS does not spell that way: {s!r}"
         for s in proven_mismatches(hook, gatesrc_steps())
     ]
     if "proven_step" in hook and not PROVEN_STEP.search(hook):
-        problems.append("pre-commit hook defines proven_step but no call was recognised")
+        problems.append(f"{COMMIT} defines proven_step but no call was recognised")
     return problems
+
+
+def _live(text: str) -> str:
+    """The lines a shell would run: comments dropped, so a mention in prose
+    cannot satisfy a wiring rule."""
+    return "\n".join(l for l in text.splitlines() if not l.lstrip().startswith("#"))
+
+
+# The `--staged)` arm of gate.sh's case, up to its `;;`.
+STAGED_ARM = re.compile(r"^\s*--staged\)(.*?)^\s*;;", re.MULTILINE | re.DOTALL)
+
+
+def wiring_mismatches(hook_text: str, gate_text: str) -> list[str]:
+    """Whether a commit actually reaches the commit gate's list.
+
+    The stock hook delegates to `tools/gate.sh --staged`; that arm must run
+    `tools/commit_gates.sh`. Either link missing and every gate in the list is
+    decorative, while the list itself still agrees with CI to the letter.
+    """
+    problems = []
+    hook = _live(hook_text)
+    if "tools/gate.sh" not in hook or not re.search(r"--staged\b", hook):
+        problems.append(".githooks/pre-commit does not hand off to tools/gate.sh --staged")
+    arm = STAGED_ARM.search(_live(gate_text))
+    if arm is None:
+        problems.append("tools/gate.sh has no --staged arm")
+    elif "tools/commit_gates.sh" not in arm.group(1):
+        problems.append("tools/gate.sh --staged does not run tools/commit_gates.sh")
+    return problems
+
+
+def wiring_problems() -> list[str]:
+    return wiring_mismatches(HOOK.read_text(encoding="utf-8"),
+                             GATE_SH.read_text(encoding="utf-8"))
 
 
 def named_in(text: str, pattern: re.Pattern[str]) -> set[str]:
@@ -155,7 +201,7 @@ def named_in(text: str, pattern: re.Pattern[str]) -> set[str]:
 
 def gates() -> dict[str, set[str]]:
     return {
-        "pre-commit hook": named_in(HOOK.read_text(encoding="utf-8"), CHECKER),
+        COMMIT: named_in(COMMIT_GATES.read_text(encoding="utf-8"), CHECKER),
         "CI workflow": named_in(WORKFLOW.read_text(encoding="utf-8"), CHECKER),
         ".gatesrc GOH_CI_STEPS": steps_run_every_checker(gatesrc_steps(), on_disk()),
     }
@@ -184,7 +230,7 @@ def always_run_problems() -> list[str]:
     """
     problems = []
     places = (
-        ("pre-commit hook", HOOK),
+        (COMMIT, COMMIT_GATES),
         ("CI workflow", WORKFLOW),
         (".gatesrc GOH_CI_STEPS", None),
     )
@@ -211,7 +257,7 @@ def suite_problems() -> list[str]:
     missing = [
         name
         for name, path in (
-            ("pre-commit hook", HOOK),
+            (COMMIT, COMMIT_GATES),
             ("CI workflow", WORKFLOW),
             (".gatesrc GOH_CI_STEPS", None),
         )
@@ -282,6 +328,22 @@ def self_test() -> int:
         print("gate-parity self-test: a respelled proven step was NOT reported", file=sys.stderr)
         return 1
 
+    # And that the hook -> gate.sh -> commit_gates.sh chain is checked, both ways.
+    stock_hook = 'gate="$root/tools/gate.sh"\nexec bash "$gate" --staged\n'
+    wired = '  --staged)\n    "$GOH/gates/structural.sh" --staged\n    bash tools/commit_gates.sh\n    ;;\n'
+    if wiring_mismatches(stock_hook, wired):
+        print("gate-parity self-test: a wired chain was reported broken", file=sys.stderr)
+        return 1
+    if not wiring_mismatches('exec bash "$GOH/gates/structural.sh" --staged\n', wired):
+        print("gate-parity self-test: a hook bypassing gate.sh was NOT reported", file=sys.stderr)
+        return 1
+    unwired = ('  --staged)\n    # bash tools/commit_gates.sh\n    ;;\n'
+               '  --full)\n    bash tools/commit_gates.sh\n    ;;\n')
+    if not wiring_mismatches(stock_hook, unwired):
+        print("gate-parity self-test: a --staged arm not running the list was NOT reported",
+              file=sys.stderr)
+        return 1
+
     print("gate-parity self-test: passed")
     return 0
 
@@ -290,9 +352,14 @@ def main() -> int:
     if "--self-test" in sys.argv:
         return self_test()
 
+    absent = [p.relative_to(REPO) for p in (COMMIT_GATES, HOOK, GATE_SH) if not p.is_file()]
+    if absent:
+        print(f"gate-parity: missing {', '.join(map(str, absent))} -- nothing runs the commit gates")
+        return 1
+
     existing = on_disk()
     problems = (differences(gates(), existing) + suite_problems() + always_run_problems()
-                + proven_problems())
+                + proven_problems() + wiring_problems())
     if not problems:
         print(
             f"gate-parity: clean ({len(existing)} checkers and "
@@ -305,7 +372,7 @@ def main() -> int:
         print(f"  {p}")
     print(
         "\nA checker in tools/ has to be named in all three:\n"
-        "  .githooks/pre-commit      -- so it blocks the commit\n"
+        "  tools/commit_gates.sh     -- so it blocks the commit (pre-commit -> gate.sh --staged)\n"
         "  .github/workflows/ci.yml  -- so it blocks the merge\n"
         "  .gatesrc GOH_CI_STEPS     -- so the pre-push hook runs it (tools/checkers.sh globs them)\n"
         "\nA gate that only one of them runs is a gate that only sometimes runs.\n"

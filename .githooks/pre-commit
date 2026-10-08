@@ -1,276 +1,47 @@
-#!/usr/bin/env bash
-# Pre-commit hook — two halves, both mandatory:
-#
-#   1. gates_of_heck structural gate (staged scope): emoji, conflict markers,
-#      file-length cap. Delegates to the shared checkout, vendors nothing.
-#   2. this repo's own commit gates: the tools/check_*.py checkers (each
-#      behind its self-test), cargo fmt, clippy -D warnings on all targets and
-#      features, and the 95% coverage floor.
-#
-# The second half is byte-for-byte what this repo ran before the house wiring
-# was installed; check_gate_parity.py requires its checker list to stay here.
-
+#!/bin/bash
+# pre-commit — the repo's gate in STAGED scope (tools/gate.sh --staged), which
+# runs layer 1 (structural) plus whatever staged language layers the repo
+# declares; without a tools/gate.sh the structural gate runs alone.
+# Installed by gates_of_heck/install.sh. Delegates to the shared checkout;
+# there is exactly ONE copy of every checker (this hook vendors nothing).
+# The pre-push hook goes through tools/gate.sh --full the same way: a
+# commit hook that bypassed gate.sh made every staged layer decorative.
+{ # parse-guard -- bash reads this group whole before running it (tests/test_parse_guard.py)
 set -euo pipefail
-
-repo_root="$(git rev-parse --show-toplevel)"
-cd "$repo_root"
-
-# One gate run per clone: a second suite alongside this one contends the
-# shared target dir and the CPU until timing-sensitive suites flake.
-# tools/gate_lock.py blocks with a heartbeat (never fails silent), and the
-# trap below releases on every exit path including die(). The owner pid is
-# this shell's, captured once: the helper is short-lived, so its own pid
-# would read stale the instant it exits and release could never match.
-hook_pid=$$
-python3 tools/gate_lock.py acquire "$hook_pid"
 
 GOH="${GOH_DIR:-${GOH:-$HOME/Projects/gates_of_heck}}"
-"$GOH/gates/structural.sh" --staged
+root="$(git rev-parse --show-toplevel)"
+# git binds this hook to its repository (GIT_DIR, GIT_INDEX_FILE -- absolute from a linked
+# worktree), and a test suite the gate runs that builds a scratch repo would act on THIS one
+# (media_server, 2026-10-08: core.bare=true, a stray commit, three stashes). Dropped before anything
+# is spawned; the index being committed travels as GOH_HOOK_INDEX_FILE (contract #12).
+env_lib="$GOH/gates/_git_env.sh"
+[ -f "$env_lib" ] || env_lib="$root/gates/_git_env.sh"   # self-hosted: this IS gates_of_heck
+if [ -f "$env_lib" ]; then
+    # shellcheck source=/dev/null
+    . "$env_lib"
+    goh_hook_unbind || exit $?
+else
+    echo "⚠ pre-commit: $GOH predates gates/_git_env.sh -- git's repository variables reach" \
+        "everything the gate runs" >&2
+fi
+gate="$root/tools/gate.sh"
+if [ -f "$gate" ]; then
+    exec bash "$gate" --staged
+fi
+structural="$GOH/gates/structural.sh"
 
-#!/usr/bin/env bash
-# Structural commit gates — these run on every commit, so nobody has to
-# "remember to run the check". CI enforces the same three, so bypassing with
-# --no-verify only defers the failure.
-#
-#   1. no emoji in the staged content
-#   2. cargo fmt is clean
-#   3. cargo clippy is clean at -D warnings, all targets, all features
-#
-# Clippy covers --all-targets because tests and benches carry the same lint
-# config as src, and that is exactly where warnings have accumulated before.
+if [ ! -f "$structural" ] && [ -f "$root/checks/check_no_emoji.py" ]; then
+    structural="$root/gates/structural.sh"   # self-hosted: this IS gates_of_heck
+fi
+if [ ! -f "$structural" ]; then
+    echo "✗ pre-commit: cannot find gates_of_heck at $GOH" \
+        "(set GOH_DIR or run its install.sh)" >&2
+    exit 1
+fi
 
-set -euo pipefail
-
-repo_root="$(git rev-parse --show-toplevel)"
-cd "$repo_root"
-# shellcheck source=/Users/ztomer/Projects/gates_of_heck/tui/lib.sh
-. "${GOH_DIR:-${GOH:-$HOME/Projects/gates_of_heck}}/tui/lib.sh"
-
-log="$(mktemp -t multitop-precommit)"
-trap 'rm -f "$log"; python3 tools/gate_lock.py release "$hook_pid"' EXIT
-
-# Cargo may be missing from the environment a GUI git client hands us; say so
-# plainly rather than failing with "command not found".
-command -v cargo >/dev/null 2>&1 || die "cargo not on PATH — cannot run the fmt/clippy gates"
-command -v python3 >/dev/null 2>&1 || die "python3 not on PATH — cannot run the emoji gate"
-
-section "pre-commit gates"
-
-# proven_step '<step>' -- run a step that GOH_CI_STEPS also runs, through
-# gates_of_heck's proven-step cache (gates/proven.sh), output to $log. Spelled
-# EXACTLY as GOH_CI_STEPS spells it; check_gate_parity.py holds the two to the
-# letter, since a respelling would silently never hit. A pass on a clean tree
-# (the working tree equal to the index being committed) is recorded, and the
-# pre-push `tools/gate.sh --full` over the same tree skips that step instead of
-# running it again. A partially staged commit has no key and records nothing.
-# CI never reads the records: it stays the independent check. A gates_of_heck
-# checkout that predates proven.sh runs the step uncached, and says so.
-proven_step() {
-    if [ -x "$GOH/gates/proven.sh" ]; then
-        "$GOH/gates/proven.sh" --label pre-commit --log "$log" -- "$1"
-    else
-        warn "no gates/proven.sh in $GOH -- running uncached (update gates_of_heck)"
-        bash -c "$1" >"$log" 2>&1 </dev/null
-    fi
-}
-
-info "checking the gate lists agree"
-if ! python3 tools/check_gate_parity.py --self-test >"$log" 2>&1; then
-    cat "$log" >&2
-    die "the gate-parity checker's own self-test failed -- it cannot be trusted"
-fi
-if ! python3 tools/check_gate_parity.py >"$log" 2>&1; then
-    cat "$log" >&2
-    die "a gate is not run everywhere it should be"
-fi
-ok "hook, CI and local-ci run the same gates"
-
-# Emoji: the house structural gate at the top of this hook already ran the
-# shared checker over the index (gates_of_heck/checks/check_no_emoji.py,
-# whose own tests cover escaped codepoints -- the padlock this repo once
-# shipped as a unicode escape). The repo-local copy that used to run here
-# was retired 2026-09-14; a copy is a checker that drifts.
-
-info "checking for test-only code"
-if ! python3 tools/check_test_only_code.py --self-test >"$log" 2>&1; then
-    cat "$log" >&2
-    die "the test-only checker's own self-test failed -- it cannot be trusted to report clean"
-fi
-if ! python3 tools/check_test_only_code.py >"$log" 2>&1; then
-    cat "$log" >&2
-    die "a function is exercised only by tests — wire it up, delete it, or annotate it"
-fi
-ok "no new test-only code"
-
-info "checking key hints"
-if ! python3 tools/check_key_hints.py --self-test >"$log" 2>&1; then
-    cat "$log" >&2
-    die "the key-hint checker's own self-test failed -- it cannot be trusted to report clean"
-fi
-if ! python3 tools/check_key_hints.py >"$log" 2>&1; then
-    cat "$log" >&2
-    die "a user-facing string names a key nothing binds"
-fi
-ok "key hints name live keys"
-
-info "checking keychain isolation"
-if ! python3 tools/check_keychain_isolation.py --self-test >"$log" 2>&1; then
-    cat "$log" >&2
-    die "the keychain-isolation checker's own self-test failed -- it cannot be trusted"
-fi
-if ! python3 tools/check_keychain_isolation.py >"$log" 2>&1; then
-    cat "$log" >&2
-    die "a test can reach the real OS keychain — divert it with enable_mock_store"
-fi
-ok "tests cannot reach the real keychain"
-
-info "checking row 0 has one owner"
-if ! python3 tools/check_row0_owner.py --self-test >"$log" 2>&1; then
-    cat "$log" >&2
-    die "the row0-owner checker's own self-test failed -- it cannot be trusted"
-fi
-if ! python3 tools/check_row0_owner.py >"$log" 2>&1; then
-    cat "$log" >&2
-    die "a pane's view is assigned outside panel.rs — use show_body or show_frame"
-fi
-ok "row 0 belongs to the banner alone"
-
-info "checking the docs name paths that exist"
-if ! python3 tools/check_doc_paths.py --self-test >"$log" 2>&1; then
-    cat "$log" >&2
-    die "the doc-paths checker's own self-test failed -- it cannot be trusted"
-fi
-if ! python3 tools/check_doc_paths.py >"$log" 2>&1; then
-    cat "$log" >&2
-    die "a doc names a path that does not exist -- a reader following it runs nothing"
-fi
-ok "documented paths exist"
-
-info "checking the render path asks the palette for colours"
-if ! python3 tools/check_no_hard_coded_colour.py --self-test >"$log" 2>&1; then
-    cat "$log" >&2
-    die "the hard-coded-colour checker's own self-test failed -- it cannot be trusted"
-fi
-if ! python3 tools/check_no_hard_coded_colour.py >"$log" 2>&1; then
-    cat "$log" >&2
-    die "a colour is hard-coded in the render path -- it will never be adapted"
-fi
-ok "render-path colours come from the palette"
-
-info "checking for magic numbers"
-if ! python3 tools/check_magic_numbers.py --self-test >"$log" 2>&1; then
-    cat "$log" >&2
-    die "the magic-number checker's own self-test failed -- it cannot be trusted"
-fi
-if ! python3 tools/check_magic_numbers.py >"$log" 2>&1; then
-    cat "$log" >&2
-    die "a literal carries meaning nobody wrote down — give it a named constant"
-fi
-ok "no unnamed literals"
-
-info "checking agent version matches embedded binary"
-if ! python3 tools/check_agent_version.py --self-test >"$log" 2>&1; then
-    cat "$log" >&2
-    die "the agent-version checker's own self-test failed"
-fi
-if ! python3 tools/check_agent_version.py >"$log" 2>&1; then
-    cat "$log" >&2
-    die "embedded agent stale — rebuild with ./build.sh"
-fi
-ok "agent version matches"
-
-info "checking codesign is stable"
-if ! python3 tools/check_codesign.py --self-test >"$log" 2>&1; then
-    cat "$log" >&2
-    die "the codesign checker's own self-test failed"
-fi
-if ! python3 tools/check_codesign.py >"$log" 2>&1; then
-    cat "$log" >&2
-    die "binary signature unstable — run: for f in ~/.cargo/bin/multitop target/debug/multitop target/release/multitop; do codesign -s - --identifier com.ztomer.multitop \"\$f\"; done"
-fi
-ok "codesign stable"
-
-info "checking unsafe stays inside the FFI modules"
-if ! python3 tools/check_unsafe_scope.py --self-test >"$log" 2>&1; then
-    cat "$log" >&2
-    die "the unsafe-scope checker's own self-test failed"
-fi
-if ! python3 tools/check_unsafe_scope.py >"$log" 2>&1; then
-    cat "$log" >&2
-    die "unsafe outside the FFI allowlist — see tools/check_unsafe_scope.py"
-fi
-ok "unsafe scope"
-
-info "checking formatting"
-if ! cargo fmt --all -- --check >"$log" 2>&1; then
-    cat "$log" >&2
-    die "formatting is dirty — run: cargo fmt --all"
-fi
-ok "formatting clean"
-
-info "running clippy (all targets, all features, -D warnings)"
-if ! cargo clippy --workspace --all-targets --all-features -- -D warnings >"$log" 2>&1; then
-    tail -60 "$log" >&2
-    die "clippy is not clean — fix the warnings, do not add #[allow]"
-fi
-ok "clippy clean"
-
-# Through the script, not a second copy of the command. This hook used to run
-# its own `--fail-under-lines 55` under a label that said 95, against one crate
-# and without the documented exclusions -- a local gate weaker than CI is a gate
-# that lets you push red.
-info "running the end-to-end suites (tests/test_exec_live.py, tests/test_tmux_e2e.py)"
-# These drive the built binary, so the gate builds it. An e2e suite run against
-# a stale binary tests code nobody wrote -- the harness refuses to, and would
-# fail here rather than quietly passing.
-#
-# Both skip with a stated reason when what they need is absent: the live suite
-# without reachable hosts, the tmux suite without tmux. Neither passes silently.
-if ! cargo build -p multitop >"$log" 2>&1; then
-    tail -20 "$log" >&2
-    die "cannot build multitop, so the end-to-end suites cannot run"
-fi
-if ! python3 -m pytest tests/ -q >"$log" 2>&1; then
-    tail -40 "$log" >&2
-    die "an end-to-end suite failed"
-fi
-ok "end-to-end suites"
-
-info "checking the line-count ratchet"
-# Was local-ci-only, under a comment saying it is "a shape rule rather than a
-# correctness one". True, and it still went red on a commit this hook passed --
-# so the shape rule was enforced only by whoever remembered to run the pre-push
-# script. It costs a glob and a line count.
-#
-# Through the proven-step cache (proven_step, above), spelled as GOH_CI_STEPS
-# spells it -- self-test included -- so the push-time run is a hit.
-if ! proven_step 'python3 tools/ratchet_check.py --self-test && python3 tools/ratchet_check.py'; then
-    cat "$log" >&2
-    die "a file grew past its recorded ceiling -- shrink it, or re-record in this commit"
-fi
-ok "line-count ratchet"
-
-info "checking the fuzz targets still compile"
-# `cargo check`, not `cargo fuzz build`: the full build is six sanitizer release
-# binaries on a nightly toolchain, which is minutes, and a hook that costs
-# minutes is a hook people learn to --no-verify past. The failure this actually
-# catches is a target that stopped compiling because what it fuzzes changed
-# shape -- `fuzz_proto` went non-exhaustive when the protocol gained a variant,
-# and nothing said so until a release. That is a compile error, and this finds
-# it in seconds. CI keeps the full sanitizer build.
-if ! cargo check --manifest-path fuzz/Cargo.toml --all-targets >"$log" 2>&1; then
-    tail -30 "$log" >&2
-    die "a fuzz target no longer compiles against the code it fuzzes"
-fi
-ok "fuzz targets compile"
-
-info "checking coverage (workspace, 95% floor)"
-# Through the proven-step cache (proven_step, above): a pass here is what lets
-# the pre-push run skip the identical ~10 min suite over the same tree.
-if ! proven_step 'bash tools/coverage_check.sh'; then
-    tail -20 "$log" >&2
-    die "coverage below 95% — add tests"
-fi
-ok "coverage >= 95%"
-
-printf '\n'
+# `bash <path>`, not `exec <path>`: executing the file directly also needs its exec bit, which lives
+# in another repo and is what a clone or tarball silently loses (upstreamed from ztools, 2026-10-05).
+exec bash "$structural" --staged
+exit
+} # parse-guard

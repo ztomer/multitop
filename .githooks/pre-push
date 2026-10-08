@@ -1,33 +1,21 @@
 #!/usr/bin/env bash
-# pre-push: the whole suite, once, from the ONE list in .gatesrc (GOH_CI_STEPS)
-# via tools/gate.sh --full. Pushing a tag skips it: a tag names a commit that
-# is already on the remote and was already gated to get there.
+# pre-push — runs the FULL gate on the COMMIT being pushed, in a clean worktree.
+# Installed by gates_of_heck/install.sh. There is no CI behind this; if this
+# hook is skipped, it is not run. The logic lives in gates_of_heck (push_gate.sh)
+# so a fix there reaches every repo without a re-install.
+{ # parse-guard -- bash reads this group whole before running it (tests/test_parse_guard.py)
 set -euo pipefail
-root="$(git rev-parse --show-toplevel)"
 
-# ---------------------------------------------------------------- tag pushes
-#
-# A tag names a commit that is already on the remote and was already gated to
-# get there. Re-running the suite against it cannot learn anything: the tree it
-# would check is the tree it checked when the commit was pushed.
-#
-# This is not a micro-optimisation. Cutting v0.43.0 ran the full suite four
-# times -- the pre-flight, the version-bump commit, the branch push, and then
-# the tag push -- and the tag one is the one that got killed by a timeout,
-# leaving the release half-done.
-#
-# git feeds pre-push one line per ref on stdin:
-#     <local ref> <local sha> <remote ref> <remote sha>
-# so "every ref in this push is a tag" is a question the hook can answer.
-# Anything else -- a branch, or a mix -- runs the full suite.
-# Blank lines are dropped before the test. Left in, a trailing newline is a
-# line that is not a tag, and the skip never fires -- which fails safe, and also
-# never works, which is the kind of "working" gate that gets noticed a year
-# later.
-non_tag_refs="$(cat | awk 'NF { print $1 }' | grep -cv '^refs/tags/' || true)"
-if [ "$non_tag_refs" = "0" ]; then
-    printf '  · pre-push: tags only, and the commits they name are already gated\n'
-    exit 0
+GOH="${GOH_DIR:-${GOH:-$HOME/Projects/gates_of_heck}}"
+push_gate="$GOH/gates/push_gate.sh"
+# No fallback to gating the working tree: that is a different object than the push. Name the remedy
+# instead of a bare "No such file or directory" (upstreamed from ztools, 2026-10-05).
+if [ ! -f "$push_gate" ]; then
+    echo "✗ pre-push: no gates_of_heck push gate at $push_gate -- clone gates_of_heck there," \
+        "or point GOH_DIR at your checkout, then re-run its install.sh" >&2
+    exit 1
 fi
-
-exec "$root/tools/gate.sh" --full
+# "$@" carries the remote's name: push_gate.sh needs it to skip commits the remote already has.
+exec bash "$push_gate" "$@"
+exit
+} # parse-guard

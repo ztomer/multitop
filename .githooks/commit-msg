@@ -1,0 +1,21 @@
+#!/bin/bash
+# commit-msg — gates_of_heck's commit-message rule (gates/commit_msg.sh), inert unless the repo's
+# .gatesrc sets GOH_COMMIT_CLASS. Installed by gates_of_heck/install.sh; delegates to the shared
+# checkout, vendoring nothing.
+{ # parse-guard -- bash reads this group whole before running it (tests/test_parse_guard.py)
+set -euo pipefail
+GOH="${GOH_DIR:-${GOH:-$HOME/Projects/gates_of_heck}}"
+runner="$GOH/gates/commit_msg.sh"
+if [ ! -d "$GOH/gates" ]; then
+    echo "✗ commit-msg: cannot find gates_of_heck at $GOH (set GOH_DIR or run its install.sh)" >&2
+    exit 1
+fi
+if [ ! -f "$runner" ]; then
+    # A gates checkout older than the rule: there is no rule there to run, and saying so beats
+    # refusing every commit of every repo that reinstalled from a newer one.
+    echo "⚠ commit-msg: $GOH predates gates/commit_msg.sh -- the commit-class rule did not run" >&2
+    exit 0
+fi
+exec bash "$runner" "$1"
+exit
+} # parse-guard

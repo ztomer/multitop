@@ -46,8 +46,9 @@ tagged but never released, with Homebrew left on `v0.20.10`.
 
 ## Commit Gates
 
-Every gate below runs on **every commit** via `.githooks/pre-commit`, and again
-in CI (`.github/workflows/ci.yml`) where it cannot be bypassed. The two lists are
+Every gate below runs on **every commit** -- the stock `.githooks/pre-commit`
+hands off to `tools/gate.sh --staged`, which runs the house structural gate and
+then this repo's list in `tools/commit_gates.sh` -- and again in CI (`.github/workflows/ci.yml`) where it cannot be bypassed. The two lists are
 deliberately identical: a local gate weaker than CI is a gate that lets you push
 red, which is how ten deprecations once shipped green.
 
@@ -69,7 +70,7 @@ red, which is how ten deprecations once shipped green.
 | Fuzz targets compile | `cargo check --manifest-path fuzz/Cargo.toml --all-targets` | A fuzz target that stopped compiling because what it fuzzes changed shape |
 | Coverage | `bash tools/coverage_check.sh` | Line coverage below 95% |
 
-The three places gates are named -- the hook, `ci.yml` and `GOH_CI_STEPS` in
+The three places gates are named -- `tools/commit_gates.sh`, `ci.yml` and `GOH_CI_STEPS` in
 `.gatesrc` (what the pre-push hook runs, through `tools/checkers.sh`, which
 globs `tools/check_*.py`) -- are compared against each other by the first gate,
 and against what is actually in `tools/`. They had drifted before: this file
@@ -99,11 +100,16 @@ floor, and the whole workspace's clippy on Linux in a container
 was `scripts/local-ci.py`, a 481-line orchestrator with its own copy of the
 checker list -- the third list the gate-parity checker existed to police.
 
-**Pushing a tag skips it.** A tag names a commit that is already on the remote
-and was already gated to get there, so re-running the suite against it cannot
+The hooks are gates_of_heck's stock delegates (`install.sh` owns them and
+overwrites them on a reinstall), so nothing repo-specific lives in
+`.githooks/`. The pre-push one runs the gate on the **pushed commit in a clean
+worktree** (gates_of_heck's push gate), never on the working tree.
+
+**Pushing a tag skips it** when the remote already has the commit it names:
+that commit was gated to get there, so re-running the suite against it cannot
 learn anything. Cutting v0.43.0 ran the full suite four times before this
 changed, and the tag run is the one a timeout killed halfway through the
-release.
+release. The tag's version claim is still checked against its commit.
 
 The **benchmark thresholds** need a quiet machine to mean anything; they run
 in the pre-push list, not the commit hook. The ratchet and the fuzz targets run
@@ -211,10 +217,11 @@ The whole workspace will not cross-compile this way -- some C dependencies need
 a Linux toolchain -- but the vault crate is where all the platform-gated code
 is, and it does.
 
-Enable the hook after cloning (it is a one-time, per-clone setting):
+Enable the hooks after cloning (a one-time, per-clone setting -- it sets
+`core.hooksPath`, and records the stock hooks it installed):
 
 ```bash
-git config core.hooksPath .githooks
+~/Projects/gates_of_heck/install.sh
 ```
 
 Clippy runs with `--all-targets` on purpose: tests and benches inherit the
