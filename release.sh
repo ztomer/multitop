@@ -53,8 +53,9 @@ ok() { echo "✓ $*"; }
 command -v gh >/dev/null || die "gh CLI required (brew install gh)"
 command -v cargo >/dev/null || die "cargo required"
 command -v rustup >/dev/null || die "rustup required (agents need musl targets)"
+installed_targets="$(rustup target list --installed 2>/dev/null || true)"
 for t in ${TRIPLES}; do
-  rustup target list --installed 2>/dev/null | grep -qx "${t}" \
+  grep -qx "${t}" <<< "${installed_targets}" \
     || die "musl target ${t} missing — run: rustup target add ${t}"
 done
 
@@ -126,7 +127,7 @@ TARBALL_SHA="$(fetch_sha "https://github.com/${REPO}/archive/refs/tags/${TAG}.ta
 SHA_X64="$(fetch_sha "https://github.com/${REPO}/releases/download/${TAG}/multitop-agent-x86_64-unknown-linux-musl" "${DL}/agent-x64")"
 SHA_ARM="$(fetch_sha "https://github.com/${REPO}/releases/download/${TAG}/multitop-agent-aarch64-unknown-linux-musl" "${DL}/agent-arm")"
 for v in "${TARBALL_SHA}" "${SHA_X64}" "${SHA_ARM}"; do
-    printf '%s' "${v}" | grep -Eq '^[0-9a-f]{64}$' \
+    [[ "${v}" =~ ^[0-9a-f]{64}$ ]] \
         || die "roundtrip download produced an invalid sha256: '${v}'"
 done
 
