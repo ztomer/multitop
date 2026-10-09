@@ -1309,7 +1309,7 @@ dependencies = [
 
 [[package]]
 name = "multitop"
-version = "0.52.0"
+version = "0.53.0"
 dependencies = [
  "axum",
  "crossterm",
@@ -1336,7 +1336,7 @@ dependencies = [
 
 [[package]]
 name = "multitop-agent"
-version = "0.52.0"
+version = "0.53.0"
 dependencies = [
  "libc",
  "mach2",
@@ -1348,7 +1348,7 @@ dependencies = [
 
 [[package]]
 name = "multitop-testassert"
-version = "0.52.0"
+version = "0.53.0"
 
 [[package]]
 name = "multitop-vault"

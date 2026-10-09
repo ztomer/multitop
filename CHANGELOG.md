@@ -7,6 +7,30 @@ This file starts at v0.47.0 — earlier history is in git (`git log`), and the
 per-defect record is `docs/detection-record.md`, which is the more useful
 document for anything before this point.
 
+## v0.53.0 — four majors moved, each proven where it touches the system _(2026-10-08)_
+
+- **axum 0.7 → 0.8.** Route captures are `/{host}` now. The old test asserted a
+  404, which an unmatched route also returns, so a broken route passed it; the
+  new one asserts each handler's own error body (red with a route broken on
+  purpose). The history route had no test at all.
+- **dirs 5 → 7.** Both builds resolve the same path. The real vault is
+  `~/.config/multitop/vault.bin`, derived from the config file and never from
+  dirs, so no vault can move; a test pins the default path against the
+  platform rule built from `$HOME`, not against dirs.
+- **mach2 0.4 → 0.7.** It provides `mach_host_self` and `mach_port_deallocate`,
+  so the agent's hand-written declarations are gone; a new test requires real
+  CPU and memory figures from the macOS sampler, which nothing tested before.
+- **zstd 0.13 → 0.14** (licence MIT → BSD-3-Clause, like zstd-safe/zstd-sys
+  already were). 0.14 decoded all 9 history files the 0.13 build wrote.
+- **signal-hook stays 0.3**: crossterm 0.29 (its newest) needs 0.3, and two
+  versions in one graph make one type two types. `diag.rs` keeps its own
+  thread so a dump works with the runtime stuck.
+- `cargo update` in the workspace and `fuzz/`: 10 duplicate crate pairs gone.
+- Hooks: the stock gates_of_heck delegates (O39); `check_codesign` builds the
+  binary it checks instead of reading `target/`; CI checkouts no longer leave
+  the job token in git config; early-exit consumers on a pipe read to
+  completion.
+
 ## v0.52.0 — the gate is green, and it can now prove the binary is this build _(2026-10-05)_
 
 **Nothing you use changes.** This is the currency and freshness pass: 115 test
