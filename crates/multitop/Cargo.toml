@@ -24,7 +24,7 @@ toml = { version = "1", default-features = false, features = ["parse", "serde", 
 # value, which silently drops every comment and blank line the user wrote.
 # Already in the tree as a dependency of `toml`, so this costs no new code.
 toml_edit = "0.25"
-zstd = "0.13"
+zstd = "0.14"
 multitop-agent = { path = "../agent" }
 multitop-vault = { path = "../vault" }
 secrecy = "0.10"

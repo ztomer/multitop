@@ -18,10 +18,11 @@ code.
 `goh.sh deps` now runs in `rust_gate.sh` and reports three severities: FATAL for
 a direct dependency pinned below the graph (zero of them, as of 2026-10-05),
 `[major behind]` for a direct dependency a major or more behind, and `[drift]`
-for everything else. The middle one is a real backlog -- `axum` 0.7 -> 0.8,
-`mach2` 0.4 -> 0.7, `signal-hook` 0.3 -> 0.4, `zstd` 0.13 -> 0.14 -- and it is
-deliberately not fatal, because a gate that is red on every honest commit is one
-nobody reads.
+for everything else. The middle one is deliberately not fatal, because a gate
+that is red on every honest commit is one nobody reads. As of 2026-10-08 it
+holds one entry, and it is held on purpose: `signal-hook` 0.3 -> 0.4 waits for
+crossterm, whose newest release (0.29.0) still depends on 0.3 -- moving the
+direct dependency first would put two majors of it in the graph.
 
 What is missing is the ratchet: today's state as a ceiling, failing only on NEW
 drift, with entries deleted as each move above lands. `tools/ratchet_check.py`
