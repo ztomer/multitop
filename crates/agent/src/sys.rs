@@ -11,17 +11,11 @@ use crate::proc::{CpuStat, NetTotals, RawProcStat, Usage};
 use crate::proc::CpuTimes;
 
 // libc deprecated its Mach bindings in favour of `mach2` (house rule: migrate
-// on sight). `mach_task_self` comes from mach2; `mach_host_self` is not in
-// mach2 0.4, so it is declared here beside `mach_port_deallocate` -- both are
-// plain libSystem symbols, and a local declaration is what libc did anyway.
+// on sight). The three port calls come from mach2; mach2 0.7 has no
+// host_processor_info / host_statistics64 / vm_deallocate, and those stay on
+// libc, where they are not deprecated.
 #[cfg(target_os = "macos")]
-extern "C" {
-    fn mach_host_self() -> libc::mach_port_t;
-    fn mach_port_deallocate(
-        target_task: libc::mach_port_t,
-        name: libc::mach_port_t,
-    ) -> libc::kern_return_t;
-}
+use mach2::{mach_init::mach_host_self, mach_port::mach_port_deallocate, traps::mach_task_self};
 
 #[cfg(target_os = "macos")]
 struct MachCpuInfoGuard {
@@ -35,7 +29,7 @@ impl Drop for MachCpuInfoGuard {
     fn drop(&mut self) {
         unsafe {
             if !self.cpu_info.is_null() {
-                let vm_map = mach2::traps::mach_task_self();
+                let vm_map = mach_task_self();
                 let size = self.msg_type as usize * std::mem::size_of::<libc::integer_t>();
                 libc::vm_deallocate(
                     vm_map,
@@ -44,7 +38,7 @@ impl Drop for MachCpuInfoGuard {
                 );
             }
             if self.host_port != 0 {
-                mach_port_deallocate(mach2::traps::mach_task_self(), self.host_port);
+                mach_port_deallocate(mach_task_self(), self.host_port);
             }
         }
     }
@@ -146,7 +140,7 @@ pub fn get_memory_macos() -> Usage {
         )
     };
     unsafe {
-        mach_port_deallocate(mach2::traps::mach_task_self(), host_port);
+        mach_port_deallocate(mach_task_self(), host_port);
     }
 
     if ret == libc::KERN_SUCCESS {

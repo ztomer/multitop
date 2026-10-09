@@ -179,6 +179,25 @@ fn the_individual_samplers_each_answer_without_proc() {
     multitop_testassert::assert_not_empty!(fetch::sample_cpu_model());
 }
 
+/// The Mach fallback, called directly: on a Mac `get_cpu_stat`/`get_memory`
+/// reach it only because `/proc` is absent, and every failure inside it
+/// (a dead host port, a refused `host_processor_info`) degrades to the zero
+/// default rather than an error -- which a "populated" check on the formatted
+/// fetch strings cannot tell from a real reading. Zero cores or zero RAM is
+/// that degradation, so this is the test that sees the Mach bindings break.
+#[cfg(target_os = "macos")]
+#[test]
+fn the_mach_samplers_read_real_numbers_on_macos() {
+    let cpu = multitop_agent::sys::get_cpu_stat_macos();
+    multitop_testassert::assert_not_empty!(cpu.cores, "no cores from host_processor_info");
+    assert!(cpu.aggregate.total > 0);
+    assert!(cpu.aggregate.idle <= cpu.aggregate.total);
+    let mem = multitop_agent::sys::get_memory_macos();
+    assert!(mem.total > 0, "no RAM from hw.memsize");
+    assert!(mem.used > 0, "no used pages from host_statistics64");
+    assert!(mem.used <= mem.total);
+}
+
 #[test]
 fn reading_a_pseudofile_that_is_not_there_is_not_an_error() {
     assert_eq!(proc::read_proc("/proc/definitely/not/here"), "");
