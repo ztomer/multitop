@@ -4,129 +4,235 @@ The one forward-looking backlog. Shipped work is not listed here — it is in gi
 history (`git log --oneline`) and in `docs/detection-record.md`. When an item
 here is finished, delete it rather than ticking it off.
 
+Order: **Now** is user-visible defects and the one feature gap a user hit, in
+the order they should land. **Hygiene** is the gate work left from the
+2026-10-04 currency pass. **Next** is the two larger features, unchanged in
+order. The version of this file before the 2026-10-10 consolidation is
+`git show 56b90bd:docs/roadmap.md`.
+
 ## Now
 
-**The currency and freshness pass ran 2026-10-04 to 2026-10-05.** Items 1, 2 and
-3 below are finished and have been deleted rather than ticked: the gate is green,
-the installed binary is provably this build's, and no direct dependency sits
-below what the graph already resolves. What is left is here, and the two things
-this pass learned the hard way are recorded because neither is visible from the
-code.
+### N1 — the upgrade window tears: apt's progress bar is glued onto every log line
 
-### Item 2 — dependency currency as a ratchet, not a gate
+**Reported 2026-10-10.** Reproduced offline only: nothing was run against a host,
+because an upgrade changes a live system. The repro feeds an apt-style byte
+stream through the real `Painter`, `paint_msg`, `App::apply` and `ui::draw` at
+80x24, and every dpkg line renders as a progress bar with a `7` column on the
+left and an `8` column on the right, the package name clipped off the edge:
 
-`goh.sh deps` now runs in `rust_gate.sh` and reports three severities: FATAL for
-a direct dependency pinned below the graph (zero of them, as of 2026-10-05),
-`[major behind]` for a direct dependency a major or more behind, and `[drift]`
-for everything else. The middle one is deliberately not fatal, because a gate
-that is red on every honest commit is one nobody reads. As of 2026-10-08 it
-holds one entry, and it is held on purpose: `signal-hook` 0.3 -> 0.4 waits for
-crossterm, whose newest release (0.29.0) still depends on 0.3 -- moving the
-direct dependency first would put two majors of it in the graph.
+```
+| 7Progress: [ 16%] [########.......................................] 8 |
+| 7Progress: [ 24%] [#############..................................] 8 |
+```
+
+**Why.** Upgrades run on a pty sized to the pane (`crates/agent/src/exec/pty.rs`,
+`agent_dims` in `crates/multitop/src/ui/layout.rs`), so `apt` sees a tty and
+draws its pinned status line: `ESC 7`, an absolute move to the bottom row
+(`ESC[<rows>;0f`), the bar, `ESC 8` — no newline. Two parsers then mishandle it:
+
+1. `consume_controls` in `crates/multitop/src/tasks/painted.rs` only consumes
+   `ESC[` at the head of a line; the leading `ESC 7` stops it, so the move, the
+   bar and `ESC 8` become text of the NEXT line. Absolute moves (`H`/`f`) are
+   discarded as no-ops, so the pinned footer is flattened into the log.
+2. `crates/multitop/src/ansi.rs` drops only the ESC of a non-CSI, non-OSC
+   escape and prints the byte after it: `ESC 7` shows as `7`, `ESC(B` as `(B`.
+
+Ruled out: the terminal. Ratatui's real crossterm output fed through a vt100
+emulator matched its in-memory buffer on every frame (0 rows differ; the
+comparison was shown able to fail by injecting a stray write).
+
+**The class:** hand-rolled terminal parsers that each understand a different
+subset of the escape grammar. Siblings: `crates/multitop/src/tasks/exec_runner.rs`
+(same `Painter` for journal/tail/custom commands), `strip_ansi` in
+`crates/agent/src/color.rs` (consumes one byte after ESC, so `ESC(B` leaks `B`;
+`refit.rs` depends on it), and `ends_mid_sequence` in `painted.rs` (knows only
+`ESC[`, so a chunk split inside `ESC(` is not held back).
+
+**Fix, in order:**
+1. ONE escape tokenizer shared by `Painter`, `ansi::line_to_spans` and
+   `strip_ansi` — the `vte` crate's state machine rather than a fourth subset —
+   so every sequence is consumed whole everywhere.
+2. `Painter` models cursor save/restore and absolute rows: text written between
+   `ESC 7`/`ESC 8`, or to a row outside the scroll region, is not a log line. It
+   goes to a status message drawn as a pinned footer in the Upgrade pane, so
+   apt's progress stays visible instead of being dropped.
+3. Tests at the class level, both red on today's code: (a) a differential test
+   over a fixture corpus (apt fancy progress, docker's `ESC[nA` layer blocks, a
+   Rich live display, curl's `\r`, `tput sgr0`'s `ESC(B`) — the painter's log
+   must equal what a terminal-emulator oracle shows in its scroll region (the
+   `vt100` crate 0.15.2 does not handle `f`; map it to `H` or pick an oracle that
+   does); (b) a table over every escape form (two-byte `ESC 7/8/M/=/c`, `ESC(B`,
+   every CSI final byte, OSC with both terminators): all three parsers render
+   `a<esc>b` as `ab`.
+4. User-POV check last: a local `upgrade_cmd` that replays a captured apt byte
+   stream (never a real upgrade), screenshot at real scale.
+
+### N2 — the command bar is near-white on a dark terminal, in every theme
+
+**Reported 2026-10-10; a regression since v0.50.0** (`f7cfb0a`, the light-terminal
+adaptation). `crates/agent/src/palette_view.rs:130` builds the bar's background
+as `triple(theme.ratatui_keybar_bg, adapted, Role::Text)` — the adapted TEXT
+colour. Adaptation runs for every theme but PLAIN, and text is light on a dark
+terminal, so the bar is light. Measured with the release binary in tmux,
+`COLORFGBG=15;0` (detection correct: `Environment(0,0,0)`):
+
+| Theme | Bar bg on screen | Theme's own `ratatui_keybar_bg` |
+|---|---|---|
+| Kare | 248,248,242 | 24,26,36 |
+| Dracula | 248,248,242 | 40,42,54 |
+| Nord | 236,239,244 | 46,52,64 |
+| Gruvbox | 235,219,178 | 40,40,40 |
+
+The bar's text is named terminal colours (`38;5;15`, `38;5;8`), so it is white on
+near-white: 1.02–1.73:1 for the accent across all 8 themes. On a LIGHT terminal
+the bar goes mid-dark with the same white text, also illegible.
+
+**Siblings:** the Settings panel fills its whole block with `keybar_bg`
+(`crates/multitop/src/config_ui.rs`), the "no host matches" screen paints the
+same bar (`crates/multitop/src/ui/draw.rs`), and 51 named `Color::*` sites
+bypass the theme entirely: `ui/keybar.rs` 7, `ui/keybar_confirm.rs` 2,
+`modals.rs` 24, `config_ui.rs` 12, `ui/draw.rs` 6 (`ansi.rs` is legitimate).
+
+**Why no gate saw it — the instrument was blind to backgrounds.**
+`tools/check_no_hard_coded_colour.py` matches only 24-bit FOREGROUND escapes
+(`38;2;…`), not ratatui named colours nor a colour taken from the wrong role.
+`tools/light_terminal_check.py` reads only `38;2` and measures it against the
+assumed terminal background; it never reads `48;2` or `38;5`, and never measures
+text against the background of the cell it sits in.
+`crates/agent/src/palette_view_tests.rs` checks the seven text escapes and none
+of `keybar_bg`/`border`/`accent`.
+
+**Fix, in order:**
+1. **Gate first** (it must go red on today's tree): `light_terminal_check.py`
+   resolves each cell's real background (`48;2`, `48;5`, or the terminal's) and
+   requires 4.5:1 for text (3.0:1 for muted) against it, and fails any indexed or
+   named foreground; plus a `TestBackend` render test over every theme × dark /
+   light / unknown terminal for the keybar, Settings, confirm rows and modals.
+   `check_no_hard_coded_colour.py` gains `Color::<named>`/`Indexed` outside
+   `ansi.rs`, seeded with an allowlist of exactly today's 51 sites that must
+   shrink to empty (stale entries fail).
+2. `keybar_bg` is a BACKGROUND, not a text role: keep the theme's own value when
+   it sits on the same light/dark side as the terminal, else derive it from the
+   detected background nudged toward the opposite end.
+3. The view carries adapted RGB for text, muted and accent, adapted against
+   `keybar_bg`; every named `Color::*` outside `ansi.rs` becomes one of them,
+   including the black text on the active-mode pill.
+4. Prove the test can fail (revert to `Role::Text`, watch it go red), then
+   screenshot light AND dark per `user-pov-debug`.
+
+### N3 — the local machine has no ops view: give the agent an MCP mode
+
+**Reported 2026-10-10.** The local panel (`host = "127.0.0.1"`, or `--local`,
+which builds one with `mcp: None` in `crates/multitop/src/main.rs`) maps
+`mcp: None` to `NotConfigured` (`crates/multitop/src/app/ops_view.rs`) and starts
+no poll; `crates/multitop/src/ops/render.rs` shows a quiet "no mcp_host command
+for this host" with a hint to add `mcp = "..."`. The tone is right; the hint is a
+dead end on a Mac, because there is no command worth adding.
+
+**What the view needs** (`crates/multitop/src/ops/mod.rs`): four sections, each
+ready / absent-with-reason / failed — health (`health://latest`, only when
+`health.run` is listed), cron (`cron.status`), containers (`docker.containers`),
+alerts (`alerts.since`, 24 h). Nothing else from `mcp_host` is read.
+
+**Rejected: running `mcp_host` on the Mac** (probed 2026-10-10, build 1.79.9,
+empty root). It produces two FALSE readings and a false fault: `cron.status`
+errors "no run_and_alert jobs" (a warning for an absence); `docker.containers` is
+unlisted because it only knows `/var/run/docker.sock`, so the view says "no
+Docker" while Colima runs at `~/.colima/default/docker.sock`; `alerts.since`
+returns `[]`, a green "none in 24 h" for a log nothing on a Mac writes. It also
+couples this repo to the servers repo and teaches a Linux fleet tool launchd.
+
+**Rejected: an in-process local provider behind a trait.** Least protocol code,
+but a second path around the client, poll and session machinery — the parallel
+pipeline that always drifts (engineering rule #9) — and Claude Code cannot ask
+the Mac anything through it.
+
+**Chosen: `multitop-agent mcp`, local panel only.** Same MCP over stdio, so
+everything after process start (client, poll, render, e2e) is unchanged, and it
+keeps the repo's rule that local and remote differ only in what is spawned
+(`crates/multitop/src/ssh/spawn.rs`; `crates/multitop/src/mcp/spawn.rs` already
+runs a local panel's command via `sh -c`). Not for remote hosts:
+re-implementing `mcp_host`'s 25 tools would be two servers that drift.
+
+1. **Server.** `multitop-agent mcp` speaks the 2026-07-28 protocol (initialize,
+   `tools/list`, `tools/call`, `resources/read`) and lists only:
+   * `cron.status` from launchd — `launchctl list` gives label, PID while running
+     and last exit status, which maps onto the cron columns directly;
+   * `docker.containers` from the agent's existing Docker client
+     (`crates/agent/src/docker.rs`, which honours `DOCKER_HOST`), extended with
+     `all=1`, `State`, health parsed from `Status`, the compose-project label, and
+     endpoint discovery from the docker context so Colima is found.
+   Health and alerts stay unlisted, so they render as absent with a reason
+   ("launchd host: no health suite"; "nothing on this Mac logs alerts") — never a
+   green none. `log show` is too slow for a 30 s poll; `~/.routines/events` is a
+   possible alerts source later. Tested with the existing `mcp::client` over an
+   in-memory pipe.
+2. **Wiring.** A local server with no `mcp` defaults to the agent's `mcp` mode via
+   the same lookup as `local_agent_command()` (`app/ops_view.rs`,
+   `crates/multitop/src/tasks/spawn.rs`); a configured `mcp` still overrides.
+   `NotConfigured` remains for remote hosts only.
+3. **Verify.** `crates/multitop/tests/ops_view_e2e.rs` drives the real agent
+   binary instead of the Python stand-in; then `multitop --local`, `p`,
+   screenshots light and dark.
+4. **Bonus:** register `multitop-agent mcp` with Claude Code as the Mac's own ops
+   server, beside `media-server`/`storage`/`pihole`.
+
+**Upstream, not this repo:** `mcp_host` reports an empty cron table as an error
+and a missing alert log as "no events" — an absence shown as a fault and an
+absence shown as all-clear. Fix both in `~/Projects/servers/media_server`.
+
+## Hygiene
+
+### H1 — dependency currency as a ratchet, not a gate
+
+`goh deps` runs in `gates_of_heck`'s `rust_gate.sh` with three severities: FATAL
+for a direct dependency pinned below the graph (zero), `[major behind]` for a
+direct dependency a major or more behind, and `[drift]` for the rest. The middle
+one is deliberately not fatal. As of 2026-10-10 it holds one entry, held on
+purpose: `signal-hook` 0.3 -> 0.4 waits for crossterm, whose newest release
+(0.29.0) still depends on 0.3 — moving the direct dependency first would put two
+majors of it in the graph.
 
 What is missing is the ratchet: today's state as a ceiling, failing only on NEW
-drift, with entries deleted as each move above lands. `tools/ratchet_check.py`
-is already that shape in this repo for line counts, and
-`gates_of_heck`'s `--ratchet` flag already exists for this gate, so the work is
-wiring and a ceiling, not a new mechanism. Landing it as a plain gate instead is
-the outcome to avoid.
+drift. `rust_gate.sh` already reads `GOH_DEPS_RATCHET`; `.gatesrc` does not set
+it. The work is a ceiling file and one line, not a new mechanism. Landing it as a
+plain gate instead is the outcome to avoid.
 
-### Item 3 — the Linux build of the vault is CI-only, and this machine cannot run it
+### H2 — `rust-toolchain.toml` does not do what its own comment says
 
-`crates/vault/src/fprintd.rs` is `#[cfg(target_os = "linux")]`, so no macOS gate
-compiles a line of it. `tools/lint_linux.sh` is the local answer and it needs a
-container runtime, which is not installed here -- so the zbus move was verified
-by compiling the module's whole zbus surface against 5.19.0 in a scratch crate
-(the API is proven; the platform is not) and left to CI's ubuntu jobs for the
-rest. That split was recorded in the commit rather than left to be discovered,
-and it is worth a second look whenever the next Linux-only change lands: start
-Colima, or install a container runtime, or the next person repeats the exercise
-with less evidence.
-
-### Item 4 — the house spawn gate cannot tell a guard from a wrapper
-
-`check_no_unreaped_spawn.py` is right to insist on a guard and wrong about what
-makes one. Measured 2026-10-04 with the `Drop` body of a correct `Reap` emptied
-to nothing: the gate still reported clean. It accepts the wrapper *shape* -- any
-`impl Drop` in the file, plus a `Self(` in the same function -- without reading
-what the `Drop` does, and `_spawn_shapes.py`'s own docstring says a guard is
-"judged by what its `Drop` does, never by its name". So a guard that reaps
-nothing passes.
-
-Not fixable from here (`gates_of_heck` is not this repo's to edit), and the
-consequence is recorded where it bites: `ssh_tests.rs`'s `Reap` carries its own
-test, `a_panic_after_the_spawn_leaves_no_child`, which panics between the spawn
-and the reap and requires the pid to be gone -- `kill -0` distinguishes that from
-a zombie, and therefore from a guard that kills and forgets to wait. Red with the
-`Drop` emptied, green with it in. Every future `Reap` in this repo needs that
-test, because the gate will not ask.
-
-### Item 5 — `rust-toolchain.toml` does not do what its own comment says
-
-Unchanged and still open, and still deliberately not a quick fix. The header
-reads *"Pin the toolchain so the local gate and CI compile the same code with the
-same compiler"*; the body is `channel = "stable"`, which floats, and
-`dtolnay/rust-toolchain@stable` in all three CI jobs floats with it. The two
-sides agree by coincidence, not by construction.
-
-The estate-wide `rustup update` on 2026-10-01 turned this repo's gate red with no
-commit in the repository, which is the receipt. The honest middle is to keep
-`stable` (so CI keeps moving) and make the *artifact* carry its compiler -- which
-is what `tools/installed_freshness.py` now does, comparing bytes rather than
-trusting a version string.
+The header reads *"Pin the toolchain so the local gate and CI compile the same
+code with the same compiler"*; the body is `channel = "stable"`, which floats,
+and `dtolnay/rust-toolchain@stable` in CI floats with it. The two sides agree by
+coincidence; the 2026-10-01 `rustup update` turned the gate red with no commit,
+which is the receipt. The honest middle is to keep `stable` and make the
+ARTIFACT carry its compiler — which `tools/installed_freshness.py` does by
+comparing bytes.
 
 The MSRV is the same shape: `rust-version = "1.85"` in `Cargo.toml` and "Rust
-1.85+" in `README.md` are claims nothing enforces, since CI has only ever built
-current stable. Pick one deliberately -- add a 1.85 job to CI, or delete the
-claim from both places. Do not leave the third option, where a number is written
-down and nothing checks it.
+1.85+" in `README.md` are claims nothing enforces. Add a 1.85 CI job, or delete
+the claim from both places — not the third option, a number nothing checks.
 
 ### Do NOT
 
-Carried forward from the assessment, minus the parts this pass settled. Each is
-still worse than not making the move.
-
-* **Do not chase the sixteen remaining duplicate crates to zero.** They are all
-  transitive now -- `cargo tree --target all -i digest@0.10.7` names
-  `secret-service 5.1.0` as the single parent holding the whole 0.10 crypto
-  generation, reached through `keyring`. Collapsing them needs an upstream move,
-  and forcing them from here is churn.
-* **Do not land dependency currency as a plain gate.** It is red on arrival --
-  four direct deps are a major or more behind. A gate people `--no-verify` past
-  is worse than no gate. Item 2 is the ratchet shape for exactly this reason.
-* **Do not treat the 71-package lockfile refresh as one commit with a major
-  move.** It is semver-compatible and the cheapest win in this list, which is
-  precisely why it is the easiest to bundle wrongly. Its own commit.
+* **Do not chase the sixteen remaining duplicate crates to zero.** All
+  transitive; `secret-service 5.1.0` (via `keyring`) holds the whole 0.10 crypto
+  generation. Collapsing them needs an upstream move.
+* **Do not land dependency currency as a plain gate.** H1 is the ratchet shape
+  for exactly this reason.
+* **Do not bundle a lockfile refresh with a major move.** Its own commit.
 * **Do not "fix" the empty coverage part by deleting the agent's bin target.**
-  `⚠ multitop-agent (bin multitop-agent) exported a valid-but-EMPTY lcov part`
-  is the coverage gate doing its job out loud: `main.rs` is regex-excluded from
-  coverable lines, so the target measures nothing. The fix is to say so in the
-  exclusion's reason. Deleting the target silences a warning about an unmeasured
-  target, which is how a real hole gets to look tidy.
-* **Do not take a `Reap` guard's word for it.** Item 4: the house gate accepts
-  the wrapper shape, so the guard's own test is the only thing that checks it.
-* **Do not re-order the two items under `## Next`.** The Android client's auth
-  hardening is a security surface, it is already first, and nothing in this pass
-  competes with it.
-
-### Two things this pass cost a day each, and neither is visible from the code
-
-- **A gate can be green and wrong.** `check_no_unreaped_spawn.py` reporting clean
-  over a neutered `Drop` is item 4, and it is the general shape: the check
-  recognised a pattern rather than the property. The fix in this repo was not to
-  trust the green but to write a test that could fail -- and the only way to know
-  a new test can fail is to break the code once and watch it go red.
-- **Two stale artifacts compare equal to each other.** The freshness gate's first
-  version compared `target/release/multitop` against `/opt/homebrew/bin/multitop`
-  and reported byte-identical while BOTH were the stale build it existed to
-  catch. The lesson generalises past this gate: a comparison is only evidence if
-  one side is independently known-good, and "the build tree" is not a known-good
-  side until something has rebuilt it.
-
+  `⚠ multitop-agent (bin multitop-agent) exported a valid-but-EMPTY lcov part` is
+  the coverage gate saying out loud that `main.rs` is regex-excluded; say so in
+  the exclusion's reason instead. (N3 gives that binary a real `mcp` mode, which
+  will need its own coverage.)
+* **Do not move Android's auth hardening behind the app.** It is a security
+  surface and a second client multiplies the exposure.
+* **Do not "fix" N1 by stripping escapes harder in one more place.** That is a
+  fourth parser subset; the fix is one tokenizer.
 
 ## Next
 
-Two items, neither started, both larger than the one that just finished.
+Two items, neither started.
 
 ### Mobile companion, Android
 
@@ -228,6 +334,25 @@ work, so it does not belong above.
 | **Plugin SDK (WASM)** | Custom `exec` panels (`crates/multitop/src/config/types.rs`'s `custom_command`) cover it without a sandbox to get wrong. The cost of a plugin system is the isolation boundary, and nothing here needs one: a panel is a command the user already chose to run. Revisit if panels ever need to arrive from somewhere other than the user's own config file. |
 | **A light variant per theme** | Superseded by background detection, which is one mechanism for all eight themes instead of sixteen palettes, and is correct on a background that is an image — which per-theme variants never can be. Shipped 2026-09-28. |
 | **Adapting the agent's tty path** | The seam is already in place — `emit_fetch`/`emit_docker` take a `&PaletteView` — but `crates/agent/src/lib.rs:342` builds it with `for_theme`, the identity, because a process on the *remote* host cannot measure the background of the terminal the *user* is looking at. So the open question is not the plumbing but the supplier: whoever knows the client's background builds the view, and the only such caller today is the client itself. Worth doing when a second consumer appears, because the parameter is already there and the identity is the one line to change. (`Mode::Exec` does not take a view at all; it carries no colour literals, so nothing is hard-coded today.) |
+
+## Sources consolidated (2026-10-10)
+
+Every other agent session that worked on this repo, and what became of it. None
+carries a plan any more; this file does.
+
+| Source | Disposition |
+|--------|-------------|
+| Claude Code (this repo's slug) | This session only; no desktop sessions. `memory/` kept — it is the project's memory store. |
+| opencode db sessions | Already gone; only the project row remains. |
+| opencode loop goal "implement the roadmap" (2026-09-03, `active`) | Superseded: its roadmap was rewritten twice since; the current one is this file. |
+| opencode loop goal "implement the plan" (2026-09-13) | Completed (upgrade stderr duplicate-line fix); landed, nothing open. N1 is a different defect in the same `Painter`. |
+| opencode loop goal "impl3m3n5" (2026-09-28) | Completed (light-terminal palette, v0.50.0). Its wiring step introduced N2. |
+| opencode loop: nine empty job files, `loop.log` | Residue; removed. |
+| Antigravity, 2 conversations (2026-07-28: Docker header line, layout research) | Both died on API 429 after 7 steps with no output; nothing to carry. Removed. |
+| Branch `ci-persist` + worktree `~/Projects/.wt-mon-ci` | Ancestor of `main`, worktree clean; removed. |
+| Old Item 3 (Linux vault build CI-only) | Closed: Colima is installed, `tools/lint_linux.sh` (already a `GOH_CI_STEPS` entry) ran clean 2026-10-10. |
+| Old Item 4 (spawn gate accepts a no-op `Drop`) | Closed upstream: `goh unreaped-spawn` now reads the `Drop` body; a copy of `ssh_tests.rs` with `Reap`'s `Drop` emptied is rejected ("whose `Drop` neither kills nor waits"), the real one passes. |
+| "Two things this pass cost a day each" | Lessons, not plan: they live in the `calibrate-the-instrument` and `stale-artifact-under-test` skills. |
 
 ## Where the invariants live
 
