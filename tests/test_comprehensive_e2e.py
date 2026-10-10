@@ -177,9 +177,16 @@ class ComprehensiveE2E(unittest.TestCase):
             self.session.send("Escape")
             time.sleep(0.5)
             return  # healthy host, correctly filtered out
-        self.assertIn(
-            "127.0.0.1",
-            s,
+        # The config holds TWO hosts, and either may be the one breaching:
+        # `is_breaching_with_vault` also counts a locked vault (app-wide, so
+        # it marks every host that has a snapshot), and a host whose first
+        # snapshot has not arrived never breaches. Naming 127.0.0.1 therefore
+        # failed whenever only the Beelink had reported (2026-10-10: Beelink
+        # alone, at 0% CPU / 36% MEM / 39% DSK). Which host breaches is pinned
+        # by `health.rs`'s own tests; here the claim is only that what survives
+        # the filter is a configured host.
+        self.assertTrue(
+            "127.0.0.1" in s or "192.168.0.33" in s,
             "a breaching host must stay visible under the unhealthy filter",
         )
         self.session.send("Escape")
