@@ -126,6 +126,9 @@ pub struct Snapshot {
     pub upgrade_started_at: Option<u64>,
     pub tasks: Liveness,
     pub active_confirm: Option<String>,
+    /// Which probe found the terminal's background, and what it found: the
+    /// input every adapted colour is computed from, and invisible otherwise.
+    pub background: String,
 }
 
 /// Shared diagnostic state. Laterally safe by construction: every field is an
@@ -443,6 +446,7 @@ pub fn snapshot_app(app: &App, tasks: &Tasks) -> Snapshot {
         upgrade_started_at: app.upgrade_started_at,
         tasks: tasks.diag_liveness(),
         active_confirm: app.active_confirm().map(|c| format!("{c:?}")),
+        background: format!("{} {:?}", app.background.source(), app.background),
     }
 }
 
@@ -472,6 +476,7 @@ fn render_snapshot(snapshot: &Snapshot) -> String {
         "tasks: monitors_alive {} | upgrades_alive {} | upgrades_done {}",
         snapshot.tasks.monitors_alive, snapshot.tasks.upgrades_alive, snapshot.tasks.upgrades_done
     );
+    let _ = writeln!(out, "background: {}", snapshot.background);
     for (i, p) in snapshot.panels.iter().enumerate() {
         let _ = writeln!(
             out,

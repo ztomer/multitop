@@ -23,6 +23,13 @@ num-traits = "0.2"
 # parser here would be the fragile part of the agent. No derive feature - the
 # few fields we read are pulled straight off Value.
 serde_json = { version = "1", default-features = false, features = ["std"] }
+# The terminal escape grammar, read ONE way. Three hand-rolled parsers each
+# understood a different subset of it (one knew only `ESC[`, one dropped the
+# ESC of `ESC 7` and printed the `7`), and apt's pinned progress bar tore the
+# upgrade log apart in the gap between them. `escape.rs` wraps this state
+# machine (the vt100.net DEC parser, as used by Alacritty) and every reader
+# of tool output goes through it.
+vte = "0.15"
 
 # libc deprecated its Mach bindings (mach_host_self / mach_task_self) in favour
 # of mach2; house rule: migrate on sight, never suppress the warning.

@@ -222,6 +222,13 @@ pub struct Panel {
     pub last_upgrade: RingLines,
     pub upgrade_state: UpgradeState,
     pub upgrade_gen: u64,
+    /// The upgrade run's pinned status line, keyed by the `upgrade_gen` that
+    /// drew it. Keyed rather than cleared, so a new run cannot inherit the last
+    /// one's progress bar however it starts: a stale key simply is not drawn.
+    pub upgrade_status: Option<(u64, String)>,
+    /// The same for an ordinary view's run (journal, tail, a custom command),
+    /// keyed by `gen`.
+    pub view_status: Option<(u64, String)>,
     pub last_monitor: Option<multitop_agent::proto::Payload>,
     /// What the Monitor packets said, kept so the `G` view has a past to
     /// draw. Filled whatever view the panel is in.
@@ -285,6 +292,8 @@ impl Panel {
             last_upgrade: RingLines::new(crate::config::DEFAULT_UPGRADE_HISTORY_LINES),
             upgrade_state: UpgradeState::NIL,
             upgrade_gen: 0,
+            upgrade_status: None,
+            view_status: None,
             last_monitor: None,
             history,
             last_docker: None,

@@ -1,0 +1,86 @@
+Reading package lists... 0%Reading package lists... 0%Reading package lists... 0%Reading package lists... 96%Reading package lists... 96%Reading package lists... 96%Reading package lists... 96%Reading package lists... 99%Reading package lists... 99%                             Building dependency tree... 0%Building dependency tree... 0%Building dependency tree... 50%Building dependency tree... 50%                                Reading state information... 0%Reading state information... 1%                                Installing:
+[32m  cowsay  sl
+[0m
+Installing dependencies:
+[32m  libgdbm-compat4t64  libncurses6             netbase
+  libgdbm6t64         libperl5.40             perl
+  libgpm2             libtext-charwidth-perl  perl-modules-5.40
+[0m
+Suggested packages:
+  filters     sensible-utils                make
+  cowsay-off  perl-doc                      libtap-harness-archive-perl
+  gdbm-l10n   libterm-readline-gnu-perl
+  gpm         | libterm-readline-perl-perl
+
+Summary:
+  Upgrading: 0, Installing: 11, Removing: 0, Not Upgrading: 1
+  Download size: 7711 kB
+  Space needed: 54.4 MB / 6261 MB available
+
+[33m0% [Working][0m            Get:1 http://deb.debian.org/debian trixie/main arm64 netbase all 6.5 [12.4 kB]
+[33m0% [1 netbase 1368 B/12.4 kB 11%][0m[33m                                 2% [Waiting for headers][0m                        Get:2 http://deb.debian.org/debian trixie/main arm64 perl-modules-5.40 all 5.40.1-6+deb13u1 [3014 kB]
+[33m2% [2 perl-modules-5.40 1966 B/3014 kB 0%][0m[33m                                          35% [Waiting for headers][0m                         Get:3 http://deb.debian.org/debian trixie/main arm64 libgdbm6t64 arm64 1.24-2 [74.0 kB]
+[33m35% [3 libgdbm6t64 5227 B/74.0 kB 7%][0m[33m                                     38% [Waiting for headers][0m                         Get:4 http://deb.debian.org/debian trixie/main arm64 libgdbm-compat4t64 arm64 1.24-2 [50.3 kB]
+[33m38% [4 libgdbm-compat4t64 8362 B/50.3 kB 17%][0m[33m                                             40% [Waiting for headers][0m                         Get:5 http://deb.debian.org/debian trixie/main arm64 libperl5.40 arm64 5.40.1-6+deb13u1 [4138 kB]
+[33m40% [5 libperl5.40 3783 B/4138 kB 0%][0m[33m                                     85% [Waiting for headers][0m                         Get:6 http://deb.debian.org/debian trixie/main arm64 perl arm64 5.40.1-6+deb13u1 [268 kB]
+[33m85% [6 perl 5980 B/268 kB 2%][0m[33m                             89% [Waiting for headers][0m                         Get:7 http://deb.debian.org/debian trixie/main arm64 libtext-charwidth-perl arm64 0.04-11+b4 [9652 B]
+[33m89% [7 libtext-charwidth-perl 6979 B/9652 B 72%][0m[33m                                                91% [Waiting for headers][0m                         Get:8 http://deb.debian.org/debian trixie/main arm64 cowsay all 3.03+dfsg2-8 [21.4 kB]
+[33m91% [8 cowsay 3402 B/21.4 kB 16%][0m[33m                                 93% [Waiting for headers][0m                         Get:9 http://deb.debian.org/debian trixie/main arm64 libgpm2 arm64 1.20.7-11+b2 [14.7 kB]
+[33m93% [9 libgpm2 8578 B/14.7 kB 58%][0m[33m                                  95% [Waiting for headers][0m                         Get:10 http://deb.debian.org/debian trixie/main arm64 libncurses6 arm64 6.5+20250216-2 [96.1 kB]
+[33m95% [10 libncurses6 2673 B/96.1 kB 3%][0m[33m                                      98% [Waiting for headers][0m                         Get:11 http://deb.debian.org/debian trixie/main arm64 sl arm64 5.02-1+b1 [12.6 kB]
+[33m                         100% [Working][0m              Fetched 7711 kB in 1s (7513 kB/s)
+debconf: unable to initialize frontend: Dialog
+debconf: (TERM is not set, so the dialog frontend is not usable.)
+debconf: falling back to frontend: Readline
+debconf: unable to initialize frontend: Readline
+debconf: (Can't locate Term/ReadLine.pm in @INC (you may need to install the Term::ReadLine module) (@INC entries checked: /etc/perl /usr/local/lib/aarch64-linux-gnu/perl/5.40.1 /usr/local/share/perl/5.40.1 /usr/lib/aarch64-linux-gnu/perl5/5.40 /usr/share/perl5 /usr/lib/aarch64-linux-gnu/perl-base /usr/lib/aarch64-linux-gnu/perl/5.40 /usr/share/perl/5.40 /usr/local/lib/site_perl) at /usr/share/perl5/Debconf/FrontEnd/Readline.pm line 8, <STDIN> line 11.)
+debconf: falling back to frontend: Teletype
+
+7[0;23r8[1ASelecting previously unselected package netbase.
+(Reading database ... (Reading database ... 5%(Reading database ... 10%(Reading database ... 15%(Reading database ... 20%(Reading database ... 25%(Reading database ... 30%(Reading database ... 35%(Reading database ... 40%(Reading database ... 45%(Reading database ... 50%(Reading database ... 55%(Reading database ... 60%(Reading database ... 65%(Reading database ... 70%(Reading database ... 75%(Reading database ... 80%(Reading database ... 85%(Reading database ... 90%(Reading database ... 95%(Reading database ... 100%(Reading database ... 4948 files and directories currently installed.)
+Preparing to unpack .../00-netbase_6.5_all.deb ...
+7[24;0f[42m[30mProgress: [  0%][49m[39m [..........................................................] 87[24;0f[42m[30mProgress: [  2%][49m[39m [#.........................................................] 8Unpacking netbase (6.5) ...
+7[24;0f[42m[30mProgress: [  4%][49m[39m [##........................................................] 8Selecting previously unselected package perl-modules-5.40.
+Preparing to unpack .../01-perl-modules-5.40_5.40.1-6+deb13u1_all.deb ...
+7[24;0f[42m[30mProgress: [  7%][49m[39m [###.......................................................] 8Unpacking perl-modules-5.40 (5.40.1-6+deb13u1) ...
+7[24;0f[42m[30mProgress: [  9%][49m[39m [#####.....................................................] 8Selecting previously unselected package libgdbm6t64:arm64.
+Preparing to unpack .../02-libgdbm6t64_1.24-2_arm64.deb ...
+7[24;0f[42m[30mProgress: [ 11%][49m[39m [######....................................................] 8Unpacking libgdbm6t64:arm64 (1.24-2) ...
+7[24;0f[42m[30mProgress: [ 13%][49m[39m [#######...................................................] 8Selecting previously unselected package libgdbm-compat4t64:arm64.
+Preparing to unpack .../03-libgdbm-compat4t64_1.24-2_arm64.deb ...
+7[24;0f[42m[30mProgress: [ 16%][49m[39m [#########.................................................] 8Unpacking libgdbm-compat4t64:arm64 (1.24-2) ...
+7[24;0f[42m[30mProgress: [ 18%][49m[39m [##########................................................] 8Selecting previously unselected package libperl5.40:arm64.
+Preparing to unpack .../04-libperl5.40_5.40.1-6+deb13u1_arm64.deb ...
+7[24;0f[42m[30mProgress: [ 20%][49m[39m [###########...............................................] 8Unpacking libperl5.40:arm64 (5.40.1-6+deb13u1) ...
+7[24;0f[42m[30mProgress: [ 22%][49m[39m [############..............................................] 8Selecting previously unselected package perl.
+Preparing to unpack .../05-perl_5.40.1-6+deb13u1_arm64.deb ...
+7[24;0f[42m[30mProgress: [ 24%][49m[39m [##############............................................] 8Unpacking perl (5.40.1-6+deb13u1) ...
+7[24;0f[42m[30mProgress: [ 27%][49m[39m [###############...........................................] 8Selecting previously unselected package libtext-charwidth-perl:arm64.
+Preparing to unpack .../06-libtext-charwidth-perl_0.04-11+b4_arm64.deb ...
+7[24;0f[42m[30mProgress: [ 29%][49m[39m [################..........................................] 8Unpacking libtext-charwidth-perl:arm64 (0.04-11+b4) ...
+7[24;0f[42m[30mProgress: [ 31%][49m[39m [##################........................................] 8Selecting previously unselected package cowsay.
+Preparing to unpack .../07-cowsay_3.03+dfsg2-8_all.deb ...
+7[24;0f[42m[30mProgress: [ 33%][49m[39m [###################.......................................] 8Unpacking cowsay (3.03+dfsg2-8) ...
+7[24;0f[42m[30mProgress: [ 36%][49m[39m [####################......................................] 8Selecting previously unselected package libgpm2:arm64.
+Preparing to unpack .../08-libgpm2_1.20.7-11+b2_arm64.deb ...
+7[24;0f[42m[30mProgress: [ 38%][49m[39m [#####################.....................................] 8Unpacking libgpm2:arm64 (1.20.7-11+b2) ...
+7[24;0f[42m[30mProgress: [ 40%][49m[39m [#######################...................................] 8Selecting previously unselected package libncurses6:arm64.
+Preparing to unpack .../09-libncurses6_6.5+20250216-2_arm64.deb ...
+7[24;0f[42m[30mProgress: [ 42%][49m[39m [########################..................................] 8Unpacking libncurses6:arm64 (6.5+20250216-2) ...
+7[24;0f[42m[30mProgress: [ 44%][49m[39m [#########################.................................] 8Selecting previously unselected package sl.
+Preparing to unpack .../10-sl_5.02-1+b1_arm64.deb ...
+7[24;0f[42m[30mProgress: [ 47%][49m[39m [###########################...............................] 8Unpacking sl (5.02-1+b1) ...
+7[24;0f[42m[30mProgress: [ 49%][49m[39m [############################..............................] 8Setting up libtext-charwidth-perl:arm64 (0.04-11+b4) ...
+7[24;0f[42m[30mProgress: [ 51%][49m[39m [#############################.............................] 87[24;0f[42m[30mProgress: [ 53%][49m[39m [##############################............................] 8Setting up libgpm2:arm64 (1.20.7-11+b2) ...
+7[24;0f[42m[30mProgress: [ 56%][49m[39m [################################..........................] 87[24;0f[42m[30mProgress: [ 58%][49m[39m [#################################.........................] 8Setting up libgdbm6t64:arm64 (1.24-2) ...
+7[24;0f[42m[30mProgress: [ 60%][49m[39m [##################################........................] 87[24;0f[42m[30mProgress: [ 62%][49m[39m [####################################......................] 8Setting up libgdbm-compat4t64:arm64 (1.24-2) ...
+7[24;0f[42m[30mProgress: [ 64%][49m[39m [#####################################.....................] 87[24;0f[42m[30mProgress: [ 67%][49m[39m [######################################....................] 8Setting up libncurses6:arm64 (6.5+20250216-2) ...
+7[24;0f[42m[30mProgress: [ 69%][49m[39m [#######################################...................] 87[24;0f[42m[30mProgress: [ 71%][49m[39m [#########################################.................] 8Setting up perl-modules-5.40 (5.40.1-6+deb13u1) ...
+7[24;0f[42m[30mProgress: [ 73%][49m[39m [##########################################................] 87[24;0f[42m[30mProgress: [ 76%][49m[39m [###########################################...............] 8Setting up netbase (6.5) ...
+7[24;0f[42m[30mProgress: [ 78%][49m[39m [#############################################.............] 87[24;0f[42m[30mProgress: [ 80%][49m[39m [##############################################............] 8Setting up sl (5.02-1+b1) ...
+7[24;0f[42m[30mProgress: [ 82%][49m[39m [###############################################...........] 87[24;0f[42m[30mProgress: [ 84%][49m[39m [################################################..........] 8Setting up libperl5.40:arm64 (5.40.1-6+deb13u1) ...
+7[24;0f[42m[30mProgress: [ 87%][49m[39m [##################################################........] 87[24;0f[42m[30mProgress: [ 89%][49m[39m [###################################################.......] 8Setting up perl (5.40.1-6+deb13u1) ...
+7[24;0f[42m[30mProgress: [ 91%][49m[39m [####################################################......] 87[24;0f[42m[30mProgress: [ 93%][49m[39m [######################################################....] 8Setting up cowsay (3.03+dfsg2-8) ...
+7[24;0f[42m[30mProgress: [ 96%][49m[39m [#######################################################...] 87[24;0f[42m[30mProgress: [ 98%][49m[39m [########################################################..] 8Processing triggers for libc-bin (2.41-12+deb13u4) ...
+
+7[0;24r8[1A[J

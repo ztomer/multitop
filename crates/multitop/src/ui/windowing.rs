@@ -267,6 +267,47 @@ pub fn pane_lines(
     //
     // `held` goes above the pane's content, where scrolling back reaches it;
     // `shown` goes below, where it is on screen at rest.
+    // The run's pinned status line -- apt's progress bar -- takes the bottom
+    // row and keeps it however the log scrolls, as it does on a terminal: the
+    // tool drew it outside the scroll region precisely so it would stay put.
+    // Keyed by the run that drew it; a stale key is not drawn.
+    let status = if p.mode == crate::app::Mode::Upgrade {
+        p.upgrade_status
+            .as_ref()
+            .filter(|(g, _)| *g == p.upgrade_gen)
+    } else {
+        p.view_status.as_ref().filter(|(g, _)| *g == p.gen)
+    }
+    .map(|(_, s)| s);
+    match status {
+        Some(status) if height > 1 => {
+            // Padded so the status sits on the bottom row even under a short
+            // log. Callers that want "everything" pass `usize::MAX`; no
+            // terminal is taller than `u16::MAX` rows, so that is the most
+            // padding that can ever be drawn.
+            let body = height.min(usize::from(u16::MAX)) - 1;
+            let (mut lines, badge) = pane_body(app, p, panel, body, target_cols, scroll_offset);
+            lines.resize(body, String::new());
+            lines.push(if target_cols > 0 {
+                refit_line(status, target_cols)
+            } else {
+                status.clone()
+            });
+            (lines, badge)
+        }
+        _ => pane_body(app, p, panel, height, target_cols, scroll_offset),
+    }
+}
+
+/// The pane's scrolling part: `pane_lines` without the pinned status row.
+fn pane_body(
+    app: &App,
+    p: &crate::panel::Panel,
+    panel: usize,
+    height: usize,
+    target_cols: usize,
+    scroll_offset: usize,
+) -> (Vec<String>, usize) {
     let (held, shown) = notice_split(&p.notes, target_cols, height);
     if p.mode == crate::app::Mode::Upgrade {
         let mut header = app.upgrade_pane_header(panel);

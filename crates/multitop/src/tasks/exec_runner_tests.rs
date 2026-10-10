@@ -3,7 +3,7 @@
 //! same reason: the reader file stays under the 500-line cap.
 
 use super::*;
-use crate::tasks::{Paint, Painter};
+use crate::tasks::{paint_msg, Paint, Painter};
 
 fn action<'a>(server: &'a Server, tx: &'a Sender<Msg>) -> ExecAction<'a> {
     ExecAction {

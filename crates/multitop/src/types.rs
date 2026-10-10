@@ -106,6 +106,17 @@ pub enum Msg {
         /// Rows below that one which the tool just erased.
         erase_below: usize,
     },
+    /// The run's pinned status line changed: apt's `Progress: [ 42%]` bar,
+    /// drawn on a row outside the scrolling log between `ESC 7` and `ESC 8`.
+    ///
+    /// Its own message because it is neither a new line nor a repaint of one:
+    /// flattened into the log it glued itself onto every dpkg line. `None`
+    /// takes it down -- the tool erased it, or the run ended.
+    AuxStatus {
+        panel: usize,
+        gen: u64,
+        status: Option<String>,
+    },
     AuxDone {
         panel: usize,
         gen: u64,

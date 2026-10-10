@@ -45,6 +45,7 @@ impl App {
                 erase_below,
             } => self.on_aux_repaint(panel, gen, line, back, erase_below),
             Msg::AuxLine { panel, gen, line } => self.on_aux_line(panel, gen, line),
+            Msg::AuxStatus { panel, gen, status } => self.on_aux_status(panel, gen, status),
             Msg::AuxDone {
                 panel,
                 gen,
@@ -295,6 +296,24 @@ impl App {
             }
         }
         p.mode == Mode::Upgrade
+    }
+
+    /// Same ownership rule as `AuxLine`: an upgrade's status belongs to the
+    /// upgrade (`upgrade_gen`) whatever view is showing, anything else to the
+    /// current view's run (`gen`).
+    fn on_aux_status(&mut self, panel: usize, gen: u64, status: Option<String>) -> bool {
+        let Some(p) = self.panels.get_mut(panel) else {
+            return false;
+        };
+        if p.upgrade_state == crate::panel::UpgradeState::STARTED && p.upgrade_gen == gen {
+            p.upgrade_status = status.map(|s| (gen, s));
+            p.mode == Mode::Upgrade
+        } else if p.gen == gen {
+            p.view_status = status.map(|s| (gen, s));
+            true
+        } else {
+            false
+        }
     }
 
     fn on_aux_line(&mut self, panel: usize, gen: u64, line: String) -> bool {

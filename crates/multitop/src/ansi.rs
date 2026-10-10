@@ -1,8 +1,9 @@
 //! Convert the agent's ANSI output into ratatui spans.
 //!
-//! The agent emits a small, known set of SGR codes, so this handles exactly
-//! those and skips anything else rather than pulling in a general terminal
-//! emulator. Unrecognised escapes are dropped, never printed as literals.
+//! Styling comes from SGR alone. Every other escape -- movement, erase, modes,
+//! strings -- is consumed whole by the shared tokenizer and drawn as nothing:
+//! a widget that repaints its whole area has no use for them, and none is
+//! safe to pass through. Never printed as literals.
 
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span, Text};
@@ -84,100 +85,32 @@ fn apply_sgr_params(mut style: Style, params: &[u16]) -> Style {
 }
 
 /// Parse one line of ANSI-coloured text into styled spans.
+///
+/// Read through the shared tokenizer (`multitop_agent::escape`), so every
+/// escape is consumed whole. The hand-rolled reader this replaced dropped only
+/// the ESC of a non-CSI escape and printed the byte after it: apt's
+/// `ESC 7`/`ESC 8` around its progress bar rendered as a literal `7` and `8`.
 #[must_use]
 pub fn line_to_spans(input: &str) -> Line<'static> {
+    use multitop_agent::escape::{scan, Token};
     let mut spans: Vec<Span<'static>> = Vec::new();
     let mut style = Style::default();
     let mut text = String::new();
-    let mut chars = input.chars().peekable();
-
-    while let Some(c) = chars.next() {
-        if c == '\r'
-            || c == '\x07'
-            || c == '\x08'
-            || (c < ' ' && c != '\t' && c != '\n' && c != '\x1b')
-        {
-            // Drop control characters (carriage return, backspace, bell, etc.)
-            // so they don't corrupt Ratatui's terminal cursor/layout.
-            continue;
-        }
-
-        if c != '\x1b' {
-            text.push(c);
-            continue;
-        }
-
-        // Check for OSC escape sequences (e.g. \x1b]0;title\x07 or \x1b]...\x1b\)
-        if chars.peek() == Some(&']') {
-            chars.next();
-            while let Some(nc) = chars.next() {
-                if nc == '\x07' {
-                    break;
-                }
-                if nc == '\x1b' && chars.peek() == Some(&'\\') {
-                    chars.next();
-                    break;
-                }
-            }
-            continue;
-        }
-
-        if chars.peek() != Some(&'[') {
-            // Not a CSI sequence; drop the ESC rather than rendering it.
-            continue;
-        }
-        chars.next();
-
-        let mut final_byte = None;
-        let mut params = [0u16; crate::consts::MAX_SGR_PARAMS];
-        let mut num_params = 0;
-        let mut sgr_code: u16 = 0;
-        let mut has_digits = false;
-        let mut reset_bare = true;
-
-        for c in chars.by_ref() {
-            if c.is_ascii_digit() {
-                sgr_code = sgr_code
-                    .saturating_mul(10)
-                    .saturating_add(u16::from(c as u8 - b'0'));
-                has_digits = true;
-                reset_bare = false;
-            } else if c == ';' {
-                if has_digits && num_params < crate::consts::MAX_SGR_PARAMS {
-                    params[num_params] = sgr_code;
-                    num_params += 1;
-                    sgr_code = 0;
-                    has_digits = false;
-                } else if num_params < crate::consts::MAX_SGR_PARAMS {
-                    params[num_params] = 0;
-                    num_params += 1;
-                }
-                reset_bare = false;
-            } else if c.is_ascii_alphabetic() {
-                if has_digits && num_params < crate::consts::MAX_SGR_PARAMS {
-                    params[num_params] = sgr_code;
-                    num_params += 1;
-                }
-                final_byte = Some(c);
-                break;
-            }
-        }
-
+    scan(input.as_bytes(), |token| match token {
+        Token::Print(c) => text.push(c),
+        // Tab and newline are layout ratatui handles; every other control --
+        // carriage return, backspace, bell -- corrupts its cursor and layout.
+        Token::Control(b @ (b'\t' | b'\n')) => text.push(char::from(b)),
         // Only SGR changes styling; cursor moves and erases are meaningless
         // inside a widget that redraws the whole area anyway.
-        if final_byte != Some('m') {
-            continue;
+        Token::Csi(csi) if csi.is_sgr() => {
+            if !text.is_empty() {
+                spans.push(Span::styled(std::mem::take(&mut text), style));
+            }
+            style = apply_sgr_params(style, &csi.sgr_params());
         }
-        if !text.is_empty() {
-            spans.push(Span::styled(std::mem::take(&mut text), style));
-        }
-        if reset_bare {
-            style = Style::default();
-        } else {
-            style = apply_sgr_params(style, &params[..num_params]);
-        }
-    }
-
+        Token::Control(_) | Token::Csi(_) | Token::Esc { .. } | Token::Osc(_) | Token::Opaque => {}
+    });
     if !text.is_empty() {
         spans.push(Span::styled(text, style));
     }
@@ -245,7 +178,11 @@ mod tests {
 
     #[test]
     fn a_bare_escape_is_dropped_not_rendered() {
-        assert_eq!(rendered("a\x1bb"), "ab");
+        // `ESC b` is an escape sequence (final byte 0x62), not an ESC followed
+        // by text -- a terminal prints nothing for it. The old reader printed
+        // the `b`, which is the same mistake that printed apt's `ESC 7` as `7`;
+        // this test used to pin "ab" and pinned the defect with it.
+        assert_eq!(rendered("a\x1bb"), "a");
         assert_eq!(rendered("\x1b"), "");
     }
 
@@ -341,7 +278,8 @@ mod tests {
 
     #[test]
     fn lone_escape_is_dropped() {
-        assert_eq!(plain(&line_to_spans("a\x1bb")), "ab");
+        // See `a_bare_escape_is_dropped_not_rendered`: `ESC b` is one sequence.
+        assert_eq!(plain(&line_to_spans("a\x1bb")), "a");
         assert_eq!(plain(&line_to_spans("trailing\x1b")), "trailing");
     }
 
@@ -388,6 +326,22 @@ mod tests {
 
         let line_rgb = line_to_spans("\x1b[48;2;10;20;30mrgb-bg\x1b[0m");
         assert_eq!(line_rgb.spans[0].style.bg, Some(Color::Rgb(10, 20, 30)));
+    }
+}
+
+#[cfg(test)]
+mod escape_form_tests {
+    use super::line_to_spans;
+
+    /// Every escape form in the shared table renders as nothing between its
+    /// two letters -- the class-level guard for the `7`/`8` around apt's bar.
+    #[test]
+    fn every_escape_form_is_consumed_whole() {
+        for form in multitop_testassert::ESCAPE_FORMS {
+            let line = line_to_spans(&format!("a{form}b"));
+            let joined: String = line.spans.iter().map(|s| s.content.as_ref()).collect();
+            assert_eq!(joined, "ab", "{form:?}");
+        }
     }
 }
 

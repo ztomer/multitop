@@ -133,6 +133,52 @@ macro_rules! assert_not_empty {
     }};
 }
 
+/// Every escape form a tool is known to write, as one table for every reader
+/// of tool output to be tested against.
+///
+/// Framed as `a<form>b`, each must read as `ab`. One table rather than one per
+/// reader because the defect this guards was three readers each knowing a
+/// different subset of the grammar: the upgrade painter knew only `ESC[`, the
+/// span renderer printed the byte after a non-CSI ESC (`ESC 7` showed as `7`),
+/// and `strip_ansi` leaked the `B` of `ESC(B`. A per-reader table is how each
+/// subset got certified by its own author.
+pub const ESCAPE_FORMS: &[&str] = &[
+    // Two-byte escapes: save/restore cursor, reverse index, keypad modes, reset.
+    "\x1b7",
+    "\x1b8",
+    "\x1bM",
+    "\x1b=",
+    "\x1b>",
+    "\x1bc",
+    // Charset designation (`tput sgr0` ends with `ESC(B`) and DEC line attributes.
+    "\x1b(B",
+    "\x1b)0",
+    "\x1b#8",
+    // SGR, bare and with indexed and colon-form truecolour parameters.
+    "\x1b[m",
+    "\x1b[0m",
+    "\x1b[38;5;196m",
+    "\x1b[38:2::1:2:3m",
+    // Erase, relative and absolute movement (`f` is apt's), scroll region.
+    "\x1b[2K",
+    "\x1b[1A",
+    "\x1b[24;0f",
+    "\x1b[24;1H",
+    "\x1b[0;23r",
+    // Private modes, private-marker SGR, an intermediate byte, SCO save/restore.
+    "\x1b[?25l",
+    "\x1b[?1049h",
+    "\x1b[>4;1m",
+    "\x1b[ q",
+    "\x1b[s",
+    "\x1b[u",
+    // Strings: OSC with BEL and with ST, DCS, APC.
+    "\x1b]0;title\x07",
+    "\x1b]8;;http://x\x1b\\",
+    "\x1bP+q544e\x1b\\",
+    "\x1b_apc\x1b\\",
+];
+
 #[cfg(test)]
 mod tests {
     /// Run `$body`, require it to fail, and hand back the failure line.

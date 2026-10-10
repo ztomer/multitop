@@ -40,10 +40,6 @@ pub const MSG_DRAIN_BUDGET: usize = 32;
 /// first thing worth losing when there is no room.
 pub const UPGRADE_RULE_MIN_WIDTH: usize = 20;
 
-/// SGR parameters kept from one escape sequence. Every sequence this agent
-/// emits is far shorter; the cap is what stops a hostile one overrunning the
-/// array.
-pub const MAX_SGR_PARAMS: usize = 8;
 /// The SGR sub-parameter that introduces a 256-colour index (`38;5;N`).
 pub const SGR_INDEXED_COLOUR: u16 = 5;
 

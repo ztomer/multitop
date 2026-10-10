@@ -12,7 +12,7 @@ use crate::app::Msg;
 use crate::config::Server;
 use crate::fmt::{error_line, status_line};
 use crate::ssh;
-use crate::tasks::painted::{paint_msg, Painter};
+use crate::tasks::painted::{painted_msg, Painted, Painter};
 
 pub const STALL_AFTER: Duration = Duration::from_secs(30);
 
@@ -227,14 +227,14 @@ async fn drain_stdout(
             break;
         }
     }
-    if let Some(paint) = painter.finish() {
+    for painted in painter.finish() {
         let _ = action
             .tx
-            .send(paint_msg(
+            .send(painted_msg(
                 action.idx,
                 action.gen,
-                &paint,
-                paint.text.clone(),
+                painted,
+                std::convert::identity,
             ))
             .await;
     }
@@ -254,14 +254,19 @@ async fn send_painted(
     style: impl Fn(String) -> String,
     drop_empty: bool,
 ) {
-    for paint in painter.feed_bytes(bytes) {
-        if drop_empty && paint.text.trim().is_empty() && paint.back == 0 && paint.erase_below == 0 {
-            continue;
+    for painted in painter.feed_bytes(bytes) {
+        if let Painted::Line(paint) = &painted {
+            if drop_empty
+                && paint.text.trim().is_empty()
+                && paint.back == 0
+                && paint.erase_below == 0
+            {
+                continue;
+            }
         }
-        let line = style(paint.text.clone());
         let _ = action
             .tx
-            .send(paint_msg(action.idx, action.gen, &paint, line))
+            .send(painted_msg(action.idx, action.gen, painted, &style))
             .await;
     }
 }

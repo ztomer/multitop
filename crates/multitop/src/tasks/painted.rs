@@ -72,6 +72,24 @@ pub struct Paint {
     pub erase_below: usize,
 }
 
+/// One thing a feed produced.
+///
+/// An enum rather than a second accessor on `Painter`, so a caller cannot
+/// forget the status line exists: the match is not exhaustive without it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Painted {
+    /// A log line, and where it goes.
+    Line(Paint),
+    /// The tool's pinned status line changed. `Some` is its new text, colours
+    /// kept; `None` is that the tool erased it, or that the run is over and a
+    /// progress bar for a process that has gone would read as still running.
+    Status(Option<String>),
+}
+
+mod reading;
+
+use reading::{Bracket, End, Reading, StatusWrite};
+
 /// One run's output, turned into where each line belongs.
 ///
 /// Columns are not modelled. A `\r` is treated as "this line starts again",
@@ -79,6 +97,10 @@ pub struct Paint {
 /// `docker` all rewrite the whole line after it. Modelling columns properly
 /// would mean tracking which cells the SGR sequences in the text apply to, and
 /// a half-done version of that corrupts colour rather than improving fidelity.
+///
+/// Every byte is read through `multitop_agent::escape`, the one tokenizer for
+/// tool output, so a sequence this model gives no meaning to is still consumed
+/// whole rather than leaking into the text.
 #[derive(Default, Debug)]
 pub struct Painter {
     /// Rows above the append point that the *next* line lands on, as of the
@@ -95,6 +117,13 @@ pub struct Painter {
     /// the repeated emission of a growing line idempotent: cursor movement is
     /// counted from `up`, which does not change until the line ends.
     raw: Vec<u8>,
+    /// The save bracket in force when the line being built began. Carried
+    /// across lines like `up`, and for the same reason: a line is re-read
+    /// from its start on every feed.
+    bracket: Bracket,
+    /// The status line as last emitted, so a re-read that finds the same
+    /// status emits nothing.
+    status: Option<String>,
 }
 
 impl Painter {
@@ -104,6 +133,8 @@ impl Painter {
             up: 0,
             open: false,
             raw: Vec::new(),
+            bracket: Bracket::Open,
+            status: None,
         }
     }
 
@@ -112,7 +143,7 @@ impl Painter {
     /// May return more than one paint for one call, and may return a paint for
     /// a line it has already painted -- that is the unterminated line growing,
     /// and it is an overwrite, never a second copy.
-    pub fn feed_bytes(&mut self, bytes: &[u8]) -> Vec<Paint> {
+    pub fn feed_bytes(&mut self, bytes: &[u8]) -> Vec<Painted> {
         let mut out = Vec::new();
         let mut rest = bytes;
         while let Some(i) = rest.iter().position(|&b| b == b'\n') {
@@ -124,74 +155,98 @@ impl Painter {
             if self.raw.last() == Some(&b'\r') {
                 self.raw.pop();
             }
-            out.extend(self.paint(true));
+            self.paint(End::Newline, &mut out);
             rest = &rest[i + 1..];
         }
         if !rest.is_empty() {
             self.raw.extend_from_slice(rest);
-            out.extend(self.paint(false));
+            self.paint(End::Open, &mut out);
         }
         out
     }
 
-    /// Nothing more is coming. Emits the last line if it never got a newline.
+    /// Nothing more is coming. Emits the last line if it never got a newline,
+    /// and takes down a status line the tool left up.
     ///
     /// A run whose final line has no terminator is ordinary -- a prompt left
     /// unanswered, a tool killed mid-write -- and it has usually just said why
     /// it stopped. It is already on screen by then; this exists so a caller can
     /// close the painter without wondering whether anything is owed.
-    pub fn finish(&mut self) -> Option<Paint> {
-        if self.raw.is_empty() {
-            return None;
+    pub fn finish(&mut self) -> Vec<Painted> {
+        let mut out = Vec::new();
+        if !self.raw.is_empty() {
+            self.paint(End::Eof, &mut out);
         }
-        self.paint(true)
+        if self.status.take().is_some() {
+            out.push(Painted::Status(None));
+        }
+        out
     }
 
-    /// `None` when the line carried nothing but cursor movement.
+    /// Paint the line being built, and any change it made to the status.
     ///
-    /// The movement has still been recorded, so the next line that does carry
+    /// No line paint when the line carried nothing but cursor movement. The
+    /// movement has still been recorded, so the next line that does carry
     /// text lands where the tool meant it to -- tools routinely split the
     /// movement and the text across two writes.
     ///
     /// A line that is genuinely *empty* is not the same thing and does paint: a
     /// blank line between two paragraphs of `apt` output is output, and
     /// swallowing it runs them together.
-    fn paint(&mut self, terminated: bool) -> Option<Paint> {
-        let raw = String::from_utf8_lossy(&self.raw).into_owned();
+    fn paint(&mut self, end: End, out: &mut Vec<Painted>) {
+        let terminated = end != End::Open;
+        // A chunk that ends inside an escape sequence is not a paint yet: the
+        // rest of the sequence is still coming, and reading the fragment
+        // would misplace it. Raw is kept, so the next feed re-derives from the
+        // reassembled whole.
+        if !terminated && !multitop_agent::escape::is_complete(&self.raw) {
+            return;
+        }
         let was_open = self.open;
+        let reading = Reading::of(&self.raw, self.bracket);
+
+        let status = match reading.status {
+            StatusWrite::Untouched => None,
+            StatusWrite::Set(text) => Some(Some(text)),
+            StatusWrite::Erased => Some(None),
+        };
+        if let Some(status) = status {
+            if status != self.status {
+                self.status.clone_from(&status);
+                out.push(Painted::Status(status));
+            }
+        }
+
         // Movement is consumed at the head of every `\r`-state, not just the
         // buffer head. Live renderers rewind AFTER drawing
         // (`┘<CR><ESC>[2K<ESC>[1A…<ESC>[2K┏┓`), so a head-only read keeps the
         // trailing choreography as text: every tick appends and nothing ever
-        // repaints. Text selection is unchanged -- the last non-empty state
-        // still wins; only the movement accounting widens.
-        let states: Vec<&str> = painted_states(&raw).collect();
-        // The last state a carriage return left the line in -- but the last
-        // *non-empty* one. A line that ends in a bare `\r` has had its cursor
-        // sent to column 0 and nothing written there yet: the screen still
-        // shows what was there, and blanking it would make every progress bar
-        // flicker between its value and nothing.
-        let winner = states.iter().rposition(|s| !s.is_empty());
-        let mut moved_up = 0usize;
-        let mut moved_down = 0usize;
-        let mut erase_below = 0usize;
-        let mut text = String::new();
-        for (i, state) in states.iter().enumerate() {
-            let (u, d, e, t) = Self::consume_controls(state);
-            moved_up = moved_up.saturating_add(u);
-            moved_down = moved_down.saturating_add(d);
-            erase_below = erase_below.max(e);
-            if Some(i) == winner {
-                text = t;
-            }
-        }
-        // A chunk that ends inside an escape sequence is not a paint yet: the
-        // rest of the sequence is still coming, and emitting the fragment
-        // would append escape bytes to the log as a line of their own. Raw is
-        // kept, so the next feed re-derives from the reassembled whole.
-        if !terminated && ends_mid_sequence(&text) {
-            return None;
-        }
+        // repaints.
+        //
+        // The text is the last state a carriage return left the line in -- but
+        // the last *touched* one. A line that ends in a bare `\r` has had its
+        // cursor sent to column 0 and nothing written there yet: the screen
+        // still shows what was there, and blanking it would make every progress
+        // bar flicker between its value and nothing.
+        let moved_up = reading
+            .states
+            .iter()
+            .fold(0usize, |n, s| n.saturating_add(s.up));
+        let moved_down = reading
+            .states
+            .iter()
+            .fold(0usize, |n, s| n.saturating_add(s.down));
+        let erased = reading.states.iter().map(|s| s.erase).max().unwrap_or(0);
+        let erase_below = reading
+            .states
+            .iter()
+            .map(|s| s.cleared_below)
+            .max()
+            .unwrap_or(0)
+            .max(erased);
+        let touched = reading.states.iter().rposition(|s| s.touched);
+        let text = touched.map_or_else(String::new, |i| reading.states[i].text.clone());
+
         let line_up = self.up.saturating_add(moved_up).saturating_sub(moved_down);
 
         // A paint that starts on an open (unterminated) line addresses rows
@@ -204,7 +259,14 @@ impl Painter {
             usize::from(was_open)
         };
 
-        let movement_only = text.is_empty() && erase_below == 0 && (moved_up > 0 || moved_down > 0);
+        // Rows a rewind erased on its way up are reported with the write that
+        // follows it, not as a paint of their own: until text arrives the
+        // rewind is still only movement, and raw is kept for the re-read.
+        let movement_only = text.is_empty() && erased == 0 && (moved_up > 0 || moved_down > 0);
+        // Only the status was drawn: the log row is as it was. A newline still
+        // ends a (blank) row, exactly as a terminal shows it; otherwise there
+        // is no row to paint -- not yet, or not at all if the output ended.
+        let status_only = end != End::Newline && touched.is_none();
 
         if terminated {
             // The cursor moves past a row only when something was written on
@@ -220,8 +282,9 @@ impl Painter {
                 self.up = line_up.saturating_sub(usize::from(!was_open));
             }
             self.open = false;
+            self.bracket = reading.bracket;
             self.raw.clear();
-        } else if movement_only {
+        } else if movement_only || status_only {
             // Recorded nowhere: raw is kept and the next paint recomputes
             // from the whole, so counting it here would count it twice.
         } else {
@@ -232,95 +295,34 @@ impl Painter {
             self.open = true;
         }
 
-        if movement_only {
-            return None;
+        if movement_only || status_only {
+            return;
         }
-        Some(Paint {
+        out.push(Painted::Line(Paint {
             text,
             back,
             erase_below,
-        })
-    }
-
-    /// Split the cursor-movement sequences off a line.
-    ///
-    /// Returns how far the cursor moved up, how far down, how many rows below
-    /// were erased, and the text that is left -- with SGR colour sequences kept,
-    /// because they are what the line looks like rather than where it goes.
-    fn consume_controls(raw: &str) -> (usize, usize, usize, String) {
-        let (mut up, mut down, mut erase) = (0usize, 0usize, 0usize);
-        let mut rest = raw;
-        let mut text_prefix = String::new();
-
-        while !rest.is_empty() {
-            if let Some(after_cr) = rest.strip_prefix('\r') {
-                rest = after_cr;
-                continue;
-            }
-            let Some(after_esc) = rest.strip_prefix("\u{1b}[") else {
-                break;
-            };
-            // CSI parameter bytes (0x30..=0x3F: digits, ';', '?').
-            let param_len = after_esc
-                .chars()
-                .take_while(|c| ('\x30'..='\x3F').contains(c))
-                .map(char::len_utf8)
-                .sum();
-            let param = &after_esc[..param_len];
-            let after_param = &after_esc[param_len..];
-
-            // Intermediate bytes (0x20..=0x2F).
-            let inter_len = after_param
-                .chars()
-                .take_while(|c| ('\x20'..='\x2F').contains(c))
-                .map(char::len_utf8)
-                .sum();
-            let after_inter = &after_param[inter_len..];
-
-            let Some(final_byte) = after_inter.chars().next() else {
-                // A sequence cut in half by a chunk boundary. Left in place: the
-                // rest of it is in the next chunk, and the whole line is
-                // re-derived from raw bytes when that arrives.
-                break;
-            };
-
-            let total_len = 2 + param_len + inter_len + final_byte.len_utf8();
-            let csi_full = &rest[..total_len];
-            rest = &after_inter[final_byte.len_utf8()..];
-
-            let digits: String = param.chars().filter(char::is_ascii_digit).collect();
-            let n = digits.parse::<usize>().unwrap_or(1).max(1);
-
-            match final_byte {
-                'A' | 'F' => up = up.saturating_add(n),
-                'B' | 'E' => down = down.saturating_add(n),
-                'J' if param.is_empty() || param == "0" => erase = erase.max(1),
-                'K' | 'h' | 'l' | 'G' | 'd' | 'H' | 'f' => {}
-                // Everything else, SGR included, is part of how the line looks.
-                _ => text_prefix.push_str(csi_full),
-            }
-        }
-
-        text_prefix.push_str(rest);
-        (up, down, erase, text_prefix)
+        }));
     }
 }
 
-/// Whether text ends inside a CSI sequence with no final byte yet -- a chunk
-/// boundary fell mid-escape. Reads with the same grammar `consume_controls`
-/// parses with: CSI introducer plus parameter bytes only.
-fn ends_mid_sequence(text: &str) -> bool {
-    let Some(i) = text.rfind('\x1b') else {
-        return false;
-    };
-    let tail = &text[i + 1..];
-    if tail.is_empty() {
-        return true;
+/// Route anything a painter produced to the message that carries it.
+///
+/// `style` is applied to a log line's text (stderr arrives red) and never to
+/// the status line, which carries the tool's own colours.
+pub fn painted_msg(
+    panel: usize,
+    gen: u64,
+    painted: Painted,
+    style: impl FnOnce(String) -> String,
+) -> crate::app::Msg {
+    match painted {
+        Painted::Line(paint) => {
+            let line = style(paint.text.clone());
+            paint_msg(panel, gen, &paint, line)
+        }
+        Painted::Status(status) => crate::app::Msg::AuxStatus { panel, gen, status },
     }
-    let Some(params) = tail.strip_prefix('[') else {
-        return false;
-    };
-    params.chars().all(|c| ('\x30'..='\x3F').contains(&c))
 }
 
 /// Route one paint to the message that places it: a paint that moved nowhere

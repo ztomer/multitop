@@ -45,6 +45,7 @@ ALLOWED: dict[str, str] = {
     "crates/agent/src/proc_sys.rs": "sysctl process table on macOS",
     "crates/agent/src/sys.rs": "sysctl/Mach sampling on macOS",
     "crates/agent/src/sys_temps.rs": "IOKit HID temperature sensors on macOS",
+    "crates/agent/src/tty_reply.rs": "poll(2)/read(2) on stdin for a terminal's reply to a query",
     "crates/vault/src/mlock.rs": "mlock/munlock to pin key material in RAM",
 }
 

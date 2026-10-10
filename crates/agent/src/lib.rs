@@ -12,8 +12,8 @@
 //! structurally instead: `tools/check_unsafe_scope.py` lists every file
 //! that may contain `unsafe` and fails on any other, so a NEW module still
 //! cannot add unsafe silently. The FFI modules are `exec/lock`, `exec/pty`,
-//! `exec/pump`, `proc`, `proc_sys`, `proc_disk`, `fetch`, `sys`, `sys_temps`
-//! and `monitor`.
+//! `exec/pump`, `proc`, `proc_sys`, `proc_disk`, `fetch`, `sys`, `sys_temps`,
+//! `tty_reply` and `monitor`.
 
 use std::os::unix::fs::FileTypeExt;
 
@@ -27,6 +27,7 @@ pub mod docker_cli;
 pub mod docker_render;
 pub mod docker_transport;
 pub mod emit;
+pub mod escape;
 pub mod exec;
 pub mod fetch;
 pub mod fmt;
@@ -42,6 +43,7 @@ pub mod render_layout;
 pub mod surface;
 pub mod sys;
 pub mod sys_temps;
+pub mod tty_reply;
 
 // Re-exported so the split is invisible to callers.
 use emit::emit_hello;

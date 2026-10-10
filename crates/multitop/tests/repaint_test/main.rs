@@ -15,4 +15,6 @@
 mod applying;
 #[path = "../common/mod.rs"]
 mod common;
+mod oracle;
 mod painter;
+mod status_line;

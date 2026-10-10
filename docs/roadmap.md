@@ -12,61 +12,6 @@ order. The version of this file before the 2026-10-10 consolidation is
 
 ## Now
 
-### N1 — the upgrade window tears: apt's progress bar is glued onto every log line
-
-**Reported 2026-10-10.** Reproduced offline only: nothing was run against a host,
-because an upgrade changes a live system. The repro feeds an apt-style byte
-stream through the real `Painter`, `paint_msg`, `App::apply` and `ui::draw` at
-80x24, and every dpkg line renders as a progress bar with a `7` column on the
-left and an `8` column on the right, the package name clipped off the edge:
-
-```
-| 7Progress: [ 16%] [########.......................................] 8 |
-| 7Progress: [ 24%] [#############..................................] 8 |
-```
-
-**Why.** Upgrades run on a pty sized to the pane (`crates/agent/src/exec/pty.rs`,
-`agent_dims` in `crates/multitop/src/ui/layout.rs`), so `apt` sees a tty and
-draws its pinned status line: `ESC 7`, an absolute move to the bottom row
-(`ESC[<rows>;0f`), the bar, `ESC 8` — no newline. Two parsers then mishandle it:
-
-1. `consume_controls` in `crates/multitop/src/tasks/painted.rs` only consumes
-   `ESC[` at the head of a line; the leading `ESC 7` stops it, so the move, the
-   bar and `ESC 8` become text of the NEXT line. Absolute moves (`H`/`f`) are
-   discarded as no-ops, so the pinned footer is flattened into the log.
-2. `crates/multitop/src/ansi.rs` drops only the ESC of a non-CSI, non-OSC
-   escape and prints the byte after it: `ESC 7` shows as `7`, `ESC(B` as `(B`.
-
-Ruled out: the terminal. Ratatui's real crossterm output fed through a vt100
-emulator matched its in-memory buffer on every frame (0 rows differ; the
-comparison was shown able to fail by injecting a stray write).
-
-**The class:** hand-rolled terminal parsers that each understand a different
-subset of the escape grammar. Siblings: `crates/multitop/src/tasks/exec_runner.rs`
-(same `Painter` for journal/tail/custom commands), `strip_ansi` in
-`crates/agent/src/color.rs` (consumes one byte after ESC, so `ESC(B` leaks `B`;
-`refit.rs` depends on it), and `ends_mid_sequence` in `painted.rs` (knows only
-`ESC[`, so a chunk split inside `ESC(` is not held back).
-
-**Fix, in order:**
-1. ONE escape tokenizer shared by `Painter`, `ansi::line_to_spans` and
-   `strip_ansi` — the `vte` crate's state machine rather than a fourth subset —
-   so every sequence is consumed whole everywhere.
-2. `Painter` models cursor save/restore and absolute rows: text written between
-   `ESC 7`/`ESC 8`, or to a row outside the scroll region, is not a log line. It
-   goes to a status message drawn as a pinned footer in the Upgrade pane, so
-   apt's progress stays visible instead of being dropped.
-3. Tests at the class level, both red on today's code: (a) a differential test
-   over a fixture corpus (apt fancy progress, docker's `ESC[nA` layer blocks, a
-   Rich live display, curl's `\r`, `tput sgr0`'s `ESC(B`) — the painter's log
-   must equal what a terminal-emulator oracle shows in its scroll region (the
-   `vt100` crate 0.15.2 does not handle `f`; map it to `H` or pick an oracle that
-   does); (b) a table over every escape form (two-byte `ESC 7/8/M/=/c`, `ESC(B`,
-   every CSI final byte, OSC with both terminators): all three parsers render
-   `a<esc>b` as `ab`.
-4. User-POV check last: a local `upgrade_cmd` that replays a captured apt byte
-   stream (never a real upgrade), screenshot at real scale.
-
 ### N2 — the command bar is near-white on a dark terminal, in every theme
 
 **Reported 2026-10-10; a regression since v0.50.0** (`f7cfb0a`, the light-terminal
@@ -227,8 +172,11 @@ the claim from both places — not the third option, a number nothing checks.
   will need its own coverage.)
 * **Do not move Android's auth hardening behind the app.** It is a security
   surface and a second client multiplies the exposure.
-* **Do not "fix" N1 by stripping escapes harder in one more place.** That is a
-  fourth parser subset; the fix is one tokenizer.
+* **Do not read terminal escapes anywhere but `multitop_agent::escape`.** Four
+  hand-rolled readers each knew a subset of the grammar: three tore the upgrade
+  log (apt's `ESC 7`/`ESC 8` progress bar, fixed 2026-10-10), and the fourth,
+  the OSC 11 background probe, never once recognised a reply.
+  `tools/check_one_escape_reader.py` fails the commit on a fifth.
 
 ## Next
 
@@ -345,7 +293,7 @@ carries a plan any more; this file does.
 | Claude Code (this repo's slug) | This session only; no desktop sessions. `memory/` kept — it is the project's memory store. |
 | opencode db sessions | Already gone; only the project row remains. |
 | opencode loop goal "implement the roadmap" (2026-09-03, `active`) | Superseded: its roadmap was rewritten twice since; the current one is this file. |
-| opencode loop goal "implement the plan" (2026-09-13) | Completed (upgrade stderr duplicate-line fix); landed, nothing open. N1 is a different defect in the same `Painter`. |
+| opencode loop goal "implement the plan" (2026-09-13) | Completed (upgrade stderr duplicate-line fix); landed, nothing open. The apt tearing found later in the same `Painter` was fixed 2026-10-10. |
 | opencode loop goal "impl3m3n5" (2026-09-28) | Completed (light-terminal palette, v0.50.0). Its wiring step introduced N2. |
 | opencode loop: nine empty job files, `loop.log` | Residue; removed. |
 | Antigravity, 2 conversations (2026-07-28: Docker header line, layout research) | Both died on API 429 after 7 steps with no output; nothing to carry. Removed. |

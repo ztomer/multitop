@@ -178,13 +178,25 @@ fn an_unterminated_escape_does_not_leak_into_the_text() {
 }
 
 #[test]
-fn more_parameters_than_the_buffer_holds_do_not_overrun_it() {
-    // Eight is the cap; a sequence with more must stop recording rather than
-    // writing past the array.
+fn every_parameter_of_a_long_sequence_applies_as_a_terminal_applies_it() {
+    // This test used to pin the OLD reader's eight-slot buffer: it asserted
+    // the `31` after the eighth parameter was never recorded. A terminal
+    // applies all of them, and the shared tokenizer holds 32, so the red is
+    // what the tool asked for and what a terminal shows.
     let s = sgr("1;1;1;1;1;1;1;1;1;1;1;31");
     assert!(s.add_modifier.contains(Modifier::BOLD));
-    // The 31 came after the cap, so it was never recorded.
-    assert_eq!(s.fg, None);
+    assert_eq!(s.fg, Some(ratatui::style::Color::Red));
+}
+
+#[test]
+fn a_sequence_longer_than_the_parser_holds_is_dropped_whole() {
+    // Past the parser's capacity the sequence is consumed and ignored -- no
+    // overrun, no partial style, no literal text.
+    let long = std::iter::repeat_n("1", 40).collect::<Vec<_>>().join(";");
+    let line = line_to_spans(&format!("\x1b[{long};31mtext"));
+    let text: String = line.spans.iter().map(|s| s.content.as_ref()).collect();
+    assert_eq!(text, "text");
+    assert_eq!(line.spans[0].style, ratatui::style::Style::default());
 }
 
 #[test]

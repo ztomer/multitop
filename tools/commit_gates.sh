@@ -133,6 +133,17 @@ if ! in_index python3 tools/check_row0_owner.py >"$log" 2>&1; then
 fi
 ok "row 0 belongs to the banner alone"
 
+info "checking terminal escapes have one reader"
+if ! python3 tools/check_one_escape_reader.py --self-test >"$log" 2>&1; then
+    cat "$log" >&2
+    die "the one-escape-reader checker's own self-test failed -- it cannot be trusted"
+fi
+if ! in_index python3 tools/check_one_escape_reader.py >"$log" 2>&1; then
+    cat "$log" >&2
+    die "escapes are read outside multitop_agent::escape — use scan/strip/is_complete"
+fi
+ok "terminal escapes are read by the shared tokenizer alone"
+
 info "checking the docs name paths that exist"
 if ! python3 tools/check_doc_paths.py --self-test >"$log" 2>&1; then
     cat "$log" >&2

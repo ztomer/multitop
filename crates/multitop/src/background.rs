@@ -42,7 +42,7 @@
 //! answers, not a complete one.
 
 use std::io::Write;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use multitop_agent::surface::Rgb;
 
@@ -198,42 +198,45 @@ impl Tty for RealTty {
 
 /// Read the reply, bounded by the call that waits for it.
 ///
-/// `crossterm::event::poll` is already a direct dependency and owns the `poll(2)`
-/// FFI, which matters twice over: this crate has `#![deny(unsafe_code)]` and a
-/// policy of no FFI of its own, so the honest way to ask "is there input yet" is
-/// to borrow the crate that already asks it. The `unsafe` that a direct
-/// `libc::poll` needs would have made this the only unsafe file in `multitop`,
-/// and `check_unsafe_scope.py` correctly refused it.
+/// As raw bytes through `multitop_agent::tty_reply`, never through crossterm's
+/// event reader: that parses `ESC ]` into an Alt+`]` key and the terminator's
+/// ESC with it, so the reply could never be recognised as finished and every
+/// probe timed out (measured 2026-10-10 against a pty answering with either
+/// terminator). The wait is bounded by `poll(2)` there, for the reason the
+/// module doc gives: a terminal that cannot answer says nothing.
 ///
-/// A deadline checked around `stdin.read` is what this replaces, and the
-/// difference is the whole point: `read` blocks, so a check in the loop condition
-/// never runs again. Here the wait is bounded by `poll` and the read only happens
-/// once there is something to read.
+/// The terminal must be in raw mode for the reply to arrive before a newline.
+/// The app's boot already is; `--print-background` is not, so raw mode is
+/// entered for the read and left exactly as it was found.
 fn read_reply(timeout: Duration) -> Option<String> {
-    let deadline = Instant::now() + timeout;
-    let mut collected = String::new();
-    while Instant::now() < deadline {
-        let remaining = deadline.saturating_duration_since(Instant::now());
-        if !crossterm::event::poll(remaining).unwrap_or(false) {
-            return None;
-        }
-        match crossterm::event::read() {
-            Err(_) => return None,
-            Ok(crossterm::event::Event::Key(crossterm::event::KeyEvent {
-                code: crossterm::event::KeyCode::Char(character),
-                ..
-            })) => collected.push(character),
-            Ok(crossterm::event::Event::Paste(text)) => collected.push_str(&text),
-            Ok(_) => {}
-        }
-        // `ST` is ESC backslash and BEL ends the 7-bit form. Either ends the
-        // reply; anything after it belongs to whatever the user is doing next,
-        // and swallowing it would eat a keystroke.
-        if collected.ends_with("\x1b\\") || collected.ends_with('\x07') {
-            return Some(collected);
-        }
+    let was_raw = crossterm::terminal::is_raw_mode_enabled().unwrap_or(false);
+    if !was_raw && crossterm::terminal::enable_raw_mode().is_err() {
+        return None;
     }
-    None
+    let reply =
+        multitop_agent::tty_reply::read_reply(timeout, |bytes| osc11_value(bytes).is_some());
+    if !was_raw {
+        let _ = crossterm::terminal::disable_raw_mode();
+    }
+    reply.map(|bytes| String::from_utf8_lossy(&bytes).into_owned())
+}
+
+/// The value of the first `OSC 11` in `bytes`, once it is complete.
+///
+/// Through the shared tokenizer, so the sequence is found wherever it is --
+/// after a keystroke the user typed first, after an unrelated escape -- and
+/// is only ever read whole. The first version split the reply at its first
+/// `;`, so echoed input containing one sent the parse into the wrong field.
+fn osc11_value(bytes: &[u8]) -> Option<String> {
+    let mut value = None;
+    multitop_agent::escape::scan(bytes, |token| {
+        if let multitop_agent::escape::Token::Osc([b"11", v, ..]) = token {
+            if value.is_none() {
+                value = Some(String::from_utf8_lossy(v).trim().to_string());
+            }
+        }
+    });
+    value
 }
 
 /// Parse the reply to `OSC 11`.
@@ -243,13 +246,7 @@ fn read_reply(timeout: Duration) -> Option<String> {
 /// terminals answer `#rrggbb` instead, so that is handled rather than refused.
 #[must_use]
 pub fn parse_osc11_reply(reply: &str) -> Option<Rgb> {
-    let body = reply
-        .trim_end_matches('\x07')
-        .trim_end_matches("\x1b\\")
-        .trim();
-    // Drop the `ESC ] 11 ;` prefix. The terminal may have echoed other input
-    // first, so the sequence is found rather than assumed to be at the start.
-    let value = body.split_once(';')?.1.trim();
+    let value = osc11_value(reply.as_bytes())?;
     if let Some(hex) = value.strip_prefix("rgb:") {
         let parts: Vec<&str> = hex.split('/').collect();
         if parts.len() != 3 {

@@ -85,6 +85,8 @@ jobs:
           python3 tools/check_keychain_isolation.py
           python3 tools/check_row0_owner.py --self-test
           python3 tools/check_row0_owner.py
+          python3 tools/check_one_escape_reader.py --self-test
+          python3 tools/check_one_escape_reader.py
           python3 tools/check_doc_paths.py --self-test
           python3 tools/check_doc_paths.py
           python3 tools/check_no_hard_coded_colour.py --self-test

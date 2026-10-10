@@ -1,6 +1,22 @@
 //! The screen model alone: bytes in, paint operations out.
 
-use multitop::tasks::{Paint, Painter};
+use multitop::tasks::{Paint, Painted, Painter};
+
+/// The line paints of one feed. None of these cases draws a status line, so
+/// one appearing is a failure here, not something to filter away.
+fn feed(p: &mut Painter, bytes: &[u8]) -> Vec<Paint> {
+    lines_only(p.feed_bytes(bytes))
+}
+
+fn lines_only(painted: Vec<Painted>) -> Vec<Paint> {
+    painted
+        .into_iter()
+        .map(|item| match item {
+            Painted::Line(paint) => paint,
+            Painted::Status(status) => panic!("unexpected status line: {status:?}"),
+        })
+        .collect()
+}
 
 /// Feed one complete line, terminated the way a pty terminates lines.
 ///
@@ -8,7 +24,7 @@ use multitop::tasks::{Paint, Painter};
 /// on every host and for the local panel, so a test that fed a bare `\n` would
 /// be testing a stream this program no longer receives.
 fn line(p: &mut Painter, text: &str) -> Vec<Paint> {
-    p.feed_bytes(format!("{text}\r\n").as_bytes())
+    feed(p, format!("{text}\r\n").as_bytes())
 }
 
 /// The single paint one line produced, or a failure naming what came instead.
@@ -41,8 +57,8 @@ fn ordinary_lines_simply_follow_one_another() {
 #[test]
 fn a_crlf_terminated_line_keeps_its_text() {
     let mut p = Painter::new();
-    assert_eq!(p.feed_bytes(b"hello\r\n")[0].text, "hello");
-    assert_eq!(p.feed_bytes(b"plain\n")[0].text, "plain");
+    assert_eq!(feed(&mut p, b"hello\r\n")[0].text, "hello");
+    assert_eq!(feed(&mut p, b"plain\n")[0].text, "plain");
 }
 
 /// One line in, one paint out. The reader at HEAD split on `\r` *and* `\n`,
@@ -53,7 +69,7 @@ fn a_crlf_terminated_line_keeps_its_text() {
 fn a_crlf_line_paints_once_and_moves_the_cursor_once() {
     let mut p = Painter::new();
     assert_eq!(
-        p.feed_bytes(b"a\r\nb\r\n").len(),
+        feed(&mut p, b"a\r\nb\r\n").len(),
         2,
         "two lines, two paints"
     );
@@ -144,17 +160,17 @@ fn erasing_a_line_needs_no_reporting_because_the_write_replaces_it() {
 #[test]
 fn stderr_progress_ticks_across_feeds_overwrite_one_line() {
     let mut p = Painter::new();
-    let first = p.feed_bytes(b"pct 1\r");
+    let first = feed(&mut p, b"pct 1\r");
     assert_eq!(first.len(), 1);
     assert_eq!(first[0].text, "pct 1");
     assert_eq!(first[0].back, 0, "nothing there yet, so it appends");
     for expected in ["pct 2", "pct 3"] {
-        let paints = p.feed_bytes(format!("{expected}\r").as_bytes());
+        let paints = feed(&mut p, format!("{expected}\r").as_bytes());
         assert_eq!(paints.len(), 1);
         assert_eq!(paints[0].text, expected);
         assert_eq!(paints[0].back, 1, "rewrites the line it already painted");
     }
-    let last = p.feed_bytes(b"pct done\r\n");
+    let last = feed(&mut p, b"pct done\r\n");
     assert_eq!(last.len(), 1);
     assert_eq!(last[0].text, "pct done");
     assert_eq!(last[0].back, 1);
@@ -174,7 +190,7 @@ fn carriage_returns_still_collapse_within_the_line_being_painted() {
 #[test]
 fn a_line_ending_in_a_bare_carriage_return_keeps_what_is_on_screen() {
     let mut p = Painter::new();
-    let paints = p.feed_bytes(b"[###   ] 42%\r");
+    let paints = feed(&mut p, b"[###   ] 42%\r");
     assert_eq!(paints.len(), 1);
     assert_eq!(paints[0].text, "[###   ] 42%");
 }
@@ -186,12 +202,12 @@ fn a_line_ending_in_a_bare_carriage_return_keeps_what_is_on_screen() {
 #[test]
 fn a_prompt_arriving_in_pieces_is_one_line_that_grows() {
     let mut p = Painter::new();
-    let first = p.feed_bytes(b"Continue? ");
+    let first = feed(&mut p, b"Continue? ");
     assert_eq!(first.len(), 1);
     assert_eq!(first[0].text, "Continue? ");
     assert_eq!(first[0].back, 0, "nothing there yet, so it appends");
 
-    let second = p.feed_bytes(b"[Y/n] ");
+    let second = feed(&mut p, b"[Y/n] ");
     assert_eq!(second.len(), 1);
     assert_eq!(
         second[0].text, "Continue? [Y/n] ",
@@ -200,7 +216,7 @@ fn a_prompt_arriving_in_pieces_is_one_line_that_grows() {
     assert_eq!(second[0].back, 1, "overwrites the line it already painted");
 
     // And answering it closes the line rather than starting a third copy.
-    let third = p.feed_bytes(b"y\r\n");
+    let third = feed(&mut p, b"y\r\n");
     assert_eq!(third.len(), 1);
     assert_eq!(third[0].text, "Continue? [Y/n] y");
     assert_eq!(third[0].back, 1);
@@ -220,7 +236,7 @@ fn no_line_is_ever_painted_at_the_append_point_twice() {
         b"... Done",
         b"\r\n",
     ] {
-        for paint in p.feed_bytes(chunk) {
+        for paint in feed(&mut p, chunk) {
             if paint.back == 0 {
                 appends += 1;
             }
@@ -238,9 +254,9 @@ fn an_escape_sequence_split_across_chunks_is_still_understood() {
     let mut p = Painter::new();
     one(&mut p, "one");
     one(&mut p, "two");
-    p.feed_bytes(b"\x1b[");
-    p.feed_bytes(b"2");
-    let paints = p.feed_bytes(b"Aover one\r\n");
+    feed(&mut p, b"\x1b[");
+    feed(&mut p, b"2");
+    let paints = feed(&mut p, b"Aover one\r\n");
     assert_eq!(paints.len(), 1);
     assert_eq!(paints[0].text, "over one");
     assert_eq!(
@@ -253,7 +269,7 @@ fn an_escape_sequence_split_across_chunks_is_still_understood() {
 fn a_blank_line_is_output_and_is_kept() {
     let mut p = Painter::new();
     one(&mut p, "one");
-    let paints = p.feed_bytes(b"\r\n");
+    let paints = feed(&mut p, b"\r\n");
     assert_eq!(paints.len(), 1, "a blank line between paragraphs is output");
     assert_eq!(paints[0].text, "");
     assert_eq!(paints[0].back, 0);
@@ -301,14 +317,16 @@ fn private_modes_like_cursor_hide_are_consumed() {
 #[test]
 fn finishing_repaints_an_unterminated_last_line_rather_than_appending_it() {
     let mut p = Painter::new();
-    p.feed_bytes(b"partial output");
-    let last = p.finish().expect("an unterminated line is still output");
+    feed(&mut p, b"partial output");
+    let mut last = lines_only(p.finish());
+    assert_eq!(last.len(), 1, "an unterminated line is still output");
+    let last = last.remove(0);
     assert_eq!(last.text, "partial output");
     assert_eq!(
         last.back, 1,
         "it overwrites itself; it is not a second copy"
     );
-    assert!(p.finish().is_none(), "and there is nothing owed after that");
+    multitop_testassert::assert_empty!(p.finish());
 }
 
 /// Live renderers rewind AFTER drawing: the erase-and-up choreography trails
@@ -324,12 +342,15 @@ fn a_trailing_rewind_repaints_the_lines_it_covers() {
     // The cursor is on a fresh row (the last line was newline-terminated),
     // so the tool redraws "two" there, erases it, steps up onto the real
     // "two" and erases that too, then draws the replacement. One row above
-    // the append point -- and the erase needs no reporting, because the
-    // write replaces the line it cleared.
+    // the append point. The row it erased on the way up IS reported: this
+    // test pinned 0 until a terminal emulator was asked (`oracle.rs`), and a
+    // live block that shrinks leaves exactly those rows blank on a terminal.
+    // Here the row below is the append point, outside the log, so blanking
+    // it costs nothing.
     let paint = one(&mut p, "two\r\u{1b}[2K\u{1b}[1A\u{1b}[2KONE");
     assert_eq!(paint.text, "ONE");
     assert_eq!(paint.back, 1, "one row above the append point");
-    assert_eq!(paint.erase_below, 0);
+    assert_eq!(paint.erase_below, 1);
 }
 
 /// The steady state, tick after tick: a block redrawn from its own open
@@ -340,12 +361,12 @@ fn a_block_rewound_from_its_open_line_converges() {
     let mut p = Painter::new();
     // First block: closed lines, then an open bottom line -- live regions
     // leave the cursor sitting on content, with no newline after it.
-    let paints = p.feed_bytes(b"A1\nB1");
+    let paints = feed(&mut p, b"A1\nB1");
     assert_eq!(paints.len(), 2);
     assert!(paints.iter().all(|paint| paint.back == 0));
     for (top, bottom) in [("C", "D"), ("E", "F"), ("G", "H")] {
         let bytes = format!("\r\x1b[2K\x1b[1A\x1b[2K{top}\n{bottom}");
-        let paints = p.feed_bytes(bytes.as_bytes());
+        let paints = feed(&mut p, bytes.as_bytes());
         assert_eq!(paints.len(), 2, "tick {top}{bottom}: {paints:?}");
         assert_eq!(paints[0].text, top);
         assert_eq!(
@@ -365,15 +386,104 @@ fn a_trailing_rewind_split_across_chunks_counts_once() {
     let mut p = Painter::new();
     one(&mut p, "one");
     // Unterminated bottom line, exactly as the block above leaves it.
-    let paints = p.feed_bytes(b"two");
+    let paints = feed(&mut p, b"two");
     assert_eq!(paints.len(), 1);
     assert_eq!(paints[0].back, 0);
     // The choreography arrives with no newline yet: nothing to paint, and
     // -- crucially -- nothing recorded, or the reassembled whole would move
     // twice.
-    multitop_testassert::assert_empty!(p.feed_bytes(b"\r\x1b[2K\x1b[1A"));
-    let paints = p.feed_bytes(b"\x1b[2KOVER\r\n");
+    multitop_testassert::assert_empty!(feed(&mut p, b"\r\x1b[2K\x1b[1A"));
+    let paints = feed(&mut p, b"\x1b[2KOVER\r\n");
     assert_eq!(paints.len(), 1);
     assert_eq!(paints[0].text, "OVER");
     assert_eq!(paints[0].back, 2, "one rewind, counted once");
+}
+
+/// Every escape form in the shared table is consumed whole. The painter knew
+/// only `ESC[`; anything else -- `ESC 7`, `ESC(B` -- stopped its head scan and
+/// went into the log as text.
+#[test]
+fn every_escape_form_is_consumed_whole() {
+    for form in multitop_testassert::ESCAPE_FORMS {
+        let mut p = Painter::new();
+        let text: String = p
+            .feed_bytes(format!("a{form}b\r\n").as_bytes())
+            .into_iter()
+            .filter_map(|item| match item {
+                Painted::Line(paint) => Some(multitop_agent::color::strip_ansi(&paint.text)),
+                Painted::Status(_) => None,
+            })
+            .collect();
+        assert_eq!(text, "ab", "{form:?}");
+    }
+}
+
+/// apt's pinned bar, byte for byte as apt 3.0 writes it: a status line, not
+/// a prefix glued to the dpkg line that follows it in the same write.
+#[test]
+fn apts_pinned_progress_bar_is_a_status_line_not_log_text() {
+    let mut p = Painter::new();
+    let out = p.feed_bytes(
+        b"Preparing to unpack .../00-netbase_6.5_all.deb ...\r\n\
+          \x1b7\x1b[24;0f\x1b[42m\x1b[30mProgress: [  2%]\x1b[49m\x1b[39m [#...] \x1b8\
+          Unpacking netbase (6.5) ...\r\n",
+    );
+    let lines: Vec<&str> = out
+        .iter()
+        .filter_map(|item| match item {
+            Painted::Line(paint) => Some(paint.text.as_str()),
+            Painted::Status(_) => None,
+        })
+        .collect();
+    assert_eq!(
+        lines,
+        [
+            "Preparing to unpack .../00-netbase_6.5_all.deb ...",
+            "Unpacking netbase (6.5) ..."
+        ]
+    );
+    let status: Vec<String> = out
+        .iter()
+        .filter_map(|item| match item {
+            Painted::Status(Some(s)) => Some(multitop_agent::color::strip_ansi(s)),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(status, ["Progress: [  2%] [#...] "]);
+}
+
+/// The same status re-read on a later feed of the same open line is not news.
+#[test]
+fn a_status_is_emitted_once_however_often_its_line_is_re_read() {
+    let mut p = Painter::new();
+    let first = p.feed_bytes(b"\x1b7\x1b[24;0fProgress: [ 5%]\x1b8");
+    assert_eq!(
+        first,
+        [Painted::Status(Some("Progress: [ 5%]".to_string()))]
+    );
+    multitop_testassert::assert_empty!(lines_only(p.feed_bytes(b"Unpack"))
+        .into_iter()
+        .filter(|l| l.text != "Unpack")
+        .collect::<Vec<_>>());
+    let again = p.feed_bytes(b"ing\r\n");
+    assert!(
+        !again.iter().any(|item| matches!(item, Painted::Status(_))),
+        "the line grew; the status did not change: {again:?}"
+    );
+}
+
+/// apt takes its bar down with erase-below; a run that ends with one still
+/// up takes it down itself, because a bar for a process that has gone reads
+/// as still running.
+#[test]
+fn the_status_comes_down_when_erased_and_when_the_run_ends() {
+    let mut p = Painter::new();
+    p.feed_bytes(b"\x1b7\x1b[24;0fProgress: [98%]\x1b8done\r\n");
+    let teardown = p.feed_bytes(b"\r\n\x1b7\x1b[0;24r\x1b8\x1b[1A\x1b[J\n");
+    assert!(teardown.contains(&Painted::Status(None)), "{teardown:?}");
+    multitop_testassert::assert_empty!(p.finish());
+
+    let mut killed = Painter::new();
+    killed.feed_bytes(b"\x1b7\x1b[24;0fProgress: [40%]\x1b8");
+    assert_eq!(killed.finish(), [Painted::Status(None)]);
 }

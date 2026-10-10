@@ -295,27 +295,16 @@ impl Palette {
     }
 }
 
-/// Strip SGR sequences, for width math and for tests that assert on layout.
+/// Strip every escape sequence, for width math and for tests that assert on
+/// layout.
+///
+/// Through the shared tokenizer, not a scan of its own: the hand-rolled one
+/// assumed "we only ever emit CSI ... m" and consumed one byte after any other
+/// ESC, so `ESC(B` from `tput sgr0` leaked its `B` into every width measured
+/// by `refit` -- and the refitted line was one column short.
 #[must_use]
 pub fn strip_ansi(s: &str) -> String {
-    let mut out = String::with_capacity(s.len());
-    let mut chars = s.chars();
-    while let Some(c) = chars.next() {
-        if c != '\x1b' {
-            out.push(c);
-            continue;
-        }
-        // We only ever emit CSI ... m, so consume through the final byte.
-        if chars.next() != Some('[') {
-            continue;
-        }
-        for c in chars.by_ref() {
-            if c.is_ascii_alphabetic() {
-                break;
-            }
-        }
-    }
-    out
+    crate::escape::strip(s)
 }
 
 #[cfg(test)]
@@ -370,6 +359,13 @@ mod tests {
         assert_eq!(strip_ansi("\x1b[0;31mred\x1b[0m"), "red");
         assert_eq!(strip_ansi("plain"), "plain");
         assert_eq!(strip_ansi("\x1b[1ma\x1b[0mb\x1b[0;90mc\x1b[0m"), "abc");
+    }
+
+    #[test]
+    fn strip_ansi_removes_every_escape_form_whole() {
+        for form in multitop_testassert::ESCAPE_FORMS {
+            assert_eq!(strip_ansi(&format!("a{form}b")), "ab", "{form:?}");
+        }
     }
 
     #[test]

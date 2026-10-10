@@ -94,6 +94,21 @@ fn it_tolerates_echoed_input_before_the_reply() {
 }
 
 #[test]
+fn echoed_input_with_a_semicolon_does_not_derail_the_parse() {
+    // The first parser split at the reply's first `;`, so a keystroke like
+    // `;` typed before the reply arrived put the parse in the wrong field.
+    assert_eq!(
+        parse_osc11_reply("a;b\x1b]11;rgb:ffff/ffff/ffff\x07"),
+        Some(Rgb::new(255, 255, 255))
+    );
+}
+
+#[test]
+fn an_unfinished_reply_is_not_a_reply() {
+    assert_eq!(parse_osc11_reply("\x1b]11;rgb:ffff/ffff/ffff"), None);
+}
+
+#[test]
 fn it_refuses_replies_that_are_not_colours() {
     for bad in [
         "\x1b]11;rgb:ffff/ffff\x1b\\",           // two components

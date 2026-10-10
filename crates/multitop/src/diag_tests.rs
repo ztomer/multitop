@@ -44,6 +44,7 @@ fn the_snapshot_renders_and_carries_no_secret_fields() {
         quit: QuitFlags::default(),
         vault_unlocked: true,
         active_confirm: None,
+        background: "OSC 11 Reported(Rgb { r: 255, g: 255, b: 255 })".into(),
         tasks: Liveness {
             monitors_alive: 2,
             upgrades_alive: 1,
@@ -79,6 +80,10 @@ fn the_snapshot_renders_and_carries_no_secret_fields() {
     assert!(text.contains("STARTED"), "{text}");
     assert!(text.contains("ring 300"), "{text}");
     assert!(text.contains("scroll 41"), "{text}");
+    assert!(
+        text.contains("background: OSC 11 Reported"),
+        "the detected background is in the dump: {text}"
+    );
     for forbidden in ["password", "sudo", "vault_password", "hunter2"] {
         assert!(
             !text.to_lowercase().contains(forbidden),
@@ -141,6 +146,7 @@ fn both_tiers_land_and_are_owner_only() {
             scroll: 3,
         }],
         quit: QuitFlags::default(),
+        background: "unknown Unknown".into(),
         vault_unlocked: false,
         last_update: None,
         upgrade_started_at: None,

@@ -33,7 +33,7 @@ use crate::app::Msg;
 use crate::config::Server;
 use crate::fmt::{error_line, header_line, status_line};
 use crate::ssh;
-use crate::tasks::painted::{is_sudo_help, Paint, Painter};
+use crate::tasks::painted::{is_sudo_help, painted_msg, Painted, Painter};
 use crate::tasks::verdict::{sudo_tips, verdict, Outcome, Report};
 
 /// How long the client waits with no frame at all before calling it lost.
@@ -306,8 +306,8 @@ where
             break;
         }
     }
-    if let Some(paint) = painter.finish() {
-        send_paint(idx, gen, &paint, tx).await;
+    for painted in painter.finish() {
+        send_painted(idx, gen, painted, tx).await;
     }
 }
 
@@ -332,8 +332,8 @@ async fn apply_frame(
             if is_sudo_help(&String::from_utf8_lossy(bytes).to_lowercase()) {
                 report.sudo.help = true;
             }
-            for paint in painter.feed_bytes(bytes) {
-                send_paint(idx, gen, &paint, tx).await;
+            for painted in painter.feed_bytes(bytes) {
+                send_painted(idx, gen, painted, tx).await;
             }
         }
         ExecFrame::Out {
@@ -356,21 +356,16 @@ async fn apply_frame(
             if is_sudo_help(&String::from_utf8_lossy(bytes).to_lowercase()) {
                 report.sudo.help = true;
             }
-            for paint in painter.feed_bytes(bytes) {
-                if paint.text.trim().is_empty() && paint.back == 0 && paint.erase_below == 0 {
-                    continue;
+            for painted in painter.feed_bytes(bytes) {
+                if let Painted::Line(paint) = &painted {
+                    if paint.text.trim().is_empty() && paint.back == 0 && paint.erase_below == 0 {
+                        continue;
+                    }
+                    if ssh::is_mux_noise(paint.text.trim()) {
+                        continue;
+                    }
                 }
-                if ssh::is_mux_noise(paint.text.trim()) {
-                    continue;
-                }
-                let _ = tx
-                    .send(crate::tasks::paint_msg(
-                        idx,
-                        gen,
-                        &paint,
-                        error_line(paint.text.clone()),
-                    ))
-                    .await;
+                let _ = tx.send(painted_msg(idx, gen, painted, error_line)).await;
             }
         }
         ExecFrame::Marker(MarkerKind::SudoFailed) => report.sudo.rejected = true,
@@ -391,9 +386,9 @@ async fn apply_frame(
     false
 }
 
-async fn send_paint(idx: usize, gen: u64, paint: &Paint, tx: &Sender<Msg>) {
+async fn send_painted(idx: usize, gen: u64, painted: Painted, tx: &Sender<Msg>) {
     let _ = tx
-        .send(crate::tasks::paint_msg(idx, gen, paint, paint.text.clone()))
+        .send(painted_msg(idx, gen, painted, std::convert::identity))
         .await;
 }
 
