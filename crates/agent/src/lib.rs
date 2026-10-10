@@ -18,6 +18,7 @@
 use std::os::unix::fs::FileTypeExt;
 
 pub mod adapt;
+pub mod chrome;
 pub mod color;
 pub mod consts;
 pub mod conv;

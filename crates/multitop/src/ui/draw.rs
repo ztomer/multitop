@@ -6,13 +6,13 @@ use crate::ui::layout::{regions, SIDE_MARGIN};
 use crate::ui::windowing::pane_lines;
 use multitop_agent::palette_view::PaletteView;
 use ratatui::layout::Rect;
-use ratatui::style::{Color, Style};
+use ratatui::style::Style;
 use ratatui::text::{Line, Span};
 use ratatui::widgets::Paragraph;
 use ratatui::Frame;
 
 fn draw_no_matches(f: &mut Frame, app: &App, theme: &PaletteView) {
-    let bg_color = Color::Rgb(theme.keybar_bg.0, theme.keybar_bg.1, theme.keybar_bg.2);
+    let bg_color = crate::ui::ink(theme.bar.bg);
     let area = f.area();
     let (body, keybar) = (
         Rect {
@@ -31,11 +31,11 @@ fn draw_no_matches(f: &mut Frame, app: &App, theme: &PaletteView) {
             Line::from(""),
             Line::from(Span::styled(
                 format!("  No host matches \"{}\".", app.filter_query),
-                Style::default().fg(Color::Yellow),
+                Style::default().fg(crate::ui::ink(theme.page.warn)),
             )),
             Line::from(Span::styled(
                 format!("  {hosts} configured; Esc clears the filter."),
-                Style::default().fg(Color::DarkGray),
+                Style::default().fg(crate::ui::ink(theme.page.muted)),
             )),
         ]),
         body,
@@ -60,7 +60,7 @@ fn draw_no_matches(f: &mut Frame, app: &App, theme: &PaletteView) {
 /// back on the stats screen.
 fn draw_modals(f: &mut Frame, app: &App) {
     if app.overlay.is_help() {
-        crate::modals::draw_help(f);
+        crate::modals::draw_help(f, &app.current_theme());
         return;
     }
     if app.overlay.is_palette() {
@@ -77,7 +77,7 @@ fn draw_modals(f: &mut Frame, app: &App) {
         None
     };
     if let Some(waiting) = waiting {
-        crate::modals::draw_vault_awaiting_biometric(f, waiting);
+        crate::modals::draw_vault_awaiting_biometric(f, waiting, &app.current_theme());
     } else if app.show_vault_password_prompt() || app.vault_creating() {
         crate::modals::draw_vault_password_prompt(f, app);
     }
@@ -114,7 +114,7 @@ pub fn draw(f: &mut Frame, app: &mut App) {
         return;
     }
     let (panel_areas, keybar) = regions(f.area(), shown.len());
-    let bg_color = Color::Rgb(theme.keybar_bg.0, theme.keybar_bg.1, theme.keybar_bg.2);
+    let bg_color = crate::ui::ink(theme.bar.bg);
 
     // Collected rather than written in the loop, which holds `app` immutably.
     let mut effective_offsets: Vec<(usize, usize)> = Vec::with_capacity(shown.len());
@@ -243,7 +243,7 @@ fn banner_row(
             theme.secondary(),
             "\u{2500}".repeat(right_rule_len),
             theme.reset,
-            badge_span(&badge),
+            badge_span(&badge, theme),
         );
     }
     // Not `center_header`: that is the agent's own helper and maps
@@ -256,13 +256,25 @@ fn banner_row(
         server_target,
         name_close2,
         theme.reset,
-        badge_span(&badge)
+        badge_span(&badge, theme)
     )
 }
 
 /// Amber, red, or nothing: the banner tint for a host whose health has fallen
 /// below the alert thresholds.
-fn alert_tint(app: &App, snap: &multitop_agent::render::Snapshot) -> Option<Color> {
+/// How loudly a host's banner speaks: which palette role tints its name.
+///
+/// An enum, not a `Color`. This was `Option<Color>` holding `Color::Red` and
+/// `Color::Yellow` as MARKERS that `header_name_color` matched back into the
+/// palette's own roles -- terminal colours standing in for a severity, a
+/// shape the named-colour gate cannot tell from one that is drawn.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum AlertTint {
+    Breach,
+    Warning,
+}
+
+fn alert_tint(app: &App, snap: &multitop_agent::render::Snapshot) -> Option<AlertTint> {
     let cfg = crate::config::Config {
         servers: vec![],
         theme: None,
@@ -279,18 +291,15 @@ fn alert_tint(app: &App, snap: &multitop_agent::render::Snapshot) -> Option<Colo
         app.vault.is_some() && matches!(app.vault_state, crate::app::VaultState::Locked);
     let h = crate::health::health_with_vault(snap, &cfg, vault_locked);
     if h < crate::health::HEALTH_RED_BELOW {
-        Some(Color::Red)
+        Some(AlertTint::Breach)
     } else if h < crate::health::HEALTH_YELLOW_BELOW {
-        Some(Color::Yellow)
+        Some(AlertTint::Warning)
     } else {
         None
     }
 }
 
-fn header_name_color(
-    alert_color: Option<ratatui::style::Color>,
-    theme: &PaletteView,
-) -> (String, String) {
+fn header_name_color(alert_color: Option<AlertTint>, theme: &PaletteView) -> (String, String) {
     // The alert tint takes the palette's OWN alert colour, not a literal.
     //
     // These two were hard-coded, which is invisible on a dark terminal — the
@@ -304,11 +313,11 @@ fn header_name_color(
     // The two branches map to the roles the alert means: a breached alert is
     // `meter_high`, a warning is `meter_mid`.
     match alert_color {
-        Some(ratatui::style::Color::Red) => (
+        Some(AlertTint::Breach) => (
             format!("{}{}", theme.meter_high(), theme.bold),
             theme.reset.to_string(),
         ),
-        Some(ratatui::style::Color::Yellow) => (
+        Some(AlertTint::Warning) => (
             format!("{}{}", theme.meter_mid(), theme.bold),
             theme.reset.to_string(),
         ),

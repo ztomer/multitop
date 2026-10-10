@@ -195,7 +195,7 @@ impl App {
         p.last_frame = Some(lines);
         // Only paint it if stats is what the user is looking at.
         if p.mode == Mode::Monitor {
-            p.show_last_frame();
+            p.show_last_frame(&self.palette_view);
             true
         } else {
             false

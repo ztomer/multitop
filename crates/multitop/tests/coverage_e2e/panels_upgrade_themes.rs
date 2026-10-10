@@ -93,7 +93,7 @@ fn panel_show_body_reserves_row0() {
 fn panel_show_last_frame_fallback() {
     let _g = isolate_keychain();
     let mut p = Panel::new(test_server("h1"));
-    p.show_last_frame();
+    p.show_last_frame(&multitop::palette_store::current());
     assert!(p.view.iter().any(|l| l.contains("waiting")));
 }
 

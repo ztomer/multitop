@@ -2,7 +2,7 @@
 
 /// Format text as an error line (meter-high palette).
 pub fn error_line(text: impl std::fmt::Display) -> String {
-    let pal = &multitop_agent::color::ANSI;
+    let pal = crate::palette_store::current();
     format!("{}{text}{}", pal.meter_high(), pal.reset)
 }
 
@@ -19,13 +19,13 @@ pub fn mask_secret(secret: &str) -> String {
 }
 
 pub fn status_line(text: impl std::fmt::Display) -> String {
-    let pal = &multitop_agent::color::ANSI;
+    let pal = crate::palette_store::current();
     format!("{}{text}{}", pal.meter_mid(), pal.reset)
 }
 
 /// Format text as a header line (primary + bold palette).
 pub fn header_line(text: impl std::fmt::Display) -> String {
-    let pal = &multitop_agent::color::ANSI;
+    let pal = crate::palette_store::current();
     format!("{}{}{text}{}", pal.primary(), pal.bold, pal.reset)
 }
 

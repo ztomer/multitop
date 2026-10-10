@@ -28,6 +28,7 @@ pub mod modals;
 pub mod mode;
 pub mod notify;
 pub mod ops;
+pub mod palette_store;
 pub mod panel;
 pub mod password_actions;
 pub mod password_store;

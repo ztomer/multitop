@@ -25,23 +25,21 @@ pub fn refit_header(line: &str, target_cols: usize) -> Option<String> {
         })
         .sum();
 
-    if target_cols <= disp_w {
-        return Some(format!("\x1b[36;1m{fw_trimmed}\x1b[0m"));
-    }
+    // The agent's own roles for this header (`center_header`): the title in
+    // primary and bold, the rule in secondary. These were `ESC[36;1m` and
+    // `ESC[90m` -- terminal-decided cyan and grey, adapted by nothing.
+    let pal = crate::palette_store::current();
+    let title = format!("{}{}{fw_trimmed}{}", pal.primary(), pal.bold, pal.reset);
     let space_needed = disp_w + 2;
     if target_cols < space_needed {
-        return Some(format!("\x1b[36;1m{fw_trimmed}\x1b[0m"));
+        return Some(title);
     }
     let rem = target_cols - space_needed;
     let left_len = rem / 2;
     let right_len = rem - left_len;
 
-    Some(format!(
-        "\x1b[90m{}\x1b[0m\x1b[36;1m {} \x1b[0m\x1b[90m{}\x1b[0m",
-        "\u{2500}".repeat(left_len),
-        fw_trimmed,
-        "\u{2500}".repeat(right_len)
-    ))
+    let rule = |n: usize| format!("{}{}{}", pal.secondary(), "\u{2500}".repeat(n), pal.reset);
+    Some(format!("{} {title} {}", rule(left_len), rule(right_len)))
 }
 
 #[must_use]
@@ -56,56 +54,17 @@ pub fn refit_line(line: &str, target_cols: usize) -> String {
     let trimmed = plain.trim();
     if !trimmed.is_empty() && trimmed.chars().all(|c| c == '\u{2500}') {
         let rule_w = target_cols.saturating_sub(2);
-        return format!(" \x1b[90m{}\x1b[0m", "\u{2500}".repeat(rule_w));
+        let pal = crate::palette_store::current();
+        return format!(
+            " {}{}{}",
+            pal.secondary(),
+            "\u{2500}".repeat(rule_w),
+            pal.reset
+        );
     }
     line.to_string()
 }
 
 #[cfg(test)]
-mod tests {
-
-    use super::*;
-
-    #[test]
-    fn refit_header_wide_terminal() {
-        let line = "\u{2500}\u{2500}\u{2500} \u{ff23}\u{ff30}\u{ff30} \u{2500}\u{2500}\u{2500}";
-        let result = refit_header(line, 40).unwrap();
-        assert!(result.contains("\u{ff23}\u{ff30}\u{ff30}"));
-        assert!(result.contains("\u{2500}"));
-    }
-
-    #[test]
-    fn refit_header_narrow_terminal() {
-        let line = "\u{2500}\u{2500}\u{2500} \u{ff23}\u{ff30}\u{ff30} \u{2500}\u{2500}\u{2500}";
-        let result = refit_header(line, 5).unwrap();
-        assert_eq!(result, "\x1b[36;1m\u{ff23}\u{ff30}\u{ff30}\x1b[0m");
-    }
-
-    #[test]
-    fn refit_header_fullwidth_chars() {
-        let line = "\u{2500}\u{2500}\u{2500} \u{ff23}\u{ff30}\u{ff30} \u{2500}\u{2500}\u{2500}";
-        let result = refit_header(line, 20).unwrap();
-        assert!(result.contains("\u{ff23}\u{ff30}\u{ff30}"));
-    }
-
-    #[test]
-    fn refit_line_horizontal_rule() {
-        let line = "\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}";
-        let result = refit_line(line, 20);
-        assert!(result.contains("\u{2500}"));
-        assert!(result.contains("\x1b[90m"));
-    }
-
-    #[test]
-    fn refit_line_plain_text() {
-        let line = "hello world";
-        let result = refit_line(line, 20);
-        assert_eq!(result, "hello world");
-    }
-
-    #[test]
-    fn refit_line_empty() {
-        let result = refit_line("", 20);
-        assert_eq!(result, "");
-    }
-}
+#[path = "refit_tests.rs"]
+mod tests;

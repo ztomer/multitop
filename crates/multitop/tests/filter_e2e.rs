@@ -87,7 +87,7 @@ impl Harness {
         // is written over line 0, so there has to be a line 0. This is the
         // "waiting for data..." state a real panel is in before its first frame.
         for panel in &mut app.panels {
-            panel.show_last_frame();
+            panel.show_last_frame(&multitop::palette_store::current());
         }
         let (tx, _rx) = mpsc::channel::<Msg>(64);
         let (dims_tx, drx) = watch::channel((120u16, 40u16));

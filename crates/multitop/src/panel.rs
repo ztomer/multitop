@@ -1,5 +1,6 @@
 use crate::config::Server;
 use multitop_agent::fetch::FetchSnapshot;
+use multitop_agent::palette_view::PaletteView;
 
 /// A bounded ring of lines that reuses its memory.
 ///
@@ -212,6 +213,26 @@ impl CredentialLookup {
     }
 }
 
+/// The app's own body for a panel with no frame to show.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Placeholder {
+    Connecting,
+    Waiting,
+}
+
+impl Placeholder {
+    /// Row 0 is the banner's, which `ui::draw` writes over whatever is there:
+    /// a one-line body that started at row 0 was eaten whole, and a host coming
+    /// up rendered as an empty box, indistinguishable from a hung session.
+    fn lines(self, pal: &PaletteView) -> Vec<String> {
+        let (ink, text) = match self {
+            Self::Connecting => (pal.muted(), "connecting..."),
+            Self::Waiting => (pal.meter_mid(), "waiting for data..."),
+        };
+        vec![String::new(), format!("{ink}{text}{}", pal.reset)]
+    }
+}
+
 #[derive(Clone, Debug)]
 pub struct Panel {
     pub server: Server,
@@ -237,6 +258,9 @@ pub struct Panel {
     /// The Ops poll's last word for this host (servers ROADMAP 12.17b).
     pub last_ops: Option<crate::ops::OpsState>,
     pub view: Vec<String>,
+    /// Which placeholder `view` is, while it is one: redrawn when the palette
+    /// changes, because no renderer owns it.
+    placeholder: Option<Placeholder>,
     /// How far the pane the user is *currently looking at* is scrolled back.
     pub scroll_offset: usize,
     /// Where the Upgrade log was left, kept separately so leaving that view and
@@ -279,7 +303,7 @@ const MAX_NOTES: usize = 4;
 impl Panel {
     #[must_use]
     pub fn new(server: Server) -> Self {
-        let pal = &multitop_agent::color::ANSI;
+        let pal = crate::palette_store::current();
         let history = crate::history_store::load(&server.host)
             .or_else(|| crate::history_store::load(&crate::password_store::account(&server)))
             .unwrap_or_default();
@@ -303,10 +327,8 @@ impl Panel {
             // first line eaten -- and this body is one line long, so the whole
             // of it was eaten and a host coming up rendered as an empty box,
             // indistinguishable from a hung SSH session or a dead app.
-            view: vec![
-                String::new(),
-                format!("{}connecting...{}", pal.muted(), pal.reset),
-            ],
+            view: Placeholder::Connecting.lines(&pal),
+            placeholder: Some(Placeholder::Connecting),
             scroll_offset: 0,
             upgrade_scroll_offset: 0,
             notes: Vec::new(),
@@ -371,6 +393,7 @@ impl Panel {
     /// now, so a third cannot forget. Rendered agent frames go through
     /// [`Panel::show_frame`] instead -- they carry their own row 0.
     pub fn show_body(&mut self, lines: impl IntoIterator<Item = String>) {
+        self.placeholder = None;
         self.view = std::iter::once(String::new()).chain(lines).collect();
     }
 
@@ -384,7 +407,17 @@ impl Panel {
     /// here they were hard-truncated by the pane, which loses the end of a
     /// sentence -- and the end of a notice is the part that says what to do.
     pub fn show_frame(&mut self, lines: Vec<String>) {
+        self.placeholder = None;
         self.view = lines;
+    }
+
+    /// Redraw a placeholder body in `pal`. A placeholder is the app's own
+    /// text, written before any frame arrived, so a theme or background change
+    /// must reach it; a frame is redrawn by its renderer instead.
+    pub fn restyle_placeholder(&mut self, pal: &PaletteView) {
+        if let Some(placeholder) = self.placeholder {
+            self.view = placeholder.lines(pal);
+        }
     }
 
     /// Whether this panel still needs a credential-store lookup. True only for
@@ -423,21 +456,12 @@ impl Panel {
         }
     }
 
-    pub fn show_last_frame(&mut self) {
-        let pal = &multitop_agent::color::ANSI;
-        let lines = self.last_frame.as_ref().map_or_else(
-            || {
-                // Row 0 is the banner's; see `Panel::new`. An agent frame
-                // already carries its own line 0 for the banner to replace,
-                // but this fallback is written here and must reserve it, or it
-                // says nothing at all.
-                vec![
-                    String::new(),
-                    format!("{}waiting for data...{}", pal.meter_mid(), pal.reset),
-                ]
-            },
-            std::clone::Clone::clone,
-        );
-        self.show_frame(lines);
+    pub fn show_last_frame(&mut self, pal: &PaletteView) {
+        if let Some(lines) = self.last_frame.clone() {
+            self.show_frame(lines);
+        } else {
+            self.view = Placeholder::Waiting.lines(pal);
+            self.placeholder = Some(Placeholder::Waiting);
+        }
     }
 }

@@ -149,7 +149,7 @@ fn test_show_last_frame_restores_view() {
     let mut panel = multitop::app::Panel::new(server);
 
     panel.last_frame = Some(vec!["line1".to_string(), "line2".to_string()]);
-    panel.show_last_frame();
+    panel.show_last_frame(&multitop::palette_store::current());
 
     assert_eq!(panel.view, vec!["line1", "line2"]);
 }

@@ -72,7 +72,7 @@ fn panel_show_last_frame_with_cached_frame() {
         mcp: None,
     });
     p.show_frame(vec!["cached".into()]);
-    p.show_last_frame();
+    p.show_last_frame(&multitop::palette_store::current());
     // show_last_frame overwrites view with last_frame (which was set by show_frame).
     assert!(p
         .view

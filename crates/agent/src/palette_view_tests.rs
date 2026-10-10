@@ -242,10 +242,16 @@ fn building_from_an_adaptation_matches_building_from_the_background() {
     for theme in THEMES {
         let direct = PaletteView::for_background(theme, LIGHT);
         let adapted = adapt(theme, LIGHT, MIN_TEXT_CONTRAST);
-        let cached = PaletteView::from_adapted(theme, adapted.as_ref());
+        let cached = PaletteView::from_adapted(theme, adapted.as_ref(), LIGHT);
         for ((_, a), (_, b)) in escapes(&direct).iter().zip(escapes(&cached).iter()) {
             assert_eq!(a, b, "{} differs between the two build paths", theme.name);
         }
+        assert_eq!(
+            (direct.bar, direct.page),
+            (cached.bar, cached.page),
+            "{}",
+            theme.name
+        );
     }
 }
 

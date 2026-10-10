@@ -17,12 +17,7 @@ impl App {
             sort: SortBy::Cpu,
             theme_idx: 0,
             background: crate::background::Background::Unknown,
-            palette_view: std::sync::Arc::new(
-                multitop_agent::palette_view::PaletteView::for_background(
-                    &multitop_agent::color::THEMES[0],
-                    multitop_agent::color::THEMES[0].own_background(),
-                ),
-            ),
+            palette_view: crate::palette_store::publish(crate::palette_store::default_view()),
             config_path: None,
             filter_query: String::new(),
             upgrade_history_lines: crate::config::DEFAULT_UPGRADE_HISTORY_LINES,
@@ -378,7 +373,7 @@ impl App {
             // it would now also copy the pane's status header into the log and
             // duplicate it on the way back in.
             p.mode = Mode::Monitor;
-            p.show_last_frame();
+            p.show_last_frame(&self.palette_view);
         }
         Vec::new()
     }

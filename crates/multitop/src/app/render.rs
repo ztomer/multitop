@@ -38,9 +38,12 @@ impl App {
     pub fn rebuild_palette_view(&mut self) {
         let theme = &multitop_agent::color::THEMES[self.theme_idx];
         let background = self.background.or_theme(theme.own_background());
-        self.palette_view = std::sync::Arc::new(
+        self.palette_view = crate::palette_store::publish(std::sync::Arc::new(
             multitop_agent::palette_view::PaletteView::for_background(theme, background),
-        );
+        ));
+        for panel in &mut self.panels {
+            panel.restyle_placeholder(&self.palette_view);
+        }
     }
 
     pub fn rerender_all(&mut self, dims: (u16, u16)) {

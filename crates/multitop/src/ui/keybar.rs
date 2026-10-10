@@ -36,6 +36,48 @@ pub fn mode_pair(
     }
 }
 
+/// The bar's styles, all from the bar's own chrome -- ink adapted against the
+/// bar's fill, never a named terminal colour. One definition for both entry
+/// points, so the keybar and its confirm rows cannot disagree.
+///
+/// This is where `Color::White` keys and `Color::DarkGray` labels lived: white
+/// on a bar that had itself turned near-white, 1.02:1.
+pub(super) struct BarStyles {
+    pub label: Style,
+    pub key_hi: Style,
+    pub sort_label: Style,
+    pub accent: Color,
+    pub warn: Color,
+    pub active_mode: Style,
+}
+
+pub(super) fn bar_styles(theme: &PaletteView) -> BarStyles {
+    use ratatui::style::Modifier;
+    let bar = &theme.bar;
+    let accent = super::ink(bar.accent);
+    let active_mode = Style::default()
+        .bg(accent)
+        .fg(super::ink(bar.on_accent))
+        .add_modifier(Modifier::BOLD);
+    BarStyles {
+        label: Style::default().fg(super::ink(bar.muted)),
+        key_hi: Style::default()
+            .fg(super::ink(bar.text))
+            .add_modifier(Modifier::BOLD),
+        sort_label: Style::default().fg(super::ink(bar.border)),
+        accent,
+        warn: super::ink(bar.warn),
+        // A palette with no colour has no accent to fill the pill with; the
+        // active mode is then carried by reverse video, so it is never
+        // distinguished by nothing.
+        active_mode: if bar.accent.is_none() {
+            active_mode.add_modifier(Modifier::REVERSED)
+        } else {
+            active_mode
+        },
+    }
+}
+
 /// The prompt shown in place of the keybar while a query is being typed.
 fn filter_prompt(query: &str, label: Style, accent: Color) -> Line<'static> {
     Line::from(vec![
@@ -64,8 +106,8 @@ pub fn keybar_badges(
     sort_label: Style,
     accent_color: Color,
 ) -> Vec<(usize, Vec<Span<'static>>)> {
-    let active = Style::default().fg(Color::White);
-    let inactive = Style::default().fg(Color::DarkGray);
+    let active = Style::default().fg(super::ink(theme.bar.text));
+    let inactive = Style::default().fg(super::ink(theme.bar.muted));
     let theme_val_style = Style::default().fg(accent_color);
     let (mem_style, cpu_style) = match sort {
         multitop_agent::SortBy::Mem => (active, inactive),
@@ -118,11 +160,11 @@ pub fn keybar_badges(
         .collect()
 }
 
-pub fn badge_span(badge: &str) -> String {
+pub fn badge_span(badge: &str, theme: &PaletteView) -> String {
     if badge.is_empty() {
         String::new()
     } else {
-        format!("\x1b[33;1m{badge}\x1b[0m")
+        format!("{}{}{badge}{}", theme.meter_mid(), theme.bold, theme.reset)
     }
 }
 
@@ -182,18 +224,14 @@ pub fn keybar_line(
     filter: FilterHint<'_>,
 ) -> Line<'static> {
     const SPACES: &str = "                                                                                                                                                                                                                                                                ";
-    let label = Style::default().fg(Color::DarkGray);
-    let border_color = Color::Rgb(theme.border.0, theme.border.1, theme.border.2);
-    let accent_color = Color::Rgb(theme.accent.0, theme.accent.1, theme.accent.2);
-    let active_mode_style = Style::default()
-        .bg(accent_color)
-        .fg(Color::Black)
-        .add_modifier(ratatui::style::Modifier::BOLD);
-    let sort_label = Style::default().fg(border_color);
-
-    let key_hi = Style::default()
-        .fg(Color::White)
-        .add_modifier(ratatui::style::Modifier::BOLD);
+    let BarStyles {
+        label,
+        key_hi,
+        sort_label,
+        accent: accent_color,
+        active_mode: active_mode_style,
+        ..
+    } = bar_styles(theme);
 
     // While typing, the keybar becomes the prompt. Reusing the row avoids
     // moving the panels underneath, which would reflow the whole grid on the
@@ -313,11 +351,8 @@ pub fn keybar_content(
     keybar_width: u16,
     active_mode: crate::app::Mode,
 ) -> Line<'static> {
-    let label = Style::default().fg(Color::DarkGray);
-    let accent_color = Color::Rgb(theme.accent.0, theme.accent.1, theme.accent.2);
-    let key_hi = Style::default()
-        .fg(Color::White)
-        .add_modifier(ratatui::style::Modifier::BOLD);
+    let styles = bar_styles(theme);
+    let (label, key_hi) = (styles.label, styles.key_hi);
     if app.overlay.is_help() {
         return Line::from(vec![
             Span::styled("[", label),
@@ -349,13 +384,9 @@ pub fn keybar_content(
     // The same answer `run::handle_key` acts on, so the row cannot name one set
     // of keys while another set is live.
     match app.active_confirm() {
-        Some(crate::app::Confirm::Quit) => quit_confirm_row(app, key_hi, label, keybar_width),
-        Some(crate::app::Confirm::Kill) => {
-            kill_confirm_row(app, accent_color, key_hi, label, keybar_width)
-        }
-        Some(crate::app::Confirm::Upgrade) => {
-            upgrade_confirm_row(app, accent_color, key_hi, label, keybar_width)
-        }
+        Some(crate::app::Confirm::Quit) => quit_confirm_row(app, &styles, keybar_width),
+        Some(crate::app::Confirm::Kill) => kill_confirm_row(app, &styles, keybar_width),
+        Some(crate::app::Confirm::Upgrade) => upgrade_confirm_row(app, &styles, keybar_width),
         None => keybar_line(app.sort, theme, keybar_width, active_mode, filter_hint(app)),
     }
 }

@@ -87,20 +87,32 @@ async fn test_draw_all_modals() {
     .unwrap();
 
     term.draw(|f| {
-        multitop::modals::draw_help(f);
+        multitop::modals::draw_help(f, &app.current_theme());
     })
     .unwrap();
 
     term.draw(|f| {
-        multitop::modals::draw_vault_awaiting_biometric(f, multitop::modals::Waiting::Biometric);
+        multitop::modals::draw_vault_awaiting_biometric(
+            f,
+            multitop::modals::Waiting::Biometric,
+            &app.current_theme(),
+        );
     })
     .unwrap();
     term.draw(|f| {
-        multitop::modals::draw_vault_awaiting_biometric(f, multitop::modals::Waiting::Verifying);
+        multitop::modals::draw_vault_awaiting_biometric(
+            f,
+            multitop::modals::Waiting::Verifying,
+            &app.current_theme(),
+        );
     })
     .unwrap();
     term.draw(|f| {
-        multitop::modals::draw_vault_awaiting_biometric(f, multitop::modals::Waiting::Creating);
+        multitop::modals::draw_vault_awaiting_biometric(
+            f,
+            multitop::modals::Waiting::Creating,
+            &app.current_theme(),
+        );
     })
     .unwrap();
 }

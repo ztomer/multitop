@@ -19,11 +19,6 @@ pub const DEFAULT_PORT: u16 = 22;
 /// time. `tools/check_key_hints.py` is the gate that stops a fourth.
 pub const SETTINGS_KEY: &str = "e";
 
-pub const ANSI_YELLOW: &str = "\x1b[0;33m";
-pub const ANSI_RED: &str = "\x1b[0;31m";
-pub const ANSI_GRAY: &str = "\x1b[0;90m";
-pub const ANSI_RESET: &str = "\x1b[0m";
-
 /// Bytes of fixed header on every agent packet: magic(4) + version(1) +
 /// mode(1) + payload length(2). The reader and the writer have to agree, and
 /// the writer's copy lives in the agent crate's `proto`.

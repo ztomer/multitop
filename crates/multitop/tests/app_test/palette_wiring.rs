@@ -17,7 +17,7 @@ use multitop::app::App;
 use multitop::background::Background;
 use multitop_agent::color::THEMES;
 use multitop_agent::palette_view::PaletteView;
-use multitop_agent::surface::Rgb;
+use multitop_agent::surface::{bg_is_light, Rgb};
 
 /// A near-white terminal: the case the whole feature exists for.
 const LIGHT: Rgb = Rgb::new(252, 252, 250);
@@ -127,16 +127,27 @@ fn changing_the_theme_rebuilds_the_view_for_the_same_background() {
 
 #[test]
 fn the_ratatui_colours_reach_the_app_too() {
-    // The keybar background is the one a light terminal hurts most — a dark
-    // theme's keybar is a black bar across a white screen — and it is a
-    // `ratatui::Color` rather than an escape, so it travels a different path and
-    // would not be covered by an assertion about escapes.
-    let app = app_with(Background::Reported(LIGHT));
-    let drawn = app.current_theme();
-    let keybar = Rgb::new(drawn.keybar_bg.0, drawn.keybar_bg.1, drawn.keybar_bg.2);
-    assert!(
-        keybar.contrast_ratio(LIGHT) >= multitop_agent::adapt::MIN_TEXT_CONTRAST,
-        "the keybar is {:.2}:1 against the app's own background: {keybar:?}",
-        keybar.contrast_ratio(LIGHT)
-    );
+    // The command bar's fill and the ink on it are `ratatui::Color`s, not
+    // escapes, so they travel a different path from the assertions above.
+    //
+    // This test used to require the fill to CONTRAST with the terminal at 4.5:1
+    // -- i.e. to be a text colour -- and so pinned the defect: on a dark
+    // terminal that is a near-white bar. A fill belongs on the terminal's side
+    // of light/dark; it is the INK on the fill that must read.
+    for page in [LIGHT, Rgb::new(30, 30, 30)] {
+        let app = app_with(Background::Reported(page));
+        let bar = app.current_theme().bar;
+        let fill = bar.bg.expect("a themed bar paints a fill");
+        assert_eq!(
+            bg_is_light(fill),
+            bg_is_light(page),
+            "the bar {fill:?} is on the other side of light/dark from the terminal {page:?}"
+        );
+        let text = bar.text.expect("a themed bar has text ink");
+        assert!(
+            text.contrast_ratio(fill) >= multitop_agent::adapt::MIN_TEXT_CONTRAST,
+            "the bar's text is {:.2}:1 against the bar: {text:?} on {fill:?}",
+            text.contrast_ratio(fill)
+        );
+    }
 }

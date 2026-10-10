@@ -1,7 +1,9 @@
 //! Rendering for the full-screen configuration panel.
 
 use crate::layout::wrap_words;
-use ratatui::style::{Color, Style};
+use crate::ui::ink;
+use multitop_agent::chrome::Chrome;
+use ratatui::style::Style;
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Paragraph};
 use ratatui::Frame;
@@ -36,10 +38,12 @@ pub fn draw(f: &mut Frame, app: &App) {
     let Some(manager) = app.password_manager.as_ref() else {
         return;
     };
+    // The panel paints the bar's fill, so it draws in the bar's chrome: every
+    // ink adapted against that fill, never a named terminal colour.
     let theme = app.current_theme();
-    let accent = Color::Rgb(theme.accent.0, theme.accent.1, theme.accent.2);
-    let border = Color::Rgb(theme.border.0, theme.border.1, theme.border.2);
-    let bg = Color::Rgb(theme.keybar_bg.0, theme.keybar_bg.1, theme.keybar_bg.2);
+    let chrome = theme.bar;
+    let accent = ink(chrome.accent);
+    let muted = Style::default().fg(ink(chrome.muted));
     // The row used to be 75 fixed columns before the credential state, so at 80
     // the Password header read `Pas` and the rows read `✓ S`; at 40 the column
     // was gone. This is the one screen where the user deletes a host and edits
@@ -62,7 +66,7 @@ pub fn draw(f: &mut Frame, app: &App) {
             clip("Upgrade command", cmd_w),
             "Password"
         ),
-        Style::default().fg(Color::DarkGray),
+        muted,
     ))];
     for (index, panel) in app.panels.iter().enumerate() {
         let marker = if index == manager.selected { ">" } else { " " };
@@ -88,9 +92,9 @@ pub fn draw(f: &mut Frame, app: &App) {
         // of the vault master password with a per-host sudo password, and it is
         // gone.
         let (state, state_color) = if panel.password_saved || panel.sudo_password.is_some() {
-            ("\u{2713} Stored", Color::Green)
+            ("\u{2713} Stored", ink(chrome.ok))
         } else {
-            ("\u{b7} Unset", Color::DarkGray)
+            ("\u{b7} Unset", ink(chrome.muted))
         };
         lines.push(Line::from(vec![
             Span::styled(
@@ -109,12 +113,12 @@ pub fn draw(f: &mut Frame, app: &App) {
     lines.push(Line::from(""));
 
     if let Some(draft) = &manager.draft {
-        draft_lines(draft, accent, &mut lines);
+        draft_lines(draft, &chrome, &mut lines);
     } else if manager.editing() {
-        master_password_lines(&manager.input, accent, &mut lines);
+        master_password_lines(&manager.input, &chrome, &mut lines);
     } else {
-        appearance_lines(app, accent, inner, &mut lines);
-        hints = hint_lines(inner);
+        appearance_lines(app, &chrome, inner, &mut lines);
+        hints = hint_lines(inner, &chrome);
     }
     // The notice goes ABOVE the hints, and before them in the height budget.
     // It is the app answering something the user just did -- "Banner: Wide",
@@ -137,7 +141,7 @@ pub fn draw(f: &mut Frame, app: &App) {
         for line in wrap_words(notice, inner) {
             lines.push(Line::from(Span::styled(
                 line,
-                Style::default().fg(Color::Yellow),
+                Style::default().fg(ink(chrome.warn)),
             )));
         }
     }
@@ -158,8 +162,10 @@ pub fn draw(f: &mut Frame, app: &App) {
     let block = Block::default()
         .title(" Settings ")
         .borders(Borders::ALL)
-        .border_style(Style::default().fg(border))
-        .style(Style::default().bg(bg));
+        .border_style(Style::default().fg(ink(chrome.border)))
+        // The base ink as well as the fill: rows drawn without a style of
+        // their own take the bar's text colour, not the terminal's default.
+        .style(Style::default().bg(ink(chrome.bg)).fg(ink(chrome.text)));
     f.render_widget(Paragraph::new(lines).block(block), f.area());
 }
 
@@ -214,9 +220,11 @@ fn column_widths(app: &App, inner: usize) -> (usize, usize, usize) {
 /// The server being edited: its fields, the cursor, and the keys.
 fn draft_lines(
     draft: &crate::passwords::ServerDraft,
-    accent: Color,
+    chrome: &Chrome,
     lines: &mut Vec<Line<'static>>,
 ) {
+    let accent = ink(chrome.accent);
+    let muted = Style::default().fg(ink(chrome.muted));
     lines.push(Line::from(Span::styled(
         "Editing server",
         Style::default().fg(accent),
@@ -239,16 +247,17 @@ fn draft_lines(
     }
     lines.push(Line::from(Span::styled(
         "  Leave Password empty to remove this host's own password.",
-        Style::default().fg(Color::DarkGray),
+        muted,
     )));
     lines.push(Line::from(Span::styled(
         "[Tab/Up/Down] Field  [Enter] Save  [Esc] Cancel",
-        Style::default().fg(Color::DarkGray),
+        muted,
     )));
 }
 
 /// The master-password change prompt.
-fn master_password_lines(input: &str, accent: Color, lines: &mut Vec<Line<'static>>) {
+fn master_password_lines(input: &str, chrome: &Chrome, lines: &mut Vec<Line<'static>>) {
+    let accent = ink(chrome.accent);
     lines.push(Line::from("Changing the vault master password".to_string()));
     lines.push(Line::from(vec![
         Span::raw("Password: "),
@@ -258,14 +267,15 @@ fn master_password_lines(input: &str, accent: Color, lines: &mut Vec<Line<'stati
     // would be a plain lie about where the secret goes.
     lines.push(Line::from(Span::styled(
         "[Enter] Continue  [Esc] Cancel",
-        Style::default().fg(Color::DarkGray),
+        Style::default().fg(ink(chrome.muted)),
     )));
 }
 
 /// Appearance, ABOVE the hints. It is content -- a setting and its current
 /// value -- and the hints are signage about content. Below them it was the
 /// first thing to fall off the bottom of a 40x12 panel.
-fn appearance_lines(app: &App, accent: Color, inner: usize, lines: &mut Vec<Line<'static>>) {
+fn appearance_lines(app: &App, chrome: &Chrome, inner: usize, lines: &mut Vec<Line<'static>>) {
+    let accent = ink(chrome.accent);
     // Appearance, ABOVE the hints. It is content -- a setting and its
     // current value -- and the hints are signage about content. Below them
     // it was the first thing to fall off the bottom of a 40x12 panel, so
@@ -289,16 +299,16 @@ fn appearance_lines(app: &App, accent: Color, inner: usize, lines: &mut Vec<Line
         Span::styled(
             state,
             Style::default().fg(if style == crate::layout::BannerStyle::Wide {
-                Color::Green
+                ink(chrome.ok)
             } else {
-                Color::DarkGray
+                ink(chrome.muted)
             }),
         ),
     ];
     if keep.contains(&2) {
         spans.push(Span::styled(
             format!("  {caveat}"),
-            Style::default().fg(Color::DarkGray),
+            Style::default().fg(ink(chrome.muted)),
         ));
     }
     lines.push(Line::from(spans));
@@ -307,7 +317,8 @@ fn appearance_lines(app: &App, accent: Color, inner: usize, lines: &mut Vec<Line
 
 /// The key hints, wrapped by whole hints (never sliced) to `inner` columns,
 /// one `Line` per row so the caller can shed rows that do not fit.
-fn hint_lines(inner: usize) -> Vec<Line<'static>> {
+fn hint_lines(inner: usize, chrome: &Chrome) -> Vec<Line<'static>> {
+    let muted = Style::default().fg(ink(chrome.muted));
     let mut out: Vec<Line> = Vec::new();
     // Wrapped by whole hints, never sliced.
     //
@@ -339,10 +350,7 @@ fn hint_lines(inner: usize) -> Vec<Line<'static>> {
         let w = hint.chars().count();
         let extra = if row.is_empty() { w } else { w + 2 };
         if !row.is_empty() && used + extra > inner {
-            out.push(Line::from(Span::styled(
-                row.join("  "),
-                Style::default().fg(Color::DarkGray),
-            )));
+            out.push(Line::from(Span::styled(row.join("  "), muted)));
             row.clear();
             used = 0;
         }
@@ -350,10 +358,7 @@ fn hint_lines(inner: usize) -> Vec<Line<'static>> {
         row.push(hint);
     }
     if !row.is_empty() {
-        out.push(Line::from(Span::styled(
-            row.join("  "),
-            Style::default().fg(Color::DarkGray),
-        )));
+        out.push(Line::from(Span::styled(row.join("  "), muted)));
     }
     out
 }

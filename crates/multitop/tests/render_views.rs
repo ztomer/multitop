@@ -253,7 +253,7 @@ const SCREENS: &[Screen] = &[
         }
         // The frame that used to wipe it.
         for p in &mut app.panels {
-            p.show_last_frame();
+            p.show_last_frame(&multitop::palette_store::current());
         }
         app
     }},

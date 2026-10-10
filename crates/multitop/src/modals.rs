@@ -1,10 +1,49 @@
+use multitop_agent::palette_view::PaletteView;
 use ratatui::layout::Rect;
-use ratatui::style::{Color, Style};
+use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Paragraph, Wrap};
 use ratatui::Frame;
 
 use crate::app::App;
+
+/// A modal's ink, from the PAGE chrome: a modal clears its rectangle to the
+/// terminal's own background and draws on that, so every role here is adapted
+/// against the page.
+///
+/// This replaced 24 named terminal colours (`White`, `DarkGray`, `Yellow`,
+/// `Cyan`, `Red`) that no palette adapted, and two modals -- help and the
+/// vault wait -- that drew `THEMES[0]`'s raw values whatever theme was on and
+/// whatever the terminal painted.
+struct ModalInk {
+    text: Style,
+    muted: Style,
+    key: Style,
+    warn: Style,
+    alert: Style,
+    prompt: Style,
+    title: Style,
+    border: Style,
+}
+
+fn modal_ink(theme: &PaletteView) -> ModalInk {
+    use crate::ui::ink;
+    let page = &theme.page;
+    ModalInk {
+        text: Style::default().fg(ink(page.text)),
+        muted: Style::default().fg(ink(page.muted)),
+        key: Style::default()
+            .fg(ink(page.text))
+            .add_modifier(Modifier::BOLD),
+        warn: Style::default().fg(ink(page.warn)),
+        alert: Style::default().fg(ink(page.alert)),
+        prompt: Style::default().fg(ink(page.border)),
+        title: Style::default()
+            .fg(ink(page.accent))
+            .add_modifier(Modifier::BOLD),
+        border: Style::default().fg(ink(page.border)),
+    }
+}
 
 /// Which slow vault operation the "please wait" modal is reporting.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -47,7 +86,7 @@ impl Waiting {
 }
 
 /// The "please wait" modal, shown while a slow vault operation is outstanding.
-pub fn draw_vault_awaiting_biometric(f: &mut Frame, waiting: Waiting) {
+pub fn draw_vault_awaiting_biometric(f: &mut Frame, waiting: Waiting, theme: &PaletteView) {
     let area = f.area();
     let popup_width = (64u16).min(area.width.saturating_sub(2));
     let popup_height = (8u16).min(area.height.saturating_sub(2));
@@ -57,41 +96,20 @@ pub fn draw_vault_awaiting_biometric(f: &mut Frame, waiting: Waiting) {
 
     let popup_rect = Rect::new(x, y, popup_width, popup_height);
 
-    let theme = &multitop_agent::color::THEMES[0];
-    let border_color = Color::Rgb(
-        theme.ratatui_border.0,
-        theme.ratatui_border.1,
-        theme.ratatui_border.2,
-    );
-    let accent_color = Color::Rgb(
-        theme.ratatui_accent.0,
-        theme.ratatui_accent.1,
-        theme.ratatui_accent.2,
-    );
-
+    let ink = modal_ink(theme);
     let block = ratatui::widgets::Block::default()
         .title(waiting.title())
-        .title_style(
-            Style::default()
-                .fg(accent_color)
-                .add_modifier(ratatui::style::Modifier::BOLD),
-        )
+        .title_style(ink.title)
         .borders(ratatui::widgets::Borders::ALL)
-        .border_style(Style::default().fg(border_color));
+        .border_style(ink.border);
 
     f.render_widget(ratatui::widgets::Clear, popup_rect);
 
     let lines = vec![
         Line::from(""),
-        Line::from(vec![Span::styled(
-            waiting.headline(),
-            Style::default().fg(Color::White),
-        )]),
+        Line::from(vec![Span::styled(waiting.headline(), ink.text)]),
         Line::from(""),
-        Line::from(vec![Span::styled(
-            waiting.hint(),
-            Style::default().fg(Color::DarkGray),
-        )]),
+        Line::from(vec![Span::styled(waiting.hint(), ink.muted)]),
     ];
 
     let paragraph = Paragraph::new(lines).block(block);
@@ -118,21 +136,13 @@ pub fn draw_command_palette(f: &mut Frame, app: &App) {
     let y = (area.height.saturating_sub(popup_height)) / 2;
     let rect = Rect::new(x, y, popup_width, popup_height);
 
-    let theme = app.current_theme();
-    let theme = &*theme;
-    let border = Color::Rgb(theme.border.0, theme.border.1, theme.border.2);
-    let accent = Color::Rgb(theme.accent.0, theme.accent.1, theme.accent.2);
-
+    let ink = modal_ink(&app.current_theme());
     let block = ratatui::widgets::Block::default()
         .title(" Command Palette  : to open ")
-        .title_style(
-            Style::default()
-                .fg(accent)
-                .add_modifier(ratatui::style::Modifier::BOLD),
-        )
+        .title_style(ink.title)
         .borders(ratatui::widgets::Borders::ALL)
         .padding(ratatui::widgets::Padding::horizontal(PAD))
-        .border_style(Style::default().fg(border));
+        .border_style(ink.border);
 
     let input = app.command_input.as_str();
     let filter = input.to_lowercase();
@@ -160,30 +170,27 @@ pub fn draw_command_palette(f: &mut Frame, app: &App) {
 
     let mut rows: Vec<Line> = vec![
         Line::from(vec![
-            Span::styled(": ", Style::default().fg(Color::Yellow)),
-            Span::styled(input.to_string(), Style::default().fg(Color::White)),
-            Span::styled("\u{2588}", Style::default().fg(Color::Yellow)),
+            Span::styled(": ", ink.warn),
+            Span::styled(input.to_string(), ink.text),
+            Span::styled("\u{2588}", ink.warn),
         ]),
         Line::from(""),
     ];
     for cmd in &shown {
         rows.push(Line::from(vec![Span::styled(
             format!("  {cmd}"),
-            Style::default().fg(Color::DarkGray),
+            ink.muted,
         )]));
     }
     if shown.is_empty() {
-        rows.push(Line::from(vec![Span::styled(
-            "  No matches",
-            Style::default().fg(Color::DarkGray),
-        )]));
+        rows.push(Line::from(vec![Span::styled("  No matches", ink.muted)]));
     }
     rows.push(Line::from(""));
     rows.push(Line::from(vec![
-        Span::styled("Enter", Style::default().fg(Color::White)),
-        Span::styled(" run  ", Style::default().fg(Color::DarkGray)),
-        Span::styled("Esc", Style::default().fg(Color::White)),
-        Span::styled(" close", Style::default().fg(Color::DarkGray)),
+        Span::styled("Enter", ink.key),
+        Span::styled(" run  ", ink.muted),
+        Span::styled("Esc", ink.key),
+        Span::styled(" close", ink.muted),
     ]));
 
     f.render_widget(ratatui::widgets::Clear, rect);
@@ -221,7 +228,7 @@ const HELP_ROWS: &[(&str, &str)] = &[
     ("?", "this help"),
 ];
 
-pub fn draw_help(f: &mut Frame) {
+pub fn draw_help(f: &mut Frame, theme: &PaletteView) {
     let area = f.area();
     let popup_width = (72u16).min(area.width.saturating_sub(4));
     // One row per key plus border, title and the two note lines: a fixed
@@ -233,35 +240,20 @@ pub fn draw_help(f: &mut Frame) {
     let y = (area.height.saturating_sub(popup_height)) / 2;
     let rect = Rect::new(x, y, popup_width, popup_height);
 
-    let theme = &multitop_agent::color::THEMES[0];
-    let border = Color::Rgb(
-        theme.ratatui_border.0,
-        theme.ratatui_border.1,
-        theme.ratatui_border.2,
-    );
-    let accent = Color::Rgb(
-        theme.ratatui_accent.0,
-        theme.ratatui_accent.1,
-        theme.ratatui_accent.2,
-    );
-
+    let ink = modal_ink(theme);
     let block = ratatui::widgets::Block::default()
         .title(" Help  ? to close ")
-        .title_style(
-            Style::default()
-                .fg(accent)
-                .add_modifier(ratatui::style::Modifier::BOLD),
-        )
+        .title_style(ink.title)
         .borders(ratatui::widgets::Borders::ALL)
         .padding(ratatui::widgets::Padding::horizontal(PAD))
-        .border_style(Style::default().fg(border));
+        .border_style(ink.border);
 
     let mut rows: Vec<Line> = HELP_ROWS
         .iter()
         .map(|(key, what)| {
             Line::from(vec![
-                Span::styled(*key, Style::default().fg(Color::Yellow)),
-                Span::raw(format!(" - {what}")),
+                Span::styled(*key, ink.warn),
+                Span::styled(format!(" - {what}"), ink.text),
             ])
         })
         .collect();
@@ -269,11 +261,11 @@ pub fn draw_help(f: &mut Frame) {
     rows.extend([
         Line::from(vec![Span::styled(
             "Upgrade is two presses: u shows what would run, u again confirms.",
-            Style::default().fg(Color::DarkGray),
+            ink.muted,
         )]),
         Line::from(vec![Span::styled(
             "Filter searches host/user + whatever the view shows (process, container, OS).",
-            Style::default().fg(Color::DarkGray),
+            ink.muted,
         )]),
     ]);
 
@@ -284,6 +276,7 @@ pub fn draw_help(f: &mut Frame) {
 
 /// What the vault password prompt says, in the arrangement that fits.
 struct PromptText<'a> {
+    ink: &'a ModalInk,
     creating: bool,
     password_dots: &'a str,
     error: Option<&'a str>,
@@ -295,6 +288,7 @@ impl PromptText<'_> {
     /// footer naming both keys are always present.
     fn lines(&self, explain: bool, blanks: bool) -> Vec<Line<'static>> {
         let creating = self.creating;
+        let ink = self.ink;
         let password_dots = self.password_dots.to_string();
         let error = self.error.map(str::to_string);
         let mut lines: Vec<Line<'static>> = Vec::new();
@@ -307,54 +301,41 @@ impl PromptText<'_> {
             } else {
                 "Enter vault master password to unlock:"
             },
-            Style::default().fg(Color::White),
+            ink.text,
         )]));
         if blanks {
             lines.push(Line::from(""));
         }
         lines.push(Line::from(vec![
-            Span::styled("> ", Style::default().fg(Color::Cyan)),
-            Span::styled(password_dots, Style::default().fg(Color::White)),
+            Span::styled("> ", ink.prompt),
+            Span::styled(password_dots, ink.text),
         ]));
         if creating && explain {
             lines.push(Line::from(vec![Span::styled(
                 "Encrypts sudo passwords. Touch ID unlocks it day to day; \
              this password is the recovery path if that key is lost.",
-                Style::default().fg(Color::DarkGray),
+                ink.muted,
             )]));
         }
         if let Some(error) = &error {
-            lines.push(Line::from(vec![Span::styled(
-                error.clone(),
-                Style::default().fg(Color::Red),
-            )]));
+            lines.push(Line::from(vec![Span::styled(error.clone(), ink.alert)]));
         }
         if blanks {
             lines.push(Line::from(""));
         }
         lines.push(Line::from(vec![
-            Span::styled("Press ", Style::default().fg(Color::DarkGray)),
-            Span::styled(
-                "Enter",
-                Style::default()
-                    .fg(Color::White)
-                    .add_modifier(ratatui::style::Modifier::BOLD),
-            ),
+            Span::styled("Press ", ink.muted),
+            Span::styled("Enter", ink.key),
             Span::styled(
                 if creating {
                     " to create, "
                 } else {
                     " to unlock, "
                 },
-                Style::default().fg(Color::DarkGray),
+                ink.muted,
             ),
-            Span::styled(
-                "Esc",
-                Style::default()
-                    .fg(Color::White)
-                    .add_modifier(ratatui::style::Modifier::BOLD),
-            ),
-            Span::styled(" to cancel", Style::default().fg(Color::DarkGray)),
+            Span::styled("Esc", ink.key),
+            Span::styled(" to cancel", ink.muted),
         ]));
         lines
     }
@@ -397,9 +378,7 @@ pub fn draw_vault_password_prompt(f: &mut Frame, app: &App) {
     let area = f.area();
     let popup_width = (64u16).min(area.width.saturating_sub(2));
 
-    let theme = app.current_theme();
-    let border_color = Color::Rgb(theme.border.0, theme.border.1, theme.border.2);
-    let accent_color = Color::Rgb(theme.accent.0, theme.accent.1, theme.accent.2);
+    let ink = modal_ink(&app.current_theme());
 
     // The same prompt serves unlocking an existing vault and choosing the
     // master password for a new one; only the wording differs.
@@ -410,14 +389,10 @@ pub fn draw_vault_password_prompt(f: &mut Frame, app: &App) {
         } else {
             " Vault Password "
         })
-        .title_style(
-            Style::default()
-                .fg(accent_color)
-                .add_modifier(ratatui::style::Modifier::BOLD),
-        )
+        .title_style(ink.title)
         .borders(ratatui::widgets::Borders::ALL)
         .padding(ratatui::widgets::Padding::horizontal(PAD))
-        .border_style(Style::default().fg(border_color));
+        .border_style(ink.border);
 
     let password_dots = crate::fmt::mask_secret(app.vault_password_input());
     let error: Option<String> = app
@@ -426,6 +401,7 @@ pub fn draw_vault_password_prompt(f: &mut Frame, app: &App) {
         .map(ToString::to_string);
 
     let prompt = PromptText {
+        ink: &ink,
         creating,
         password_dots: &password_dots,
         error: error.as_deref(),

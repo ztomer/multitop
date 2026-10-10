@@ -32,6 +32,27 @@ it. The count is in the output for the same reason it is in the exit code: a
 future reader must be able to tell compliance from blindness without reading the
 code.
 
+# Named colours (2026-10-10)
+
+The 24-bit literal was half the class. The command bar shipped white-on-white
+in every theme from v0.50.0: its text was `Color::White` and `Color::DarkGray`
+-- ratatui NAMED colours, which the terminal resolves from its own 16-colour
+table, so no palette can promise they read and no adaptation ever sees them.
+This checker matched only `38;2`, so all 51 such sites in the chrome passed it.
+`Color::<Named>` and `Color::Indexed` are now the same finding as a literal.
+The one legitimate site is `ansi.rs`, which maps a TOOL's own SGR codes (`31`
+is red) to ratatui: the tool chose that colour, not this app.
+
+# Fixed palettes (2026-10-10)
+
+The third form of the class is a whole palette chosen at the call site:
+`color::ANSI` or `THEMES[0]`, one theme's raw values, never adapted. The help
+modal, the vault wait, the panel placeholders and every task's error and status
+line drew that way whatever theme was on; on Nord with no answer from the
+terminal, "connecting..." was 2.65:1. In the client the current palette is
+`App::current_theme()` or, where no `App` reaches, `palette_store::current()`,
+and `palette_store.rs` is the one file that may name a theme by index.
+
 Run with --self-test to check the checker.
 """
 
@@ -58,6 +79,31 @@ ALLOWED = {
     "escapes the render path reads",
 }
 
+#: Files allowed to name a terminal colour, each with the reason.
+NAMED_ALLOWED = {
+    "crates/multitop/src/ansi.rs": "maps a tool's own SGR codes to ratatui -- the "
+    "tool chose those colours, not the theme",
+    "crates/multitop/src/fetch_render.rs": "the fetch view's swatch row shows the "
+    "TERMINAL's eight colours, as every fetch tool does -- they are the subject, "
+    "not the ink",
+}
+
+#: A ratatui named or indexed colour: the terminal decides what it looks like.
+NAMED = re.compile(
+    r"Color::(?:Black|Red|Green|Yellow|Blue|Magenta|Cyan|Gray|DarkGray|LightRed|"
+    r"LightGreen|LightYellow|LightBlue|LightMagenta|LightCyan|White|Indexed)\b"
+)
+
+#: A palette chosen at the call site rather than the one the app is drawing with.
+#: Client-only: the agent's standalone mode chooses its theme from the
+#: environment, which is a theme choice and not a bypass of one.
+FIXED = re.compile(r"color::ANSI\b|THEMES\[\d+\]")
+FIXED_SCOPE = "crates/multitop/src/"
+FIXED_ALLOWED = {
+    "crates/multitop/src/palette_store.rs": "builds the default palette and "
+    "publishes the current one",
+}
+
 #: The floor on files read. Not a tuning knob: the render crates are the app, and
 #: a check that has read none of them has established nothing. One is the minimum
 #: that proves the walk works; the real tree is far above it.
@@ -66,6 +112,14 @@ MIN_FILES = 1
 #: The thing being hunted: `ESC [ 38 ; 2 ; R ; G ; B m`, with the digits bounded
 #: so a `\x1b[38;2;` prefix in prose is not a match.
 LITERAL = re.compile(r"\\x1b\[38;2;\d+;\d+;\d+m|38;2;\d+;\d+;\d+m")
+
+#: A terminal-decided colour written as an escape: a 16-colour SGR (`31`, `90`,
+#: `44`, `36;1`) or a 256-colour one (`38;5;N`). The escape form of `NAMED`.
+#: The refit header and rule were `ESC[36;1m` and `ESC[90m`, and three sudo
+#: tips `ESC[33m`, and the 24-bit pattern above passed all of them.
+SGR_NAMED = re.compile(
+    r"\\x1b\[(?:\d+;)*(?:3[0-7]|9[0-7]|4[0-7]|10[0-7]|[34]8;5;\d+)(?:;\d+)*m"
+)
 
 
 def scanned(root: Path) -> int:
@@ -101,6 +155,13 @@ def offenders(root: Path):
                 continue
             for lineno, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
                 if LITERAL.search(line):
+                    hits.append((rel, lineno, line.strip()[:100]))
+                elif rel not in NAMED_ALLOWED and (
+                    NAMED.search(line.split("//", 1)[0]) or SGR_NAMED.search(line)
+                ):
+                    hits.append((rel, lineno, line.strip()[:100]))
+                elif (rel.startswith(FIXED_SCOPE) and rel not in FIXED_ALLOWED
+                      and FIXED.search(line.split("//", 1)[0])):
                     hits.append((rel, lineno, line.strip()[:100]))
     return hits
 
@@ -152,6 +213,59 @@ def self_test() -> int:
                   "flagged -- that comment is how the literal returns")
             return 1
 
+    # Named colours: flagged in the chrome, allowed in the SGR mapper, and not
+    # flagged in a comment that merely mentions one.
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        src = root / "crates" / "multitop" / "src"
+        src.mkdir(parents=True)
+        (root / "crates" / "agent" / "src").mkdir(parents=True)
+        for case in ('format!(" \\x1b[90m{}\\x1b[0m", rule)',
+                     'format!("\\x1b[36;1m{title}\\x1b[0m")',
+                     '"\\x1b[33m\\u{2192} Tip\\x1b[0m"',
+                     '"\\x1b[38;5;208mtext"',
+                     "let label = Style::default().fg(Color::DarkGray);",
+                     "Span::styled(k, Style::default().fg(ratatui::style::Color::White))",
+                     "let c = Color::Indexed(8);"):
+            (src / "keybar.rs").write_text(case + "\n", encoding="utf-8")
+            if not offenders(root):
+                print(f"self-test FAILED: a named colour was not detected: {case}")
+                return 1
+        (src / "keybar.rs").write_text(
+            "let c = Color::Rgb(1, 2, 3); // not Color::White any more\n"
+            'let r = "\\x1b[0m"; let b = "\\x1b[1m"; let d = "\\x1b[2m"; let f = "\\x1b[39m";\n',
+            encoding="utf-8",
+        )
+        (src / "ansi.rs").write_text("31 => style = style.fg(Color::Red),\n", encoding="utf-8")
+        if offenders(root):
+            print("self-test FAILED: an Rgb colour, a comment, or ansi.rs was reported")
+            return 1
+
+    # Fixed palettes: flagged in the client, allowed in the store and in a
+    # comment, not policed in the agent.
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        src = root / "crates" / "multitop" / "src"
+        src.mkdir(parents=True)
+        (root / "crates" / "agent" / "src").mkdir(parents=True)
+        for case in ("let pal = &multitop_agent::color::ANSI;",
+                     "let theme = &multitop_agent::color::THEMES[0];"):
+            (src / "panel.rs").write_text(case + "\n", encoding="utf-8")
+            if not offenders(root):
+                print(f"self-test FAILED: a fixed palette was not detected: {case}")
+                return 1
+        (src / "panel.rs").write_text(
+            "let pal = crate::palette_store::current(); // was color::ANSI\n",
+            encoding="utf-8",
+        )
+        (src / "palette_store.rs").write_text("&THEMES[0],\n", encoding="utf-8")
+        (root / "crates" / "agent" / "src" / "lib.rs").write_text(
+            "&color::ANSI\n", encoding="utf-8"
+        )
+        if offenders(root):
+            print("self-test FAILED: the store, a comment, or the agent was reported")
+            return 1
+
     # The case the house empty-scope sweep found: crates present, files gone.
     # A checker that scans nothing must not report success.
     with tempfile.TemporaryDirectory() as tmp:
@@ -200,11 +314,13 @@ def main() -> int:
     if hits:
         print(
             f"no-hard-coded-colour: {len(hits)} hard-coded colour(s) in the "
-            f"render path. A literal there does not go through PaletteView, so "
-            f"it is never adapted -- invisible on a dark terminal, unreadable on "
-            f"a light one. Use theme.meter_high(), theme.meter_mid(), or "
-            f"another role accessor, and if the colour genuinely is not a role, "
-            f"say why in ALLOWED."
+            f"render path. A 24-bit literal, a named terminal colour, or a fixed "
+            f"palette (color::ANSI, THEMES[n]) does not go through PaletteView, "
+            f"so it is never adapted -- invisible on one terminal, unreadable on "
+            f"another. Use a role of App::current_theme() (or "
+            f"palette_store::current() where no App reaches, or a Chrome role in "
+            f"ratatui chrome), and if the colour genuinely is not a role, say why "
+            f"in ALLOWED."
         )
         return 1
     print(f"no-hard-coded-colour: ok ({len(present)} crates, {count} files read, "

@@ -26,6 +26,7 @@
 //! `App` owns one and hands out borrows.
 
 use crate::adapt::{adapt, slot, Adapted, Role, MIN_TEXT_CONTRAST};
+use crate::chrome::Chrome;
 use crate::color::Palette;
 use crate::surface::Rgb;
 
@@ -73,17 +74,17 @@ pub struct PaletteView {
     pub gray: String,
     pub purple: String,
     pub blue: String,
-    /// The three colours the local TUI paints as `ratatui::Color` rather than as
-    /// escapes: the keybar background, the border, and the accent.
+    /// The chrome the local TUI paints as cells, one set per SURFACE: `bar` for
+    /// the strips that paint their own fill (the command bar, Settings), `page`
+    /// for chrome drawn straight on the terminal (modals, the empty-filter
+    /// screen). Each set's ink is adapted against its own fill.
     ///
-    /// Colours like any other, so adapted the same way, and they are the ones a
-    /// light terminal hurts most -- a keybar painted with a dark theme's
-    /// background is a black bar across a white screen, which is more jarring
-    /// than any text colour. Components rather than escapes, because ratatui
-    /// wants components.
-    pub keybar_bg: (u8, u8, u8),
-    pub border: (u8, u8, u8),
-    pub accent: (u8, u8, u8),
+    /// These replaced three triples -- `keybar_bg`, `border`, `accent` -- of
+    /// which the first was built from the adapted TEXT colour, so from v0.50.0
+    /// the bar was near-white on every dark terminal, and its text, being
+    /// named terminal colours, was never adapted at all. See `chrome.rs`.
+    pub bar: Chrome,
+    pub page: Chrome,
     /// The theme's name, for the config file. Never adapted: a name is not a
     /// colour and the config stores the theme, not a rendering of it.
     pub name: &'static str,
@@ -98,7 +99,7 @@ impl PaletteView {
     #[must_use]
     pub fn for_background(theme: &Palette, background: Rgb) -> Self {
         let adapted = adapt(theme, background, MIN_TEXT_CONTRAST);
-        Self::from_adapted(theme, adapted.as_ref())
+        Self::from_adapted(theme, adapted.as_ref(), background)
     }
 
     /// The view for an already-computed adaptation.
@@ -107,7 +108,7 @@ impl PaletteView {
     /// and hold the result, rather than re-deriving it whenever a view is asked
     /// for.
     #[must_use]
-    pub fn from_adapted(theme: &Palette, adapted: Option<&Adapted>) -> Self {
+    pub fn from_adapted(theme: &Palette, adapted: Option<&Adapted>, background: Rgb) -> Self {
         let escape = |role: Role| -> String {
             adapted.map_or_else(
                 || role.escape(theme).to_string(),
@@ -127,9 +128,8 @@ impl PaletteView {
             gray: escape(Role::Muted),
             purple: escape(Role::Secondary),
             blue: escape(Role::MeterMid),
-            keybar_bg: triple(theme.ratatui_keybar_bg, adapted, Role::Text),
-            border: triple(theme.ratatui_border, adapted, Role::Primary),
-            accent: triple(theme.ratatui_accent, adapted, Role::MeterLow),
+            bar: Chrome::bar(theme, background),
+            page: Chrome::page(theme, background),
             name: theme.name,
         }
     }
@@ -258,25 +258,6 @@ impl PaletteView {
     #[must_use]
     pub const fn escapes(&self) -> &[String; slot::COUNT] {
         &self.escapes
-    }
-}
-
-/// The triple to use for a ratatui-painted colour.
-///
-/// The theme's own value when adaptation declined, and otherwise the nearest
-/// ADAPTED ROLE's colour rather than an adapted version of this specific value.
-/// A `PaletteView` maps roles onto a background; the three ratatui colours are
-/// not roles, so the honest thing is to borrow the role each one visually tracks
-/// -- the border is drawn in the primary, the accent in the low-meter green --
-/// and take that role's adapted colour. Adapting a value that is not a role
-/// would mean inventing a ninth role.
-const fn triple(own: (u8, u8, u8), adapted: Option<&Adapted>, role: Role) -> (u8, u8, u8) {
-    match adapted {
-        None => own,
-        Some(a) => {
-            let c = a.get(role);
-            (c.r, c.g, c.b)
-        }
     }
 }
 

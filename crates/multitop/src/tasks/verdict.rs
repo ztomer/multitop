@@ -148,14 +148,13 @@ pub fn verdict(server: &Server, report: &Report) -> Outcome {
 /// What to tell an operator whose `sudo` could not ask for a password.
 pub fn sudo_tips(pass: Option<&str>) -> Vec<String> {
     let first = if pass.is_none() {
-        "\x1b[33m\u{2192} Tip: Set password in settings ('e') to allow upgrades\x1b[0m"
+        "\u{2192} Tip: Set password in settings ('e') to allow upgrades"
     } else {
-        "\x1b[33m\u{2192} Tip: Check password in settings ('e') or sudoer permissions\x1b[0m"
+        "\u{2192} Tip: Check password in settings ('e') or sudoer permissions"
     };
     vec![
-        first.to_string(),
-        "\x1b[33m\u{2192} Tip: Add '<user> ALL=(ALL) NOPASSWD: ALL' to /etc/sudoers for passwordless sudo\x1b[0m"
-            .to_string(),
+        status_line(first),
+        status_line("\u{2192} Tip: Add '<user> ALL=(ALL) NOPASSWD: ALL' to /etc/sudoers for passwordless sudo"),
     ]
 }
 

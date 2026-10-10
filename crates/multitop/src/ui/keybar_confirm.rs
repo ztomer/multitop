@@ -1,8 +1,9 @@
 //! The keybar's confirmation rows - upgrade, kill, quit - each assembled
 //! from whole chunks that shed in a declared order.
 
+use super::keybar::BarStyles;
 use crate::app::App;
-use ratatui::style::{Color, Style};
+use ratatui::style::Style;
 use ratatui::text::{Line, Span};
 
 /// Assemble a keybar row from whole chunks, shedding in a declared order.
@@ -63,11 +64,10 @@ fn chunk_row(
 /// transaction on it" appears nowhere else on the screen.
 pub(super) fn upgrade_confirm_row(
     app: &App,
-    accent: Color,
-    key_hi: Style,
-    label: Style,
+    styles: &BarStyles,
     keybar_width: u16,
 ) -> Line<'static> {
+    let (accent, key_hi, label) = (styles.accent, styles.key_hi, styles.label);
     let scope = app.filtered_indices();
     let skipped = app.upgrade_skip_hosts();
     let runnable = scope.len().saturating_sub(skipped.len());
@@ -100,7 +100,7 @@ pub(super) fn upgrade_confirm_row(
         interrupted_at = Some(chunks.len());
         chunks.push(vec![Span::styled(
             "\u{26a0} previous run interrupted",
-            Style::default().fg(Color::Yellow),
+            Style::default().fg(styles.warn),
         )]);
     }
     chunks.push(vec![
@@ -124,13 +124,8 @@ pub(super) fn upgrade_confirm_row(
     chunk_row(&chunks, keybar_width, &shed, label)
 }
 
-pub(super) fn kill_confirm_row(
-    app: &App,
-    accent: Color,
-    key_hi: Style,
-    label: Style,
-    keybar_width: u16,
-) -> Line<'static> {
+pub(super) fn kill_confirm_row(app: &App, styles: &BarStyles, keybar_width: u16) -> Line<'static> {
+    let (accent, key_hi, label) = (styles.accent, styles.key_hi, styles.label);
     let Some(ec) = &app.kill_confirm else {
         return Line::from(vec![Span::styled("Kill ?", label)]);
     };
@@ -167,17 +162,13 @@ pub(super) fn kill_confirm_row(
 /// The confirmation that replaces the keybar once Esc/q/Ctrl-C asked to quit
 /// while upgrades were in flight. Names the hosts, states the cost, and gives
 /// the two ways out.
-pub(super) fn quit_confirm_row(
-    app: &App,
-    key_hi: Style,
-    label: Style,
-    keybar_width: u16,
-) -> Line<'static> {
+pub(super) fn quit_confirm_row(app: &App, styles: &BarStyles, keybar_width: u16) -> Line<'static> {
+    let (key_hi, label) = (styles.key_hi, styles.label);
     let hosts = app.running_upgrade_hosts();
     let n = hosts.len();
     let mut chunks: Vec<Vec<Span<'static>>> = vec![vec![Span::styled(
         format!("{n} upgrade{} running", if n == 1 { "" } else { "s" }),
-        Style::default().fg(Color::Yellow),
+        Style::default().fg(styles.warn),
     )]];
     // The host list is the first thing to go: it is long, and every one of
     // those names is already on the grid behind this row. The count is not --

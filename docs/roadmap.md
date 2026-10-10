@@ -12,59 +12,6 @@ order. The version of this file before the 2026-10-10 consolidation is
 
 ## Now
 
-### N2 — the command bar is near-white on a dark terminal, in every theme
-
-**Reported 2026-10-10; a regression since v0.50.0** (`f7cfb0a`, the light-terminal
-adaptation). `crates/agent/src/palette_view.rs:130` builds the bar's background
-as `triple(theme.ratatui_keybar_bg, adapted, Role::Text)` — the adapted TEXT
-colour. Adaptation runs for every theme but PLAIN, and text is light on a dark
-terminal, so the bar is light. Measured with the release binary in tmux,
-`COLORFGBG=15;0` (detection correct: `Environment(0,0,0)`):
-
-| Theme | Bar bg on screen | Theme's own `ratatui_keybar_bg` |
-|---|---|---|
-| Kare | 248,248,242 | 24,26,36 |
-| Dracula | 248,248,242 | 40,42,54 |
-| Nord | 236,239,244 | 46,52,64 |
-| Gruvbox | 235,219,178 | 40,40,40 |
-
-The bar's text is named terminal colours (`38;5;15`, `38;5;8`), so it is white on
-near-white: 1.02–1.73:1 for the accent across all 8 themes. On a LIGHT terminal
-the bar goes mid-dark with the same white text, also illegible.
-
-**Siblings:** the Settings panel fills its whole block with `keybar_bg`
-(`crates/multitop/src/config_ui.rs`), the "no host matches" screen paints the
-same bar (`crates/multitop/src/ui/draw.rs`), and 51 named `Color::*` sites
-bypass the theme entirely: `ui/keybar.rs` 7, `ui/keybar_confirm.rs` 2,
-`modals.rs` 24, `config_ui.rs` 12, `ui/draw.rs` 6 (`ansi.rs` is legitimate).
-
-**Why no gate saw it — the instrument was blind to backgrounds.**
-`tools/check_no_hard_coded_colour.py` matches only 24-bit FOREGROUND escapes
-(`38;2;…`), not ratatui named colours nor a colour taken from the wrong role.
-`tools/light_terminal_check.py` reads only `38;2` and measures it against the
-assumed terminal background; it never reads `48;2` or `38;5`, and never measures
-text against the background of the cell it sits in.
-`crates/agent/src/palette_view_tests.rs` checks the seven text escapes and none
-of `keybar_bg`/`border`/`accent`.
-
-**Fix, in order:**
-1. **Gate first** (it must go red on today's tree): `light_terminal_check.py`
-   resolves each cell's real background (`48;2`, `48;5`, or the terminal's) and
-   requires 4.5:1 for text (3.0:1 for muted) against it, and fails any indexed or
-   named foreground; plus a `TestBackend` render test over every theme × dark /
-   light / unknown terminal for the keybar, Settings, confirm rows and modals.
-   `check_no_hard_coded_colour.py` gains `Color::<named>`/`Indexed` outside
-   `ansi.rs`, seeded with an allowlist of exactly today's 51 sites that must
-   shrink to empty (stale entries fail).
-2. `keybar_bg` is a BACKGROUND, not a text role: keep the theme's own value when
-   it sits on the same light/dark side as the terminal, else derive it from the
-   detected background nudged toward the opposite end.
-3. The view carries adapted RGB for text, muted and accent, adapted against
-   `keybar_bg`; every named `Color::*` outside `ansi.rs` becomes one of them,
-   including the black text on the active-mode pill.
-4. Prove the test can fail (revert to `Role::Text`, watch it go red), then
-   screenshot light AND dark per `user-pov-debug`.
-
 ### N3 — the local machine has no ops view: give the agent an MCP mode
 
 **Reported 2026-10-10.** The local panel (`host = "127.0.0.1"`, or `--local`,
@@ -177,6 +124,12 @@ the claim from both places — not the third option, a number nothing checks.
   log (apt's `ESC 7`/`ESC 8` progress bar, fixed 2026-10-10), and the fourth,
   the OSC 11 background probe, never once recognised a reply.
   `tools/check_one_escape_reader.py` fails the commit on a fifth.
+* **Do not draw ratatui chrome in anything but a `Chrome` role, nor app text in
+  anything but the current palette.** A text role used as a fill made the
+  command bar white-on-white in every theme (fixed 2026-10-10). A fill and its
+  ink are one value (`multitop_agent::chrome`); where no `App` reaches, the
+  palette is `palette_store::current()`. `chrome_contrast_test` and
+  `tools/check_no_hard_coded_colour.py` fail the commit otherwise.
 
 ## Next
 

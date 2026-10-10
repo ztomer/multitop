@@ -24,6 +24,19 @@ negative control. A check that passes because the app always draws dark-theme
 colours would clear the light arm only by accident, and the difference assertion
 is what catches that.
 
+# Backgrounds (2026-10-10)
+
+The first version measured each FOREGROUND against the terminal's background
+and read only `38;2`. The command bar then shipped near-white on every dark
+terminal: its fill was the adapted text colour and its labels were 16-colour
+escapes, white on near-white at 1.02-1.73:1, and this check passed it -- the
+bar's own background was in no measurement, and its labels were not a pattern
+it read. It now walks the capture cell by cell, resolves each glyph's
+background (`48;2`, else the terminal's), measures the glyph against THAT, and
+fails any 16- or 256-colour escape outright: the terminal decides what those
+look like, so nothing here can promise they read. Floors are the palette's
+own: bold glyphs are text (4.5:1), the rest may be muted (3.0:1).
+
 Usage:
     tools/light_terminal_check.py [--binary PATH]
 
@@ -45,19 +58,22 @@ from pathlib import Path
 
 REPO = Path(__file__).resolve().parent.parent
 
-#: The bar. The same WCAG AA figure the palette module uses, and named here so a
-#: change to one and not the other is visible.
+#: The bars. The same figures as `adapt::MIN_TEXT_CONTRAST` and
+#: `MIN_MUTED_CONTRAST`, named here so a change to one and not the other is
+#: visible. Bold glyphs (keys, titles) are text; the rest may be de-emphasised.
 MIN_CONTRAST = 4.5
+MIN_MUTED_CONTRAST = 3.0
 
-#: The two arms: the environment that stands in for the terminal's report, and
-#: the colour that report is measured against.
+#: The two arms: the environment that stands in for the terminal's report, the
+#: background that report is measured against, and the terminal's default
+#: foreground (what a glyph with no colour of its own is drawn in).
 ARMS = {
-    "light": ("0;15", (255, 255, 255), "a light terminal"),
-    "dark": (None, (30, 30, 30), "this machine's own dark terminal"),
+    "light": ("0;15", (255, 255, 255), (0, 0, 0), "a light terminal"),
+    "dark": (None, (30, 30, 30), (229, 229, 229), "this machine's own dark terminal"),
 }
 
-#: `ESC [ 38 ; 2 ; R ; G ; B m`
-COLOUR = re.compile(r"\x1b\[38;2;(\d+);(\d+);(\d+)m")
+#: An SGR sequence, or a run of text between escapes.
+SGR_OR_TEXT = re.compile(r"\x1b\[([0-9;]*)m|\x1b\[[0-9;?]*[a-zA-Z]|([^\x1b]+)")
 
 #: Ready marker: the keybar is drawn by the event loop, so its presence means the
 #: loop is running and the frame is real. A pid is not readiness.
@@ -131,9 +147,58 @@ def plain(panes: str) -> str:
     return ESCAPE.sub("", panes)
 
 
-def colours_in(panes: str) -> collections.Counter:
+def cells(panes: str, default_fg, default_bg):
+    """Every drawn glyph as `(fg, bg, bold)`, with colours resolved.
+
+    A colour the terminal decides -- a 16- or 256-colour SGR -- comes back as
+    the string naming it, never as an RGB this check would have to guess.
+    """
+    for line in panes.split("\n"):
+        fg = bg = None
+        bold = False
+        for m in SGR_OR_TEXT.finditer(line):
+            if m.group(2) is not None:
+                for ch in m.group(2):
+                    if not ch.isspace():
+                        yield fg or default_fg, bg or default_bg, bold
+                continue
+            if m.group(1) is None:
+                continue  # not SGR: movement, mode, nothing to colour
+            params = [int(p) if p else 0 for p in m.group(1).split(";")]
+            i = 0
+            while i < len(params):
+                p = params[i]
+                if p == 0:
+                    fg = bg = None
+                    bold = False
+                elif p == 1:
+                    bold = True
+                elif p == 22:
+                    bold = False
+                elif p == 39:
+                    fg = None
+                elif p == 49:
+                    bg = None
+                elif p in (38, 48) and params[i + 1:i + 2] == [2] and i + 4 < len(params):
+                    rgb = tuple(params[i + 2:i + 5])
+                    fg, bg = (rgb, bg) if p == 38 else (fg, rgb)
+                    i += 4
+                elif p in (38, 48) and params[i + 1:i + 2] == [5]:
+                    named = f"ESC[{p};5;{params[i + 2] if i + 2 < len(params) else '?'}m"
+                    fg, bg = (named, bg) if p == 38 else (fg, named)
+                    i += 2
+                elif 30 <= p <= 37 or 90 <= p <= 97:
+                    fg = f"ESC[{p}m"
+                elif 40 <= p <= 47 or 100 <= p <= 107:
+                    bg = f"ESC[{p}m"
+                i += 1
+
+
+def measure(panes: str, default_fg, default_bg) -> collections.Counter:
+    """How many glyphs drew each (fg, bg, floor) pairing."""
     return collections.Counter(
-        (int(r), int(g), int(b)) for r, g, b in COLOUR.findall(panes)
+        (fg, bg, MIN_CONTRAST if bold else MIN_MUTED_CONTRAST)
+        for fg, bg, bold in cells(panes, default_fg, default_bg)
     )
 
 
@@ -149,10 +214,10 @@ def main() -> int:
               f"first (./build.sh)")
         return 1
 
-    seen: dict[str, set[tuple[int, int, int]]] = {}
+    seen: dict[str, set] = {}
     failures: list[str] = []
 
-    for arm, (colorfgbg, background, description) in ARMS.items():
+    for arm, (colorfgbg, background, foreground, description) in ARMS.items():
         panes = capture(args.binary, colorfgbg, f"lightcheck-{arm}")
         if panes is None:
             return 1
@@ -163,17 +228,25 @@ def main() -> int:
             )
             print("    " + " | ".join(panes.strip().splitlines()[:4]))
             continue
-        used = colours_in(panes)
-        seen[arm] = set(used)
-        print(f"  {arm:<6} ({description}) — {len(used)} colours:")
-        for rgb, count in used.most_common():
-            ratio = contrast(rgb, background)
-            mark = "   <-- under the bar" if ratio < MIN_CONTRAST else ""
-            print(f"      rgb{rgb!s:<18} {ratio:>6.2f}:1{mark}")
-            if ratio < MIN_CONTRAST:
+        used = measure(panes, foreground, background)
+        seen[arm] = {(fg, bg) for fg, bg, _ in used}
+        print(f"  {arm:<6} ({description}) — {len(used)} ink/surface pairings, "
+              f"{sum(used.values())} glyphs:")
+        for (fg, bg, floor), count in used.most_common():
+            if isinstance(fg, str) or isinstance(bg, str):
+                print(f"      {fg!s:<18} on {bg!s:<18} terminal-decided   <-- x{count}")
                 failures.append(
-                    f"{arm}: rgb{rgb} is {ratio:.2f}:1 against "
-                    f"{background}, under {MIN_CONTRAST}"
+                    f"{arm}: {count} glyph(s) in a terminal-decided colour "
+                    f"({fg} on {bg}) -- no palette can promise it reads"
+                )
+                continue
+            ratio = contrast(fg, bg)
+            mark = f"   <-- under {floor}" if ratio < floor else ""
+            print(f"      rgb{fg!s:<16} on rgb{bg!s:<16} {ratio:>6.2f}:1{mark}")
+            if ratio < floor:
+                failures.append(
+                    f"{arm}: {count} glyph(s) rgb{fg} on rgb{bg} at {ratio:.2f}:1, "
+                    f"under {floor}"
                 )
 
     # The negative control. Two identical arms would mean the background is
@@ -190,8 +263,9 @@ def main() -> int:
             print(f"  ✗ {line}")
         return 1
     print()
-    print(f"  ✓ every rendered colour clears {MIN_CONTRAST}:1 on both arms, and "
-          f"the two palettes differ")
+    print(f"  ✓ every rendered glyph clears its floor ({MIN_CONTRAST}:1 bold, "
+          f"{MIN_MUTED_CONTRAST}:1 otherwise) against its own cell's background on "
+          f"both arms, none is terminal-decided, and the two palettes differ")
     return 0
 
 
