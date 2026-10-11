@@ -12,13 +12,8 @@ order. The version of this file before the 2026-10-10 consolidation is
 
 ## Now
 
-### Upstream, not this repo — `mcp_host` reports absences as faults and as all-clear
-
-Found while scoping the local Ops view (2026-10-10): `mcp_host` reports an
-empty cron table as an error, and a missing alert log as "no events" -- an
-absence shown as a fault and an absence shown as all-clear. Fix both in
-`~/Projects/servers/media_server`; `multitop-agent mcp` already states its
-absences (`_meta["dev.multitop/absent"]`), which is the shape to copy.
+No open item. The last one, `mcp_host` stating its absences, landed upstream in
+`media_server` v1.91.0 (2026-10-10) and is live on .33, .90 and .158.
 
 ## Hygiene
 
