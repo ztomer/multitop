@@ -7,6 +7,31 @@ This file starts at v0.47.0 — earlier history is in git (`git log`), and the
 per-defect record is `docs/detection-record.md`, which is the more useful
 document for anything before this point.
 
+## v0.54.0 — the local machine has an Ops view, and no section claims all is well over nothing _(2026-10-11)_
+
+- **`multitop-agent mcp`: this machine's Ops view.** A local panel used to draw
+  "no mcp_host command". The agent now serves MCP on stdio and lists only what
+  the machine can answer -- `cron.status` from your launchd agents,
+  `docker.containers` from the docker context's daemon (Colima is found) -- and
+  says why each other section is absent. Register it with
+  `claude mcp add --scope user mac -- multitop --agent mcp`.
+- **An empty Ops section says so.** It used to read "✓ docker  0 running, all
+  healthy", "✓ cron  0 jobs ok" and "✓ health  0 checks ok". Now: "no
+  containers", "none running, N stopped", "no jobs", "no checks", on the quiet
+  line. Re-check: a host you believed healthy because of a ✓ may have had nothing
+  to judge.
+- **The command bar is readable on dark terminals again** (broken v0.50.0 to
+  v0.53.0: white on near-white, 1.02-1.73:1). Chrome ink is adapted against the
+  surface it is drawn on, and the bar follows the theme.
+- **apt's upgrade output no longer tears.** One escape reader (vte) serves the
+  painter, the span renderer and `strip_ansi`; apt's pinned progress bar is a
+  status line instead of text glued onto the next dpkg line.
+- Gates: a failed commit gate prints the lines that name the failure; the e2e
+  stale-binary guard reads cargo's dep-info; dependency currency is a ratchet
+  (`tools/deps_ratchet.txt`, one entry: signal-hook 0.3, held by crossterm); the
+  unchecked 1.85 `rust-version` is gone (the lock already needed 1.89), and
+  `tools/check_msrv_claim.py` refuses a version claim no CI job builds.
+
 ## v0.53.0 — four majors moved, each proven where it touches the system _(2026-10-08)_
 
 - **axum 0.7 → 0.8.** Route captures are `/{host}` now. The old test asserted a
