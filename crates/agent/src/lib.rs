@@ -25,6 +25,7 @@ pub mod conv;
 pub mod cpufreq;
 pub mod docker;
 pub mod docker_cli;
+pub mod docker_ops;
 pub mod docker_render;
 pub mod docker_transport;
 pub mod emit;
@@ -33,6 +34,9 @@ pub mod exec;
 pub mod fetch;
 pub mod fmt;
 pub mod lab;
+pub mod launchd;
+pub mod mcp;
+pub mod mcp_tools;
 pub mod monitor;
 pub mod palette_view;
 pub mod proc;
@@ -110,6 +114,9 @@ pub enum Mode {
     /// never in argv: `/proc/<pid>/cmdline` is world-readable, and the request
     /// carries a sudo password.
     Exec,
+    /// Serve this machine's ops over MCP on stdio -- the Ops view's local
+    /// source, and a server Claude Code can register.
+    Mcp,
 }
 
 impl Mode {
@@ -120,6 +127,7 @@ impl Mode {
             Self::Docker => "docker",
             Self::Fetch => "fetch",
             Self::Exec => "exec",
+            Self::Mcp => "mcp",
         }
     }
 }
@@ -161,6 +169,10 @@ pub fn parse_args<I: IntoIterator<Item = String>>(raw: I) -> Args {
             }
             "exec" => {
                 args.mode = Mode::Exec;
+                rest.remove(0);
+            }
+            "mcp" => {
+                args.mode = Mode::Mcp;
                 rest.remove(0);
             }
             _ => {}
@@ -303,13 +315,15 @@ pub fn usage() -> String {
          Sampled by multitop over SSH. Prints one frame, or streams them.\n\
          \n\
          Usage:\n    \
-           multitop-agent [monitor|docker|fetch|exec] [host] [cols] [lines] [cpu|mem]\n\
+           multitop-agent [monitor|docker|fetch|exec] [host] [cols] [lines] [cpu|mem]\n    \
+           multitop-agent mcp\n\
          \n\
          Modes:\n    \
            monitor   CPU, memory, network and the process table (the default)\n    \
            docker    the container table\n    \
            fetch     a one-shot host summary\n    \
-           exec      run one command, reading the request from stdin\n\
+           exec      run one command, reading the request from stdin\n    \
+           mcp       this machine's cron (launchd) and containers, over MCP on stdio\n\
          \n\
          Options:\n    \
            -h, --help       this text\n    \
@@ -360,6 +374,12 @@ pub fn run_agent<I: IntoIterator<Item = String>>(raw: I) {
             let _ = emit_docker(&host, docker::collect(), &args, is_tty, &view, &mut out);
         }
         Mode::Exec => exec::serve::serve(&host, args.cols, args.lines, &mut out),
+        Mode::Mcp => {
+            drop(out);
+            if let Err(e) = mcp::run() {
+                let _ = writeln!(io::stderr(), "multitop-agent mcp: {e}");
+            }
+        }
         Mode::Monitor => {
             let stdin_gone = stdin_eof_watcher();
             if is_tty {

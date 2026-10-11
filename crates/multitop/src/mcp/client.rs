@@ -80,6 +80,9 @@ pub struct Client<R, W> {
     pub server: (String, String),
     /// Every tool the server lists, by name.
     pub tools: Vec<String>,
+    /// Why the server does not list a tool the Ops view reads, by tool name,
+    /// when it says (`multitop-agent mcp` does; `mcp_host` does not).
+    pub absent: std::collections::HashMap<String, String>,
     /// Set by the first failure that ends the session (a closed pipe or a
     /// deadline missed - after a timeout a late reply could be mistaken
     /// for the next one's, so the session is not trusted again).
@@ -102,6 +105,7 @@ impl<R: AsyncRead + Unpin, W: AsyncWrite + Unpin> Client<R, W> {
             timeout,
             server: (String::new(), String::new()),
             tools: Vec::new(),
+            absent: std::collections::HashMap::new(),
             broken: None,
         };
         let d = c.request("server/discover", json!({})).await?;
@@ -125,6 +129,18 @@ impl<R: AsyncRead + Unpin, W: AsyncWrite + Unpin> Client<R, W> {
                 .to_string()
         };
         c.server = (info("name"), info("version"));
+        if let Some(why) = d
+            .pointer(&format!(
+                "/_meta/{}",
+                multitop_agent::mcp::META_ABSENT.replace('/', "~1")
+            ))
+            .and_then(Value::as_object)
+        {
+            c.absent = why
+                .iter()
+                .filter_map(|(k, v)| Some((k.clone(), v.as_str()?.to_string())))
+                .collect();
+        }
         let mut cursor: Option<String> = None;
         loop {
             let params = cursor.map_or_else(|| json!({}), |c| json!({ "cursor": c }));
@@ -152,6 +168,15 @@ impl<R: AsyncRead + Unpin, W: AsyncWrite + Unpin> Client<R, W> {
     #[must_use]
     pub const fn broken(&self) -> Option<&Error> {
         self.broken.as_ref()
+    }
+
+    /// Why `tool` is not listed: the server's own reason, else `fallback`.
+    #[must_use]
+    pub fn absent_reason(&self, tool: &str, fallback: &str) -> String {
+        self.absent
+            .get(tool)
+            .cloned()
+            .unwrap_or_else(|| fallback.to_string())
     }
 
     /// Whether the server lists `tool`: a host lists only what it can

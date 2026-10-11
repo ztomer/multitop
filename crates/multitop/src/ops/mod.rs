@@ -25,6 +25,31 @@ pub const HEALTH_URI: &str = "health://latest";
 /// about; older events are in `alerts.since` for whoever asks.
 pub const ALERT_WINDOW_S: i64 = 86_400;
 
+/// Where a host's Ops answers come from.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Source {
+    /// The host's `mcp` command: `mcp_host` over ssh, or any command locally.
+    Command(String),
+    /// This machine, with no `mcp` configured: this build's own agent in its
+    /// `mcp` mode. A Mac has no `mcp_host`, and the hint to configure one was
+    /// a dead end -- there was no command worth adding.
+    LocalAgent,
+}
+
+impl Source {
+    /// The source for `server`: its `mcp` command when it names one (which
+    /// always wins), the local agent for this machine, and nothing for a
+    /// remote host without one -- that is `OpsState::NotConfigured`.
+    #[must_use]
+    pub fn of(server: &crate::config::Server) -> Option<Self> {
+        server
+            .mcp
+            .clone()
+            .map(Self::Command)
+            .or_else(|| crate::ssh::is_local(server).then_some(Self::LocalAgent))
+    }
+}
+
 /// One section: its data, or why there is none.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Part<T> {
@@ -262,12 +287,12 @@ where
     let health = if c.has_tool("health.run") {
         part(c.read(HEALTH_URI).await, parse_health)
     } else {
-        Part::Absent("this host lists no health checks".to_string())
+        Part::Absent(c.absent_reason("health.run", "this host lists no health checks"))
     };
     let cron = if c.has_tool("cron.status") {
         part(c.call("cron.status", json!({})).await, parse_cron)
     } else {
-        Part::Absent("this host lists no cron.status".to_string())
+        Part::Absent(c.absent_reason("cron.status", "this host lists no cron.status"))
     };
     let containers = if c.has_tool("docker.containers") {
         part(
@@ -275,7 +300,7 @@ where
             parse_containers,
         )
     } else {
-        Part::Absent("no Docker on this host".to_string())
+        Part::Absent(c.absent_reason("docker.containers", "no Docker on this host"))
     };
     let alerts = if c.has_tool("alerts.since") {
         part(
@@ -284,7 +309,7 @@ where
             parse_alerts,
         )
     } else {
-        Part::Absent("this host lists no alerts.since".to_string())
+        Part::Absent(c.absent_reason("alerts.since", "this host lists no alerts.since"))
     };
     Snapshot {
         server: c.server.clone(),

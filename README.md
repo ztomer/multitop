@@ -78,10 +78,17 @@ Additional views accessible via keys:
 - **Ops view** (`p`) — what each host's `mcp_host` says that the agent does not
   stream: its health checks' last verdicts, its cron jobs, its containers' health
   and the alerts its cron wrapper logged in the last 24 hours. One line per
-  section, and under a section in trouble one line per thing in trouble. Needs
-  the host's `mcp` command in its `[[servers]]` entry; a host without one says
-  so. Polled every 30 s while the view is up, over the same ssh connection, and
-  never while it is not
+  section, and under a section in trouble one line per thing in trouble. A
+  remote host needs its `mcp` command in its `[[servers]]` entry, and one
+  without says so. This machine needs nothing: with no `mcp` it is served by the
+  agent's own `mcp` mode -- cron from your launchd agents
+  (`~/Library/LaunchAgents`), containers from whichever daemon your docker
+  context names (Colima included); health and alerts show as absent, with the
+  reason. Polled every 30 s while the view is up, over the same ssh connection,
+  and never while it is not
+- **`multitop-agent mcp`** — that same server, on stdio, for any MCP client.
+  Register it with Claude Code as this Mac's ops server:
+  `claude mcp add --scope user mac-ops -- multitop --agent mcp`
 - **Settings screen** (`e`) — servers, their passwords, and the vault
 - **Filter** (`/`) — narrow the grid to hosts matching what you type, searching
   whatever the panes are currently showing

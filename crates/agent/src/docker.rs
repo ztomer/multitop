@@ -296,7 +296,9 @@ pub fn rows_from_cli<S: std::hash::BuildHasher>(
 /// Gather rows, preferring the socket and falling back to the CLI.
 #[must_use]
 pub fn collect() -> Vec<Row> {
-    collect_from(&DockerEndpoint::from_env())
+    collect_from(
+        &DockerEndpoint::discover().unwrap_or_else(|| DockerEndpoint::Unix(DEFAULT_SOCKET.into())),
+    )
 }
 
 #[must_use]

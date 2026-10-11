@@ -45,7 +45,7 @@ pub fn execute_cmds(
                 ),
             ),
             Command::RunOps { panel, gen } => {
-                if let Some(command) = app.panels[panel].server.mcp.clone() {
+                if let Some(source) = crate::ops::Source::of(&app.panels[panel].server) {
                     let dims = tasks.dims_or(dims);
                     tasks.set_ops(
                         panel,
@@ -53,7 +53,7 @@ pub fn execute_cmds(
                             panel,
                             gen,
                             app.panels[panel].server.clone(),
-                            command,
+                            source,
                             dims,
                             tx.clone(),
                         ),

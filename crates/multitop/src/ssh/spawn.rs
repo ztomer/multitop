@@ -47,7 +47,7 @@ pub fn spawn_local_agent(mode: Mode, sort: SortBy) -> io::Result<Child> {
 /// moved to a separate build-dir: `NotFound`, reported as if the agent had not
 /// been built. Tests now name the binary through the seam instead
 /// (`CARGO_BIN_EXE_multitop`), which holds in every layout.
-fn local_agent_command() -> Command {
+pub fn local_agent_command() -> Command {
     let exe = std::env::var_os("MULTITOP_AGENT_EXE")
         .map(PathBuf::from)
         .or_else(|| std::env::current_exe().ok());

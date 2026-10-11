@@ -12,66 +12,13 @@ order. The version of this file before the 2026-10-10 consolidation is
 
 ## Now
 
-### N3 — the local machine has no ops view: give the agent an MCP mode
+### Upstream, not this repo — `mcp_host` reports absences as faults and as all-clear
 
-**Reported 2026-10-10.** The local panel (`host = "127.0.0.1"`, or `--local`,
-which builds one with `mcp: None` in `crates/multitop/src/main.rs`) maps
-`mcp: None` to `NotConfigured` (`crates/multitop/src/app/ops_view.rs`) and starts
-no poll; `crates/multitop/src/ops/render.rs` shows a quiet "no mcp_host command
-for this host" with a hint to add `mcp = "..."`. The tone is right; the hint is a
-dead end on a Mac, because there is no command worth adding.
-
-**What the view needs** (`crates/multitop/src/ops/mod.rs`): four sections, each
-ready / absent-with-reason / failed — health (`health://latest`, only when
-`health.run` is listed), cron (`cron.status`), containers (`docker.containers`),
-alerts (`alerts.since`, 24 h). Nothing else from `mcp_host` is read.
-
-**Rejected: running `mcp_host` on the Mac** (probed 2026-10-10, build 1.79.9,
-empty root). It produces two FALSE readings and a false fault: `cron.status`
-errors "no run_and_alert jobs" (a warning for an absence); `docker.containers` is
-unlisted because it only knows `/var/run/docker.sock`, so the view says "no
-Docker" while Colima runs at `~/.colima/default/docker.sock`; `alerts.since`
-returns `[]`, a green "none in 24 h" for a log nothing on a Mac writes. It also
-couples this repo to the servers repo and teaches a Linux fleet tool launchd.
-
-**Rejected: an in-process local provider behind a trait.** Least protocol code,
-but a second path around the client, poll and session machinery — the parallel
-pipeline that always drifts (engineering rule #9) — and Claude Code cannot ask
-the Mac anything through it.
-
-**Chosen: `multitop-agent mcp`, local panel only.** Same MCP over stdio, so
-everything after process start (client, poll, render, e2e) is unchanged, and it
-keeps the repo's rule that local and remote differ only in what is spawned
-(`crates/multitop/src/ssh/spawn.rs`; `crates/multitop/src/mcp/spawn.rs` already
-runs a local panel's command via `sh -c`). Not for remote hosts:
-re-implementing `mcp_host`'s 25 tools would be two servers that drift.
-
-1. **Server.** `multitop-agent mcp` speaks the 2026-07-28 protocol (initialize,
-   `tools/list`, `tools/call`, `resources/read`) and lists only:
-   * `cron.status` from launchd — `launchctl list` gives label, PID while running
-     and last exit status, which maps onto the cron columns directly;
-   * `docker.containers` from the agent's existing Docker client
-     (`crates/agent/src/docker.rs`, which honours `DOCKER_HOST`), extended with
-     `all=1`, `State`, health parsed from `Status`, the compose-project label, and
-     endpoint discovery from the docker context so Colima is found.
-   Health and alerts stay unlisted, so they render as absent with a reason
-   ("launchd host: no health suite"; "nothing on this Mac logs alerts") — never a
-   green none. `log show` is too slow for a 30 s poll; `~/.routines/events` is a
-   possible alerts source later. Tested with the existing `mcp::client` over an
-   in-memory pipe.
-2. **Wiring.** A local server with no `mcp` defaults to the agent's `mcp` mode via
-   the same lookup as `local_agent_command()` (`app/ops_view.rs`,
-   `crates/multitop/src/tasks/spawn.rs`); a configured `mcp` still overrides.
-   `NotConfigured` remains for remote hosts only.
-3. **Verify.** `crates/multitop/tests/ops_view_e2e.rs` drives the real agent
-   binary instead of the Python stand-in; then `multitop --local`, `p`,
-   screenshots light and dark.
-4. **Bonus:** register `multitop-agent mcp` with Claude Code as the Mac's own ops
-   server, beside `media-server`/`storage`/`pihole`.
-
-**Upstream, not this repo:** `mcp_host` reports an empty cron table as an error
-and a missing alert log as "no events" — an absence shown as a fault and an
-absence shown as all-clear. Fix both in `~/Projects/servers/media_server`.
+Found while scoping the local Ops view (2026-10-10): `mcp_host` reports an
+empty cron table as an error, and a missing alert log as "no events" -- an
+absence shown as a fault and an absence shown as all-clear. Fix both in
+`~/Projects/servers/media_server`; `multitop-agent mcp` already states its
+absences (`_meta["dev.multitop/absent"]`), which is the shape to copy.
 
 ## Hygiene
 
@@ -115,8 +62,9 @@ the claim from both places — not the third option, a number nothing checks.
 * **Do not "fix" the empty coverage part by deleting the agent's bin target.**
   `⚠ multitop-agent (bin multitop-agent) exported a valid-but-EMPTY lcov part` is
   the coverage gate saying out loud that `main.rs` is regex-excluded; say so in
-  the exclusion's reason instead. (N3 gives that binary a real `mcp` mode, which
-  will need its own coverage.)
+  the exclusion's reason instead. Its `mcp` mode lives in the library
+  (`multitop_agent::mcp`), unit-tested over a fake machine and driven for real
+  by `ops_view_e2e.rs`.
 * **Do not move Android's auth hardening behind the app.** It is a security
   surface and a second client multiplies the exposure.
 * **Do not read terminal escapes anywhere but `multitop_agent::escape`.** Four

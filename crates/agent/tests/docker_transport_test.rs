@@ -212,13 +212,9 @@ fn an_absent_or_empty_docker_host_falls_back_to_the_standard_socket() {
     assert_eq!(DockerEndpoint::from_docker_host(Some("unix://")), default);
 }
 
-#[test]
-fn the_environment_is_read_for_the_endpoint() {
-    // Whatever this machine's DOCKER_HOST says, `from_env` must agree with
-    // reading that same value directly.
-    let expected = DockerEndpoint::from_docker_host(std::env::var("DOCKER_HOST").ok().as_deref());
-    assert_eq!(DockerEndpoint::from_env(), expected);
-}
+// `from_env` read only DOCKER_HOST and so missed Colima, which the docker
+// CONTEXT selects. Its replacement, `discover`, is tested over explicit
+// inputs in `docker_ops_tests.rs`.
 
 // ---------------------------------------------------------------- collection
 

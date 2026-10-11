@@ -16,6 +16,7 @@ use tokio::task::JoinHandle;
 
 use super::client::{Client, Error};
 use crate::config::Server;
+use crate::ops::Source;
 use crate::ssh;
 
 /// A session with a running `mcp_host`.
@@ -65,21 +66,31 @@ async fn last_words(stderr: JoinHandle<String>, fallback: String) -> String {
         .map_or(fallback, |l| l.trim().to_string())
 }
 
-/// Start `command` on `server` and discover it.
+/// Start `source` for `server` and discover it.
 ///
 /// # Errors
 ///
 /// The process could not start, or the session failed to open; a closed
 /// session carries ssh's or the server's last stderr line as its reason.
-pub async fn open(server: &Server, command: &str, timeout: Duration) -> Result<Running, Error> {
-    let mut cmd = if ssh::is_local(server) {
-        let mut c = ssh::detached(Command::new("sh"));
-        c.arg("-c").arg(command);
-        c
-    } else {
-        let mut c = ssh::ssh_command(server);
-        c.arg(command);
-        c
+pub async fn open(server: &Server, source: &Source, timeout: Duration) -> Result<Running, Error> {
+    let mut cmd = match source {
+        // The same resolver as the streaming panel and the exec channel, so
+        // the Ops view is served by the binary drawing the panel beside it.
+        Source::LocalAgent => {
+            let mut c = ssh::local_agent_command();
+            c.arg("mcp");
+            c
+        }
+        Source::Command(command) if ssh::is_local(server) => {
+            let mut c = ssh::detached(Command::new("sh"));
+            c.arg("-c").arg(command);
+            c
+        }
+        Source::Command(command) => {
+            let mut c = ssh::ssh_command(server);
+            c.arg(command);
+            c
+        }
     };
     cmd.stdin(Stdio::piped())
         .stdout(Stdio::piped())

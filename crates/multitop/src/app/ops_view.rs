@@ -14,7 +14,7 @@ pub fn frame(
     dims: (u16, u16),
     pal: &multitop_agent::palette_view::PaletteView,
 ) -> Vec<String> {
-    let state = match (&panel.server.mcp, &panel.last_ops) {
+    let state = match (crate::ops::Source::of(&panel.server), &panel.last_ops) {
         (None, _) => &OpsState::NotConfigured,
         (Some(_), Some(s)) => s,
         (Some(_), None) => &OpsState::Asking,
@@ -53,7 +53,7 @@ impl App {
             }
             let p = &mut self.panels[i];
             p.mode = Mode::Ops;
-            if p.server.mcp.is_some() {
+            if crate::ops::Source::of(&p.server).is_some() {
                 cmds.push(Command::RunOps {
                     panel: i,
                     gen: p.gen,

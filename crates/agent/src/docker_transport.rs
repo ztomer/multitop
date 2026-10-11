@@ -22,11 +22,6 @@ pub enum DockerEndpoint {
 pub const DEFAULT_SOCKET: &str = "/var/run/docker.sock";
 
 impl DockerEndpoint {
-    #[must_use]
-    pub fn from_env() -> Self {
-        Self::from_docker_host(std::env::var("DOCKER_HOST").ok().as_deref())
-    }
-
     /// Read a `DOCKER_HOST` value. Anything that is neither `tcp://` nor
     /// `unix://` is taken as a bare socket path, which is what the CLI does.
     #[must_use]
@@ -43,6 +38,102 @@ impl DockerEndpoint {
             _ => Self::Unix(DEFAULT_SOCKET.to_string()),
         }
     }
+
+    /// Where the daemon is, the way the `docker` CLI would find it -- or
+    /// `None` when nothing says there is one.
+    ///
+    /// `from_env` knew only `DOCKER_HOST` and `/var/run/docker.sock`, so on a
+    /// Mac running Colima (`~/.colima/default/docker.sock`, selected by the
+    /// docker CONTEXT, not by `DOCKER_HOST`) the docker view reported no
+    /// Docker while containers ran.
+    #[must_use]
+    pub fn discover() -> Option<Self> {
+        let env = |k: &str| std::env::var(k).ok().filter(|v| !v.is_empty());
+        let home = env("HOME").map(std::path::PathBuf::from);
+        let config = env("DOCKER_CONFIG")
+            .map(std::path::PathBuf::from)
+            .or_else(|| home.as_ref().map(|h| h.join(".docker")));
+        Self::discover_with(&Discovery {
+            docker_host: env("DOCKER_HOST").as_deref(),
+            context: env("DOCKER_CONTEXT").as_deref(),
+            config_dir: config.as_deref(),
+            home: home.as_deref(),
+            exists: &|p| p.exists(),
+        })
+    }
+
+    /// [`DockerEndpoint::discover`] over explicit inputs. In order:
+    /// `DOCKER_HOST`; the docker context (`DOCKER_CONTEXT`, else the config's
+    /// `currentContext`) and the host its metadata names; then the first
+    /// well-known socket that exists.
+    #[must_use]
+    pub fn discover_with(d: &Discovery<'_>) -> Option<Self> {
+        if let Some(h) = d.docker_host {
+            return Some(Self::from_docker_host(Some(h)));
+        }
+        if let Some(host) = d.config_dir.and_then(|c| context_host(c, d.context)) {
+            return Some(Self::from_docker_host(Some(&host)));
+        }
+        let mut candidates = vec![std::path::PathBuf::from(DEFAULT_SOCKET)];
+        if let Some(h) = d.home {
+            candidates.extend(WELL_KNOWN_HOME_SOCKETS.iter().map(|s| h.join(s)));
+        }
+        candidates
+            .into_iter()
+            .find(|p| (d.exists)(p))
+            .map(|p| Self::Unix(p.to_string_lossy().into_owned()))
+    }
+
+    /// The endpoint as `DOCKER_HOST` would spell it.
+    #[must_use]
+    pub fn url(&self) -> String {
+        match self {
+            Self::Unix(p) => format!("unix://{p}"),
+            Self::Tcp(a) => a.clone(),
+        }
+    }
+}
+
+/// Sockets a desktop Docker puts under `$HOME`: Docker Desktop, Colima's
+/// default profile, `OrbStack`.
+pub const WELL_KNOWN_HOME_SOCKETS: [&str; 3] = [
+    ".docker/run/docker.sock",
+    ".colima/default/docker.sock",
+    ".orbstack/run/docker.sock",
+];
+
+/// What [`DockerEndpoint::discover_with`] reads, so a test can supply it.
+pub struct Discovery<'a> {
+    pub docker_host: Option<&'a str>,
+    pub context: Option<&'a str>,
+    pub config_dir: Option<&'a std::path::Path>,
+    pub home: Option<&'a std::path::Path>,
+    pub exists: &'a dyn Fn(&std::path::Path) -> bool,
+}
+
+/// The docker host the selected context names, if a non-default context is
+/// selected. Context metadata lives in `contexts/meta/<sha256 of name>/
+/// meta.json`; reading each file's `Name` finds it without hashing.
+fn context_host(config_dir: &std::path::Path, context: Option<&str>) -> Option<String> {
+    let current = context.map(str::to_string).or_else(|| {
+        let text = std::fs::read_to_string(config_dir.join("config.json")).ok()?;
+        let v: serde_json::Value = serde_json::from_str(&text).ok()?;
+        v.get("currentContext")?.as_str().map(str::to_string)
+    })?;
+    if current == "default" {
+        return None;
+    }
+    std::fs::read_dir(config_dir.join("contexts").join("meta"))
+        .ok()?
+        .filter_map(Result::ok)
+        .filter_map(|e| std::fs::read_to_string(e.path().join("meta.json")).ok())
+        .filter_map(|t| serde_json::from_str::<serde_json::Value>(&t).ok())
+        .find(|m| m.get("Name").and_then(serde_json::Value::as_str) == Some(current.as_str()))
+        .and_then(|m| {
+            m.pointer("/Endpoints/docker/Host")
+                .and_then(serde_json::Value::as_str)
+                .map(str::to_string)
+        })
 }
 
 fn find_subslice(haystack: &[u8], needle: &[u8]) -> Option<usize> {

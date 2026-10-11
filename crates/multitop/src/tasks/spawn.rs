@@ -181,7 +181,7 @@ pub fn spawn_ops(
     panel: usize,
     gen: u64,
     server: Server,
-    command: String,
+    source: crate::ops::Source,
     dims: std::sync::Arc<tokio::sync::watch::Receiver<(u16, u16)>>,
     tx: Sender<Msg>,
 ) -> JoinHandle<()> {
@@ -193,9 +193,9 @@ pub fn spawn_ops(
         dims,
     };
     let connect = move || {
-        let (server, command) = (server.clone(), command.clone());
+        let (server, source) = (server.clone(), source.clone());
         async move {
-            crate::mcp::spawn::open(&server, &command, OPS_TIMEOUT)
+            crate::mcp::spawn::open(&server, &source, OPS_TIMEOUT)
                 .await
                 .map_err(|e| e.to_string())
         }
