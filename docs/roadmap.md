@@ -22,21 +22,6 @@ absences (`_meta["dev.multitop/absent"]`), which is the shape to copy.
 
 ## Hygiene
 
-### H1 — dependency currency as a ratchet, not a gate
-
-`goh deps` runs in `gates_of_heck`'s `rust_gate.sh` with three severities: FATAL
-for a direct dependency pinned below the graph (zero), `[major behind]` for a
-direct dependency a major or more behind, and `[drift]` for the rest. The middle
-one is deliberately not fatal. As of 2026-10-10 it holds one entry, held on
-purpose: `signal-hook` 0.3 -> 0.4 waits for crossterm, whose newest release
-(0.29.0) still depends on 0.3 — moving the direct dependency first would put two
-majors of it in the graph.
-
-What is missing is the ratchet: today's state as a ceiling, failing only on NEW
-drift. `rust_gate.sh` already reads `GOH_DEPS_RATCHET`; `.gatesrc` does not set
-it. The work is a ceiling file and one line, not a new mechanism. Landing it as a
-plain gate instead is the outcome to avoid.
-
 ### H2 — `rust-toolchain.toml` does not do what its own comment says
 
 The header reads *"Pin the toolchain so the local gate and CI compile the same
@@ -56,8 +41,10 @@ the claim from both places — not the third option, a number nothing checks.
 * **Do not chase the sixteen remaining duplicate crates to zero.** All
   transitive; `secret-service 5.1.0` (via `keyring`) holds the whole 0.10 crypto
   generation. Collapsing them needs an upstream move.
-* **Do not land dependency currency as a plain gate.** H1 is the ratchet shape
-  for exactly this reason.
+* **Do not land dependency currency as a plain gate.** It is a ratchet
+  (`GOH_DEPS_RATCHET=tools/deps_ratchet.txt`): a major behind fails unless held
+  there with its reason, and a held crate that catches up fails until its entry
+  is deleted. Minor drift is reported, never failed.
 * **Do not bundle a lockfile refresh with a major move.** Its own commit.
 * **Do not "fix" the empty coverage part by deleting the agent's bin target.**
   `⚠ multitop-agent (bin multitop-agent) exported a valid-but-EMPTY lcov part` is

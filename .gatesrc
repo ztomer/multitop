@@ -17,6 +17,13 @@ GOH_LINE_BASELINE=tools/loc_baseline.txt   # ceilings for the LINE_EXCLUDE entri
 # and stay CI's.
 GOH_RUST_LINT_CONFIGS='--target x86_64-unknown-linux-musl -p multitop-agent'
 
+# Dependency currency as a RATCHET (gates_of_heck `goh deps`, in rust_gate.sh on
+# the pre-push list). A direct dependency a major behind fails unless the file
+# below holds it with its reason; an entry whose crate caught up fails until it
+# is deleted, so the held set only shrinks. Minor drift stays reported, not
+# failed: a lockfile refresh is routine and moves in its own commit.
+GOH_DEPS_RATCHET=tools/deps_ratchet.txt
+
 # ── The gate of record ──────────────────────────────────────────────────────
 # ONE list: tools/gate.sh --full (the pre-push hook) runs it through
 # gates_of_heck/gates/local_ci.sh. It replaced scripts/local-ci.py (481 lines
