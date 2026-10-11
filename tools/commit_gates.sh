@@ -208,6 +208,17 @@ if ! in_index python3 tools/check_codesign.py >"$log" 2>&1; then
 fi
 ok "codesign stable"
 
+info "checking no minimum Rust version is claimed that nothing builds on"
+if ! python3 tools/check_msrv_claim.py --self-test >"$log" 2>&1; then
+    cat "$log" >&2
+    die "the msrv-claim checker's own self-test failed"
+fi
+if ! in_index python3 tools/check_msrv_claim.py >"$log" 2>&1; then
+    cat "$log" >&2
+    die "an MSRV claim no CI job builds on -- see tools/check_msrv_claim.py"
+fi
+ok "no unexercised MSRV claim"
+
 info "checking unsafe stays inside the FFI modules"
 if ! python3 tools/check_unsafe_scope.py --self-test >"$log" 2>&1; then
     cat "$log" >&2

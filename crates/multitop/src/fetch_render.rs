@@ -94,7 +94,7 @@ fn parse_db(bytes: &[u8]) -> LogoDb {
     LogoDb { logos }
 }
 
-fn color_for(ci: u8, pal: &PaletteView) -> &str {
+const fn color_for(ci: u8, pal: &PaletteView) -> &str {
     match ci {
         1 => pal.red.as_str(),
         2 => pal.green.as_str(),

@@ -282,8 +282,10 @@ sessions.
 
 ## Requirements
 
-- **Local**: macOS on Apple Silicon, or Linux. Rust 1.85+, `ssh`, and a
-  cross-compilation backend for the agent (see below).
+- **Local**: macOS on Apple Silicon, or Linux. The latest stable Rust
+  (`rust-toolchain.toml` selects it through rustup; no older version is
+  built or claimed), `ssh`, and a cross-compilation backend for the agent
+  (see below).
 - **Remote**: Linux with `/proc`, a POSIX shell, x86-64 or aarch64. No
   package installs. This is the agent's architecture, not the machine you run
   multitop on.

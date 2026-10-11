@@ -1,16 +1,34 @@
-# Pin the toolchain so the local gate and CI compile the same code with the same
-# compiler.
+# Selects the STABLE CHANNEL and the components the gates need. It does NOT pin
+# a compiler: `channel = "stable"` floats, so the local gate builds with
+# whichever stable rustup last installed, and CI (dtolnay/rust-toolchain@stable)
+# with whichever stable is current on the runner that day. The two agree only
+# while neither side has updated -- the 2026-10-01 `rustup update` turned the
+# local gate red with no commit, which is the receipt.
 #
-# There was no pin here, so cargo used whatever `rustup default` happened to be.
-# On this machine that is nightly, and nightly (c656540d6, 2026-08-21) ICEs on
-# this workspace: "internal compiler error: unexpected rigid alias in layout_of
-# after normalization" on the async fns in multitop-vault (api::enclave,
-# api::init, fprintd). Clippy could not complete at all, so the gate was red for
-# a reason that had nothing to do with the code and would not reproduce on CI.
+# What this file guarantees:
+#   * Never nightly by default. With no file here, cargo used `rustup default`,
+#     which on this machine was nightly, and nightly (c656540d6, 2026-08-21)
+#     ICEs on this workspace -- "internal compiler error: unexpected rigid alias
+#     in layout_of after normalization" on the async fns in multitop-vault
+#     (api::enclave, api::init, fprintd) -- so clippy could not complete, for a
+#     reason that had nothing to do with the code. Nothing here needs nightly:
+#     there is not one #![feature(...)] in the tree. `cargo fuzz` is the one
+#     tool that does, and it names `+nightly` at its own call site in CI.
+#   * rustfmt, clippy and llvm-tools (coverage) are installed with it.
 #
-# ci.yml pinned stable in all three jobs (dtolnay/rust-toolchain@stable) and the
-# workspace is clean on stable. Nothing here needs nightly — there is not a
-# single #![feature(...)] in the tree.
+# What it does not guarantee, on purpose: that two builds used the same
+# compiler. House rule is the latest stable, and a version pinned here is a
+# number to move by hand that lags the moment it is written. The identity of
+# the compiler is carried by the ARTIFACT instead: tools/installed_freshness.py
+# (pre-push) rebuilds and compares the installed binary's BYTES with this
+# tree's build, so a toolchain change that moves the output is caught as a
+# stale install, not as a bug report nobody can reproduce.
+#
+# No minimum supported Rust version is claimed either -- no `rust-version` in
+# any Cargo.toml, no "Rust X+" in the docs. Nothing built on one, and the 1.85
+# that stood there until 2026-10-10 was already false (the lock needed 1.89).
+# tools/check_msrv_claim.py fails such a claim unless a CI job installs that
+# toolchain.
 [toolchain]
 channel = "stable"
 components = ["rustfmt", "clippy", "llvm-tools-preview"]

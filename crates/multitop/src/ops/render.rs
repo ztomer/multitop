@@ -35,7 +35,7 @@ impl Tone {
         }
     }
 
-    fn color(self, pal: &PaletteView) -> &str {
+    const fn color(self, pal: &PaletteView) -> &str {
         match self {
             Self::Good => pal.green.as_str(),
             Self::Bad => pal.red.as_str(),

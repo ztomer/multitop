@@ -5,8 +5,8 @@ history (`git log --oneline`) and in `docs/detection-record.md`. When an item
 here is finished, delete it rather than ticking it off.
 
 Order: **Now** is user-visible defects and the one feature gap a user hit, in
-the order they should land. **Hygiene** is the gate work left from the
-2026-10-04 currency pass. **Next** is the two larger features, unchanged in
+the order they should land. **Hygiene** has no open item left from the
+2026-10-04 currency pass, only its standing rulings. **Next** is the two larger features, unchanged in
 order. The version of this file before the 2026-10-10 consolidation is
 `git show 56b90bd:docs/roadmap.md`.
 
@@ -22,19 +22,7 @@ absences (`_meta["dev.multitop/absent"]`), which is the shape to copy.
 
 ## Hygiene
 
-### H2 — `rust-toolchain.toml` does not do what its own comment says
-
-The header reads *"Pin the toolchain so the local gate and CI compile the same
-code with the same compiler"*; the body is `channel = "stable"`, which floats,
-and `dtolnay/rust-toolchain@stable` in CI floats with it. The two sides agree by
-coincidence; the 2026-10-01 `rustup update` turned the gate red with no commit,
-which is the receipt. The honest middle is to keep `stable` and make the
-ARTIFACT carry its compiler — which `tools/installed_freshness.py` does by
-comparing bytes.
-
-The MSRV is the same shape: `rust-version = "1.85"` in `Cargo.toml` and "Rust
-1.85+" in `README.md` are claims nothing enforces. Add a 1.85 CI job, or delete
-the claim from both places — not the third option, a number nothing checks.
+No open item (H1 and H2 landed 2026-10-10). The rulings stand:
 
 ### Do NOT
 
@@ -45,6 +33,11 @@ the claim from both places — not the third option, a number nothing checks.
   (`GOH_DEPS_RATCHET=tools/deps_ratchet.txt`): a major behind fails unless held
   there with its reason, and a held crate that catches up fails until its entry
   is deleted. Minor drift is reported, never failed.
+* **Do not put back a minimum Rust version without a job that builds on it.**
+  The 1.85 in `rust-version` and in the README was already false when deleted (the
+  lock needed 1.89), and `rust-version` is not inert: clippy and the MSRV-aware
+  resolver read it. `tools/check_msrv_claim.py` fails a claim no CI job or
+  `rust-toolchain.toml` pin exercises.
 * **Do not bundle a lockfile refresh with a major move.** Its own commit.
 * **Do not "fix" the empty coverage part by deleting the agent's bin target.**
   `⚠ multitop-agent (bin multitop-agent) exported a valid-but-EMPTY lcov part` is

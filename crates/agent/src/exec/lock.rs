@@ -31,7 +31,7 @@ use std::time::{Duration, SystemTime};
 /// Age is the fallback. A lock whose owner is demonstrably gone is broken
 /// immediately whatever its age, so this only governs the case where the PID
 /// cannot be read or has been reused.
-pub const STALE_AFTER: Duration = Duration::from_secs(6 * 60 * 60);
+pub const STALE_AFTER: Duration = Duration::from_hours(6);
 
 /// Held for as long as the command runs; released on drop.
 ///

@@ -149,7 +149,7 @@ impl BannerStyle {
     /// Parse the config value. Anything unrecognised is `Plain`: an
     /// unreadable preference must not cost the user a legible banner.
     #[must_use]
-    pub fn parse(s: &str) -> Self {
+    pub const fn parse(s: &str) -> Self {
         if s.eq_ignore_ascii_case("wide") {
             Self::Wide
         } else {

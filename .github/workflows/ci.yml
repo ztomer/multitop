@@ -85,6 +85,8 @@ jobs:
           python3 tools/check_keychain_isolation.py
           python3 tools/check_row0_owner.py --self-test
           python3 tools/check_row0_owner.py
+          python3 tools/check_msrv_claim.py --self-test
+          python3 tools/check_msrv_claim.py
           python3 tools/check_one_escape_reader.py --self-test
           python3 tools/check_one_escape_reader.py
           python3 tools/check_doc_paths.py --self-test
@@ -220,9 +222,9 @@ jobs:
         with:
           persist-credentials: false
 
-      # Nightly on purpose, and only here. rust-toolchain.toml pins the
-      # workspace to stable because nightly ICEs on multitop-vault under
-      # clippy; `cargo fuzz` is the one thing that genuinely needs nightly, and
+      # Nightly on purpose, and only here. rust-toolchain.toml selects the
+      # stable channel for the workspace because nightly ICEs on multitop-vault
+      # under clippy; `cargo fuzz` is the one thing that genuinely needs nightly, and
       # it builds the fuzz crate rather than the workspace.
       - uses: dtolnay/rust-toolchain@nightly
 
