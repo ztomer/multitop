@@ -63,6 +63,15 @@ section "pre-commit gates"
 # running it again. A partially staged commit has no key and records nothing.
 # CI never reads the records: it stays the independent check. A gates_of_heck
 # checkout that predates proven.sh runs the step uncached, and says so.
+# A failed step: the lines that name its failure, then its tail. A fixed tail
+# alone cut off the coverage gate's "TESTS FAILED under coverage: <test>" behind
+# a list of lost exports (2026-10-10), and the message below it then blamed
+# coverage. goh's fail_lines.py picks those lines (attributed, nested-aware).
+show_failure() {
+    python3 "$GOH/lib/fail_lines.py" "$log" >&2 || true
+    tail -"$1" "$log" >&2
+}
+
 proven_step() {
     if [ -x "$GOH/gates/proven.sh" ]; then
         "$GOH/gates/proven.sh" --label pre-commit --log "$log" -- "$1"
@@ -219,7 +228,7 @@ ok "formatting clean"
 
 info "running clippy (all targets, all features, -D warnings)"
 if ! cargo clippy --workspace --all-targets --all-features -- -D warnings >"$log" 2>&1; then
-    tail -60 "$log" >&2
+    show_failure 60
     die "clippy is not clean — fix the warnings, do not add #[allow]"
 fi
 ok "clippy clean"
@@ -236,11 +245,11 @@ info "running the end-to-end suites (tests/test_exec_live.py, tests/test_tmux_e2
 # Both skip with a stated reason when what they need is absent: the live suite
 # without reachable hosts, the tmux suite without tmux. Neither passes silently.
 if ! cargo build -p multitop >"$log" 2>&1; then
-    tail -20 "$log" >&2
+    show_failure 20
     die "cannot build multitop, so the end-to-end suites cannot run"
 fi
 if ! python3 -m pytest tests/ -q >"$log" 2>&1; then
-    tail -40 "$log" >&2
+    show_failure 40
     die "an end-to-end suite failed"
 fi
 ok "end-to-end suites"
@@ -268,7 +277,7 @@ info "checking the fuzz targets still compile"
 # and nothing said so until a release. That is a compile error, and this finds
 # it in seconds. CI keeps the full sanitizer build.
 if ! cargo check --manifest-path fuzz/Cargo.toml --all-targets >"$log" 2>&1; then
-    tail -30 "$log" >&2
+    show_failure 30
     die "a fuzz target no longer compiles against the code it fuzzes"
 fi
 ok "fuzz targets compile"
@@ -277,8 +286,8 @@ info "checking coverage (workspace, 95% floor)"
 # Through the proven-step cache (proven_step, above): a pass here is what lets
 # the pre-push run skip the identical ~10 min suite over the same tree.
 if ! proven_step 'bash tools/coverage_check.sh'; then
-    tail -20 "$log" >&2
-    die "coverage below 95% — add tests"
+    show_failure 20
+    die "the coverage gate failed -- its verdict is above (a failing test, a lost export, or lines under 95%)"
 fi
 ok "coverage >= 95%"
 
