@@ -128,7 +128,18 @@ fn check_name(name: &str) -> &str {
     name.strip_prefix("native:").unwrap_or(name)
 }
 
+/// A section with nothing in it says so, quietly. A green "0 ok" or
+/// "all healthy" over an empty set is a claim about nothing (an emptied
+/// Docker host read "0 running, all healthy", 2026-10-10).
+fn nothing(f: &mut Frame<'_>, label: &str, text: &str) {
+    f.line(Tone::Quiet, label, text);
+}
+
 fn health(f: &mut Frame<'_>, checks: &[Check], now: i64) {
+    if checks.is_empty() {
+        nothing(f, "health", "no checks");
+        return;
+    }
     let bad: Vec<&Check> = checks.iter().filter(|c| !c.ok).collect();
     if bad.is_empty() {
         f.line(
@@ -154,6 +165,10 @@ fn health(f: &mut Frame<'_>, checks: &[Check], now: i64) {
 }
 
 fn cron(f: &mut Frame<'_>, jobs: &[Job], now: i64) {
+    if jobs.is_empty() {
+        nothing(f, "cron", "no jobs");
+        return;
+    }
     let bad: Vec<&Job> = jobs.iter().filter(|j| j.in_trouble()).collect();
     let running: Vec<&str> = jobs
         .iter()
@@ -206,6 +221,16 @@ fn containers(f: &mut Frame<'_>, cs: &[Container]) {
         .iter()
         .filter(|c| c.state == "running" && matches!(c.health.as_str(), "" | "none"))
         .count();
+    if bad.is_empty() && running == 0 {
+        // Only containers that exited cleanly, or none at all.
+        let text = if cs.is_empty() {
+            "no containers".to_string()
+        } else {
+            format!("none running, {} stopped", cs.len())
+        };
+        nothing(f, "docker", &text);
+        return;
+    }
     if bad.is_empty() {
         if unchecked == 0 {
             f.line(

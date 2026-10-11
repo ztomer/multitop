@@ -88,7 +88,7 @@ Additional views accessible via keys:
   and never while it is not
 - **`multitop-agent mcp`** — that same server, on stdio, for any MCP client.
   Register it with Claude Code as this Mac's ops server:
-  `claude mcp add --scope user mac-ops -- multitop --agent mcp`
+  `claude mcp add --scope user mac -- multitop --agent mcp`
 - **Settings screen** (`e`) — servers, their passwords, and the vault
 - **Filter** (`/`) — narrow the grid to hosts matching what you type, searching
   whatever the panes are currently showing

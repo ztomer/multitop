@@ -231,7 +231,7 @@ fn a_clean_host_is_four_lines_and_absences_are_stated_not_alarmed() {
         &f[2..],
         [
             "✓ health  1 check ok",
-            "✓ cron    0 jobs ok",
+            "· cron    no jobs",
             "· docker  no Docker on this host",
             "✓ alerts  none in 24 h"
         ]
@@ -366,6 +366,59 @@ fn a_container_without_a_health_check_is_not_counted_as_unhealthy() {
     ));
     assert!(
         f.contains(&"✓ docker  1 running, all healthy".to_string()),
+        "{f:?}"
+    );
+}
+
+#[test]
+fn an_empty_section_says_so_and_never_claims_all_is_well() {
+    // An emptied Docker host read "✓ docker  0 running, all healthy"
+    // (2026-10-10): a green verdict over nothing. Every section, empty.
+    let mut s = snapshot();
+    s.health = Part::Ready(Vec::new());
+    s.cron = Part::Ready(Vec::new());
+    s.containers = Part::Ready(Vec::new());
+    let f = plain(&render(
+        "h",
+        &OpsState::Ready(Box::new(s)),
+        80,
+        40,
+        NOW,
+        &pal(),
+    ));
+    for line in [
+        "· health  no checks",
+        "· cron    no jobs",
+        "· docker  no containers",
+    ] {
+        assert!(f.contains(&line.to_string()), "{line} missing: {f:?}");
+    }
+    for label in ["health", "cron", "docker"] {
+        assert!(
+            !f.iter().any(|l| l.starts_with(&format!("✓ {label}"))),
+            "{label} is green over nothing: {f:?}"
+        );
+    }
+
+    // Containers that all exited cleanly: none is running, so none is healthy.
+    let mut s = snapshot();
+    s.containers = Part::Ready(
+        parse_containers(&json!({"containers": [
+            {"name": "a", "state": "exited", "status": "Exited (0) 2 days ago", "health": ""},
+            {"name": "b", "state": "exited", "status": "Exited (0) 3 days ago", "health": ""},
+        ]}))
+        .unwrap(),
+    );
+    let f = plain(&render(
+        "h",
+        &OpsState::Ready(Box::new(s)),
+        80,
+        40,
+        NOW,
+        &pal(),
+    ));
+    assert!(
+        f.contains(&"· docker  none running, 2 stopped".to_string()),
         "{f:?}"
     );
 }

@@ -145,7 +145,8 @@ async fn p_polls_each_hosts_server_and_draws_what_it_says() {
         "a configured daemon that is down is a fault: {pinned}"
     );
     if cfg!(target_os = "macos") {
-        assert!(pinned.contains("✓ cron    0 jobs ok"), "{pinned}");
+        // HOME is empty, so the user has no launch agents: said, not passed.
+        assert!(pinned.contains("· cron    no jobs"), "{pinned}");
     } else {
         assert!(pinned.contains("· cron    no launchd here"), "{pinned}");
     }

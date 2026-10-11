@@ -369,8 +369,11 @@ def newest_source_time(root=None):
     that are never linked into the binary under test, so touching only them
     cannot make the binary stale -- but the harness used to say it did, and
     a test-only commit then failed with "run `cargo build` first" after a
-    build that (correctly) changed nothing. Unit tests inside src/ DO count:
-    editing one recompiles and relinks the binary, refreshing its mtime.
+    build that (correctly) changed nothing.
+
+    This walk is only the fallback for a binary with no dep-info beside it
+    (see `built_from`): it cannot tell a src/ file the binary reads from a
+    `#[cfg(test)] #[path = "x_tests.rs"]` module it never does.
     """
     root = root or os.path.join(
         os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "crates"
@@ -386,6 +389,31 @@ def newest_source_time(root=None):
     return newest
 
 
+def built_from(binary):
+    """The files cargo recorded `binary` as built from, or None.
+
+    Cargo writes `<binary>.d` beside each binary: `<binary>: dep dep ...`,
+    spaces inside a path escaped as `\\ `. It is the exact answer to "what can
+    make this binary stale", which no directory walk is: a unit-test module
+    in its own file (`#[cfg(test)] #[path = "ops_tests.rs"] mod tests;`) sits
+    in src/ yet is never read by a non-test build, so editing it changes
+    nothing a `cargo build` would relink. The walk counted it, and a
+    test-only commit was refused after a build that correctly did nothing
+    (2026-10-10), the same defect the tests/ pruning fixed once already.
+    """
+    try:
+        with open(binary + ".d", encoding="utf-8") as f:
+            text = f.read()
+    except OSError:
+        return None
+    head = os.path.abspath(binary) + ":"
+    for line in text.splitlines():
+        if line.startswith(head):
+            deps = line[len(head):].replace("\\ ", "\0").split()
+            return [d.replace("\0", " ") for d in deps]
+    return None
+
+
 def stale_reason(binary, root=None):
     """Why this binary must not be trusted, or None if it is current.
 
@@ -399,7 +427,17 @@ def stale_reason(binary, root=None):
     So it is checked rather than assumed, and the answer is a refusal with a
     reason instead of a run that quietly means nothing.
     """
-    source = newest_source_time(root)
+    deps = built_from(binary)
+    if deps is None:
+        source = newest_source_time(root)
+    else:
+        if gone := [d for d in deps if not os.path.exists(d)]:
+            return (
+                f"{binary} was built from {gone[0]}, which is gone -- run "
+                "`cargo build -p multitop` first; testing a stale binary tests "
+                "code nobody wrote"
+            )
+        source = max((os.path.getmtime(d) for d in deps), default=0.0)
     built = os.path.getmtime(binary)
     if built >= source:
         return None
