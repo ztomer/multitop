@@ -4,186 +4,202 @@ The one forward-looking backlog. Shipped work is not listed here — it is in gi
 history (`git log --oneline`) and in `docs/detection-record.md`. When an item
 here is finished, delete it rather than ticking it off.
 
-Order: **Now** is user-visible defects and the one feature gap a user hit, in
-the order they should land. **Hygiene** has no open item left from the
-2026-10-04 currency pass, only its standing rulings. **Next** is the two larger features, unchanged in
-order. The version of this file before the 2026-10-10 consolidation is
-`git show 56b90bd:docs/roadmap.md`.
+State on 2026-10-12: `main` at v0.54.0, CI green on the release commit, tree
+clean, no stale branches or worktrees. One shipped defect is open (P0.1), found
+while verifying this file's claims against the code. The version of this file
+before the 2026-10-12 rephase is `git show ed9e685:docs/roadmap.md`.
 
-## Now
+Every item names its proof: the test or gate that goes red until it is done.
 
-No open item. The last one, `mcp_host` stating its absences, landed upstream in
-`media_server` v1.91.0 (2026-10-10) and is live on .33, .90 and .158.
+## Phase 0 — shipped defects (size S, one session)
 
-## Hygiene
+Goal: nothing the binary ships today is wrong. Exit: P0.1 and P0.2 closed, gate
+green, released.
 
-No open item (H1 and H2 landed 2026-10-10). The rulings stand:
+### P0.1 — the `--serve` token is guessable
 
-### Do NOT
+Measured 2026-10-12, not inferred. `serve_headless`
+(`crates/multitop/src/main.rs`) always fills a missing `--serve-token`, but
+with `DefaultHasher::new()` over `"<pid>-<unix nanos>"`: `DefaultHasher::new()`
+is SipHash with FIXED keys, so the token is a deterministic function of two
+values an attacker can bound (pid is small, start time is roughly known), and
+it is 64 bits at most. On the default loopback bind this is moot; on the LAN
+bind the phone needs (`--serve 0.0.0.0:8080`) it is the only thing between the
+network and every host's metrics. Its own comment ("only when binding to
+loopback ... For now, generate if not supplied") states a rule the code does not
+implement.
 
-* **Do not chase the sixteen remaining duplicate crates to zero.** All
-  transitive; `secret-service 5.1.0` (via `keyring`) holds the whole 0.10 crypto
-  generation. Collapsing them needs an upstream move.
-* **Do not land dependency currency as a plain gate.** It is a ratchet
-  (`GOH_DEPS_RATCHET=tools/deps_ratchet.txt`): a major behind fails unless held
-  there with its reason, and a held crate that catches up fails until its entry
-  is deleted. Minor drift is reported, never failed.
-* **Do not put back a minimum Rust version without a job that builds on it.**
-  The 1.85 in `rust-version` and in the README was already false when deleted (the
-  lock needed 1.89), and `rust-version` is not inert: clippy and the MSRV-aware
-  resolver read it. `tools/check_msrv_claim.py` fails a claim no CI job or
-  `rust-toolchain.toml` pin exercises.
-* **Do not bundle a lockfile refresh with a major move.** Its own commit.
-* **Do not "fix" the empty coverage part by deleting the agent's bin target.**
-  `⚠ multitop-agent (bin multitop-agent) exported a valid-but-EMPTY lcov part` is
-  the coverage gate saying out loud that `main.rs` is regex-excluded; say so in
-  the exclusion's reason instead. Its `mcp` mode lives in the library
-  (`multitop_agent::mcp`), unit-tested over a fake machine and driven for real
-  by `ops_view_e2e.rs`.
-* **Do not move Android's auth hardening behind the app.** It is a security
-  surface and a second client multiplies the exposure.
-* **Do not read terminal escapes anywhere but `multitop_agent::escape`.** Four
-  hand-rolled readers each knew a subset of the grammar: three tore the upgrade
-  log (apt's `ESC 7`/`ESC 8` progress bar, fixed 2026-10-10), and the fourth,
-  the OSC 11 background probe, never once recognised a reply.
-  `tools/check_one_escape_reader.py` fails the commit on a fifth.
-* **Do not draw ratatui chrome in anything but a `Chrome` role, nor app text in
-  anything but the current palette.** A text role used as a fill made the
-  command bar white-on-white in every theme (fixed 2026-10-10). A fill and its
-  ink are one value (`multitop_agent::chrome`); where no `App` reaches, the
-  palette is `palette_store::current()`. `chrome_contrast_test` and
-  `tools/check_no_hard_coded_colour.py` fail the commit otherwise.
+Three defects in one place, fix together:
 
-## Next
+* **Token source.** At least 128 bits from the OS CSPRNG (`getrandom`, already
+  in `Cargo.lock` transitively; make it a direct dependency). Never derived from
+  time or pid.
+* **Unauthenticated state unrepresentable.** `AppState.token` is
+  `Option<String>` and `check_auth` returns `Ok(())` on `None`; the binary never
+  reaches that path, so it exists only for tests and as a trap for the next
+  caller. Make the token non-optional in `AppState` (a seam, house rule: the
+  right state is the default); `index_ok_without_token` keeps its meaning
+  because `/` serves static HTML with no data.
+* **Constant-time compare.** `got == expected` in `check_auth`
+  (`crates/multitop/src/server.rs`) is not. One crate (`subtle`) or a
+  length-checked fold; not worth a hand-rolled oracle analysis.
 
-Two items, neither started.
+Proof: a unit test that a generated token is at least 32 hex characters (today's
+is 16, so it is red now) and comes through an RNG seam whose fake can be
+injected, so the test proves the source, not just the length; a test that
+`AppState` cannot be built without a token (compile-level, via the type);
+`server_tests.rs` keeps `hosts_requires_token_when_set` green. Calibrate: revert
+the generator once, watch the test go red. Risk: a CHANGELOG line must say the
+old tokens were weak, so a user who scripted `--serve` on a LAN rotates.
 
-### Mobile companion, Android
+### P0.2 — docs that describe a different server
 
-The serving half already ships and is tested, so this is a client, and the
-transport is **HTTP** — the API below — not the `WebSocket` an older entry of
-this file named:
+* `README.md`'s documentation table describes this file as "light-terminal
+  palettes, the Android companion, post-quantum KEM"; light-terminal palettes
+  shipped in v0.50.0 and were dropped from here. Change the row.
+* The previous roadmap listed an `/api/mtp` route and said a bare `--serve` has
+  no auth. Neither is true (`router()` has five `/api/*` routes, no `mtp`; the
+  binary always sets a token). Corrected below in this rewrite.
 
-* `multitop --serve [<ADDR>]` and `--serve-token <TOKEN>` (`crates/multitop/src/main.rs`)
-* `crates/multitop/src/server.rs` — 404 lines: bearer `check_auth`, `index`, and
-  `/api/hosts`, `/api/health`, `/api/snapshot/:host`, `/api/history/:host`,
-  `/api/mtp`, `/api/mtop`, plus `spawn_collectors`, which reuses the agent's own
-  `stream::connect` and `Payload::Hello` validation
+Proof: `grep -n "light-terminal" README.md` returns nothing;
+`tools/check_doc_paths.py` stays green.
+
+## Phase 1 — Android companion (size L, three to five sessions)
+
+Goal: a phone shows which hosts are up, what the last upgrade did, and what is
+degraded, without a terminal. Exit: the app reads a LAN `--serve` over an
+authenticated, hardened API, and a transition push reaches the phone. Depends
+on P0.1 (a second client must not be built on a guessable token).
+
+The serving half ships and is tested; this is a client. Transport is **HTTP**
+over the existing API, not a `WebSocket`:
+
+* `multitop --serve [<ADDR>]` and `--serve-token <TOKEN>`
+  (`crates/multitop/src/main.rs`); `--serve` binds **loopback by default**
+  (`serve_socket_addr`: `:8080` means `127.0.0.1:8080`). Keep it that way.
+* `crates/multitop/src/server.rs`: bearer `check_auth`, static `index`, and
+  `/api/hosts`, `/api/health`, `/api/snapshot/{host}`, `/api/history/{host}`,
+  `/api/mtop`; `spawn_collectors` reuses the agent's `stream::connect` and
+  `Payload::Hello` validation.
 
 In the order it blocks:
 
-1. **Auth hardening, first.** It is the one item here that is a security surface
-   rather than a feature, and a client multiplies the exposure: the token is a
-   bearer credential in a header, and it travels over a socket. A phone on a home
-   network is the realistic deployment, so the questions to settle *before* a
-   second client exists to lose the token are these — measured, not assumed:
-
-   * `check_auth` compares with `==` (`crates/multitop/src/server.rs:58`), which is
-     not constant-time. A remote timing oracle on a long random token is a poor
-     bet, and it costs one dependency or one hand-rolled compare to close.
-   * **No token means no auth at all** — `check_auth` returns `Ok(())` when
-     `--serve-token` is absent, so a bare `--serve` is an open read API for
-     anything that can reach the port. That may be the right default for a
-     loopback-only server; it is certainly not the right one for the LAN bind a
-     phone needs, and the two cases are currently indistinguishable.
-   * The good news, and worth not breaking while fixing the rest: `--serve`
-     already binds **loopback by default** (`serve_socket_addr`, `crates/multitop/src/main.rs:210` —
-     `:8080` means `127.0.0.1:8080`), so nothing is exposed until someone asks
-     for a socket address explicitly. Any change here has to keep it that way.
-   * Whether the token ever reaches a log, an access log, or an error message.
-2. **A read-only Android app** over the existing `/api/*`. A phone is a glance
-   surface: which hosts are up, what the last upgrade did, what is degraded. Not a
-   terminal emulator, and not the TUI's key handling in a smaller window.
-3. **Push.** APNs needs a device token, which needs the app, so this is step 3
-   rather than a parallel track. The trigger has to be the server noticing a
-   *transition* — the current model is a client asking, which is correct for a
-   glance surface and is why push is a real addition rather than a latency tweak.
+1. **A1 — LAN-bind hardening, after P0.1.** The questions to settle before a
+   second client exists to lose the token, each answered by a test:
+   * The token is printed to stderr at startup (`token=<t>` and a ready `curl`
+     line). Right for an interactive start, wrong under a service manager whose
+     stderr is a log. Decide: print once to the tty only, or write it to a
+     `0600` file. Proof: a test that a non-tty stderr carries no token.
+   * Whether the token reaches an access log or an error body. Proof: grep the
+     axum error paths; a test that a 401 body does not echo the header.
+   * Whether a non-loopback bind should require an explicit `--serve-token`
+     (no generated token for a LAN bind) or TLS. Decide on UX grounds
+     (house tiebreaker: best user experience), state the reason here.
+2. **A2 — a read-only Android app** over `/api/*`. A glance surface, not a
+   terminal emulator and not the TUI's key handling in a smaller window.
+   Open decision before code: same repo or its own. A second language in this
+   repo inherits none of its gates (`polyglot-gate-parity`): it needs its own
+   lint, tests, coverage floor and a `check_gate_parity.py` entry from the
+   first commit. Proof: the app's own gate runs in CI; an end-to-end test
+   against a `--serve` started by the test.
+3. **A3 — push.** Android push is **FCM** (or UnifiedPush/ntfy to avoid a
+   Google dependency), not APNs as an older entry of this file said; APNs is
+   Apple's and would only apply to an iOS client. Needs the app, so it is third.
+   The trigger is the server noticing a *transition* (host down, upgrade failed,
+   health degraded), which the current request model does not have, so this is
+   new server code. Proof: a server test that a synthetic transition emits
+   exactly one notification and a steady state emits none.
 
 The `repack`/`convert` logo pipeline (`scripts/repack_logos.py`,
 `scripts/convert_logos.py`, over `crates/multitop/data/logos.bin.zst`) already
-renders and repacks app icons, so an icon is not a blocker.
+renders app icons, so an icon is not a blocker.
 
-### Post-quantum KEM
+## Phase 2 — parked on a trigger: post-quantum KEM (size M when it fires)
 
-Sequenced against its trigger, not a date. For the current threat model — a
-device-local vault file read by a process that already holds the key — a
-harvest-now-decrypt-later attack is not the binding risk, because an attacker who
-can store a copy of the vault can also wait for a build with a classical KEM. It
-earns its place when the threat model changes, and these are the changes to watch
-for:
+Sequenced against its trigger, not a date. For a device-local vault file read by
+a process that already holds the key, harvest-now-decrypt-later is not the
+binding risk. It becomes one when:
 
-* the vault leaves the device — a synced file, a backup, a shared host. A copy is
-  then durable, and the argument above stops applying.
-* the KEM protects something with a long confidentiality life, where the
-  ciphertext is the thing being protected rather than the file it wraps.
+* the vault leaves the device (a synced file, a backup, a shared host), or
+* the KEM protects something with a long confidentiality life.
 
-**Where it goes, and the part that is already built.** A vault key is wrapped
-once per authenticator, tagged by a discriminant
-(`crates/vault/src/crypto/wrapper.rs`: `SecureEnclave = 0x01`, `Tpm2 = 0x02`,
-`Argon2id = 0x03`), and the file's own comment says it: *a vault carries one per
-way it can be opened*. A KEM is a fourth wrapper, not a migration — the three
-existing ones keep working and the new one is added beside them. So the shape of
-the change is a new `WrapperType` variant whose wrapping key comes from a KEM
-shared secret instead of an Argon2id derivation. The content cipher is untouched:
-AES-256-GCM with an HKDF-derived sub-key
-(`crates/vault/src/crypto/primitives.rs`).
+Neither has happened (2026-10-12). Exit criterion when it fires: a fourth
+wrapper opens a vault in a round-trip test, and a vault written before it still
+opens.
 
-Three things this must not do, all of which the current code already knows:
+**The shape, already prepared.** A vault key is wrapped once per authenticator,
+tagged by a discriminant (`crates/vault/src/crypto/wrapper.rs`:
+`SecureEnclave = 0x01`, `Tpm2 = 0x02`, `Argon2id = 0x03`). A KEM is a fourth
+`WrapperType` variant whose wrapping key comes from a KEM shared secret, added
+beside the others; not a migration. The content cipher (AES-256-GCM with an
+HKDF-derived sub-key, `crates/vault/src/crypto/primitives.rs`) is untouched.
 
-* **It must not touch the hardware-wrapped variants.** A Secure Enclave or TPM
-  key is non-exportable by construction (`secure_enclave.rs`, `tpm2.rs`); a KEM in
-  front of one buys nothing and costs the property that made it worth using.
-* **It must not bump `min_proto_version`.** A KEM is an *additional* wrapper, and
-  the agent↔client negotiation is a range check
-  (`is_compatible`, `crates/agent/src/proto/mod.rs:135`): a newer agent stays
-  compatible with an older client exactly as long as the old client's
-  `PROTO_VERSION` is at or above the agent's `min_proto_version`. Raising that
-  floor breaks every deployed client at once.
-* **It must not be hand-rolled.** Prefer a crate with a maintained
-  implementation — the same reason `hello-negotiation` exists as a skill rather
-  than a paragraph. For the same reason, the KDF work here went to Argon2id and
-  the AEAD to `aes-gcm` rather than to code in this repo.
+It must not:
 
-The transport is a separate and much weaker case, deliberately not bundled here:
-the agent link is a local-network control channel, and harvest-now-decrypt-later
-on it is rarely the binding risk. Bundle it only if the vault trigger fires.
+* touch the hardware-wrapped variants — a Secure Enclave or TPM key is
+  non-exportable by construction, and a KEM in front buys nothing;
+* bump `min_proto_version` — negotiation is a range check (`is_compatible`,
+  `crates/agent/src/proto/mod.rs`), and raising the floor breaks every
+  deployed client at once;
+* be hand-rolled — a maintained crate, as with `argon2` and `aes-gcm`.
+
+The agent transport is a separate, weaker case (a local-network control
+channel); bundle it only if the vault trigger fires.
+
+## Standing rulings (Do NOT)
+
+* **Do not chase the remaining duplicate crates to zero.** All transitive;
+  `secret-service 5.1.0` (via `keyring`) holds the 0.10 crypto generation.
+* **Do not land dependency currency as a plain gate.** It is a ratchet
+  (`GOH_DEPS_RATCHET=tools/deps_ratchet.txt`). Its one entry, `signal-hook` 0.3,
+  waits for `crossterm` (0.29.0 is still the newest release, measured
+  2026-10-12); delete the entry the commit `crossterm` moves.
+* **Do not put back a minimum Rust version without a job that builds on it.**
+  `tools/check_msrv_claim.py` fails a claim nothing exercises.
+* **Do not bundle a lockfile refresh with a major move.** Its own commit.
+* **Do not "fix" the empty coverage part by deleting the agent's bin target.**
+  The `⚠ ... valid-but-EMPTY lcov part` line is the coverage gate saying
+  `main.rs` is regex-excluded; the `mcp` mode lives in the library and is
+  driven for real by `ops_view_e2e.rs`.
+* **Do not move Android's auth hardening behind the app** (P0.1 and A1 before
+  A2).
+* **Do not read terminal escapes anywhere but `multitop_agent::escape`.**
+  `tools/check_one_escape_reader.py` fails a fifth reader.
+* **Do not draw ratatui chrome in anything but a `Chrome` role, nor app text in
+  anything but the current palette.** `chrome_contrast_test` and
+  `tools/check_no_hard_coded_colour.py` fail the commit otherwise.
 
 ## Dropped, and why
 
-Kept so the decision outlives the person who made it; a dropped item is not open
-work, so it does not belong above.
-
 | Dropped | Why |
 |---------|-----|
-| **Plugin SDK (WASM)** | Custom `exec` panels (`crates/multitop/src/config/types.rs`'s `custom_command`) cover it without a sandbox to get wrong. The cost of a plugin system is the isolation boundary, and nothing here needs one: a panel is a command the user already chose to run. Revisit if panels ever need to arrive from somewhere other than the user's own config file. |
-| **A light variant per theme** | Superseded by background detection, which is one mechanism for all eight themes instead of sixteen palettes, and is correct on a background that is an image — which per-theme variants never can be. Shipped 2026-09-28. |
-| **Adapting the agent's tty path** | The seam is already in place — `emit_fetch`/`emit_docker` take a `&PaletteView` — but `crates/agent/src/lib.rs:342` builds it with `for_theme`, the identity, because a process on the *remote* host cannot measure the background of the terminal the *user* is looking at. So the open question is not the plumbing but the supplier: whoever knows the client's background builds the view, and the only such caller today is the client itself. Worth doing when a second consumer appears, because the parameter is already there and the identity is the one line to change. (`Mode::Exec` does not take a view at all; it carries no colour literals, so nothing is hard-coded today.) |
+| **Plugin SDK (WASM)** | Custom `exec` panels (`custom_command` in `crates/multitop/src/config/types.rs`) cover it without a sandbox to get wrong. Revisit if panels ever arrive from somewhere other than the user's own config. |
+| **A light variant per theme** | Superseded by background detection: one mechanism for all eight themes, correct on an image background. Shipped 2026-09-28. |
+| **Adapting the agent's tty path** | The seam exists (`emit_fetch`/`emit_docker` take a `&PaletteView`), but `crates/agent/src/lib.rs` builds it with `for_theme`, the identity, because a process on the remote host cannot measure the user's terminal background. Worth doing when a second consumer that knows the client's background appears. |
 
-## Sources consolidated (2026-10-10)
+## Sources consolidated (2026-10-12)
 
-Every other agent session that worked on this repo, and what became of it. None
-carries a plan any more; this file does.
+The 2026-10-10 consolidation's table (opencode loop goals, two Antigravity
+conversations, branch `ci-persist`, old items 3 and 4) is at
+`git show ed9e685:docs/roadmap.md`. This pass re-checked every store:
 
 | Source | Disposition |
 |--------|-------------|
-| Claude Code (this repo's slug) | This session only; no desktop sessions. `memory/` kept — it is the project's memory store. |
-| opencode db sessions | Already gone; only the project row remains. |
-| opencode loop goal "implement the roadmap" (2026-09-03, `active`) | Superseded: its roadmap was rewritten twice since; the current one is this file. |
-| opencode loop goal "implement the plan" (2026-09-13) | Completed (upgrade stderr duplicate-line fix); landed, nothing open. The apt tearing found later in the same `Painter` was fixed 2026-10-10. |
-| opencode loop goal "impl3m3n5" (2026-09-28) | Completed (light-terminal palette, v0.50.0). Its wiring step introduced N2. |
-| opencode loop: nine empty job files, `loop.log` | Residue; removed. |
-| Antigravity, 2 conversations (2026-07-28: Docker header line, layout research) | Both died on API 429 after 7 steps with no output; nothing to carry. Removed. |
-| Branch `ci-persist` + worktree `~/Projects/.wt-mon-ci` | Ancestor of `main`, worktree clean; removed. |
-| Old Item 3 (Linux vault build CI-only) | Closed: Colima is installed, `tools/lint_linux.sh` (already a `GOH_CI_STEPS` entry) ran clean 2026-10-10. |
-| Old Item 4 (spawn gate accepts a no-op `Drop`) | Closed upstream: `goh unreaped-spawn` now reads the `Drop` body; a copy of `ssh_tests.rs` with `Reap`'s `Drop` emptied is rejected ("whose `Drop` neither kills nor waits"), the real one passes. |
-| "Two things this pass cost a day each" | Lessons, not plan: they live in the `calibrate-the-instrument` and `stale-artifact-under-test` skills. |
+| Claude Code CLI, slug `-Users-ztomer-Projects-monitor` | No transcripts. One `*.desktop-released.json` marker (session deleted 2026-10-11): residue, removed. `memory/` kept: one project fact (stale `multitop-agent` on the .33 test box) and two feedback entries that read as procedures, flagged for a skill. |
+| Claude desktop sessions | None for this repo (listed with archived, 2026-10-12). |
+| opencode db | Zero sessions; the `project` row for this path remains (coordinator's to delete). |
+| opencode loop dir `.opencode/opencode-loop/` | Gone since 2026-10-10; `.opencode/` is git-ignored, nothing tracked. |
+| Antigravity (app + IDE + backup) | No conversation names this repo or `multitop` any more. |
+| Gemini CLI `~/.gemini/tmp/` | No dir claims this repo. |
+| The Projects-root cross-project indexes (ROADMAP-consolidated, RUSTIFICATION_ROADMAP) | No monitor or multitop item in either. |
+| git branches and worktrees | `main` only, one worktree, clean. |
+| Verification of this file's own claims | Found P0.1 (guessable token), P0.2 (doc drift), the APNs/FCM error in A3, a stale `lib.rs` line number; all fixed or carried above. |
 
 ## Where the invariants live
 
-The hand-over notes this file used to carry — `Hello` first/valid/single, the
-embedded agent matching the workspace version, the stable ad-hoc signature, the
-vault's fallback, and "build with `./build.sh`" — are in
-[DEVELOPMENT.md](../DEVELOPMENT.md#hello--agent-embedding), which is where a
-developer looks for them and where they are kept current. The per-defect history
-is [`detection-record.md`](detection-record.md); the general process rules are
-in the house skills, not here.
+The hand-over notes — `Hello` first/valid/single, the embedded agent matching the
+workspace version, the stable ad-hoc signature, the vault's fallback, "build
+with `./build.sh`" — are in
+[DEVELOPMENT.md](../DEVELOPMENT.md#hello--agent-embedding). The per-defect
+history is [`detection-record.md`](detection-record.md); general process rules
+are in the house skills.
