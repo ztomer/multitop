@@ -1,47 +1,26 @@
 #!/bin/bash
-# pre-commit — the repo's gate in STAGED scope (tools/gate.sh --staged), which
-# runs layer 1 (structural) plus whatever staged language layers the repo
-# declares; without a tools/gate.sh the structural gate runs alone.
-# Installed by gates_of_heck/install.sh. Delegates to the shared checkout;
-# there is exactly ONE copy of every checker (this hook vendors nothing).
-# The pre-push hook goes through tools/gate.sh --full the same way: a
-# commit hook that bypassed gate.sh made every staged layer decorative.
+# pre-commit — delegates to the shared checkout's gates/commit_gate.sh, which runs the repo's gate in
+# STAGED scope (tools/gate.sh --staged) and the house structural layer even when that gate leaves it
+# out; without a tools/gate.sh, structural runs alone.
+# Installed by gates_of_heck/install.sh. It decides NOTHING itself: hooks are COPIED, so any logic
+# here reached a repo only when it re-installed (14 repos ran a retired copy on 2026-10-12), while
+# commit_gate.sh is read at runtime. The pre-push hook delegates to gates/push_gate.sh the same way.
 { # parse-guard -- bash reads this group whole before running it (tests/test_parse_guard.py)
 set -euo pipefail
 
 GOH="${GOH_DIR:-${GOH:-$HOME/Projects/gates_of_heck}}"
-root="$(git rev-parse --show-toplevel)"
-# git binds this hook to its repository (GIT_DIR, GIT_INDEX_FILE -- absolute from a linked
-# worktree), and a test suite the gate runs that builds a scratch repo would act on THIS one
-# (media_server, 2026-10-08: core.bare=true, a stray commit, three stashes). Dropped before anything
-# is spawned; the index being committed travels as GOH_HOOK_INDEX_FILE (contract #12).
-env_lib="$GOH/gates/_git_env.sh"
-[ -f "$env_lib" ] || env_lib="$root/gates/_git_env.sh"   # self-hosted: this IS gates_of_heck
-if [ -f "$env_lib" ]; then
-    # shellcheck source=/dev/null
-    . "$env_lib"
-    goh_hook_unbind || exit $?
-else
-    echo "⚠ pre-commit: $GOH predates gates/_git_env.sh -- git's repository variables reach" \
-        "everything the gate runs" >&2
+commit_gate="$GOH/gates/commit_gate.sh"
+if [ ! -f "$commit_gate" ]; then
+    root="$(git rev-parse --show-toplevel)"
+    commit_gate="$root/gates/commit_gate.sh"   # self-hosted: this IS gates_of_heck
 fi
-gate="$root/tools/gate.sh"
-if [ -f "$gate" ]; then
-    exec bash "$gate" --staged
-fi
-structural="$GOH/gates/structural.sh"
-
-if [ ! -f "$structural" ] && [ -f "$root/checks/check_no_emoji.py" ]; then
-    structural="$root/gates/structural.sh"   # self-hosted: this IS gates_of_heck
-fi
-if [ ! -f "$structural" ]; then
-    echo "✗ pre-commit: cannot find gates_of_heck at $GOH" \
-        "(set GOH_DIR or run its install.sh)" >&2
+if [ ! -f "$commit_gate" ]; then
+    echo "✗ pre-commit: no gates_of_heck commit gate at $GOH/gates/commit_gate.sh -- clone" \
+        "gates_of_heck there, or point GOH_DIR at your checkout, then re-run its install.sh" >&2
     exit 1
 fi
-
 # `bash <path>`, not `exec <path>`: executing the file directly also needs its exec bit, which lives
 # in another repo and is what a clone or tarball silently loses (upstreamed from ztools, 2026-10-05).
-exec bash "$structural" --staged
+exec bash "$commit_gate" "$@"
 exit
 } # parse-guard
