@@ -7,7 +7,16 @@ This file starts at v0.47.0 — earlier history is in git (`git log`), and the
 per-defect record is `docs/detection-record.md`, which is the more useful
 document for anything before this point.
 
-## Unreleased — Phase 0 fallout (goh 0.27.0)
+## v0.55.0 — the bench measures the code instead of the neighbours, and `render` stops rendering every frame twice _(2026-10-14)_
+
+Minor bump: a real performance fix in the render path, a measurement that stopped
+measuring the machine's load, and thirteen new gate floors a consumer can now tune.
+
+**Upgrading:** `render` no longer renders every frame twice, which is a large win on
+its own. The bench's budgets moved with it and are ~1.7x the new measurement, so a
+deliberate 2x slowdown inside `render` is past both.
+
+ — Phase 0 fallout (goh 0.27.0)
 
 - **The latency bench measures the code, not the machine's load** (P0.7). It
   gated wall-clock frame render under 50,000 ns, which on this box is a gate on
@@ -38,6 +47,7 @@ document for anything before this point.
 
 - **The gate's lock helper runs on goh's pinned interpreter** (P0.3), not bare
   `python3`.
+
 
 ## v0.54.0 — the local machine has an Ops view, and no section claims all is well over nothing _(2026-10-11)_
 
