@@ -114,7 +114,7 @@ def capture(binary: Path, colorfgbg: str | None, session: str) -> str | None:
     if shutil.which("tmux") is None:
         print("light-terminal-check: tmux is not on PATH")
         return None
-    subprocess.run(["tmux", "kill-session", "-t", session], capture_output=True)
+    subprocess.run(["tmux", "kill-session", "-t", session], capture_output=True, stdin=subprocess.DEVNULL)
     env = "" if colorfgbg is None else f'COLORFGBG="{colorfgbg}" '
     subprocess.run(
         [
@@ -124,16 +124,16 @@ def capture(binary: Path, colorfgbg: str | None, session: str) -> str | None:
         ],
         check=True,
         capture_output=True,
-        timeout=30,
+        timeout=30, stdin=subprocess.DEVNULL,
     )
     try:
         time.sleep(SETTLE_SECONDS)
         out = subprocess.run(
             ["tmux", "capture-pane", "-p", "-e", "-t", session],
-            capture_output=True, text=True, timeout=30, check=True,
+            capture_output=True, text=True, timeout=30, check=True, stdin=subprocess.DEVNULL,
         ).stdout
     finally:
-        subprocess.run(["tmux", "kill-session", "-t", session], capture_output=True)
+        subprocess.run(["tmux", "kill-session", "-t", session], capture_output=True, stdin=subprocess.DEVNULL)
     return out
 
 

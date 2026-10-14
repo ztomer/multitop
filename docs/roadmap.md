@@ -4,8 +4,12 @@ The one forward-looking backlog. Shipped work is not listed here — it is in gi
 history (`git log --oneline`) and in `docs/detection-record.md`. When an item
 here is finished, delete it rather than ticking it off.
 
-State on 2026-10-14: `main` at `8a5a105`, two commits ahead of `origin/main`
-and unpushed -- the pre-push gate is red on goh 0.27.0's fallout (Phase 0).
+State on 2026-10-14: `main` at `3a43ffe`, five commits ahead of `origin/main`
+and unpushed -- Phase 0's P0.3-P0.7 are landed and the full gate is green on 11
+of 12 steps; `tools/lint_linux.sh` is red ONLY because no container runtime is
+answering on this machine (`colima start`), which fails closed and names the
+command. P0.4's stdin sweep, P0.6's scanner floors and P0.7's instruction-count
+bench are all in.
 CI was last green on `f5be29f` (2026-10-12). The goh 0.27.0 hooks could not be
 committed as installed: goh refuses the older stock pre-commit, and this repo's
 `tools/check_gate_parity.py` refused the new one (it read the hook's text for
@@ -28,7 +32,32 @@ bench 233 s, coverage 255 s (96.13%, floor 95), installed-freshness 30 s, all
 green, and `tools/lint_linux.sh` red. Structural (step 1) was read with the
 new hook in place and each red masked in a scratch tree in turn.
 
-### P0.3 — bare `python3` in the gate script
+### ~~P0.3 — bare `python3` in the gate script~~ CLOSED `3a43ffe`: the lock
+helper runs on goh's pinned interpreter (`bash "$GOH/gates/python.sh"`), both
+arms of `tools/gate.sh:21,27` and the two trap releases.
+
+### ~~P0.5 — the Linux lint step needs a container runtime nobody started~~
+UNCHANGED and the machine's to fix: the step fails closed and names `colima
+start`. Whether the gate should start its own runtime is an open question in
+`DEVELOPMENT.md`, not a code change.
+
+### ~~P0.4 — 39 child processes inherit stdin undeclared~~ CLOSED: every child
+process names its stdin across `tools/`, `tests/` and `scripts/`, with
+`GOH_SUBPROCESS_STDIN_MIN_CALLS=42` set at its measured count and proved red at
+43. No seed: the sweep declared the calls, it did not suppress them.
+
+### ~~P0.6 — scanner floors are unset~~ CLOSED: all 13 floors are in `.gatesrc`
+at their measured counts, and `GOH_SUBPROCESS_STDIN_MIN_CALLS` one past its
+count turns the step red naming the key.
+
+### ~~P0.7 — the latency bench reads the machine's load, not the code~~ CLOSED.
+The bench gates INSTRUCTIONS RETIRED, not nanoseconds: `client_bench
+--only=decode|render --iters=N` runs one loop under `/usr/bin/time -l`, and the
+count is taken at N and 2N so process start-up and set-up cancel. Measured
+across a 4x busy-loop load the per-frame count moved 0.07%, against tens of
+percent for wall time. Budgets are ~1.7x the measurement; a deliberate 2x
+slowdown inside `render` is over both, and was caught by exactly that while the
+gate was being finished.
 
 Structural step `no bare python in a hook or gate` (goh 6.2, `1c4be61`) is
 red: `tools/gate.sh:21` and `:27` (`python3 tools/gate_lock.py acquire`, both

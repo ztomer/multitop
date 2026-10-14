@@ -37,9 +37,18 @@ import exec_wire
 
 CONTROL_PATH = "~/.ssh/multitop-live-test-%C"
 SSH_BASE = [
-    "ssh", "-o", "BatchMode=yes", "-o", "ControlMaster=auto",
-    "-o", f"ControlPath={CONTROL_PATH}", "-o", "ControlPersist=30s",
-    "-o", "ConnectTimeout=10", "-T",
+    "ssh",
+    "-o",
+    "BatchMode=yes",
+    "-o",
+    "ControlMaster=auto",
+    "-o",
+    f"ControlPath={CONTROL_PATH}",
+    "-o",
+    "ControlPersist=30s",
+    "-o",
+    "ConnectTimeout=10",
+    "-T",
 ]
 ORACLE_CMD = "/bin/ls -1 /etc"
 REMOTE_AGENT = "/tmp/multitop-agent-livetest"
@@ -69,9 +78,12 @@ def agent_for(arch):
 
 def reachable(target):
     try:
-        return subprocess.run(
-            SSH_BASE + [target, "true"], capture_output=True, timeout=20
-        ).returncode == 0
+        return (
+            subprocess.run(
+                SSH_BASE + [target, "true"], capture_output=True, timeout=20, stdin=subprocess.DEVNULL
+            ).returncode
+            == 0
+        )
     except (subprocess.TimeoutExpired, OSError):
         return False
 
@@ -79,7 +91,7 @@ def reachable(target):
 def control_path_for(target):
     """Ask ssh itself where the socket for this target would live."""
     out = subprocess.run(
-        SSH_BASE + ["-G", target], capture_output=True, text=True, timeout=20
+        SSH_BASE + ["-G", target], capture_output=True, text=True, timeout=20, stdin=subprocess.DEVNULL
     ).stdout
     for line in out.splitlines():
         if line.startswith("controlpath "):
@@ -105,10 +117,7 @@ class LiveExecChannel(unittest.TestCase):
         # MULTITOP_LIVE=1 on its pytest step, where someone is deliberately
         # waiting.
         if not os.environ.get("MULTITOP_LIVE"):
-            cls.skip_reason = (
-                "set MULTITOP_LIVE=1 to run against real hosts "
-                "(it takes ~3m of SSH)"
-            )
+            cls.skip_reason = "set MULTITOP_LIVE=1 to run against real hosts (it takes ~3m of SSH)"
             return
         if not shutil.which("ssh"):
             cls.skip_reason = "no ssh on PATH"
@@ -124,20 +133,19 @@ class LiveExecChannel(unittest.TestCase):
                 continue
             up = subprocess.run(
                 ["scp", "-q", "-o", "BatchMode=yes", binary, f"{target}:{REMOTE_AGENT}"],
-                capture_output=True, timeout=180,
+                capture_output=True,
+                timeout=180,
+                stdin=subprocess.DEVNULL,
             )
             if up.returncode != 0:
                 unreachable_hosts.append(f"{target} (upload: {up.stderr.decode().strip()})")
                 continue
-            subprocess.run(SSH_BASE + [target, f"chmod 755 {REMOTE_AGENT}"], timeout=30)
+            subprocess.run(SSH_BASE + [target, f"chmod 755 {REMOTE_AGENT}"], timeout=30, stdin=subprocess.DEVNULL)
             cls.prepared.append((target, arch))
         if not cls.prepared:
             parts = []
             if missing_arch:
-                parts.append(
-                    "no agent built for " + ", ".join(sorted(missing_arch))
-                    + " (run ./build.sh)"
-                )
+                parts.append("no agent built for " + ", ".join(sorted(missing_arch)) + " (run ./build.sh)")
             if unreachable_hosts:
                 parts.append("unreachable: " + ", ".join(unreachable_hosts))
             cls.skip_reason = "; ".join(parts) or "no live hosts configured"
@@ -145,7 +153,7 @@ class LiveExecChannel(unittest.TestCase):
     @classmethod
     def tearDownClass(cls):
         for target, _ in cls.prepared:
-            subprocess.run(SSH_BASE + [target, f"rm -f {REMOTE_AGENT}"], timeout=30)
+            subprocess.run(SSH_BASE + [target, f"rm -f {REMOTE_AGENT}"], timeout=30, stdin=subprocess.DEVNULL)
         cls.clear_sockets()
 
     @classmethod
@@ -163,13 +171,14 @@ class LiveExecChannel(unittest.TestCase):
         proc = subprocess.run(
             SSH_BASE + [target, f"{REMOTE_AGENT} exec"],
             input=exec_wire.request(command, cols=cols, rows=rows),
-            capture_output=True, timeout=120,
+            capture_output=True,
+            timeout=120,
         )
         return exec_wire.decode(proc.stdout)
 
     def oracle(self, target):
         proc = subprocess.run(
-            SSH_BASE + [target, ORACLE_CMD], capture_output=True, timeout=120
+            SSH_BASE + [target, ORACLE_CMD], capture_output=True, timeout=120, stdin=subprocess.DEVNULL
         )
         return proc.stdout.decode()
 
@@ -177,9 +186,7 @@ class LiveExecChannel(unittest.TestCase):
         frames = self.run_exec(target, ORACLE_CMD)
         got = exec_wire.output(frames).replace(b"\r\n", b"\n").decode()
         want = self.oracle(target)
-        self.assertEqual(
-            exec_wire.exit_code(frames), 0, f"{target} {note}: no clean Exit frame"
-        )
+        self.assertEqual(exec_wire.exit_code(frames), 0, f"{target} {note}: no clean Exit frame")
         # Stated before the equality check, because "identical" is the headline
         # but "nothing appeared twice" is the defect being guarded.
         for line in set(got.splitlines()):
@@ -253,9 +260,7 @@ class LiveExecChannel(unittest.TestCase):
                     if os.path.exists(path):
                         os.remove(path)
                 self.assertEqual(cold, warm, f"{target}: cold and warm sockets differ")
-                self.assertEqual(
-                    cold, unmuxed, f"{target}: multiplexing changed the bytes"
-                )
+                self.assertEqual(cold, unmuxed, f"{target}: multiplexing changed the bytes")
 
     def test_05_an_alias_and_a_terminal_reach_the_command(self):
         """What the pty buys, asserted rather than assumed.
@@ -300,9 +305,7 @@ class LiveExecChannel(unittest.TestCase):
             for command in ["true", "exit 7", "no-such-command-anywhere", "echo x >&2"]:
                 with self.subTest(host=target, command=command):
                     frames = self.run_exec(target, command)
-                    self.assertIsNotNone(
-                        exec_wire.exit_code(frames), f"{command!r} never reported finishing"
-                    )
+                    self.assertIsNotNone(exec_wire.exit_code(frames), f"{command!r} never reported finishing")
                     self.assertEqual(frames[-1][0], "Exit")
 
 

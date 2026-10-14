@@ -166,7 +166,7 @@ def tracked(pattern: str) -> list[str]:
         ["git", "ls-files", "-z", "--", pattern],
         capture_output=True,
         text=True,
-        check=True,
+        check=True, stdin=subprocess.DEVNULL,
     ).stdout
     return [p for p in out.split("\0") if p]
 

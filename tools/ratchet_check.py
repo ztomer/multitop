@@ -98,7 +98,7 @@ def self_test() -> int:
     exactly as a clean tree does.
     """
     out = subprocess.run(
-        ["sh", "-c", current_command()], cwd=REPO, capture_output=True, text=True
+        ["sh", "-c", current_command()], cwd=REPO, capture_output=True, text=True, stdin=subprocess.DEVNULL
     )
     if out.returncode != 0:
         print(f"ratchet self-test: the sweep failed: {out.stderr}", file=sys.stderr)
@@ -145,7 +145,7 @@ def main() -> int:
             "--current-from-command",
             current_command(),
         ],
-        cwd=REPO,
+        cwd=REPO, stdin=subprocess.DEVNULL,
     ).returncode
     return rc or ceiling_check()
 
@@ -177,7 +177,7 @@ def ceiling_check() -> int:
     return subprocess.run(
         [sys.executable, str(checker), "--max", str(LOC_LIMIT),
          "--baseline", str(BASELINE.relative_to(REPO)), "--line-exclude", exclude],
-        cwd=REPO,
+        cwd=REPO, stdin=subprocess.DEVNULL,
     ).returncode
 
 

@@ -185,7 +185,7 @@ def is_shallow(root: Path) -> bool | None:
     try:
         out = subprocess.run(
             ["git", "-C", str(root), "rev-parse", "--is-shallow-repository"],
-            capture_output=True, text=True, timeout=60, check=True,
+            capture_output=True, text=True, timeout=60, check=True, stdin=subprocess.DEVNULL,
         ).stdout.strip()
     except (OSError, subprocess.SubprocessError):
         return None
@@ -222,7 +222,7 @@ def deleted_paths(root: Path) -> set[str] | None:
     for cmd in queries:
         try:
             out = subprocess.run(
-                cmd, capture_output=True, text=True, timeout=60, check=True,
+                cmd, capture_output=True, text=True, timeout=60, check=True, stdin=subprocess.DEVNULL,
             ).stdout
         except (OSError, subprocess.SubprocessError):
             return None

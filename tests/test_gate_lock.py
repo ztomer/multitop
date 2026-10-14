@@ -17,13 +17,27 @@ def _env() -> dict:
 
 
 def _git(cwd: Path, *args: str) -> str:
-    return subprocess.run(["git", "-c", "user.name=t", "-c", "user.email=t@t", *args], cwd=cwd,
-                          env=_env(), check=True, capture_output=True, text=True).stdout.strip()
+    return subprocess.run(
+        ["git", "-c", "user.name=t", "-c", "user.email=t@t", *args],
+        cwd=cwd,
+        env=_env(),
+        check=True,
+        capture_output=True,
+        text=True,
+        stdin=subprocess.DEVNULL,
+    ).stdout.strip()
 
 
 def _lock(cwd: Path, action: str) -> subprocess.CompletedProcess:
-    return subprocess.run(["python3", str(LOCK), action, str(os.getpid())], cwd=cwd, env=_env(),
-                          capture_output=True, text=True, timeout=30)
+    return subprocess.run(
+        ["python3", str(LOCK), action, str(os.getpid())],
+        cwd=cwd,
+        env=_env(),
+        capture_output=True,
+        text=True,
+        timeout=30,
+        stdin=subprocess.DEVNULL,
+    )
 
 
 def test_acquire_and_release_in_a_linked_worktree(tmp_path):

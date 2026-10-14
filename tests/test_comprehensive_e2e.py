@@ -73,7 +73,9 @@ class ComprehensiveE2E(unittest.TestCase):
         s = self.session.capture()
         self.assertIn("quit", s.lower())
         self.session.send("Escape")
-        self.session.wait_for(lambda: "Help  ? to close" not in self.session.capture(), timeout=10, what="help to close")
+        self.session.wait_for(
+            lambda: "Help  ? to close" not in self.session.capture(), timeout=10, what="help to close"
+        )
         self.assertNotIn("Help  ? to close", self.session.capture())
 
     def test_focus_enter_z(self):
@@ -226,6 +228,7 @@ class ComprehensiveE2E(unittest.TestCase):
                 [self.binary, "-c", cfg, "--serve", addr, "--serve-token", token],
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
+                stdin=subprocess.DEVNULL,
             )
             try:
                 time.sleep(3)
@@ -235,6 +238,7 @@ class ComprehensiveE2E(unittest.TestCase):
                     capture_output=True,
                     text=True,
                     timeout=5,
+                    stdin=subprocess.DEVNULL,
                 )
                 self.assertIn("unauthorized", r.stdout.lower())
                 # With token should be 200
@@ -243,6 +247,7 @@ class ComprehensiveE2E(unittest.TestCase):
                     capture_output=True,
                     text=True,
                     timeout=5,
+                    stdin=subprocess.DEVNULL,
                 )
                 self.assertIn("127.0.0.1", r2.stdout)
                 data = json.loads(r2.stdout)
@@ -253,6 +258,7 @@ class ComprehensiveE2E(unittest.TestCase):
                     capture_output=True,
                     text=True,
                     timeout=5,
+                    stdin=subprocess.DEVNULL,
                 )
                 self.assertIn("total", r3.stdout)
                 # Index
@@ -261,6 +267,7 @@ class ComprehensiveE2E(unittest.TestCase):
                     capture_output=True,
                     text=True,
                     timeout=5,
+                    stdin=subprocess.DEVNULL,
                 )
                 self.assertIn("multitop --serve", r4.stdout)
             finally:

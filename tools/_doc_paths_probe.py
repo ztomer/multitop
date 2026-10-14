@@ -29,8 +29,8 @@ def self_test() -> int:
     must catch. The first version of this function asserted only that dead paths
     are caught, which is the half that already worked -- and it passed while the
     checker missed the real defect three times."""
-    never: set[str] = set()   # what git returns for a path never in the tree
-    gone = {"scripts/local-ci.py", "tools/gone.sh"}   # what it returns for deleted
+    never: set[str] = set()  # what git returns for a path never in the tree
+    gone = {"scripts/local-ci.py", "tools/gone.sh"}  # what it returns for deleted
     with tempfile.TemporaryDirectory() as tmp:
         root = Path(tmp)
         (root / "tools").mkdir()
@@ -50,29 +50,32 @@ def self_test() -> int:
             a checker that flags everything passes a one-sided test."""
             if flagged <= got and not (got - flagged):
                 return 0
-            print(f"self-test FAILED: {label} -- wanted {sorted(flagged)}, "
-                  f"got {sorted(got)}")
+            print(f"self-test FAILED: {label} -- wanted {sorted(flagged)}, got {sorted(got)}")
             return 1
 
         # -- the defect the checker was written for, and its three disguises --
         for label, text, flagged in (
-            ("a dead script in a fenced command",
-             "```bash\npython3 scripts/local-ci.py\n```\n",
-             {"scripts/local-ci.py"}),
-            ("a dead script in an INLINE mention, which is where the real "
-             "RELEASE.md defect was",
-             "Run the gates first -- `python3 scripts/local-ci.py` is "
-             "everything CI runs.\n",
-             {"scripts/local-ci.py"}),
-            ("a dead script in a Key Files label",
-             "| File | Purpose |\n|---|---|\n| `scripts/local-ci.py` | gates |\n",
-             {"scripts/local-ci.py"}),
-            ("a dead ./script in a command",
-             "```bash\n./gone.sh v1\n```\n",
-             {"gone.sh"}),
-            ("a name git never recorded, in prose -- no history can save it",
-             "Start with `scripts/never_existed.py`.\n",
-             {"scripts/never_existed.py"}),
+            (
+                "a dead script in a fenced command",
+                "```bash\npython3 scripts/local-ci.py\n```\n",
+                {"scripts/local-ci.py"},
+            ),
+            (
+                "a dead script in an INLINE mention, which is where the real RELEASE.md defect was",
+                "Run the gates first -- `python3 scripts/local-ci.py` is everything CI runs.\n",
+                {"scripts/local-ci.py"},
+            ),
+            (
+                "a dead script in a Key Files label",
+                "| File | Purpose |\n|---|---|\n| `scripts/local-ci.py` | gates |\n",
+                {"scripts/local-ci.py"},
+            ),
+            ("a dead ./script in a command", "```bash\n./gone.sh v1\n```\n", {"gone.sh"}),
+            (
+                "a name git never recorded, in prose -- no history can save it",
+                "Start with `scripts/never_existed.py`.\n",
+                {"scripts/never_existed.py"},
+            ),
         ):
             rc = expect(label, flagged, probe("RELEASE.md", text, gone))
             if rc:
@@ -80,31 +83,47 @@ def self_test() -> int:
 
         # -- the shapes that must NOT be flagged, each with its reason --
         for label, doc, text, deleted in (
-            ("history in prose, marked", "RELEASE.md",
-             "`scripts/local-ci.py` was deleted on 2026-09-14.\n", gone),
-            ("history in prose, marker three wrapped lines away", "RELEASE.md",
-             "`scripts/local-ci.py` was this file's instruction\n"
-             "until 2026-09-14, when it\ndeleted.\n", gone),
-            ("a bare filename in prose is shorthand, not an instruction",
-             "RELEASE.md", "`build.rs` panics for release.\n", never),
-            ("a brace expansion in a tree diagram", "RELEASE.md",
-             "```\n  src/{color,consts,render}.rs\n  tests/*.rs\n```\n", never),
-            ("a hostname ending in a file extension", "RELEASE.md",
-             "```\nsh.rustup.rs | sh\n```\n", never),
-            ("a home-absolute path is the reader's, not the repo's", "RELEASE.md",
-             "```\ncp x ~/.config/multitop/config.toml\n```\n", never),
-            ("another repository's file", "RELEASE.md",
-             "```\ngit -C tap add Formula/multitop.rb\n```\n", never),
-            ("a url, and the tail of one", "RELEASE.md",
-             "```\nhttps://example.com/a/b.py\n```\n", never),
-            ("a path in a table's purpose column, which is still prose",
-             "DEVELOPMENT.md",
-             "| File | Purpose |\n|---|---|\n"
-             "| `tools/gate.sh` | replaces `scripts/old.sh` |\n", never),
-            ("a line-numbered path resolves to the file", "RELEASE.md",
-             "```\nsee crates/agent/src/proto/mod.rs:31\n```\n", never),
-            ("an existing ./script in a command", "RELEASE.md",
-             "```bash\n./build.sh\n```\n", never),
+            ("history in prose, marked", "RELEASE.md", "`scripts/local-ci.py` was deleted on 2026-09-14.\n", gone),
+            (
+                "history in prose, marker three wrapped lines away",
+                "RELEASE.md",
+                "`scripts/local-ci.py` was this file's instruction\nuntil 2026-09-14, when it\ndeleted.\n",
+                gone,
+            ),
+            (
+                "a bare filename in prose is shorthand, not an instruction",
+                "RELEASE.md",
+                "`build.rs` panics for release.\n",
+                never,
+            ),
+            (
+                "a brace expansion in a tree diagram",
+                "RELEASE.md",
+                "```\n  src/{color,consts,render}.rs\n  tests/*.rs\n```\n",
+                never,
+            ),
+            ("a hostname ending in a file extension", "RELEASE.md", "```\nsh.rustup.rs | sh\n```\n", never),
+            (
+                "a home-absolute path is the reader's, not the repo's",
+                "RELEASE.md",
+                "```\ncp x ~/.config/multitop/config.toml\n```\n",
+                never,
+            ),
+            ("another repository's file", "RELEASE.md", "```\ngit -C tap add Formula/multitop.rb\n```\n", never),
+            ("a url, and the tail of one", "RELEASE.md", "```\nhttps://example.com/a/b.py\n```\n", never),
+            (
+                "a path in a table's purpose column, which is still prose",
+                "DEVELOPMENT.md",
+                "| File | Purpose |\n|---|---|\n| `tools/gate.sh` | replaces `scripts/old.sh` |\n",
+                never,
+            ),
+            (
+                "a line-numbered path resolves to the file",
+                "RELEASE.md",
+                "```\nsee crates/agent/src/proto/mod.rs:31\n```\n",
+                never,
+            ),
+            ("an existing ./script in a command", "RELEASE.md", "```bash\n./build.sh\n```\n", never),
         ):
             rc = expect(label, set(), probe(doc, text, deleted))
             if rc:
@@ -139,7 +158,10 @@ def self_test() -> int:
         def git(*args: str) -> None:
             subprocess.run(
                 ["git", "-C", str(history), *args],
-                check=True, capture_output=True, text=True,
+                check=True,
+                capture_output=True,
+                text=True,
+                stdin=subprocess.DEVNULL,
             )
 
         git("-c", "init.defaultBranch=main", "init", "-q")
@@ -159,18 +181,22 @@ def self_test() -> int:
 
         found = target.deleted_paths(history)
         if found is None or "scripts/landed.py" not in found:
-            print("self-test FAILED: a deletion in git history was not found -- "
-                  "the exemption that lets a doc SAY a file was deleted is a hole")
+            print(
+                "self-test FAILED: a deletion in git history was not found -- "
+                "the exemption that lets a doc SAY a file was deleted is a hole"
+            )
             return 1
 
         (history / "scripts" / "staged.py").unlink()
         git("add", "-A")
         found = target.deleted_paths(history)
         if found is None or "scripts/staged.py" not in found:
-            print("self-test FAILED: a STAGED deletion was not found -- the "
-                  "commit that removes a file is gated by the checker that only "
-                  "believes it is gone once that commit lands, so it can never "
-                  "be made")
+            print(
+                "self-test FAILED: a STAGED deletion was not found -- the "
+                "commit that removes a file is gated by the checker that only "
+                "believes it is gone once that commit lands, so it can never "
+                "be made"
+            )
             return 1
 
         # And the case the shallow clone exposed, asserted where it can be
@@ -179,15 +205,22 @@ def self_test() -> int:
         shallow = Path(tmp) / "shallow"
         subprocess.run(
             ["git", "clone", "-q", "--depth", "1", "--no-local", str(history), str(shallow)],
-            check=True, capture_output=True, text=True,
+            check=True,
+            capture_output=True,
+            text=True,
+            stdin=subprocess.DEVNULL,
         )
         if target.is_shallow(shallow) is not True:
-            print("self-test FAILED: a --depth 1 clone did not read as shallow, "
-                  "so main() would report phantoms on CI and nobody would be told")
+            print(
+                "self-test FAILED: a --depth 1 clone did not read as shallow, "
+                "so main() would report phantoms on CI and nobody would be told"
+            )
             return 1
         if target.deleted_paths(shallow) is None:
-            print("self-test FAILED: a shallow clone reported unreadable history "
-                  "rather than empty history -- the two must be told apart")
+            print(
+                "self-test FAILED: a shallow clone reported unreadable history "
+                "rather than empty history -- the two must be told apart"
+            )
             return 1
 
     # A path named relative to a base the sentence states, and one that is
@@ -200,8 +233,10 @@ def self_test() -> int:
         encoding="utf-8",
     )
     if target.offenders(root, never):
-        print("self-test FAILED: a path named relative to a stated base was "
-              "reported -- a reader resolves that without trouble")
+        print(
+            "self-test FAILED: a path named relative to a stated base was "
+            "reported -- a reader resolves that without trouble"
+        )
         return 1
 
     # Ambiguity is NOT resolution. The second file has to share the whole TAIL,
@@ -213,8 +248,10 @@ def self_test() -> int:
     (root / "crates" / "app").mkdir()
     (root / "crates" / "app" / "views.rs").write_text("//\n", encoding="utf-8")
     if not target.offenders(root, never):
-        print("self-test FAILED: an ambiguous tail was accepted -- two files "
-              "end the same way, so the reference identifies neither")
+        print(
+            "self-test FAILED: an ambiguous tail was accepted -- two files "
+            "end the same way, so the reference identifies neither"
+        )
         return 1
     (root / "crates" / "app" / "views.rs").unlink()
     (root / "crates" / "app").rmdir()

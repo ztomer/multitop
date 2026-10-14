@@ -24,6 +24,25 @@ GOH_RUST_LINT_CONFIGS='--target x86_64-unknown-linux-musl -p multitop-agent'
 # failed: a lockfile refresh is routine and moves in its own commit.
 GOH_DEPS_RATCHET=tools/deps_ratchet.txt
 
+# Every scanner's floor (goh v0.27.0, 4.3): a full-scope scan that reads LESS than
+# this has lost its subject and is red, not clean. The advisory line that
+# printed these on 2026-10-14 read exactly the numbers below; each is at or a
+# little under its own count. Lower one with the tree, in the same commit as
+# whatever made the tree smaller -- never to absorb a scan that went blind.
+GOH_EMOJI_MIN_FILES=434
+GOH_CONFLICT_MARKERS_MIN_FILES=435
+GOH_FILE_LENGTH_MIN_FILES=385
+GOH_SECRETS_MIN_FILES=434
+GOH_SHELL_LINT_MIN_FILES=10
+GOH_EARLY_EXIT_PIPE_MIN_FILES=17
+GOH_DEAD_AFTER_EXEC_MIN_FILES=17
+GOH_BARE_HOOK_INDEX_MIN_FILES=17
+GOH_BARE_PYTHON_MIN_FILES=6
+GOH_CHECKOUT_CREDENTIALS_MIN_FILES=2
+GOH_MD_LINKS_MIN_LINKS=11
+GOH_UNREAPED_SPAWN_MIN_FILES=249
+GOH_SUBPROCESS_STDIN_MIN_CALLS=42
+
 # ── The gate of record ──────────────────────────────────────────────────────
 # ONE list: tools/gate.sh --full (the pre-push hook) runs it through
 # gates_of_heck/gates/local_ci.sh. It replaced scripts/local-ci.py (481 lines

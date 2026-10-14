@@ -46,23 +46,66 @@ fn sample_snapshot(server_id: u32) -> Snapshot {
     }
 }
 
-fn main() {
-    println!("============================================================");
-    println!("   multitop Client Benchmark Suite (M4 Mac Apple Silicon)   ");
-    println!("============================================================");
-
-    // 1. Benchmark Protocol Serialization & Deserialization
-    let snap = sample_snapshot(1);
-    let payload = Payload::Monitor(snap);
+/// The packet-decode loop: decodes one encoded `Monitor` packet `iterations` times.
+fn decode_loop(iterations: u32) -> std::time::Duration {
+    let payload = Payload::Monitor(sample_snapshot(1));
     let encoded = proto::encode_packet(&payload);
-
-    let iterations = 100_000;
     let start = Instant::now();
     for _ in 0..iterations {
         let decoded = proto::decode_packet(&encoded).unwrap();
         std::hint::black_box(decoded);
     }
-    let elapsed = start.elapsed();
+    start.elapsed()
+}
+
+/// The frame-render loop: renders one snapshot to 120x40 lines `iterations` times.
+fn render_loop(iterations: u32) -> std::time::Duration {
+    let snap = sample_snapshot(1);
+    // The view, because that is what the render path now takes -- a benchmark
+    // against a type production no longer uses measures the wrong thing, which
+    // is how a perf gate ends up certifying a fast path nobody takes.
+    let pal = multitop_agent::palette_view::PaletteView::for_theme(&color::ANSI);
+    let start = Instant::now();
+    for _ in 0..iterations {
+        let lines = render::render(&snap, 120, 40, render::bar_len_for(120), &pal);
+        std::hint::black_box(lines);
+    }
+    start.elapsed()
+}
+
+/// `--only=decode|render --iters=N` runs ONE loop and nothing else, so a
+/// caller can count the instructions it retires (`tools/bench_check.py` runs it
+/// under `/usr/bin/time -l` at N and 2N; the difference is N iterations'
+/// worth, with process start-up and set-up cancelled out). Wall time on a
+/// shared box measures the other tenants; instructions measure the code.
+fn only(args: &[String]) -> Option<(String, u32)> {
+    let which = args.iter().find_map(|a| a.strip_prefix("--only="))?;
+    let iters = args
+        .iter()
+        .find_map(|a| a.strip_prefix("--iters="))
+        .map_or(Ok(10_000), str::parse)
+        .unwrap();
+    Some((which.to_owned(), iters))
+}
+
+fn main() {
+    let args: Vec<String> = std::env::args().collect();
+    if let Some((which, iters)) = only(&args) {
+        let elapsed = match which.as_str() {
+            "decode" => decode_loop(iters),
+            "render" => render_loop(iters),
+            other => panic!("--only={other}: expected decode or render"),
+        };
+        println!("{which} x{iters}: {elapsed:?}");
+        return;
+    }
+    println!("============================================================");
+    println!("   multitop Client Benchmark Suite (M4 Mac Apple Silicon)   ");
+    println!("============================================================");
+
+    // 1. Benchmark Protocol Serialization & Deserialization
+    let iterations = 100_000;
+    let elapsed = decode_loop(iterations);
     let ns_per_op = elapsed.as_secs_f64() * 1e9 / f64::from(iterations);
     let ops_per_sec = f64::from(iterations) / elapsed.as_secs_f64();
     println!("\n1. Protocol Packet Decoding:\n   Iterations: {iterations}\n   Time: {elapsed:?}");
@@ -70,18 +113,8 @@ fn main() {
     println!("   Throughput: {ops_per_sec:.0} packets / sec");
 
     // 2. Benchmark Local Snapshot Rendering
-    let snap = sample_snapshot(1);
-    // The view, because that is what the render path now takes -- a benchmark
-    // against a type production no longer uses measures the wrong thing, which
-    // is how a perf gate ends up certifying a fast path nobody takes.
-    let pal = multitop_agent::palette_view::PaletteView::for_theme(&color::ANSI);
     let render_iters = 50_000;
-    let start = Instant::now();
-    for _ in 0..render_iters {
-        let lines = render::render(&snap, 120, 40, render::bar_len_for(120), &pal);
-        std::hint::black_box(lines);
-    }
-    let elapsed = start.elapsed();
+    let elapsed = render_loop(render_iters);
     let ns_per_render = elapsed.as_secs_f64() * 1e9 / f64::from(render_iters);
     println!(
         "\n2. Local Snapshot Rendering (120x40 Ratatui lines):\n   Iterations: {render_iters}\n   Time: {elapsed:?}"
@@ -93,6 +126,7 @@ fn main() {
     );
 
     // 3. Benchmark Full TUI Layout Drawing (1, 4, 8, 16 panels)
+    let pal = multitop_agent::palette_view::PaletteView::for_theme(&color::ANSI);
     for num_panels in [1, 2, 4, 8, 16] {
         let servers: Vec<Server> = (0..num_panels)
             .map(|i| Server {

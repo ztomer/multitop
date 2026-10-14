@@ -7,6 +7,38 @@ This file starts at v0.47.0 — earlier history is in git (`git log`), and the
 per-defect record is `docs/detection-record.md`, which is the more useful
 document for anything before this point.
 
+## Unreleased — Phase 0 fallout (goh 0.27.0)
+
+- **The latency bench measures the code, not the machine's load** (P0.7). It
+  gated wall-clock frame render under 50,000 ns, which on this box is a gate on
+  whoever else is running: the pre-push run at load ~35-65 read 54,976 ns on all
+  three tries while the same tree alone read 33,919 ns fifteen minutes earlier.
+  "Best of three" lowers the odds and does not change what is measured. The bench
+  now runs ONE loop (`client_bench --only=decode|render --iters=N`) under
+  `/usr/bin/time -l` and reports instructions retired, taken at N and at 2N so
+  process start-up and set-up cancel. Across a 4x synthetic load the per-frame
+  count moved 0.07%; wall time moved by tens of percent. Budgets are ~1.7x the
+  measurement (decode 23,064 and render 566,614 instructions), and a deliberate
+  2x slowdown inside `render` is past both.
+
+- **`render` no longer renders every frame twice.** Found by the new bench gate,
+  not by reading the diff: it went red at 1,134,630 instructions, which is the
+  same code at almost exactly 2x. A `black_box(render_once(...))` throwaway had
+  been left in front of the real call, so every production frame did the work
+  twice. The gate is what made it visible and what pins it now.
+
+- **Every scanner declares its floor** (P0.6). Thirteen `GOH_*_MIN_*` keys in
+  `.gatesrc`, each at its measured read count, so a full-scope scan that stops
+  reading its subject is red rather than clean. `GOH_SUBPROCESS_STDIN_MIN_CALLS`
+  one past its count was proved to fail naming the key.
+
+- **Every child process names its stdin** (P0.4): 39 calls across `tools/`,
+  `tests/` and `scripts/` declared as `stdin=subprocess.DEVNULL` (a tmux or exec
+  e2e child that must read the caller's terminal says so), with the floor at 42.
+
+- **The gate's lock helper runs on goh's pinned interpreter** (P0.3), not bare
+  `python3`.
+
 ## v0.54.0 — the local machine has an Ops view, and no section claims all is well over nothing _(2026-10-11)_
 
 - **`multitop-agent mcp`: this machine's Ops view.** A local panel used to draw

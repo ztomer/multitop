@@ -159,7 +159,10 @@ def as_installed(built: Path, scratch: Path) -> Path:
             )
         subprocess.run(
             ["codesign", "-s", "-", "--identifier", identifier, str(staged)],
-            check=True, capture_output=True, text=True,
+            check=True,
+            capture_output=True,
+            text=True,
+            stdin=subprocess.DEVNULL,
         )
     return staged
 
@@ -177,6 +180,7 @@ def built_binary() -> Path:
         text=True,
         cwd=REPO,
         check=False,
+        stdin=subprocess.DEVNULL,
     )
     target = REPO / "target"
     if proc.returncode == 0:
@@ -199,9 +203,7 @@ def installed_binary() -> Path | None:
     on_path = which(BINARY)
     if on_path:
         return Path(on_path)
-    brew = subprocess.run(
-        ["brew", "--prefix"], capture_output=True, text=True, check=False
-    )
+    brew = subprocess.run(["brew", "--prefix"], capture_output=True, text=True, check=False, stdin=subprocess.DEVNULL)
     if brew.returncode == 0 and brew.stdout.strip():
         candidate = Path(brew.stdout.strip()) / "bin" / BINARY
         if candidate.is_file():
@@ -248,6 +250,7 @@ def main() -> int:
         capture_output=True,
         text=True,
         check=False,
+        stdin=subprocess.DEVNULL,
     )
     if proc.returncode != 0:
         err("installed_freshness: the release build failed")

@@ -58,7 +58,7 @@ def find_binaries() -> list[Path]:
     try:
         meta = subprocess.run(
             ["cargo", "metadata", "--format-version", "1", "--no-deps"],
-            capture_output=True, text=True, check=True, cwd=REPO,
+            capture_output=True, text=True, check=True, cwd=REPO, stdin=subprocess.DEVNULL,
         )
         roots.append(Path(json.loads(meta.stdout)["target_directory"]))
     except (OSError, subprocess.CalledProcessError, KeyError, ValueError):
@@ -76,7 +76,7 @@ def cargo_build() -> bool:
     try:
         proc = subprocess.run(
             ["cargo", "build", "-p", "multitop"],
-            cwd=REPO, capture_output=True, text=True, check=False,
+            cwd=REPO, capture_output=True, text=True, check=False, stdin=subprocess.DEVNULL,
         )
     except OSError as exc:
         print(f"check_codesign: cannot run cargo: {exc}", file=sys.stderr)
@@ -111,7 +111,7 @@ def identifier_for(binary: Path) -> str | None:
             ["codesign", "-dv", str(binary)],
             capture_output=True,
             text=True,
-            timeout=10,
+            timeout=10, stdin=subprocess.DEVNULL,
         )
     except FileNotFoundError:
         return None
@@ -201,7 +201,7 @@ def main() -> int:
                 subprocess.run(
                     ["codesign", "-s", "-", "--identifier", EXPECTED_ID, str(binary)],
                     capture_output=True,
-                    timeout=10,
+                    timeout=10, stdin=subprocess.DEVNULL,
                 )
             except FileNotFoundError:
                 break

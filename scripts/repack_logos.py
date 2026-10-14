@@ -71,7 +71,9 @@ def pack_db(entries):
 
 
 def main():
-    raw_bin = subprocess.check_output(["git", "show", "HEAD:crates/multitop/data/logos.bin.zst"])
+    raw_bin = subprocess.check_output(
+        ["git", "show", "HEAD:crates/multitop/data/logos.bin.zst"], stdin=subprocess.DEVNULL
+    )
     raw = zstd.decompress(raw_bin)
     count = struct.unpack_from("<H", raw, 6)[0]
 

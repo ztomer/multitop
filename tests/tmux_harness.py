@@ -89,30 +89,38 @@ class TmuxSession:
         # terminal and nothing at all about the app refusing its own config.
         # Holding the pane open keeps that message readable, which is the only
         # reason a `\n` interpolated into a TOML *comment* was ever findable.
-        launch = (
-            f"{self.binary} -c {self.config_path}; "
-            f"printf '\\n{self.EXIT_MARKER} rc=%s\\n' \"$?\"; sleep 300"
-        )
+        launch = f"{self.binary} -c {self.config_path}; printf '\\n{self.EXIT_MARKER} rc=%s\\n' \"$?\"; sleep 300"
         subprocess.run(
-            ["tmux", "-S", self.sock, "new-session", "-d",
-             "-x", str(self.size[0]), "-y", str(self.size[1]),
-             "sh", "-c", launch],
-            check=True, capture_output=True, timeout=30,
+            [
+                "tmux",
+                "-S",
+                self.sock,
+                "new-session",
+                "-d",
+                "-x",
+                str(self.size[0]),
+                "-y",
+                str(self.size[1]),
+                "sh",
+                "-c",
+                launch,
+            ],
+            check=True,
+            capture_output=True,
+            timeout=30,
+            stdin=subprocess.DEVNULL,
         )
         # The pane's own command, so a dump can be found by pid rather than by
         # taking the newest file in a shared temp directory -- two of these
         # running at once would otherwise read each other's.
         try:
-            self.pid = self.wait_for(
-                lambda: self._pane_pid(), what="the multitop process to appear"
-            )
+            self.pid = self.wait_for(lambda: self._pane_pid(), what="the multitop process to appear")
         except Timeout as exc:
             # Say what the app printed on its way out. Without this the failure
             # is a bare `ProcessLookupError` twelve tests later, which names the
             # symptom and hides an app that refused its own config.
             raise Timeout(
-                f"{exc}\nmultitop did not start, or did not stay running. "
-                f"Last screen:\n{self._last_screen()}"
+                f"{exc}\nmultitop did not start, or did not stay running. Last screen:\n{self._last_screen()}"
             ) from exc
 
         # A pid is not readiness, and the difference is fatal rather than
@@ -181,8 +189,7 @@ class TmuxSession:
             os.kill(self.pid, signal.SIGUSR2)
         except ProcessLookupError as exc:
             raise AssertionError(
-                f"multitop (pid {self.pid}) is no longer running. Last screen:\n"
-                f"{self._last_screen()}"
+                f"multitop (pid {self.pid}) is no longer running. Last screen:\n{self._last_screen()}"
             ) from exc
         path = self.wait_for(
             lambda: next(iter(set(glob.glob(self._dump_glob())) - before), None),
@@ -285,8 +292,9 @@ class TmuxSession:
         as "the process is dead" and sent an afternoon chasing a signal handler
         that was working perfectly well.
         """
-        return subprocess.run(["/bin/ps", *args],
-                              capture_output=True, text=True, timeout=10).stdout
+        return subprocess.run(
+            ["/bin/ps", *args], capture_output=True, text=True, timeout=10, stdin=subprocess.DEVNULL
+        ).stdout
 
     @classmethod
     def _is_multitop(cls, pid):
@@ -308,7 +316,10 @@ class TmuxSession:
     def _tmux(self, *args, check=True):
         result = subprocess.run(
             ["tmux", "-S", self.sock, *args],
-            capture_output=True, text=True, timeout=30,
+            capture_output=True,
+            text=True,
+            timeout=30,
+            stdin=subprocess.DEVNULL,
         )
         if check and result.returncode != 0:
             raise AssertionError(f"tmux {args}: {result.stderr.strip()}")
@@ -375,9 +386,7 @@ def newest_source_time(root=None):
     (see `built_from`): it cannot tell a src/ file the binary reads from a
     `#[cfg(test)] #[path = "x_tests.rs"]` module it never does.
     """
-    root = root or os.path.join(
-        os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "crates"
-    )
+    root = root or os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "crates")
     newest = 0.0
     for base, dirs, files in os.walk(root):
         # Prune whole subtrees the binary cannot incorporate. Modifying the
@@ -409,7 +418,7 @@ def built_from(binary):
     head = os.path.abspath(binary) + ":"
     for line in text.splitlines():
         if line.startswith(head):
-            deps = line[len(head):].replace("\\ ", "\0").split()
+            deps = line[len(head) :].replace("\\ ", "\0").split()
             return [d.replace("\0", " ") for d in deps]
     return None
 
@@ -463,7 +472,7 @@ def find_binary():
     if (explicit := os.environ.get("MULTITOP_BIN")) and os.access(explicit, os.X_OK):
         return explicit
     roots = []
-    if (target := os.environ.get("CARGO_TARGET_DIR")):
+    if target := os.environ.get("CARGO_TARGET_DIR"):
         roots.append(target)
     # This tree's target dir only. A host-wide cache root sat here until
     # 2026-09-21 and "newest wins" would have picked a build of some other
