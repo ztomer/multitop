@@ -4,17 +4,71 @@ The one forward-looking backlog. Shipped work is not listed here — it is in gi
 history (`git log --oneline`) and in `docs/detection-record.md`. When an item
 here is finished, delete it rather than ticking it off.
 
-State on 2026-10-12: `main` at v0.54.0, CI green on the release commit, tree
-clean, no stale branches or worktrees. One shipped defect is open (P0.1), found
-while verifying this file's claims against the code. The version of this file
-before the 2026-10-12 rephase is `git show ed9e685:docs/roadmap.md`.
+State on 2026-10-14: `main` at `8a5a105`, two commits ahead of `origin/main`
+and unpushed -- the pre-push gate is red on goh 0.27.0's fallout (Phase 0).
+CI was last green on `f5be29f` (2026-10-12). The goh 0.27.0 hooks could not be
+committed as installed: goh refuses the older stock pre-commit, and this repo's
+`tools/check_gate_parity.py` refused the new one (it read the hook's text for
+`tools/gate.sh`); `2492bdd` taught it the house hand-off, then `8a5a105`
+committed the hooks. Narrative of the 2026-10-12 pass:
+`git show f5be29f:docs/roadmap.md`.
 
 Every item names its proof: the test or gate that goes red until it is done.
 
-## Phase 0 — shipped defects (size S, one session)
+## Phase 0 — wire in goh 0.27.0, then the shipped defects (size S-M, one or two sessions)
 
-Goal: nothing the binary ships today is wrong. Exit: P0.1 and P0.2 closed, gate
-green, released.
+Goal: `tools/gate.sh --full` green at HEAD and pushed, and nothing the binary
+ships today is wrong. Exit: P0.3-P0.6 closed and pushed first (nothing pushes
+until they land), then P0.1 and P0.2 closed, gate green, released.
+
+Measured 2026-10-14 on `2492bdd`'s tree: the full gate was stopped at 15 min
+(the brief's bound), at load 138-164 from other sessions, while on step 8 of
+12. Steps 2-7 were green; steps 8-12 were then run one by one: fuzz 489 s,
+bench 233 s, coverage 255 s (96.13%, floor 95), installed-freshness 30 s, all
+green, and `tools/lint_linux.sh` red. Structural (step 1) was read with the
+new hook in place and each red masked in a scratch tree in turn.
+
+### P0.3 — bare `python3` in the gate script
+
+Structural step `no bare python in a hook or gate` (goh 6.2, `1c4be61`) is
+red: `tools/gate.sh:21` and `:27` (`python3 tools/gate_lock.py acquire`, both
+arms). It is the first structural red, so it hides every step after it. Fix:
+`bash "$GOH/gates/python.sh" tools/gate_lock.py ...`, including the two
+`trap` lines' release calls. Proof: the step is green; size XS.
+
+### P0.4 — 39 child processes inherit stdin undeclared
+
+Structural step `every child process names its stdin` (goh 3.4, `0c93f4d`) is
+red: 39 calls (40 before `2492bdd` declared the one it touched), 22 in
+`tools/`, 16 in `tests/`, 1 in `scripts/` -- e.g. `tools/ratchet_check.py:100`,
+`tools/installed_freshness.py:174`, `tests/test_comprehensive_e2e.py:225`,
+`scripts/repack_logos.py:74`. A tmux or exec e2e child that must read the
+caller's terminal says `stdin=None`; the rest `stdin=subprocess.DEVNULL`.
+Proof: the step is green with no seed (or a seed whose every entry carries a
+reason); size S.
+
+### P0.5 — the Linux lint step needs a container runtime nobody started
+
+`tools/lint_linux.sh` (step 12) is red: `no container runtime answering
+(colima start)` -- `colima` was not running. It fails closed and names the
+fix, which is right; the gap is that pre-push depends on a machine service
+the gate does not own. Proof: `colima start`, the step green; then decide
+whether the step should start the runtime itself (it already names the
+command) or stay a stated prerequisite in `DEVELOPMENT.md`. Size XS.
+
+### P0.6 — scanner floors are unset
+
+Structural's last step, `every scanner read its declared subject` (goh 4.3,
+`831d686`), printed on 2026-10-14: `GOH_EMOJI_MIN_FILES=434
+GOH_CONFLICT_MARKERS_MIN_FILES=435 GOH_FILE_LENGTH_MIN_FILES=385
+GOH_SECRETS_MIN_FILES=434 GOH_SHELL_LINT_MIN_FILES=10
+GOH_EARLY_EXIT_PIPE_MIN_FILES=17 GOH_DEAD_AFTER_EXEC_MIN_FILES=17
+GOH_BARE_HOOK_INDEX_MIN_FILES=17 GOH_BARE_PYTHON_MIN_FILES=6
+GOH_CHECKOUT_CREDENTIALS_MIN_FILES=2 GOH_MD_LINKS_MIN_LINKS=11
+GOH_UNREAPED_SPAWN_MIN_FILES=249`. Paste each at or a little under its re-read
+count, plus `GOH_SUBPROCESS_STDIN_MIN_CALLS` after P0.4. Proof: the
+`[subject]` line is gone, and one floor raised one past its count turns the
+step red naming the key (then put back). Size XS.
 
 ### P0.1 — the `--serve` token is guessable
 
@@ -64,7 +118,32 @@ old tokens were weak, so a user who scripted `--serve` on a LAN rotates.
 Proof: `grep -n "light-terminal" README.md` returns nothing;
 `tools/check_doc_paths.py` stays green.
 
-## Phase 1 — Android companion (size L, three to five sessions)
+## Phase 1 — gate drift (advisory today, size S)
+
+Goal: the gate costs what it must and runs nothing twice. Depends on Phase 0.
+
+1. **G1 — every commit runs the push gate's slow half.** The pre-commit hook
+   (`tools/gate.sh --staged` -> `tools/commit_gates.sh`) runs clippy, the
+   end-to-end suites, the fuzz build and workspace coverage: the hooks commit
+   `8a5a105` took 4 min 42 s, `2492bdd` over 10 min, at load ~140. A commit
+   gate that slow is one people learn to batch around. Decide what must block
+   a COMMIT (fast, staged-scope) versus a PUSH, and measure both at a stated
+   load. Proof: `tools/check_gate_parity.py` still green, and the staged gate
+   under a minute on a quiet box.
+2. **G2 — a plain `cargo test --workspace` beside the gate's.** goh Downstream
+   (monitor): `.gatesrc` step 5 and `.github/workflows/ci.yml:132` run
+   `cargo test --workspace --all-features` while coverage already runs every
+   test target. (The same bullet's retired `GOH_NO_NATIVE` is already gone,
+   since `cc2906a`.) Proof: one test run per gate, a failing test still red.
+3. **G3 — the tap bump goes around the tap's gate.** goh 6.8 (`bfac28b`):
+   `release.sh` PUTs `Formula/multitop.rb` through the GitHub API, so the
+   tap's gate never runs on it. The house `tap_bump.sh` rewrites ONE url and
+   sha256; this formula carries three (the source tarball and two agent
+   binaries, `tools/bump_formula.py`). Blocked on goh: `tap_bump.sh` taking
+   several resources (cross-repo ask), then `release.sh` calls it. Proof: a
+   release dry run shows the tap gate step.
+
+## Phase 2 — Android companion (size L, three to five sessions)
 
 Goal: a phone shows which hosts are up, what the last upgrade did, and what is
 degraded, without a terminal. Exit: the app reads a LAN `--serve` over an
@@ -114,7 +193,7 @@ The `repack`/`convert` logo pipeline (`scripts/repack_logos.py`,
 `scripts/convert_logos.py`, over `crates/multitop/data/logos.bin.zst`) already
 renders app icons, so an icon is not a blocker.
 
-## Phase 2 — parked on a trigger: post-quantum KEM (size M when it fires)
+## Phase 3 — parked on a trigger: post-quantum KEM (size M when it fires)
 
 Sequenced against its trigger, not a date. For a device-local vault file read by
 a process that already holds the key, harvest-now-decrypt-later is not the
@@ -179,21 +258,8 @@ channel); bundle it only if the vault trigger fires.
 
 ## Sources consolidated (2026-10-12)
 
-The 2026-10-10 consolidation's table (opencode loop goals, two Antigravity
-conversations, branch `ci-persist`, old items 3 and 4) is at
-`git show ed9e685:docs/roadmap.md`. This pass re-checked every store:
-
-| Source | Disposition |
-|--------|-------------|
-| Claude Code CLI, slug `-Users-ztomer-Projects-monitor` | No transcripts. One `*.desktop-released.json` marker (session deleted 2026-10-11): residue, removed. `memory/` kept: one project fact (stale `multitop-agent` on the .33 test box) and two feedback entries that read as procedures, flagged for a skill. |
-| Claude desktop sessions | None for this repo (listed with archived, 2026-10-12). |
-| opencode db | Zero sessions; the `project` row for this path remains (coordinator's to delete). |
-| opencode loop dir `.opencode/opencode-loop/` | Gone since 2026-10-10; `.opencode/` is git-ignored, nothing tracked. |
-| Antigravity (app + IDE + backup) | No conversation names this repo or `multitop` any more. |
-| Gemini CLI `~/.gemini/tmp/` | No dir claims this repo. |
-| The Projects-root cross-project indexes (ROADMAP-consolidated, RUSTIFICATION_ROADMAP) | No monitor or multitop item in either. |
-| git branches and worktrees | `main` only, one worktree, clean. |
-| Verification of this file's own claims | Found P0.1 (guessable token), P0.2 (doc drift), the APNs/FCM error in A3, a stale `lib.rs` line number; all fixed or carried above. |
+Every agent store for this repo was re-checked on 2026-10-12; nothing in them
+is open beyond the items above. The table is `git show f5be29f:docs/roadmap.md`.
 
 ## Where the invariants live
 
