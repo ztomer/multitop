@@ -85,7 +85,7 @@ def gatesrc_steps() -> str:
     import subprocess
     proc = subprocess.run(
         ["bash", "-c", f"set -euo pipefail; source '{GATESRC}'; printf '%s' \"$GOH_CI_STEPS\""],
-        capture_output=True, text=True,
+        capture_output=True, text=True, stdin=subprocess.DEVNULL,
     )
     if proc.returncode != 0:
         return ""
@@ -174,13 +174,19 @@ STAGED_ARM = re.compile(r"^\s*--staged\)(.*?)^\s*;;", re.MULTILINE | re.DOTALL)
 def wiring_mismatches(hook_text: str, gate_text: str) -> list[str]:
     """Whether a commit actually reaches the commit gate's list.
 
-    The stock hook delegates to `tools/gate.sh --staged`; that arm must run
+    The stock hook delegates to `tools/gate.sh --staged` (since goh 0.27.0
+    through the house `gates/commit_gate.sh`); that arm must run
     `tools/commit_gates.sh`. Either link missing and every gate in the list is
     decorative, while the list itself still agrees with CI to the letter.
     """
     problems = []
     hook = _live(hook_text)
-    if "tools/gate.sh" not in hook or not re.search(r"--staged\b", hook):
+    direct = "tools/gate.sh" in hook and re.search(r"--staged\b", hook)
+    # goh 0.27.0's stock hook hands off to the house commit gate, which runs
+    # tools/gate.sh --staged itself (the hook decides nothing, so a re-install
+    # cannot leave stale logic behind).
+    house = "gates/commit_gate.sh" in hook and re.search(r"\bexec bash\b", hook)
+    if not (direct or house):
         problems.append(".githooks/pre-commit does not hand off to tools/gate.sh --staged")
     arm = STAGED_ARM.search(_live(gate_text))
     if arm is None:
@@ -336,6 +342,18 @@ def self_test() -> int:
         return 1
     if not wiring_mismatches('exec bash "$GOH/gates/structural.sh" --staged\n', wired):
         print("gate-parity self-test: a hook bypassing gate.sh was NOT reported", file=sys.stderr)
+        return 1
+    # goh 0.27.0's stock hook decides nothing: it hands off to the house commit gate, which
+    # runs tools/gate.sh --staged. Both spellings reach the list.
+    house_hook = ('commit_gate="$GOH/gates/commit_gate.sh"\n'
+                  'exec bash "$commit_gate" "$@"\n')
+    if wiring_mismatches(house_hook, wired):
+        print("gate-parity self-test: the house commit-gate hook was reported broken",
+              file=sys.stderr)
+        return 1
+    if not wiring_mismatches('# gates/commit_gate.sh\nexit 0\n', wired):
+        print("gate-parity self-test: a hook that only MENTIONS the commit gate was NOT reported",
+              file=sys.stderr)
         return 1
     unwired = ('  --staged)\n    # bash tools/commit_gates.sh\n    ;;\n'
                '  --full)\n    bash tools/commit_gates.sh\n    ;;\n')
