@@ -18,14 +18,14 @@ root="$(git rev-parse --show-toplevel)"
 case "${1:-}" in
   --full)
     cd "$root"
-    python3 tools/gate_lock.py acquire "$$"
-    trap 'python3 tools/gate_lock.py release "$$"' EXIT
+    bash "$GOH/gates/python.sh" tools/gate_lock.py acquire "$$"
+    trap 'bash "$GOH/gates/python.sh" tools/gate_lock.py release "$$"' EXIT
     "$GOH/gates/local_ci.sh" "$root"
     ;;
   --staged)
     cd "$root"
-    python3 tools/gate_lock.py acquire "$$"
-    trap 'python3 tools/gate_lock.py release "$$"' EXIT
+    bash "$GOH/gates/python.sh" tools/gate_lock.py acquire "$$"
+    trap 'bash "$GOH/gates/python.sh" tools/gate_lock.py release "$$"' EXIT
     "$GOH/gates/structural.sh" --staged
     bash tools/commit_gates.sh
     ;;
