@@ -18,7 +18,7 @@ Every item names its proof: the test or gate that goes red until it is done.
 ## Phase 0 — wire in goh 0.27.0, then the shipped defects (size S-M, one or two sessions)
 
 Goal: `tools/gate.sh --full` green at HEAD and pushed, and nothing the binary
-ships today is wrong. Exit: P0.3-P0.6 closed and pushed first (nothing pushes
+ships today is wrong. Exit: P0.3-P0.7 closed and pushed first (nothing pushes
 until they land), then P0.1 and P0.2 closed, gate green, released.
 
 Measured 2026-10-14 on `2492bdd`'s tree: the full gate was stopped at 15 min
@@ -69,6 +69,18 @@ GOH_UNREAPED_SPAWN_MIN_FILES=249`. Paste each at or a little under its re-read
 count, plus `GOH_SUBPROCESS_STDIN_MIN_CALLS` after P0.4. Proof: the
 `[subject]` line is gone, and one floor raised one past its count turns the
 step red naming the key (then put back). Size XS.
+
+### P0.7 — the latency bench reads the machine's load, not the code
+
+The pre-push run on `b60f25d` (2026-10-14, load ~35-65) failed step 9,
+`tools/bench_check.py`, on all 3 tries: frame render 54976 ns against a
+50000 ns limit; run alone 15 minutes earlier it read 33919 ns. Pre-push was
+red on steps 1, 9 and 12. A threshold on wall-clock latency is a gate on
+whoever else is running, and on this machine somebody always is. Calibrate
+against a control measured in the same run (goh 5.3's `gate_profile.sh`
+divides by a pinned control for this reason) or gate on a ratio. Proof: the
+step stays green under a 2x synthetic load and goes red on a deliberate 2x
+slowdown in the renderer. Size S.
 
 ### P0.1 — the `--serve` token is guessable
 
