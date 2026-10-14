@@ -37,9 +37,17 @@ helper runs on goh's pinned interpreter (`bash "$GOH/gates/python.sh"`), both
 arms of `tools/gate.sh:21,27` and the two trap releases.
 
 ### ~~P0.5 — the Linux lint step needs a container runtime nobody started~~
-UNCHANGED and the machine's to fix: the step fails closed and names `colima
-start`. Whether the gate should start its own runtime is an open question in
-`DEVELOPMENT.md`, not a code change.
+CLOSED by starting it, not by changing the step: `colima start` and
+`tools/lint_linux.sh` runs green — "linux clippy clean" on the whole workspace
+at `linux/arm64`, which is the only place an OS-only `#[expect]` is visible.
+
+Whether the GATE should start its own runtime is still the open question, and it
+is deliberately not answered here. `DEVELOPMENT.md` states the prerequisite and
+the step fails closed naming the command, which is right: a pre-push gate that
+boots a VM on its own is a gate that can surprise the machine it runs on. What
+this round added is the evidence that the step is not a formality — it is the
+only Linux-side check, and it passed on a tree whose every other gate had
+already passed.
 
 ### ~~P0.4 — 39 child processes inherit stdin undeclared~~ CLOSED: every child
 process names its stdin across `tools/`, `tests/` and `scripts/`, with
