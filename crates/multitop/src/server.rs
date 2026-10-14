@@ -38,15 +38,21 @@ pub type SharedState = Arc<RwLock<LiveState>>;
 #[derive(Clone)]
 pub struct AppState {
     pub live: SharedState,
-    pub token: Option<String>,
+    pub token: String,
     pub servers: Vec<Server>,
     pub config: crate::config::Config,
 }
 
-fn check_auth(headers: &HeaderMap, token: Option<&str>) -> Result<(), StatusCode> {
-    let Some(expected) = token else {
-        return Ok(());
-    };
+/// Authorize a request against the serve token.
+///
+/// The token is NOT an `Option`: this used to return `Ok(())` when it was `None`,
+/// which made "no token configured" mean "no authentication" — a path the binary
+/// never took, so it read as dead code while sitting there as an open door with a
+/// test-shaped handle. `AppState::token` is a `String`, so a state without one
+/// cannot be built and this cannot be reached unauthenticated. A request with no
+/// `Authorization` header is refused; `GET /` does not go through here at all,
+/// which is why the index is still readable without a token.
+fn check_auth(headers: &HeaderMap, token: &str) -> Result<(), StatusCode> {
     let Some(auth) = headers.get("authorization") else {
         return Err(StatusCode::UNAUTHORIZED);
     };
@@ -55,7 +61,9 @@ fn check_auth(headers: &HeaderMap, token: Option<&str>) -> Result<(), StatusCode
     };
     // Accept `Bearer <token>` or raw token for curl convenience.
     let got = val.strip_prefix("Bearer ").unwrap_or(val).trim();
-    if got == expected {
+    // Constant-time: `==` returns on the first differing byte, so a caller who can
+    // time responses recovers the token one byte at a time.
+    if crate::serve_token::matches(token, got) {
         Ok(())
     } else {
         Err(StatusCode::UNAUTHORIZED)
@@ -85,7 +93,7 @@ async fn index() -> Html<&'static str> {
 }
 
 async fn api_hosts(State(state): State<AppState>, headers: HeaderMap) -> impl IntoResponse {
-    if let Err(code) = check_auth(&headers, state.token.as_deref()) {
+    if let Err(code) = check_auth(&headers, &state.token) {
         return (code, Json(serde_json::json!({"error":"unauthorized"}))).into_response();
     }
     let live = state.live.read().await;
@@ -126,7 +134,7 @@ async fn api_hosts(State(state): State<AppState>, headers: HeaderMap) -> impl In
 }
 
 async fn api_health(State(state): State<AppState>, headers: HeaderMap) -> impl IntoResponse {
-    if let Err(code) = check_auth(&headers, state.token.as_deref()) {
+    if let Err(code) = check_auth(&headers, &state.token) {
         return (code, Json(serde_json::json!({"error":"unauthorized"}))).into_response();
     }
     let (total, breaching) = {
@@ -168,7 +176,7 @@ async fn api_snapshot(
     AxPath(host): AxPath<String>,
     headers: HeaderMap,
 ) -> impl IntoResponse {
-    if let Err(code) = check_auth(&headers, state.token.as_deref()) {
+    if let Err(code) = check_auth(&headers, &state.token) {
         return (code, Json(serde_json::json!({"error":"unauthorized"}))).into_response();
     }
     let (resp, err_opt) = {
@@ -222,7 +230,7 @@ async fn api_history(
     AxPath(host): AxPath<String>,
     headers: HeaderMap,
 ) -> impl IntoResponse {
-    if let Err(code) = check_auth(&headers, state.token.as_deref()) {
+    if let Err(code) = check_auth(&headers, &state.token) {
         return (code, Json(serde_json::json!({"error":"unauthorized"}))).into_response();
     }
     let entry = {
@@ -248,7 +256,7 @@ async fn api_history(
 }
 
 async fn api_mtop_raw(State(state): State<AppState>, headers: HeaderMap) -> impl IntoResponse {
-    if let Err(code) = check_auth(&headers, state.token.as_deref()) {
+    if let Err(code) = check_auth(&headers, &state.token) {
         return (code, Json(serde_json::json!({"error":"unauthorized"}))).into_response();
     }
     let snapshots: Vec<_> = {

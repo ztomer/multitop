@@ -36,6 +36,7 @@ pub mod passwords;
 pub mod refit;
 pub mod render_payload;
 pub mod run;
+pub mod serve_token;
 pub mod server;
 pub mod ssh;
 pub mod ssh_opts;

@@ -231,24 +231,26 @@ fn serve_headless(
     servers: Vec<config::Server>,
     initial_theme: Option<String>,
 ) -> ExitCode {
-    let token = token.or_else(|| {
-        // Auto-generate a token if not supplied, but only when binding to loopback
-        // or when explicitly requested. For now, generate if not supplied and print it.
-        use std::collections::hash_map::DefaultHasher;
-        use std::hash::{Hash, Hasher};
-        let mut hasher = DefaultHasher::new();
-        format!(
-            "{}-{}",
-            std::process::id(),
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap_or_default()
-                .as_nanos()
-        )
-        .hash(&mut hasher);
-        let t = format!("{:016x}", hasher.finish());
-        Some(t)
-    });
+    // A plain String from here on: `Option` said "no token", which downstream read
+    // as "no authentication". The (no token) branch below was already unreachable and
+    // `unwrap_or_default()` would have turned it into an EMPTY token, which authenticates
+    // nothing while looking configured.
+    //
+    // A CSPRNG failure REFUSES to serve rather than falling back to something weaker,
+    // and says so: a `--serve` on a LAN with a guessable token is worse than no server.
+    let token = match token {
+        Some(t) => t,
+        None => match multitop::serve_token::generate() {
+            Ok(t) => t,
+            Err(e) => {
+                eprintln!(
+                    "[Error] could not read the OS CSPRNG ({e}) -- refusing to start --serve"
+                );
+                eprintln!("        pass --serve-token explicitly if you can supply one yourself");
+                return ExitCode::FAILURE;
+            }
+        },
+    };
     // Need to load full config for health thresholds
     let cfg = config::load(config_path).unwrap_or_else(|_| config::Config {
         servers: servers.clone(),
@@ -269,12 +271,8 @@ fn serve_headless(
             return ExitCode::FAILURE;
         }
     };
-    if let Some(ref t) = token {
-        eprintln!("multitop --serve on http://{addr} token={t}");
-        eprintln!("  curl -H \"Authorization: Bearer {t}\" http://{addr}/api/hosts");
-    } else {
-        eprintln!("multitop --serve on http://{addr} (no token)");
-    }
+    eprintln!("multitop --serve on http://{addr} token={token}");
+    eprintln!("  curl -H \"Authorization: Bearer {token}\" http://{addr}/api/hosts");
     let runtime = match tokio::runtime::Builder::new_multi_thread()
         .enable_all()
         .build()

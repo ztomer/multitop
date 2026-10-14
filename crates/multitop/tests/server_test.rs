@@ -40,7 +40,7 @@ fn mock_snapshot(host: &str) -> Snapshot {
     }
 }
 
-fn test_state(token: Option<String>) -> (AppState, multitop::server::SharedState) {
+fn test_state(token: &str) -> (AppState, multitop::server::SharedState) {
     let mut live = LiveState::default();
     let snap = mock_snapshot("test-host");
     let mut hist = History::default();
@@ -73,7 +73,7 @@ fn test_state(token: Option<String>) -> (AppState, multitop::server::SharedState
 
     let app_state = AppState {
         live: shared.clone(),
-        token,
+        token: token.to_string(),
         servers: cfg.servers.clone(),
         config: cfg,
     };
@@ -106,7 +106,7 @@ fn test_state(token: Option<String>) -> (AppState, multitop::server::SharedState
 /// proves the spelling and not the behaviour.
 #[tokio::test]
 async fn the_tower_this_crate_declares_drives_the_router_axum_builds() {
-    let (state, _) = test_state(Some("secret123".to_string()));
+    let (state, _) = test_state("secret123");
     let req = Request::builder().uri("/").body(Body::empty()).unwrap();
     let resp = router(state).oneshot(req).await.unwrap();
     assert_eq!(resp.status(), StatusCode::OK);
@@ -114,7 +114,7 @@ async fn the_tower_this_crate_declares_drives_the_router_axum_builds() {
 
 #[tokio::test]
 async fn test_index_page() {
-    let (state, _) = test_state(Some("secret123".to_string()));
+    let (state, _) = test_state("secret123");
     let app = router(state);
 
     let req = Request::builder().uri("/").body(Body::empty()).unwrap();
@@ -127,7 +127,7 @@ async fn test_index_page() {
 
 #[tokio::test]
 async fn test_auth_rejection() {
-    let (state, _) = test_state(Some("valid-tok".to_string()));
+    let (state, _) = test_state("valid-tok");
     let app = router(state);
 
     let req = Request::builder()
@@ -141,7 +141,7 @@ async fn test_auth_rejection() {
 
 #[tokio::test]
 async fn test_api_hosts_and_health() {
-    let (state, _) = test_state(Some("my-token".to_string()));
+    let (state, _) = test_state("my-token");
     let app = router(state.clone());
 
     let req = Request::builder()
@@ -173,10 +173,16 @@ async fn test_api_hosts_and_health() {
 
 #[tokio::test]
 async fn test_api_snapshot_and_history() {
-    let (state, _) = test_state(None);
+    // A TOKEN, and a header on every request below. This test passed `None` and sent
+    // no `Authorization`, which only worked while `check_auth` returned `Ok(())` on a
+    // missing token -- i.e. it was reading "unauthenticated is fine" as a property of
+    // the API. Its actual subject is the 200/503/404 the snapshot endpoint returns per
+    // host, and that needs a request that gets past auth to be about anything.
+    let (state, _) = test_state("snap-tok");
     let app = router(state.clone());
 
     let req = Request::builder()
+        .header("authorization", "Bearer snap-tok")
         .uri("/api/snapshot/test-host")
         .body(Body::empty())
         .unwrap();
@@ -185,6 +191,7 @@ async fn test_api_snapshot_and_history() {
 
     let app_err = router(state.clone());
     let req_err = Request::builder()
+        .header("authorization", "Bearer snap-tok")
         .uri("/api/snapshot/err-host")
         .body(Body::empty())
         .unwrap();
@@ -193,6 +200,7 @@ async fn test_api_snapshot_and_history() {
 
     let app_missing = router(state.clone());
     let req_missing = Request::builder()
+        .header("authorization", "Bearer snap-tok")
         .uri("/api/snapshot/missing-host")
         .body(Body::empty())
         .unwrap();
@@ -201,6 +209,7 @@ async fn test_api_snapshot_and_history() {
 
     let app_hist = router(state.clone());
     let req_hist = Request::builder()
+        .header("authorization", "Bearer snap-tok")
         .uri("/api/history/test-host")
         .body(Body::empty())
         .unwrap();
@@ -209,6 +218,7 @@ async fn test_api_snapshot_and_history() {
 
     let app_mtop = router(state);
     let req_mtop = Request::builder()
+        .header("authorization", "Bearer snap-tok")
         .uri("/api/mtop")
         .body(Body::empty())
         .unwrap();

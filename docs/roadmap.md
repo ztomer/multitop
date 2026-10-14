@@ -119,41 +119,30 @@ divides by a pinned control for this reason) or gate on a ratio. Proof: the
 step stays green under a 2x synthetic load and goes red on a deliberate 2x
 slowdown in the renderer. Size S.
 
-### P0.1 — the `--serve` token is guessable
+### ~~P0.1 — the `--serve` token is guessable~~ CLOSED
+The token was a `DefaultHasher` over `"<pid>-<unix nanos>"` — SipHash with FIXED keys, so
+a deterministic function of two values an attacker bounds, and 64 bits. Its own comment
+claimed a rule it did not implement ("only when binding to loopback ... For now, generate
+if not supplied"). Three defects, fixed together in one place:
 
-Measured 2026-10-12, not inferred. `serve_headless`
-(`crates/multitop/src/main.rs`) always fills a missing `--serve-token`, but
-with `DefaultHasher::new()` over `"<pid>-<unix nanos>"`: `DefaultHasher::new()`
-is SipHash with FIXED keys, so the token is a deterministic function of two
-values an attacker can bound (pid is small, start time is roughly known), and
-it is 64 bits at most. On the default loopback bind this is moot; on the LAN
-bind the phone needs (`--serve 0.0.0.0:8080`) it is the only thing between the
-network and every host's metrics. Its own comment ("only when binding to
-loopback ... For now, generate if not supplied") states a rule the code does not
-implement.
+- **`crates/multitop/src/serve_token.rs` owns both halves now.** `generate()` is 256 bits
+  from the OS CSPRNG (`getrandom`, promoted from a transitive dep to a declared one);
+  `matches()` compares in constant time (`subtle`). Never derived from time or pid.
+- **`AppState::token` is a `String`, not an `Option`.** `check_auth` returned `Ok(())` on
+  `None`, so "no token configured" silently meant "no authentication" — a path the binary
+  never took, which is exactly why it read as dead code while being an open door with a
+  test-shaped handle. `GET /` still needs no token (static HTML, no data); everything else
+  does. The CLI path collapses `Option` to `String` at the point of generation, which also
+  deleted a `(no token)` branch that was already unreachable.
+- **Three tests were reading the trap as a feature.** `test_api_snapshot_and_history` passed
+  `None` and sent no `Authorization`, as did two in `server_tests.rs`; they were asserting
+  200/503/404 through a router that authenticated nobody. They authenticate now, and their
+  subjects are handlers and decoders again.
 
-Three defects in one place, fix together:
-
-* **Token source.** At least 128 bits from the OS CSPRNG (`getrandom`, already
-  in `Cargo.lock` transitively; make it a direct dependency). Never derived from
-  time or pid.
-* **Unauthenticated state unrepresentable.** `AppState.token` is
-  `Option<String>` and `check_auth` returns `Ok(())` on `None`; the binary never
-  reaches that path, so it exists only for tests and as a trap for the next
-  caller. Make the token non-optional in `AppState` (a seam, house rule: the
-  right state is the default); `index_ok_without_token` keeps its meaning
-  because `/` serves static HTML with no data.
-* **Constant-time compare.** `got == expected` in `check_auth`
-  (`crates/multitop/src/server.rs`) is not. One crate (`subtle`) or a
-  length-checked fold; not worth a hand-rolled oracle analysis.
-
-Proof: a unit test that a generated token is at least 32 hex characters (today's
-is 16, so it is red now) and comes through an RNG seam whose fake can be
-injected, so the test proves the source, not just the length; a test that
-`AppState` cannot be built without a token (compile-level, via the type);
-`server_tests.rs` keeps `hosts_requires_token_when_set` green. Calibrate: revert
-the generator once, watch the test go red. Risk: a CHANGELOG line must say the
-old tokens were weak, so a user who scripted `--serve` on a LAN rotates.
+Calibration found a hole in the new test worth recording: an empty presented token is spelled
+`"Bearer "` or `""`, **not** a bare `"Bearer"` — that one does not strip, so `got` stays the
+literal `"Bearer"` and a mutation accepting an empty credential is never reached. The arm
+sends both.
 
 ### P0.2 — docs that describe a different server
 

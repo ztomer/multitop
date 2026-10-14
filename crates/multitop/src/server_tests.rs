@@ -3,10 +3,10 @@ use axum::body::Body;
 use axum::http::Request;
 use tower::ServiceExt;
 
-fn test_state(token: Option<String>) -> AppState {
+fn test_state(token: &str) -> AppState {
     AppState {
         live: Arc::new(RwLock::new(LiveState::default())),
-        token,
+        token: token.to_string(),
         servers: vec![Server {
             host: "test-host".into(),
             port: 22,
@@ -32,7 +32,7 @@ fn test_state(token: Option<String>) -> AppState {
 
 #[tokio::test]
 async fn index_ok_without_token() {
-    let app = router(test_state(None));
+    let app = router(test_state(""));
     let req = Request::builder().uri("/").body(Body::empty()).unwrap();
     let resp = app.oneshot(req).await.unwrap();
     assert_eq!(resp.status(), StatusCode::OK);
@@ -40,7 +40,7 @@ async fn index_ok_without_token() {
 
 #[tokio::test]
 async fn hosts_requires_token_when_set() {
-    let app = router(test_state(Some("secret123".into())));
+    let app = router(test_state("secret123"));
     let req = Request::builder()
         .uri("/api/hosts")
         .body(Body::empty())
@@ -52,16 +52,26 @@ async fn hosts_requires_token_when_set() {
         .header("authorization", "Bearer secret123")
         .body(Body::empty())
         .unwrap();
-    let app2 = router(test_state(Some("secret123".into())));
+    let app2 = router(test_state("secret123"));
     let resp2 = app2.oneshot(req).await.unwrap();
     assert_eq!(resp2.status(), StatusCode::OK);
 }
 
 /// GET `uri` and return the status with the body as JSON (`Null` when the body
 /// is not JSON -- which is what an unmatched route answers).
+/// The token these tests authenticate with. One constant rather than a literal per
+/// test: `test_state(None)` used to mean "no auth needed", which only worked while
+/// `check_auth` returned `Ok(())` on a missing token. These tests are about handlers
+/// and decoders, so they authenticate.
+const TOKEN: &str = "test-token";
+
 async fn get_json(uri: &str) -> (StatusCode, serde_json::Value) {
-    let app = router(test_state(None));
-    let req = Request::builder().uri(uri).body(Body::empty()).unwrap();
+    let app = router(test_state(TOKEN));
+    let req = Request::builder()
+        .uri(uri)
+        .header("authorization", format!("Bearer {TOKEN}"))
+        .body(Body::empty())
+        .unwrap();
     let resp = app.oneshot(req).await.unwrap();
     let status = resp.status();
     let body = axum::body::to_bytes(resp.into_body(), 1024 * 1024)
@@ -95,7 +105,7 @@ async fn parameterised_routes_reach_their_handlers() {
 
 #[tokio::test]
 async fn mtop_raw_uses_decoder() {
-    let state = test_state(None);
+    let state = test_state(TOKEN);
     // Pre-populate a snapshot to prove MTOP encode/decode path
     {
         let mut w = state.live.write().await;
@@ -120,6 +130,7 @@ async fn mtop_raw_uses_decoder() {
     let app = router(state);
     let req = Request::builder()
         .uri("/api/mtop")
+        .header("authorization", format!("Bearer {TOKEN}"))
         .body(Body::empty())
         .unwrap();
     let resp = app.oneshot(req).await.unwrap();
@@ -140,7 +151,7 @@ fn hello_token_is_checked() {
         .build()
         .unwrap();
     rt.block_on(async {
-        let state = test_state(Some("tok".into()));
+        let state = test_state("tok");
         let app = router(state);
         let req = Request::builder()
             .uri("/api/health")
@@ -150,4 +161,50 @@ fn hello_token_is_checked() {
         let resp = app.oneshot(req).await.unwrap();
         assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
     });
+}
+
+// ── P0.1: the `--serve` token ────────────────────────────────────────────────────
+//
+// The token is the only thing between the network and every host's metrics on the
+// LAN bind the phone needs (`--serve 0.0.0.0:8080`). Three defects lived in one
+// place and are pinned here together.
+
+#[tokio::test]
+async fn an_empty_token_still_refuses_an_unauthenticated_request() {
+    // RED before the fix, and this is the trap it closes. `AppState::token` was
+    // `Option<String>` and `check_auth` returned `Ok(())` on `None`, so "no token
+    // configured" silently meant "no authentication". The binary never took that path,
+    // so it read as dead code -- an open door with a test-shaped handle.
+    //
+    // The type now makes it unrepresentable, so what is left to pin is the VALUE
+    // case: an empty token authenticates nothing. Without this arm, `AppState::token`
+    // could become a `String` that an empty `Default::default()` fills, and every
+    // request would fail against "" — or, worse, be handed "" as the printed token.
+    let app = router(test_state(""));
+    let req = Request::builder()
+        .uri("/api/hosts")
+        .body(Body::empty())
+        .unwrap();
+    let resp = app.oneshot(req).await.unwrap();
+    assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
+
+    // And an EMPTY PRESENTED token is refused against a real one. Two spellings, and
+    // the second is here because calibration caught its absence: a bare `Bearer` with
+    // no trailing space does not strip, so `got` stays the literal `"Bearer"` and a
+    // mutation that accepts an empty credential is not reached at all. A test that only
+    // sends `Bearer` passes against code that would let `""` through.
+    for header in ["Bearer ", ""] {
+        let app = router(test_state("secret123"));
+        let req = Request::builder()
+            .uri("/api/hosts")
+            .header("authorization", header)
+            .body(Body::empty())
+            .unwrap();
+        let resp = app.oneshot(req).await.unwrap();
+        assert_eq!(
+            resp.status(),
+            StatusCode::UNAUTHORIZED,
+            "authorization {header:?} was accepted"
+        );
+    }
 }
