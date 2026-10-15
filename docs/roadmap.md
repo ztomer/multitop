@@ -4,12 +4,14 @@ The one forward-looking backlog. Shipped work is not listed here — it is in gi
 history (`git log --oneline`) and in `docs/detection-record.md`. When an item
 here is finished, delete it rather than ticking it off.
 
-State on 2026-10-14: `main` at `7a316b3`, **one commit ahead of `origin/main` and
-unpushed** — P0.1 is committed and green locally but has never left the machine;
-`fuzz/Cargo.lock` is modified in the tree because adding `getrandom` and `subtle`
-as direct deps changed it, and the commit that carries it has not been made. The
-exact recovery is under *P0.1* below; read it before touching the tree. Everything
-else in Phase 0 is landed and released (v0.55.0, `2a5121c`).
+State on 2026-10-14: `main` in sync with `origin/main`. **Phase 0 is closed** —
+P0.1 landed and pushed (`7a316b3`, with its lock follow-on `f096334`), P0.2 fixed
+the README row that described a retired server, and P0.3-P0.7 were already in.
+The last push ran the full gate 12/12 green, two steps proven earlier on the tree.
+
+Phase 1 (gate drift) is the open work: G1 what a COMMIT must block versus a PUSH,
+G2 a duplicate test run, G3 the tap bump going around the tap's own gate.
+Phase 2 is the Android companion, which must not start before A1.
 CI was last green on `f5be29f` (2026-10-12). The goh 0.27.0 hooks could not be
 committed as installed: goh refuses the older stock pre-commit, and this repo's
 `tools/check_gate_parity.py` refused the new one (it read the hook's text for
@@ -111,18 +113,6 @@ Two gotchas on that push, both paid for already:
 * Run `bash tools/gate.sh --full` on the working tree first, so step 11 is recorded as proven.
   Skipped, the gate does a cold release build inside its snapshot and blows the 900 s timeout —
   which reads as a hang, not as a missing step.
-
-### P0.2 — docs that describe a different server
-
-* `README.md`'s documentation table describes this file as "light-terminal
-  palettes, the Android companion, post-quantum KEM"; light-terminal palettes
-  shipped in v0.50.0 and were dropped from here. Change the row.
-* The previous roadmap listed an `/api/mtp` route and said a bare `--serve` has
-  no auth. Neither is true (`router()` has five `/api/*` routes, no `mtp`; the
-  binary always sets a token). Corrected below in this rewrite.
-
-Proof: `grep -n "light-terminal" README.md` returns nothing;
-`tools/check_doc_paths.py` stays green.
 
 ## Phase 1 — gate drift (advisory today, size S)
 

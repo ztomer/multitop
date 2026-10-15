@@ -326,7 +326,7 @@ The test suite covers panel rendering across multiple terminal dimensions, windo
 |----------|----------------|
 | [DEVELOPMENT.md](DEVELOPMENT.md) | Build, the gate of record, the checker inventory, and the hand-over invariants (`Hello`, agent embedding, signing) |
 | [RELEASE.md](RELEASE.md) | Cutting a release, and why there is exactly one release script |
-| [docs/roadmap.md](docs/roadmap.md) | The forward-looking backlog: light-terminal palettes, the Android companion, post-quantum KEM |
+| [docs/roadmap.md](docs/roadmap.md) | The forward-looking backlog: the `--serve` HTTP API and the Android companion that reads it, and the parked post-quantum KEM |
 | [docs/detection-record.md](docs/detection-record.md) | Per-defect record since v0.47.0 — what was wrong, why, and what now stops it recurring |
 
 ## Design notes
