@@ -1335,6 +1335,7 @@ version = "0.55.0"
 dependencies = [
  "axum",
  "crossterm",
+ "getrandom",
  "http-body-util",
  "keyring",
  "libc",
@@ -1346,6 +1347,7 @@ dependencies = [
  "serde",
  "serde_json",
  "signal-hook",
+ "subtle",
  "tokio",
  "tokio-stream",
  "toml",
