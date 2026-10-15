@@ -4,12 +4,12 @@ The one forward-looking backlog. Shipped work is not listed here — it is in gi
 history (`git log --oneline`) and in `docs/detection-record.md`. When an item
 here is finished, delete it rather than ticking it off.
 
-State on 2026-10-14: `main` at `3a43ffe`, five commits ahead of `origin/main`
-and unpushed -- Phase 0's P0.3-P0.7 are landed and the full gate is green on 11
-of 12 steps; `tools/lint_linux.sh` is red ONLY because no container runtime is
-answering on this machine (`colima start`), which fails closed and names the
-command. P0.4's stdin sweep, P0.6's scanner floors and P0.7's instruction-count
-bench are all in.
+State on 2026-10-14: `main` at `7a316b3`, **one commit ahead of `origin/main` and
+unpushed** — P0.1 is committed and green locally but has never left the machine;
+`fuzz/Cargo.lock` is modified in the tree because adding `getrandom` and `subtle`
+as direct deps changed it, and the commit that carries it has not been made. The
+exact recovery is under *P0.1* below; read it before touching the tree. Everything
+else in Phase 0 is landed and released (v0.55.0, `2a5121c`).
 CI was last green on `f5be29f` (2026-10-12). The goh 0.27.0 hooks could not be
 committed as installed: goh refuses the older stock pre-commit, and this repo's
 `tools/check_gate_parity.py` refused the new one (it read the hook's text for
@@ -67,59 +67,7 @@ percent for wall time. Budgets are ~1.7x the measurement; a deliberate 2x
 slowdown inside `render` is over both, and was caught by exactly that while the
 gate was being finished.
 
-Structural step `no bare python in a hook or gate` (goh 6.2, `1c4be61`) is
-red: `tools/gate.sh:21` and `:27` (`python3 tools/gate_lock.py acquire`, both
-arms). It is the first structural red, so it hides every step after it. Fix:
-`bash "$GOH/gates/python.sh" tools/gate_lock.py ...`, including the two
-`trap` lines' release calls. Proof: the step is green; size XS.
-
-### P0.4 — 39 child processes inherit stdin undeclared
-
-Structural step `every child process names its stdin` (goh 3.4, `0c93f4d`) is
-red: 39 calls (40 before `2492bdd` declared the one it touched), 22 in
-`tools/`, 16 in `tests/`, 1 in `scripts/` -- e.g. `tools/ratchet_check.py:100`,
-`tools/installed_freshness.py:174`, `tests/test_comprehensive_e2e.py:225`,
-`scripts/repack_logos.py:74`. A tmux or exec e2e child that must read the
-caller's terminal says `stdin=None`; the rest `stdin=subprocess.DEVNULL`.
-Proof: the step is green with no seed (or a seed whose every entry carries a
-reason); size S.
-
-### P0.5 — the Linux lint step needs a container runtime nobody started
-
-`tools/lint_linux.sh` (step 12) is red: `no container runtime answering
-(colima start)` -- `colima` was not running. It fails closed and names the
-fix, which is right; the gap is that pre-push depends on a machine service
-the gate does not own. Proof: `colima start`, the step green; then decide
-whether the step should start the runtime itself (it already names the
-command) or stay a stated prerequisite in `DEVELOPMENT.md`. Size XS.
-
-### P0.6 — scanner floors are unset
-
-Structural's last step, `every scanner read its declared subject` (goh 4.3,
-`831d686`), printed on 2026-10-14: `GOH_EMOJI_MIN_FILES=434
-GOH_CONFLICT_MARKERS_MIN_FILES=435 GOH_FILE_LENGTH_MIN_FILES=385
-GOH_SECRETS_MIN_FILES=434 GOH_SHELL_LINT_MIN_FILES=10
-GOH_EARLY_EXIT_PIPE_MIN_FILES=17 GOH_DEAD_AFTER_EXEC_MIN_FILES=17
-GOH_BARE_HOOK_INDEX_MIN_FILES=17 GOH_BARE_PYTHON_MIN_FILES=6
-GOH_CHECKOUT_CREDENTIALS_MIN_FILES=2 GOH_MD_LINKS_MIN_LINKS=11
-GOH_UNREAPED_SPAWN_MIN_FILES=249`. Paste each at or a little under its re-read
-count, plus `GOH_SUBPROCESS_STDIN_MIN_CALLS` after P0.4. Proof: the
-`[subject]` line is gone, and one floor raised one past its count turns the
-step red naming the key (then put back). Size XS.
-
-### P0.7 — the latency bench reads the machine's load, not the code
-
-The pre-push run on `b60f25d` (2026-10-14, load ~35-65) failed step 9,
-`tools/bench_check.py`, on all 3 tries: frame render 54976 ns against a
-50000 ns limit; run alone 15 minutes earlier it read 33919 ns. Pre-push was
-red on steps 1, 9 and 12. A threshold on wall-clock latency is a gate on
-whoever else is running, and on this machine somebody always is. Calibrate
-against a control measured in the same run (goh 5.3's `gate_profile.sh`
-divides by a pinned control for this reason) or gate on a ratio. Proof: the
-step stays green under a 2x synthetic load and goes red on a deliberate 2x
-slowdown in the renderer. Size S.
-
-### ~~P0.1 — the `--serve` token is guessable~~ CLOSED
+### P0.1 — the `--serve` token is guessable — CLOSED locally at `7a316b3`, NOT PUSHED
 The token was a `DefaultHasher` over `"<pid>-<unix nanos>"` — SipHash with FIXED keys, so
 a deterministic function of two values an attacker bounds, and 64 bits. Its own comment
 claimed a rule it did not implement ("only when binding to loopback ... For now, generate
@@ -143,6 +91,26 @@ Calibration found a hole in the new test worth recording: an empty presented tok
 `"Bearer "` or `""`, **not** a bare `"Bearer"` — that one does not strip, so `got` stays the
 literal `"Bearer"` and a mutation accepting an empty credential is never reached. The arm
 sends both.
+
+**Getting `7a316b3` off this machine.** The commit is green but unpushed; `fuzz/Cargo.lock` is
+modified in the tree because promoting `getrandom` and `subtle` to direct deps changed it.
+Exactly this, and nothing else:
+
+```bash
+cd ~/Projects/monitor
+cargo check --manifest-path fuzz/Cargo.toml --all-targets
+git add fuzz/Cargo.lock
+git commit -m "lock: fuzz manifest follows the new getrandom/subtle deps"
+git push origin main
+```
+
+Two gotchas on that push, both paid for already:
+
+* Run `./install.sh` **first**, or `installed_freshness` goes red on the binary the commit
+  changed and the push is refused for the wrong reason.
+* Run `bash tools/gate.sh --full` on the working tree first, so step 11 is recorded as proven.
+  Skipped, the gate does a cold release build inside its snapshot and blows the 900 s timeout —
+  which reads as a hang, not as a missing step.
 
 ### P0.2 — docs that describe a different server
 
