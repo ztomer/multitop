@@ -35,6 +35,10 @@ GOH_FILE_LENGTH_MIN_FILES=385
 GOH_SECRETS_MIN_FILES=434
 GOH_SHELL_LINT_MIN_FILES=10
 GOH_EARLY_EXIT_PIPE_MIN_FILES=17
+# Every early-exit-pipe finding FAILS here rather than being judged against a
+# shrink-only seed (servers O45). It reads 0 findings; the key is what stops a
+# future seed from becoming the ceiling.
+GOH_NO_EARLY_EXIT_PIPE=1
 GOH_DEAD_AFTER_EXEC_MIN_FILES=17
 GOH_BARE_HOOK_INDEX_MIN_FILES=17
 GOH_BARE_PYTHON_MIN_FILES=6
