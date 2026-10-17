@@ -123,13 +123,21 @@ Goal: the gate costs what it must and runs nothing twice. Depends on Phase 0.
    `cargo test --workspace --all-features` while coverage already runs every
    test target. (The same bullet's retired `GOH_NO_NATIVE` is already gone,
    since `cc2906a`.) Proof: one test run per gate, a failing test still red.
-2. **G3 — the tap bump goes around the tap's gate.** goh 6.8 (`bfac28b`):
-   `release.sh` PUTs `Formula/multitop.rb` through the GitHub API, so the
-   tap's gate never runs on it. The house `tap_bump.sh` rewrites ONE url and
-   sha256; this formula carries three (the source tarball and two agent
-   binaries, `tools/bump_formula.py`). Blocked on goh: `tap_bump.sh` taking
-   several resources (cross-repo ask), then `release.sh` calls it. Proof: a
-   release dry run shows the tap gate step.
+2. **G3 — the tap bump goes around the tap's gate — FIXED 2026-10-17.**
+   `release.sh` PUT `Formula/multitop.rb` through the GitHub contents API, so
+   the tap's gate never ran on the bump. The premise "blocked on goh" had gone
+   stale: goh's `tap_bump.sh` already takes `--resource NAME=PATH|URL` (its
+   6.15 rewrite, 2026-10-14). The bump is now one call to it —
+   `--formula multitop --artifact <tarball> --resource multitop-agent-x86_64=
+   <agent> --resource multitop-agent-aarch64=<agent>` — the version, every url
+   and every sha256 move together (tap_rewrite.py reads the file as the DSL it
+   is), the tap's `tools/gate.sh --full` runs in its clone, and the commit is
+   pushed pinned; a red gate pushes nothing. `tools/bump_formula.py` and its
+   test are deleted: two mechanisms for one bump is how v0.49.0 shipped stale
+   agent urls. Proof: `release.sh --dry-run` names the tap gate step a real
+   run would execute (`tests/test_release_tap_bump.py`, watched red first:
+   bare PUT block, no --dry-run, the transform still present, resources not
+   named); calibrated by reverting release.sh (4 red).
 
 ## Phase 2 — Android companion (size L, three to five sessions)
 

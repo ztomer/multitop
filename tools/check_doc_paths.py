@@ -72,6 +72,9 @@ ALLOW = {
                                        "reached via $GOH_DIR -- never in this "
                                        "one, so no deletion history can help",
     "gates_of_heck/tui/lib.sh": "ditto -- the shared TUI library",
+    "gates_of_heck/tools/release-kit/tap_bump.sh": "lives in the gates_of_heck "
+         "repo, reached via $GOH_DIR (G3, 2026-10-17: the release bump goes "
+         "through the tap's gate)",
 }
 
 #: `crates/agent/src/proto/mod.rs:31` -- the line number is not part of the path.

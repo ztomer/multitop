@@ -67,9 +67,16 @@ per job, and the fix is to delete the copy rather than to keep both in step.
    or users upgrading via Homebrew silently miss everything in between.
 6. **Creates the GitHub release** — via `gh`, with both agent binaries attached
    as assets
-7. **Updates the Homebrew formula** — via the `gh` contents API (no clone, so
-   there is no second git credential in play), through `tools/bump_formula.py`:
-   source tarball url + digest **and** both agent resource urls + digests
+7. **Updates the Homebrew formula THROUGH THE TAP'S OWN GATE (G3, 2026-10-17)** —
+   one call to goh's `gates_of_heck/tools/release-kit/tap_bump.sh` (reached via
+   `$GOH_DIR`): the version, the tarball
+   url + digest, AND both agent resource urls + digests move together, each
+   digest being its own artifact's (`--resource NAME=PATH`), the tap's
+   `tools/gate.sh --full` runs in the clone, and the commit is pushed pinned.
+   A red tap gate pushes nothing. `tools/bump_formula.py` is gone: two
+   mechanisms for one bump is how v0.49.0 shipped stale agent urls
+   (`docs/detection-record.md`). `--dry-run` names every step and pushes
+   nothing.
 8. **Proves the formula** — `brew update` then `brew fetch`, and fails if
    Homebrew will not resolve it
 
