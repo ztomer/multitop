@@ -244,26 +244,12 @@ if ! cargo clippy --workspace --all-targets --all-features -- -D warnings >"$log
 fi
 ok "clippy clean"
 
-# Through the script, not a second copy of the command. This hook used to run
-# its own `--fail-under-lines 55` under a label that said 95, against one crate
-# and without the documented exclusions -- a local gate weaker than CI is a gate
-# that lets you push red.
-info "running the end-to-end suites (tests/test_exec_live.py, tests/test_tmux_e2e.py)"
-# These drive the built binary, so the gate builds it. An e2e suite run against
-# a stale binary tests code nobody wrote -- the harness refuses to, and would
-# fail here rather than quietly passing.
-#
-# Both skip with a stated reason when what they need is absent: the live suite
-# without reachable hosts, the tmux suite without tmux. Neither passes silently.
-if ! cargo build -p multitop >"$log" 2>&1; then
-    show_failure 20
-    die "cannot build multitop, so the end-to-end suites cannot run"
-fi
-if ! python3 -m pytest tests/ -q >"$log" 2>&1; then
-    show_failure 40
-    die "an end-to-end suite failed"
-fi
-ok "end-to-end suites"
+# The end-to-end suites (tests/) and coverage (bash tools/coverage_check.sh) are
+# PUSH scope, not commit scope: they are slow (minutes) and the pre-push hook
+# runs them on the pushed commit in a clean worktree. Keeping them out of the
+# commit gate is what makes a commit land in under a minute. They still run in
+# CI and in .gatesrc (GOH_CI_STEPS), so nothing is lost -- just deferred to
+# push time. (G1.)
 
 info "checking the line-count ratchet"
 # Was local-ci-only, under a comment saying it is "a shape rule rather than a
@@ -292,14 +278,5 @@ if ! cargo check --manifest-path fuzz/Cargo.toml --all-targets >"$log" 2>&1; the
     die "a fuzz target no longer compiles against the code it fuzzes"
 fi
 ok "fuzz targets compile"
-
-info "checking coverage (workspace, 95% floor)"
-# Through the proven-step cache (proven_step, above): a pass here is what lets
-# the pre-push run skip the identical ~10 min suite over the same tree.
-if ! proven_step 'bash tools/coverage_check.sh'; then
-    show_failure 20
-    die "the coverage gate failed -- its verdict is above (a failing test, a lost export, or lines under 95%)"
-fi
-ok "coverage >= 95%"
 
 printf '\n'

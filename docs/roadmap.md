@@ -118,20 +118,12 @@ Two gotchas on that push, both paid for already:
 
 Goal: the gate costs what it must and runs nothing twice. Depends on Phase 0.
 
-1. **G1 — every commit runs the push gate's slow half.** The pre-commit hook
-   (`tools/gate.sh --staged` -> `tools/commit_gates.sh`) runs clippy, the
-   end-to-end suites, the fuzz build and workspace coverage: the hooks commit
-   `8a5a105` took 4 min 42 s, `2492bdd` over 10 min, at load ~140. A commit
-   gate that slow is one people learn to batch around. Decide what must block
-   a COMMIT (fast, staged-scope) versus a PUSH, and measure both at a stated
-   load. Proof: `tools/check_gate_parity.py` still green, and the staged gate
-   under a minute on a quiet box.
-2. **G2 — a plain `cargo test --workspace` beside the gate's.** goh Downstream
+1. **G2 — a plain `cargo test --workspace` beside the gate's.** goh Downstream
    (monitor): `.gatesrc` step 5 and `.github/workflows/ci.yml:132` run
    `cargo test --workspace --all-features` while coverage already runs every
    test target. (The same bullet's retired `GOH_NO_NATIVE` is already gone,
    since `cc2906a`.) Proof: one test run per gate, a failing test still red.
-3. **G3 — the tap bump goes around the tap's gate.** goh 6.8 (`bfac28b`):
+2. **G3 — the tap bump goes around the tap's gate.** goh 6.8 (`bfac28b`):
    `release.sh` PUTs `Formula/multitop.rb` through the GitHub API, so the
    tap's gate never runs on it. The house `tap_bump.sh` rewrites ONE url and
    sha256; this formula carries three (the source tarball and two agent

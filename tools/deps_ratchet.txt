@@ -8,3 +8,5 @@
 # Minor/patch drift is reported, never listed here: a lockfile refresh is
 # routine and moves in its own commit.
 signal-hook  # 0.3 -> 0.4 waits for crossterm: its newest release (0.29.0) still depends on 0.3, and moving ours first puts two majors in the graph
+
+zbus  # 5 -> 6 major; transitive via zbus_names/zvariant, defer pending upstream migration

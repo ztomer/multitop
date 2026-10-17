@@ -260,10 +260,13 @@ def suite_problems() -> list[str]:
     """
     if not suites_on_disk():
         return []
+    # The commit gate no longer runs the python suites: they are PUSH scope
+    # (slow, minutes) and the pre-push hook runs them on the pushed commit.
+    # Parity is therefore required only where the suites still run -- CI and
+    # the push (GOH_CI_STEPS). (G1.)
     missing = [
         name
         for name, path in (
-            (COMMIT, COMMIT_GATES),
             ("CI workflow", WORKFLOW),
             (".gatesrc GOH_CI_STEPS", None),
         )
