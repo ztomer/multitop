@@ -45,17 +45,13 @@ async fn monitor_packets_use_the_panel_gen_after_a_view_switch() {
     // it is milliseconds against an upgrade that takes minutes -- but it moved
     // this test across the line it was already sitting on.
     let account = "admin@127.0.0.1:42025";
-    let recorded = tokio::time::timeout(Duration::from_secs(20), async {
-        while !state_says_finished(&h.cfg, account) {
-            tokio::time::sleep(Duration::from_millis(20)).await;
-        }
-    })
+    settle(
+        || state_says_finished(&h.cfg, account),
+        "the upgrade recording a finished_at on disk (it did not run, or the loop \
+         is not applying AuxDone)",
+        || state_dump(&h.cfg),
+    )
     .await;
-    assert!(
-        recorded.is_ok(),
-        "the upgrade never recorded a finished_at on disk -- it did not run, or \
-         the loop is not applying AuxDone"
-    );
 
     // Switch back to the monitor view: this increments gen again. If the
     // monitor task were respawned with a stale gen its packets would be
@@ -64,7 +60,7 @@ async fn monitor_packets_use_the_panel_gen_after_a_view_switch() {
     tx.send(Ok(key(KeyCode::Char('s')))).await.expect("key");
     tx.send(Ok(key(KeyCode::Char('q')))).await.expect("key");
 
-    let outcome = tokio::time::timeout(Duration::from_secs(15), h.finish())
+    let outcome = tokio::time::timeout(SETTLE_CEILING, h.finish())
         .await
         .expect("loop wedged after view switch -- monitor gen likely stale")
         .expect("loop task panicked");

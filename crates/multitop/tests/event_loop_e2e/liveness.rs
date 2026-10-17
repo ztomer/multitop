@@ -66,32 +66,22 @@ async fn the_loop_still_quits_after_the_upgrade_completes() {
     // streamer takes ~3s, so a wedged loop would have all the time in the
     // world to fail this deadline.
     let account = "admin@127.0.0.1:42022";
-    let recorded = tokio::time::timeout(Duration::from_secs(10), async {
-        while !state_says_finished(&h.cfg, account) {
-            tokio::time::sleep(Duration::from_millis(20)).await;
-        }
-    })
+    settle(
+        || state_says_finished(&h.cfg, account),
+        "the upgrade recording a finished_at on disk (it did not run, or the loop \
+         is not applying AuxDone)",
+        || state_dump(&h.cfg),
+    )
     .await;
-    assert!(
-        recorded.is_ok(),
-        "the upgrade never recorded a finished_at on disk -- it did not run or \
-         the loop is not applying AuxDone\n{:?}",
-        std::fs::read_dir(h.cfg.parent().expect("dir"))
-            .map(|it| it
-                .filter_map(Result::ok)
-                .map(|e| e.path())
-                .collect::<Vec<_>>())
-            .unwrap_or_default()
-    );
 
     // Now that the run is over, switch away from the Upgrade pane and quit --
     // the pair of actions that did nothing in the report.
     tx.send(Ok(key(KeyCode::Char('s')))).await.expect("key");
     tx.send(Ok(key(KeyCode::Char('q')))).await.expect("key");
 
-    let outcome = tokio::time::timeout(Duration::from_secs(15), h.finish())
+    let outcome = tokio::time::timeout(SETTLE_CEILING, h.finish())
         .await
-        .expect("the loop did not resolve within 15s after `q` -- it is wedged")
+        .expect("the loop did not resolve after `q` within the settle ceiling -- it is wedged")
         .expect("the loop task panicked");
     assert!(
         outcome.error.is_none(),
@@ -141,7 +131,7 @@ async fn a_quit_key_lands_while_the_upgrade_channel_is_flooded() {
     // the first one only ARMS quit while an upgrade is in flight, and how long
     // that takes to be read is the loop's business, not a number to guess.
     let mut reads = 0usize;
-    let ok = tokio::time::timeout(Duration::from_secs(30), async {
+    let ok = tokio::time::timeout(SETTLE_CEILING, async {
         loop {
             reads += 1;
             // A closed channel IS the loop having quit, which is the thing being
@@ -169,7 +159,7 @@ async fn a_quit_key_lands_while_the_upgrade_channel_is_flooded() {
          the second `q` is the one that confirms"
     );
 
-    let outcome = tokio::time::timeout(Duration::from_secs(15), h.finish())
+    let outcome = tokio::time::timeout(SETTLE_CEILING, h.finish())
         .await
         .inspect_err(|_elapsed| {
             // Timeout: ask the loop itself where it is before declaring a wedge.
@@ -256,7 +246,7 @@ fn the_loop_stays_live_while_a_credential_load_blocks() {
         //
         // The observable is the state file: it has no `started_at` entry, and
         // the config it would be written to is only touched by the loop.
-        tokio::time::timeout(Duration::from_secs(30), async {
+        tokio::time::timeout(SETTLE_CEILING, async {
             loop {
                 tx.send(Ok(key(KeyCode::Char('u')))).await.expect("key");
                 if state_file_exists(&h.cfg) {
@@ -279,7 +269,7 @@ fn the_loop_stays_live_while_a_credential_load_blocks() {
         tokio::time::sleep(Duration::from_millis(50)).await;
         tx.send(Ok(key(KeyCode::Char('q')))).await.expect("key");
 
-        let outcome = tokio::time::timeout(Duration::from_secs(15), h.finish())
+        let outcome = tokio::time::timeout(SETTLE_CEILING, h.finish())
             .await
             .expect("the loop never quit while a credential load was in flight")
             .expect("the loop task panicked");

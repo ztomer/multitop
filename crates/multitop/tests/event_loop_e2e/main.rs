@@ -165,8 +165,9 @@ impl Harness {
     /// processes a scripted burst faster than the test can look at it.
     async fn expect_dims(&mut self, want: (u16, u16), what: &str) {
         // Ceiling, not a sleep: early when healthy. 5s tripped under
-        // parallel-suite load before the loop had even started.
-        let waited = tokio::time::timeout(Duration::from_secs(15), async {
+        // parallel-suite load before the loop had even started; every wait
+        // here now shares the one ceiling (see `SETTLE_CEILING`).
+        let waited = tokio::time::timeout(SETTLE_CEILING, async {
             while *self.dims.borrow_and_update() != want {
                 if self.dims.changed().await.is_err() {
                     return;
@@ -321,6 +322,48 @@ where
 /// under `llvm-cov` in the coverage gate, so the instrumentation is the reason
 /// the ceiling is generous rather than tight.
 const SETTLE_CEILING: Duration = Duration::from_secs(30);
+
+/// Every wait in this harness uses [`SETTLE_CEILING`]; none sets its own.
+///
+/// The class this pins: a wait written by hand with its own number. Five did,
+/// at 10, 15 and 20 seconds, each tuned on a quiet machine. The 10-second one
+/// failed the coverage gate at load 97 (2026-10-17) on a run that takes about
+/// one second, and `panel_gen`'s had already been raised once. The ceiling
+/// exists so that the bound is chosen once, with its reasoning written down.
+/// This reads the harness's own source, so a new hand-set deadline fails here
+/// by name instead of in a loaded gate weeks later.
+#[test]
+fn every_wait_uses_the_shared_ceiling() {
+    // A behaviour wait (`tokio::time::timeout`), not runtime teardown; split so
+    // this line is not itself a match.
+    const NEEDLE: &str = concat!("time::timeout(", "Duration::");
+    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/event_loop_e2e");
+    let mut own = Vec::new();
+    let mut read = 0usize;
+    for entry in std::fs::read_dir(&dir).expect("the harness directory") {
+        let path = entry.expect("an entry").path();
+        if path.extension().and_then(|e| e.to_str()) != Some("rs") {
+            continue;
+        }
+        read += 1;
+        let src = std::fs::read_to_string(&path).expect("a harness file");
+        for (n, line) in src.lines().enumerate() {
+            if line.contains(NEEDLE) {
+                own.push(format!("{}:{}: {}", path.display(), n + 1, line.trim()));
+            }
+        }
+    }
+    assert!(
+        read >= 2,
+        "read {read} harness file(s) from {}",
+        dir.display()
+    );
+    assert!(
+        own.is_empty(),
+        "a wait with its own deadline; use SETTLE_CEILING:\n{}",
+        own.join("\n")
+    );
+}
 
 /// The state file's contents, for a failure message.
 ///
