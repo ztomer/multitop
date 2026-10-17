@@ -4,184 +4,83 @@ The one forward-looking backlog. Shipped work is not listed here — it is in gi
 history (`git log --oneline`) and in `docs/detection-record.md`. When an item
 here is finished, delete it rather than ticking it off.
 
-State on 2026-10-14: `main` in sync with `origin/main`. **Phase 0 is closed** —
-P0.1 landed and pushed (`7a316b3`, with its lock follow-on `f096334`), P0.2 fixed
-the README row that described a retired server, and P0.3-P0.7 were already in.
-The last push ran the full gate 12/12 green, two steps proven earlier on the tree.
-
-Phase 1 (gate drift) is the open work: G1 what a COMMIT must block versus a PUSH,
-G2 a duplicate test run (fixed), G3 the tap bump going around the tap's own gate (fixed).
-Phase 2 is the Android companion, which must not start before A1.
-CI was last green on `f5be29f` (2026-10-12). The goh 0.27.0 hooks could not be
-committed as installed: goh refuses the older stock pre-commit, and this repo's
-`tools/check_gate_parity.py` refused the new one (it read the hook's text for
-`tools/gate.sh`); `2492bdd` taught it the house hand-off, then `8a5a105`
-committed the hooks. Narrative of the 2026-10-12 pass:
-`git show f5be29f:docs/roadmap.md`.
+State on 2026-10-17: Phase 0 (goh 0.27.0 wiring and the shipped defects,
+P0.1-P0.7) and Phase 1 (gate drift, G1-G3) are closed and pushed; their record is
+`git log --oneline` (`7a316b3`, `f096334`, `579ec14`, `3af81a5`, `dccdc7a`) and
+`git show 2475be7:docs/roadmap.md`. Phase 2's A1 closed on 2026-10-17. The open
+work is A2, which waits on two owner decisions, then A3.
 
 Every item names its proof: the test or gate that goes red until it is done.
 
-## Phase 0 — wire in goh 0.27.0, then the shipped defects (size S-M, one or two sessions)
-
-Goal: `tools/gate.sh --full` green at HEAD and pushed, and nothing the binary
-ships today is wrong. Exit: P0.3-P0.7 closed and pushed first (nothing pushes
-until they land), then P0.1 and P0.2 closed, gate green, released.
-
-Measured 2026-10-14 on `2492bdd`'s tree: the full gate was stopped at 15 min
-(the brief's bound), at load 138-164 from other sessions, while on step 8 of
-12. Steps 2-7 were green; steps 8-12 were then run one by one: fuzz 489 s,
-bench 233 s, coverage 255 s (96.13%, floor 95), installed-freshness 30 s, all
-green, and `tools/lint_linux.sh` red. Structural (step 1) was read with the
-new hook in place and each red masked in a scratch tree in turn.
-
-### ~~P0.3 — bare `python3` in the gate script~~ CLOSED `3a43ffe`: the lock
-helper runs on goh's pinned interpreter (`bash "$GOH/gates/python.sh"`), both
-arms of `tools/gate.sh:21,27` and the two trap releases.
-
-### ~~P0.5 — the Linux lint step needs a container runtime nobody started~~
-CLOSED by starting it, not by changing the step: `colima start` and
-`tools/lint_linux.sh` runs green — "linux clippy clean" on the whole workspace
-at `linux/arm64`, which is the only place an OS-only `#[expect]` is visible.
-
-Whether the GATE should start its own runtime is still the open question, and it
-is deliberately not answered here. `DEVELOPMENT.md` states the prerequisite and
-the step fails closed naming the command, which is right: a pre-push gate that
-boots a VM on its own is a gate that can surprise the machine it runs on. What
-this round added is the evidence that the step is not a formality — it is the
-only Linux-side check, and it passed on a tree whose every other gate had
-already passed.
-
-### ~~P0.4 — 39 child processes inherit stdin undeclared~~ CLOSED: every child
-process names its stdin across `tools/`, `tests/` and `scripts/`, with
-`GOH_SUBPROCESS_STDIN_MIN_CALLS=42` set at its measured count and proved red at
-43. No seed: the sweep declared the calls, it did not suppress them.
-
-### ~~P0.6 — scanner floors are unset~~ CLOSED: all 13 floors are in `.gatesrc`
-at their measured counts, and `GOH_SUBPROCESS_STDIN_MIN_CALLS` one past its
-count turns the step red naming the key.
-
-### ~~P0.7 — the latency bench reads the machine's load, not the code~~ CLOSED.
-The bench gates INSTRUCTIONS RETIRED, not nanoseconds: `client_bench
---only=decode|render --iters=N` runs one loop under `/usr/bin/time -l`, and the
-count is taken at N and 2N so process start-up and set-up cancel. Measured
-across a 4x busy-loop load the per-frame count moved 0.07%, against tens of
-percent for wall time. Budgets are ~1.7x the measurement; a deliberate 2x
-slowdown inside `render` is over both, and was caught by exactly that while the
-gate was being finished.
-
-### P0.1 — the `--serve` token is guessable — CLOSED locally at `7a316b3`, NOT PUSHED
-The token was a `DefaultHasher` over `"<pid>-<unix nanos>"` — SipHash with FIXED keys, so
-a deterministic function of two values an attacker bounds, and 64 bits. Its own comment
-claimed a rule it did not implement ("only when binding to loopback ... For now, generate
-if not supplied"). Three defects, fixed together in one place:
-
-- **`crates/multitop/src/serve_token.rs` owns both halves now.** `generate()` is 256 bits
-  from the OS CSPRNG (`getrandom`, promoted from a transitive dep to a declared one);
-  `matches()` compares in constant time (`subtle`). Never derived from time or pid.
-- **`AppState::token` is a `String`, not an `Option`.** `check_auth` returned `Ok(())` on
-  `None`, so "no token configured" silently meant "no authentication" — a path the binary
-  never took, which is exactly why it read as dead code while being an open door with a
-  test-shaped handle. `GET /` still needs no token (static HTML, no data); everything else
-  does. The CLI path collapses `Option` to `String` at the point of generation, which also
-  deleted a `(no token)` branch that was already unreachable.
-- **Three tests were reading the trap as a feature.** `test_api_snapshot_and_history` passed
-  `None` and sent no `Authorization`, as did two in `server_tests.rs`; they were asserting
-  200/503/404 through a router that authenticated nobody. They authenticate now, and their
-  subjects are handlers and decoders again.
-
-Calibration found a hole in the new test worth recording: an empty presented token is spelled
-`"Bearer "` or `""`, **not** a bare `"Bearer"` — that one does not strip, so `got` stays the
-literal `"Bearer"` and a mutation accepting an empty credential is never reached. The arm
-sends both.
-
-**Getting `7a316b3` off this machine.** The commit is green but unpushed; `fuzz/Cargo.lock` is
-modified in the tree because promoting `getrandom` and `subtle` to direct deps changed it.
-Exactly this, and nothing else:
-
-```bash
-cd ~/Projects/monitor
-cargo check --manifest-path fuzz/Cargo.toml --all-targets
-git add fuzz/Cargo.lock
-git commit -m "lock: fuzz manifest follows the new getrandom/subtle deps"
-git push origin main
-```
-
-Two gotchas on that push, both paid for already:
-
-* Run `./install.sh` **first**, or `installed_freshness` goes red on the binary the commit
-  changed and the push is refused for the wrong reason.
-* Run `bash tools/gate.sh --full` on the working tree first, so step 11 is recorded as proven.
-  Skipped, the gate does a cold release build inside its snapshot and blows the 900 s timeout —
-  which reads as a hang, not as a missing step.
-
-## Phase 1 — gate drift (advisory today, size S)
-
-Goal: the gate costs what it must and runs nothing twice. Depends on Phase 0.
-
-1. **G2 — a plain `cargo test --workspace` beside the gate's — FIXED
-   2026-10-17.** `.gatesrc` step 5 and the CI `test` job ran `cargo test
-   --workspace --all-features` while coverage's instrumented run (`cargo
-   llvm-cov --lib --bins --tests --all-features`) already runs every unit,
-   integration and bin test. Deleting the step outright would have lost the
-   doctests, which llvm-cov never runs, so both places now run `cargo test
-   --workspace --all-features --doc` only. Proof: a planted failing doctest
-   turned the doc step red, and a planted failing unit test turned the
-   coverage step red (`TESTS FAILED under coverage: g2_probe::fails`); both
-   probes reverted.
-2. **G3 — the tap bump goes around the tap's gate — FIXED 2026-10-17.**
-   `release.sh` PUT `Formula/multitop.rb` through the GitHub contents API, so
-   the tap's gate never ran on the bump. The premise "blocked on goh" had gone
-   stale: goh's `tap_bump.sh` already takes `--resource NAME=PATH|URL` (its
-   6.15 rewrite, 2026-10-14). The bump is now one call to it —
-   `--formula multitop --artifact <tarball> --resource multitop-agent-x86_64=
-   <agent> --resource multitop-agent-aarch64=<agent>` — the version, every url
-   and every sha256 move together (tap_rewrite.py reads the file as the DSL it
-   is), the tap's `tools/gate.sh --full` runs in its clone, and the commit is
-   pushed pinned; a red gate pushes nothing. `tools/bump_formula.py` and its
-   test are deleted: two mechanisms for one bump is how v0.49.0 shipped stale
-   agent urls. Proof: `release.sh --dry-run` names the tap gate step a real
-   run would execute (`tests/test_release_tap_bump.py`, watched red first:
-   bare PUT block, no --dry-run, the transform still present, resources not
-   named); calibrated by reverting release.sh (4 red).
+One question from Phase 0 was left open on purpose: whether `tools/lint_linux.sh`
+should start its own container runtime. Today it fails closed naming `colima
+start`, which is right for a pre-push gate on a shared machine.
 
 ## Phase 2 — Android companion (size L, three to five sessions)
 
 Goal: a phone shows which hosts are up, what the last upgrade did, and what is
 degraded, without a terminal. Exit: the app reads a LAN `--serve` over an
-authenticated, hardened API, and a transition push reaches the phone. Depends
-on P0.1 (a second client must not be built on a guessable token).
+authenticated, hardened API, and a transition push reaches the phone.
 
 The serving half ships and is tested; this is a client. Transport is **HTTP**
-over the existing API, not a `WebSocket`:
+over the existing API (TLS on a LAN bind, below), not a `WebSocket`:
 
-* `multitop --serve [<ADDR>]` and `--serve-token <TOKEN>`
-  (`crates/multitop/src/main.rs`); `--serve` binds **loopback by default**
-  (`serve_socket_addr`: `:8080` means `127.0.0.1:8080`). Keep it that way.
-* `crates/multitop/src/server.rs`: bearer `check_auth`, static `index`, and
-  `/api/hosts`, `/api/health`, `/api/snapshot/{host}`, `/api/history/{host}`,
-  `/api/mtop`; `spawn_collectors` reuses the agent's `stream::connect` and
+* `multitop --serve [<ADDR>]` and `--serve-token-file <PATH>`
+  (`crates/multitop/src/main.rs`; the token in `serve_token.rs`); `--serve`
+  binds **loopback by default** (`serve_socket_addr`: `:8080` means
+  `127.0.0.1:8080`). Keep it that way.
+* `crates/multitop/src/server.rs`: the default-deny `require_token` layer,
+  static `index`, and `/api/hosts`, `/api/health`, `/api/snapshot/{host}`,
+  `/api/history/{host}`, `/api/mtop`; `spawn_collectors` reuses the agent's `stream::connect` and
   `Payload::Hello` validation.
+
+A1 (LAN-bind hardening) closed 2026-10-17: auth is a router-wide default-deny
+layer and a 401 echoes nothing (`2cdbd04`); the token lives in a `0600` file,
+is refused on argv, and is printed only to a tty (`1729119`). Its third
+question is decided, and the decision is what A2 builds on:
+
+* **A non-loopback bind does NOT require a hand-supplied token.** The generated
+  one is 256 bits from the CSPRNG and persists in its file, so the phone pairs
+  once; demanding one by hand only adds a step and invites a weaker token.
+* **A non-loopback bind DOES need TLS before a phone uses it.** The remaining
+  exposure is the wire: on plain HTTP anyone who can observe the LAN reads the
+  bearer token and every response, and Android refuses cleartext by default
+  (`usesCleartextTraffic` is false from API 28), so shipping without TLS would
+  mean an app that opts out of the platform's protection. The shape is a
+  self-signed certificate created beside the token and PINNED by the client at
+  pairing (one string or QR: address, token, certificate fingerprint) -- no CA,
+  no domain. It is built with A2, not before, because the pin's format and the
+  pairing flow belong to the client, and a browser-based client would make a
+  self-signed certificate the wrong answer.
 
 In the order it blocks:
 
-1. **A1 — LAN-bind hardening, after P0.1.** The questions to settle before a
-   second client exists to lose the token, each answered by a test:
-   * The token is printed to stderr at startup (`token=<t>` and a ready `curl`
-     line). Right for an interactive start, wrong under a service manager whose
-     stderr is a log. Decide: print once to the tty only, or write it to a
-     `0600` file. Proof: a test that a non-tty stderr carries no token.
-   * Whether the token reaches an access log or an error body. Proof: grep the
-     axum error paths; a test that a 401 body does not echo the header.
-   * Whether a non-loopback bind should require an explicit `--serve-token`
-     (no generated token for a LAN bind) or TLS. Decide on UX grounds
-     (house tiebreaker: best user experience), state the reason here.
-2. **A2 — a read-only Android app** over `/api/*`. A glance surface, not a
+1. **A2 — a read-only Android app** over `/api/*`. A glance surface, not a
    terminal emulator and not the TUI's key handling in a smaller window.
-   Open decision before code: same repo or its own. A second language in this
-   repo inherits none of its gates (`polyglot-gate-parity`): it needs its own
-   lint, tests, coverage floor and a `check_gate_parity.py` entry from the
-   first commit. Proof: the app's own gate runs in CI; an end-to-end test
-   against a `--serve` started by the test.
+   **Blocked on two owner decisions** before any code:
+   * **Same repo or its own.** Precedent: `koffee_big` keeps its app in
+     `android/` beside the rest. A second language in this repo inherits none of
+     its gates (`polyglot-gate-parity`): it needs its own lint, tests, coverage
+     floor and a `check_gate_parity.py` entry from the first commit.
+   * **Native (Kotlin, pinned TLS as above) or a page served by `--serve`
+     itself.** Native is assumed by everything above; a served page changes the
+     TLS answer.
+
+   Measured 2026-10-17, present and not installed by anyone this round: Android
+   SDK at `~/Library/Android/sdk` (platforms 35 and 36, build-tools 34-36, NDK
+   27.3, emulator with three arm64-v8a AVDs from koffee), Gradle 9.8.1, Temurin
+   JDK 27; no device attached. Absent: `ANDROID_HOME` unset, `adb` not on PATH,
+   no Rust Android targets, no `cargo-ndk`. A Kotlin-only client needs none of
+   the absent four. If the app ever links Rust, its targets are
+   `aarch64-linux-android` and `x86_64-linux-android` and nothing else, and the
+   build fails on any other ABI (house platform policy). Proof: the app's own
+   gate runs in CI; an end-to-end test against a `--serve` started by the test,
+   over the pinned TLS.
+2. **A2-TLS — the certificate.** Server half: created `0600` beside the token,
+   reused across restarts, served only on a non-loopback bind, its fingerprint
+   printed with the pairing string (to a tty only, as the token is). Proof: a
+   server test that a non-loopback bind answers TLS and a loopback one plain
+   HTTP; the client's test that a different certificate is refused.
 3. **A3 — push.** Android push is **FCM** (or UnifiedPush/ntfy to avoid a
    Google dependency), not APNs as an older entry of this file said; APNs is
    Apple's and would only apply to an iOS client. Needs the app, so it is third.
@@ -241,8 +140,10 @@ channel); bundle it only if the vault trigger fires.
   The `⚠ ... valid-but-EMPTY lcov part` line is the coverage gate saying
   `main.rs` is regex-excluded; the `mcp` mode lives in the library and is
   driven for real by `ops_view_e2e.rs`.
-* **Do not move Android's auth hardening behind the app** (P0.1 and A1 before
-  A2).
+* **Do not build a client on plain HTTP over a LAN.** A1's decision above:
+  the pinned certificate lands with A2, not after it.
+* **Do not take the `--serve` token on argv or print it to a non-tty.**
+  `a_serve_token_on_the_command_line_is_refused` and the banner test fail it.
 * **Do not read terminal escapes anywhere but `multitop_agent::escape`.**
   `tools/check_one_escape_reader.py` fails a fifth reader.
 * **Do not draw ratatui chrome in anything but a `Chrome` role, nor app text in
