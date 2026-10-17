@@ -10,7 +10,7 @@ the README row that described a retired server, and P0.3-P0.7 were already in.
 The last push ran the full gate 12/12 green, two steps proven earlier on the tree.
 
 Phase 1 (gate drift) is the open work: G1 what a COMMIT must block versus a PUSH,
-G2 a duplicate test run, G3 the tap bump going around the tap's own gate.
+G2 a duplicate test run (fixed), G3 the tap bump going around the tap's own gate (fixed).
 Phase 2 is the Android companion, which must not start before A1.
 CI was last green on `f5be29f` (2026-10-12). The goh 0.27.0 hooks could not be
 committed as installed: goh refuses the older stock pre-commit, and this repo's
@@ -118,11 +118,16 @@ Two gotchas on that push, both paid for already:
 
 Goal: the gate costs what it must and runs nothing twice. Depends on Phase 0.
 
-1. **G2 — a plain `cargo test --workspace` beside the gate's.** goh Downstream
-   (monitor): `.gatesrc` step 5 and `.github/workflows/ci.yml:132` run
-   `cargo test --workspace --all-features` while coverage already runs every
-   test target. (The same bullet's retired `GOH_NO_NATIVE` is already gone,
-   since `cc2906a`.) Proof: one test run per gate, a failing test still red.
+1. **G2 — a plain `cargo test --workspace` beside the gate's — FIXED
+   2026-10-17.** `.gatesrc` step 5 and the CI `test` job ran `cargo test
+   --workspace --all-features` while coverage's instrumented run (`cargo
+   llvm-cov --lib --bins --tests --all-features`) already runs every unit,
+   integration and bin test. Deleting the step outright would have lost the
+   doctests, which llvm-cov never runs, so both places now run `cargo test
+   --workspace --all-features --doc` only. Proof: a planted failing doctest
+   turned the doc step red, and a planted failing unit test turned the
+   coverage step red (`TESTS FAILED under coverage: g2_probe::fails`); both
+   probes reverted.
 2. **G3 — the tap bump goes around the tap's gate — FIXED 2026-10-17.**
    `release.sh` PUT `Formula/multitop.rb` through the GitHub contents API, so
    the tap's gate never ran on the bump. The premise "blocked on goh" had gone

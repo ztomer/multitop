@@ -128,8 +128,11 @@ jobs:
       # The SSH-backed tests are #[ignore]d and stay that way here: CI has no
       # reachable host. They are run manually against real machines -- see
       # DEVELOPMENT.md.
-      - name: Test
-        run: cargo test --workspace --all-features
+      # Unit, integration and bin tests run ONCE, inside the coverage job's
+      # instrumented run (`cargo llvm-cov --lib --bins --tests --all-features`).
+      # That run never executes doctests, so this job runs only those (G2).
+      - name: Doc tests
+        run: cargo test --workspace --all-features --doc
 
       # The shared gate harness. `tools/coverage_check.sh` delegates its floor
       # and its exclusions to `$GOH/gates/coverage_gate.sh`, so without this the
