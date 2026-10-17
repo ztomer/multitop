@@ -7,6 +7,27 @@ This file starts at v0.47.0 — earlier history is in git (`git log`), and the
 per-defect record is `docs/detection-record.md`, which is the more useful
 document for anything before this point.
 
+## Unreleased
+
+**Upgrading:** `--serve-token <TOKEN>` is refused. Put the token in a file only you
+can read and pass `--serve-token-file <PATH>`, or pass nothing: `--serve` creates
+`serve-token` beside the config file (`0600`) on first start and reads it after.
+
+ — `--serve` before a second client exists to lose the token (ROADMAP A1)
+
+- **The token lives in one owner-only file, not on argv and not in a log.** It
+  reached three readers besides its owner: every local user via `ps` (it was a
+  command-line argument), any service manager's log of stderr (`token=<t>` and a
+  ready `curl` line on every start), and nobody at all after a restart, because a
+  fresh one was made each time and the phone had to re-pair. A token file anyone
+  else can open is refused with the `chmod 600` that fixes it; a hand-written token
+  under 32 characters is refused. The token is printed only when stderr is a
+  terminal; otherwise the banner names the file.
+- **Authentication is a layer, default-deny.** Every path but the static index
+  needs the token, unmatched ones included, so a new route cannot be added
+  unauthenticated by forgetting a call, and an unauthenticated caller cannot map
+  the routes. A 401 is one fixed body that echoes nothing the caller sent.
+
 ## v0.55.0 — the bench measures the code instead of the neighbours, and `render` stops rendering every frame twice _(2026-10-14)_
 
 Minor bump: a real performance fix in the render path, a measurement that stopped

@@ -2,8 +2,9 @@
 //!
 //! Reuses `b"MTOP"` decoder (`multitop_agent::proto::decode_packet`) as JSON,
 //! no new wire. New auth surface: `Hello` already validates `proto_version`,
-//! `Token` is `Authorization: Bearer <token>` generated at startup (or
-//! `--serve-token` supplied). Same `ssh` + `agent` + `history` as the TUI.
+//! `Token` is `Authorization: Bearer <token>`, read from a `0600` file and
+//! created there on first use (`crate::serve_token`). Same `ssh` + `agent` +
+//! `history` as the TUI.
 
 use std::collections::HashMap;
 use std::net::SocketAddr;

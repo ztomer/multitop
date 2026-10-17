@@ -218,20 +218,24 @@ class ComprehensiveE2E(unittest.TestCase):
             s.bind(("127.0.0.1", 0))
             port = s.getsockname()[1]
         addr = f"127.0.0.1:{port}"
-        token = "test-token-123"
-        # Use a minimal config with one server
+        # Use a minimal config with one server. The token is not passed: --serve
+        # creates it 0600 beside the config, which is the path a real start takes.
         with tempfile.TemporaryDirectory() as tmpdir:
             cfg = os.path.join(tmpdir, "config.toml")
+            token_file = os.path.join(tmpdir, "serve-token")
             with open(cfg, "w") as f:
                 f.write('[[servers]]\nhost="127.0.0.1"\nport=22\nuser="ztomer"\n')
             proc = subprocess.Popen(
-                [self.binary, "-c", cfg, "--serve", addr, "--serve-token", token],
+                [self.binary, "-c", cfg, "--serve", addr],
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
                 stdin=subprocess.DEVNULL,
             )
             try:
                 time.sleep(3)
+                with open(token_file) as f:
+                    token = f.read().strip()
+                self.assertEqual(os.stat(token_file).st_mode & 0o777, 0o600)
                 # Without token should be 401
                 r = subprocess.run(
                     ["curl", "-s", f"http://{addr}/api/hosts"],
@@ -273,9 +277,15 @@ class ComprehensiveE2E(unittest.TestCase):
             finally:
                 proc.terminate()
                 try:
-                    proc.wait(timeout=5)
+                    _, stderr = proc.communicate(timeout=5)
                 except subprocess.TimeoutExpired:
                     proc.kill()
+                    _, stderr = proc.communicate()
+            # stderr here is a pipe, as under a service manager: it names the
+            # file and never carries the token (ROADMAP A1).
+            stderr = stderr.decode(errors="replace")
+            self.assertIn(token_file, stderr)
+            self.assertNotIn(token, stderr)
 
     def test_still_quits(self):
         # Ensure quit still works after all the above

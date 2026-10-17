@@ -21,7 +21,8 @@ OPTIONS:
         --local            Include local machine (localhost) in server list
         --local-only       Monitor local machine only (no config or SSH required)
         --serve [<ADDR>]   Run as headless HTTP companion (default :8080)
-        --serve-token <TOKEN>  Bearer token for --serve (auto-generated if omitted)
+        --serve-token-file <PATH>  Token file for --serve, created 0600 if absent
+                           (default: serve-token beside the config file)
     -h, --help             Print this help
     -V, --version          Print version
     --print-background    Which background the terminal reported, and from where
@@ -35,6 +36,10 @@ KEYS:
     u          Run each server's configured upgrade_cmd
 ";
 
+const SERVE_TOKEN_ON_ARGV: &str = "--serve-token is gone: a token on the command line \
+is readable by every local user (ps). Put it in a file only you can read (chmod 600) and \
+pass --serve-token-file <PATH>, or let --serve create one beside the config file.";
+
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct CliOptions {
     pub config_path: Option<PathBuf>,
@@ -42,7 +47,7 @@ pub struct CliOptions {
     pub local_only: bool,
     pub remote_hosts: Vec<String>,
     pub serve_addr: Option<String>,
-    pub serve_token: Option<String>,
+    pub serve_token_file: Option<PathBuf>,
 }
 
 enum Startup {
@@ -107,10 +112,13 @@ fn parse_cli<I: IntoIterator<Item = String>>(argv: I) -> Startup {
                 };
                 opts.serve_addr = Some(addr);
             }
-            "--serve-token" => match iter.next() {
-                Some(t) => opts.serve_token = Some(t),
-                None => return Startup::Fail("--serve-token requires a value".into()),
+            "--serve-token-file" => match iter.next() {
+                Some(p) => opts.serve_token_file = Some(PathBuf::from(p)),
+                None => return Startup::Fail("--serve-token-file requires a path".into()),
             },
+            // Refused, not accepted: a token on the command line is readable by every
+            // local user through `ps` (ROADMAP A1).
+            "--serve-token" => return Startup::Fail(SERVE_TOKEN_ON_ARGV.into()),
             "--agent" => {
                 let rest: Vec<String> = iter.collect();
                 return Startup::Agent(rest);
@@ -226,30 +234,22 @@ fn serve_socket_addr(addr: &str) -> Result<std::net::SocketAddr, String> {
 /// until the server stops; the exit code is the outcome.
 fn serve_headless(
     addr: &str,
-    token: Option<String>,
+    token_file: Option<PathBuf>,
     config_path: &Path,
     servers: Vec<config::Server>,
     initial_theme: Option<String>,
 ) -> ExitCode {
     // A plain String from here on: `Option` said "no token", which downstream read
-    // as "no authentication". The (no token) branch below was already unreachable and
-    // `unwrap_or_default()` would have turned it into an EMPTY token, which authenticates
-    // nothing while looking configured.
-    //
-    // A CSPRNG failure REFUSES to serve rather than falling back to something weaker,
-    // and says so: a `--serve` on a LAN with a guessable token is worse than no server.
-    let token = match token {
-        Some(t) => t,
-        None => match multitop::serve_token::generate() {
-            Ok(t) => t,
-            Err(e) => {
-                eprintln!(
-                    "[Error] could not read the OS CSPRNG ({e}) -- refusing to start --serve"
-                );
-                eprintln!("        pass --serve-token explicitly if you can supply one yourself");
-                return ExitCode::FAILURE;
-            }
-        },
+    // as "no authentication". Any failure -- the CSPRNG, the file, its mode --
+    // REFUSES to serve rather than falling back to something weaker: a `--serve` on a
+    // LAN with a guessable token is worse than no server.
+    let token_path = token_file.unwrap_or_else(|| multitop::serve_token::default_path(config_path));
+    let (token, created) = match multitop::serve_token::load_or_create(&token_path) {
+        Ok(t) => t,
+        Err(e) => {
+            eprintln!("[Error] {e} -- refusing to start --serve");
+            return ExitCode::FAILURE;
+        }
     };
     // Need to load full config for health thresholds
     let cfg = config::load(config_path).unwrap_or_else(|_| config::Config {
@@ -271,8 +271,11 @@ fn serve_headless(
             return ExitCode::FAILURE;
         }
     };
-    eprintln!("multitop --serve on http://{addr} token={token}");
-    eprintln!("  curl -H \"Authorization: Bearer {token}\" http://{addr}/api/hosts");
+    let to_tty = std::io::IsTerminal::is_terminal(&std::io::stderr());
+    eprintln!(
+        "{}",
+        multitop::serve_token::startup_banner(addr, &token, &token_path, created, to_tty)
+    );
     let runtime = match tokio::runtime::Builder::new_multi_thread()
         .enable_all()
         .build()
@@ -355,7 +358,7 @@ fn main() -> ExitCode {
     if let Some(addr) = opts.serve_addr.clone() {
         return serve_headless(
             &addr,
-            opts.serve_token,
+            opts.serve_token_file,
             &config_path,
             servers,
             initial_theme,
@@ -466,6 +469,21 @@ mod tests {
         };
         assert!(e.contains("--nope"));
         assert!(e.contains("USAGE"));
+        Ok(())
+    }
+
+    #[test]
+    fn a_serve_token_on_the_command_line_is_refused() -> Result<(), String> {
+        // RED before A1: `--serve-token <TOKEN>` was accepted, which put the credential
+        // in argv, where every local user reads it with `ps`.
+        let Startup::Fail(e) = cli(&["--serve", "--serve-token", "x".repeat(64).as_str()]) else {
+            return Err("a token on argv was accepted".into());
+        };
+        assert!(e.contains("--serve-token-file"), "{e}");
+        let Startup::Run(opts) = cli(&["--serve", "--serve-token-file", "/tmp/t"]) else {
+            return Err("expected Run for --serve-token-file".into());
+        };
+        assert_eq!(opts.serve_token_file, Some(PathBuf::from("/tmp/t")));
         Ok(())
     }
 
