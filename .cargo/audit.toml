@@ -1,0 +1,22 @@
+# cargo-audit configuration (read by every `cargo audit` run in this workspace, the gate's included).
+#
+# THE IGNORE LIST IS A RATCHET, NOT A RUG (Rust house rule 3). Each entry names what holds it and
+# goes the moment it stops firing: goh's audit-ignore check (rust_gate.sh) fails a stale entry.
+[output]
+# Any advisory fails, the informational ones included; without this cargo-audit exits 0 on
+# "unmaintained" and the list below would be decorative.
+quiet = false
+deny = ["warnings", "unmaintained", "unsound", "yanked"]
+
+[advisories]
+# 2026-10-17: RustSec marked zvariant, zvariant_derive and zbus_names unmaintained on 2026-10-16
+# -- merged into zbus 6.0.0, released the same day. zbus 5 is held on Linux by
+# keyring 4.2.0 -> zbus-secret-service-keyring-store 1.0.1 -> secret-service 5.2.0, whose newest
+# release still requires `zbus ^5`. multitop-vault names zbus 5 directly too, and stays there on
+# purpose: moving it alone would put two zbus majors in one graph (Rust house rule 2). Vault moves
+# to zbus 6 in the same commit that secret-service does, and these entries go with it.
+ignore = [
+    "RUSTSEC-2026-0370", # zvariant unmaintained: held by secret-service 5.2.0 (zbus ^5)
+    "RUSTSEC-2026-0371", # zbus_names unmaintained: held by secret-service 5.2.0 (zbus ^5)
+    "RUSTSEC-2026-0372", # zvariant_derive unmaintained: held by secret-service 5.2.0 (zbus ^5)
+]
