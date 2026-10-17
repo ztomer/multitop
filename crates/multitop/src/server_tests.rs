@@ -208,3 +208,79 @@ async fn an_empty_token_still_refuses_an_unauthenticated_request() {
         );
     }
 }
+
+// ── A1: LAN-bind hardening ───────────────────────────────────────────────────────
+
+/// GET `uri` with `authorization` (or none) through a router holding [`TOKEN`], and
+/// return the status, every response header value, and the body as text.
+async fn get_raw(uri: &str, authorization: Option<&str>) -> (StatusCode, Vec<String>, String) {
+    let mut req = Request::builder().uri(uri);
+    if let Some(value) = authorization {
+        req = req.header("authorization", value);
+    }
+    let resp = router(test_state(TOKEN))
+        .oneshot(req.body(Body::empty()).unwrap())
+        .await
+        .unwrap();
+    let status = resp.status();
+    let headers = resp
+        .headers()
+        .values()
+        .map(|v| String::from_utf8_lossy(v.as_bytes()).into_owned())
+        .collect();
+    let body = axum::body::to_bytes(resp.into_body(), 1024 * 1024)
+        .await
+        .unwrap();
+    (status, headers, String::from_utf8_lossy(&body).into_owned())
+}
+
+#[tokio::test]
+async fn an_unmatched_path_is_refused_before_it_is_a_404() {
+    // RED before A1: auth was a `check_auth` call at the top of each handler, so it
+    // covered exactly the routes someone remembered to add it to. An unmatched path
+    // reached no handler and answered 404 to anyone -- the visible half of a class
+    // whose other half is the next route added without the call. The layer is
+    // router-wide, fallback included; this is the probe that shows it.
+    for uri in ["/api/not-a-route", "/api/snapshot", "/not-a-route"] {
+        let (status, _, _) = get_raw(uri, None).await;
+        assert_eq!(
+            status,
+            StatusCode::UNAUTHORIZED,
+            "{uri} answered unauthenticated"
+        );
+        let (status, _, _) = get_raw(uri, Some(&format!("Bearer {TOKEN}"))).await;
+        assert_eq!(status, StatusCode::NOT_FOUND, "{uri} with the token");
+    }
+    // The one exemption is exactly the index.
+    let (status, _, _) = get_raw("/", None).await;
+    assert_eq!(status, StatusCode::OK);
+}
+
+#[tokio::test]
+async fn a_refusal_echoes_nothing_the_caller_sent() {
+    // A 401 that names what was presented puts a credential -- the right one with a
+    // typo, or the one a client sent to the wrong server -- into every log that
+    // records response bodies or headers. The refusal must be the same few bytes
+    // whatever arrived. The near miss is the real token with its last byte changed:
+    // the value most worth not echoing.
+    let near_miss = format!("{}x", &TOKEN[..TOKEN.len() - 1]);
+    let marker = "presented-credential-marker-5e1d";
+    for presented in [
+        format!("Bearer {marker}"),
+        marker.to_string(),
+        format!("Bearer {near_miss}"),
+        format!("Basic {marker}"),
+    ] {
+        for uri in ["/api/hosts", "/api/snapshot/test-host", "/api/not-a-route"] {
+            let (status, headers, body) = get_raw(uri, Some(&presented)).await;
+            assert_eq!(status, StatusCode::UNAUTHORIZED, "{uri} {presented:?}");
+            assert_eq!(body, r#"{"error":"unauthorized"}"#, "{uri} {presented:?}");
+            for needle in [marker, near_miss.as_str(), TOKEN] {
+                assert!(
+                    headers.iter().all(|h| !h.contains(needle)),
+                    "{uri}: a response header carries {needle:?}: {headers:?}"
+                );
+            }
+        }
+    }
+}

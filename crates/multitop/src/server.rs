@@ -10,9 +10,10 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 
 use axum::{
-    extract::{Path as AxPath, State},
+    extract::{Path as AxPath, Request, State},
     http::{HeaderMap, StatusCode},
-    response::{Html, IntoResponse, Json},
+    middleware::{self, Next},
+    response::{Html, IntoResponse, Json, Response},
     routing::get,
     Router,
 };
@@ -50,8 +51,8 @@ pub struct AppState {
 /// never took, so it read as dead code while sitting there as an open door with a
 /// test-shaped handle. `AppState::token` is a `String`, so a state without one
 /// cannot be built and this cannot be reached unauthenticated. A request with no
-/// `Authorization` header is refused; `GET /` does not go through here at all,
-/// which is why the index is still readable without a token.
+/// `Authorization` header is refused. Called from one place, [`require_token`],
+/// which exempts only [`PUBLIC_PATHS`].
 fn check_auth(headers: &HeaderMap, token: &str) -> Result<(), StatusCode> {
     let Some(auth) = headers.get("authorization") else {
         return Err(StatusCode::UNAUTHORIZED);
@@ -67,6 +68,37 @@ fn check_auth(headers: &HeaderMap, token: &str) -> Result<(), StatusCode> {
         Ok(())
     } else {
         Err(StatusCode::UNAUTHORIZED)
+    }
+}
+
+/// The paths a request may reach WITHOUT the token, and the only ones. `/` is a
+/// static page that names the API and carries no data.
+///
+/// This is an allowlist checked by a layer around the WHOLE router, fallback
+/// included, rather than a `check_auth` call at the top of each handler (how it
+/// was until A1). Per-handler auth fails open by omission: the next route added
+/// without the call is served to anyone, and nothing goes red. Here a new route is
+/// authenticated by being a route, and an unmatched path is refused before it can
+/// answer 404 -- so an unauthenticated caller cannot map which routes exist either.
+const PUBLIC_PATHS: [&str; 1] = ["/"];
+
+/// The refusal, one body for every reason (no header, not UTF-8, wrong token). It
+/// names nothing the caller sent: a 401 that echoed the presented header would put
+/// the credential -- right or nearly right -- into whatever logs the response.
+fn unauthorized() -> Response {
+    (
+        StatusCode::UNAUTHORIZED,
+        Json(serde_json::json!({"error":"unauthorized"})),
+    )
+        .into_response()
+}
+
+/// Default-deny: every request but [`PUBLIC_PATHS`] carries the token or is refused.
+async fn require_token(State(state): State<AppState>, req: Request, next: Next) -> Response {
+    if PUBLIC_PATHS.contains(&req.uri().path()) || check_auth(req.headers(), &state.token).is_ok() {
+        next.run(req).await
+    } else {
+        unauthorized()
     }
 }
 
@@ -87,15 +119,12 @@ async fn index() -> Html<&'static str> {
 </head><body><h1>multitop --serve</h1>
 <p>JSON: <a href="/api/hosts">/api/hosts</a> <a href="/api/health">/api/health</a></p>
 <p>Per-host: <code>/api/snapshot/:host</code> <code>/api/history/:host</code></p>
-<p>Token: <code>Authorization: Bearer &lt;token&gt;</code> if --serve-token was set (printed on startup)</p>
+<p>Every <code>/api</code> request needs <code>Authorization: Bearer &lt;token&gt;</code>.</p>
 </body></html>"#,
     )
 }
 
-async fn api_hosts(State(state): State<AppState>, headers: HeaderMap) -> impl IntoResponse {
-    if let Err(code) = check_auth(&headers, &state.token) {
-        return (code, Json(serde_json::json!({"error":"unauthorized"}))).into_response();
-    }
+async fn api_hosts(State(state): State<AppState>) -> impl IntoResponse {
     let live = state.live.read().await;
     let hosts: Vec<HostInfo> = state
         .servers
@@ -133,10 +162,7 @@ async fn api_hosts(State(state): State<AppState>, headers: HeaderMap) -> impl In
     (StatusCode::OK, Json(serde_json::json!(hosts))).into_response()
 }
 
-async fn api_health(State(state): State<AppState>, headers: HeaderMap) -> impl IntoResponse {
-    if let Err(code) = check_auth(&headers, &state.token) {
-        return (code, Json(serde_json::json!({"error":"unauthorized"}))).into_response();
-    }
+async fn api_health(State(state): State<AppState>) -> impl IntoResponse {
     let (total, breaching) = {
         let snapshots = {
             let live = state.live.read().await;
@@ -174,11 +200,7 @@ async fn api_health(State(state): State<AppState>, headers: HeaderMap) -> impl I
 async fn api_snapshot(
     State(state): State<AppState>,
     AxPath(host): AxPath<String>,
-    headers: HeaderMap,
 ) -> impl IntoResponse {
-    if let Err(code) = check_auth(&headers, &state.token) {
-        return (code, Json(serde_json::json!({"error":"unauthorized"}))).into_response();
-    }
     let (resp, err_opt) = {
         let live = state.live.read().await;
         live.snapshots
@@ -228,11 +250,7 @@ async fn api_snapshot(
 async fn api_history(
     State(state): State<AppState>,
     AxPath(host): AxPath<String>,
-    headers: HeaderMap,
 ) -> impl IntoResponse {
-    if let Err(code) = check_auth(&headers, &state.token) {
-        return (code, Json(serde_json::json!({"error":"unauthorized"}))).into_response();
-    }
     let entry = {
         let live = state.live.read().await;
         live.histories
@@ -255,10 +273,7 @@ async fn api_history(
         .into_response()
 }
 
-async fn api_mtop_raw(State(state): State<AppState>, headers: HeaderMap) -> impl IntoResponse {
-    if let Err(code) = check_auth(&headers, &state.token) {
-        return (code, Json(serde_json::json!({"error":"unauthorized"}))).into_response();
-    }
+async fn api_mtop_raw(State(state): State<AppState>) -> impl IntoResponse {
     let snapshots: Vec<_> = {
         let live = state.live.read().await;
         live.snapshots.values().cloned().collect()
@@ -289,6 +304,9 @@ pub fn router(state: AppState) -> Router {
         .route("/api/snapshot/{host}", get(api_snapshot))
         .route("/api/history/{host}", get(api_history))
         .route("/api/mtop", get(api_mtop_raw))
+        // LAST, so it wraps every route above AND the fallback: an unmatched path
+        // is authenticated before it is a 404.
+        .layer(middleware::from_fn_with_state(state.clone(), require_token))
         .with_state(state)
 }
 
