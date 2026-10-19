@@ -8,6 +8,7 @@ import androidx.camera.view.PreviewView
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -31,7 +32,12 @@ fun CameraScanner(
     val context = LocalContext.current
     val owner = LocalLifecycleOwner.current
     val deliver by rememberUpdatedState(onDecoded)
-    val view = androidx.compose.runtime.remember { PreviewView(context) }
+    // COMPATIBLE draws into a TextureView, which the scrolling column clips;
+    // the default SurfaceView punches through it and covers the paste field.
+    val view =
+        remember {
+            PreviewView(context).apply { implementationMode = PreviewView.ImplementationMode.COMPATIBLE }
+        }
     DisposableEffect(owner) {
         val worker = Executors.newSingleThreadExecutor()
         val main = ContextCompat.getMainExecutor(context)

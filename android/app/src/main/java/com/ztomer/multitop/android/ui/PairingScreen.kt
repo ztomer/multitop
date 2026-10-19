@@ -3,9 +3,10 @@ package com.ztomer.multitop.android.ui
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.consumeWindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -51,6 +52,10 @@ fun PairingScreen(
                 Modifier
                     .fillMaxSize()
                     .padding(insets)
+                    // Edge-to-edge: the keyboard resizes the column (never pans
+                    // the window under the status bar), so Pair stays reachable.
+                    .consumeWindowInsets(insets)
+                    .imePadding()
                     .padding(PAD.dp)
                     .verticalScroll(rememberScrollState()),
             verticalArrangement = Arrangement.spacedBy(GAP.dp),
@@ -86,7 +91,7 @@ private fun InProgress(
     var pasted by rememberSaveable { mutableStateOf("") }
     Headline(Copy.PAIRING)
     Body(Copy.PAIRING_DETAIL)
-    Column(Modifier.fillMaxWidth().aspectRatio(1f)) { content() }
+    content()
     OutlinedTextField(
         value = pasted,
         onValueChange = { pasted = it },
