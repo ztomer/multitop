@@ -1,0 +1,6 @@
+# ktlint 1.8.0 reads its rule settings from here.
+[*.{kt,kts}]
+# Compose's convention: a @Composable that emits UI is named like a type
+# (PairingScreen), which ktlint's function-naming rule names as the exception
+# to configure, not to suppress.
+ktlint_function_naming_ignore_when_annotated_with = Composable

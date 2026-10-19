@@ -1,6 +1,4 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">multitop</string>
-    <string name="status_unpaired">Not paired yet</string>
-    <string name="status_unpaired_detail">This phone has no multitop server to read, so nothing is shown. Pairing, by the string or QR code the server prints when it serves the LAN, arrives in a later build; until then this screen has no live data.</string>
 </resources>

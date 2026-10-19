@@ -10,6 +10,8 @@ plugins {
     // here, unapplied, puts the newest stable KGP on the build classpath and
     // the built-in Kotlin compiles with it instead.
     id("org.jetbrains.kotlin.android") version "2.4.21" apply false
+    // The Compose compiler ships with Kotlin since 2.0, versioned with it.
+    id("org.jetbrains.kotlin.plugin.compose") version "2.4.21" apply false
     // ktlint 1.8.0 through the Gradle plugin: every violation is an error
     // (ktlint has no warning level), so the style gate cannot report and pass.
     id("org.jlleitschuh.gradle.ktlint") version "14.2.0" apply false

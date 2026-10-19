@@ -8,7 +8,7 @@ State on 2026-10-17: Phase 0 (goh 0.27.0 wiring and the shipped defects,
 P0.1-P0.7) and Phase 1 (gate drift, G1-G3) are closed and pushed; their record is
 `git log --oneline` (`7a316b3`, `f096334`, `579ec14`, `3af81a5`, `dccdc7a`) and
 `git show 2475be7:docs/roadmap.md`. Phase 2's A1 closed on 2026-10-17. The open
-work is A2 (ruled D4 on 2026-10-18; slices A2.1 and A2.2 landed), then A3.
+work is A2 (ruled D4 on 2026-10-18; slices A2.1 to A2.4 landed), then A3.
 
 Every item names its proof: the test or gate that goes red until it is done.
 
@@ -90,8 +90,9 @@ In the order it blocks:
    characters of payload: a dense but ordinary QR code.
 
    Remaining, in order:
-   * **A2.2 done 2026-10-18 -- a Kotlin coverage floor of 71%** (line coverage,
-     measured 71.58%, rounded down). Kover 0.9.11 (JetBrains, released
+   * **A2.2 done 2026-10-18 -- a Kotlin coverage floor of 75%** (line coverage;
+     71% when it landed, measured 71.58%, rounded down; raised to 75% by A2.4,
+     measured 236 of 314 lines, 75.16%). Kover 0.9.11 (JetBrains, released
      2026-09-29) rather than JaCoCo: it is built for Kotlin and Android and
      enforces a floor itself (`koverVerify`), where AGP's JaCoCo path produces a
      report and leaves the verification task to be hand-built. Scope: the main
@@ -120,13 +121,30 @@ In the order it blocks:
      the Kotlin tests; `crates/multitop/tests/serve_tls_test.rs` refuses a
      client pinned to
      another certificate.
-   * **A2.4 -- pairing in the app**: paste or scan the payload (the terminal
-     QR is drawn light-on-dark on a dark terminal, so the scanner must accept
-     both polarities), show the
-     fingerprint for a human to compare, store the pairing where no backup
-     reaches (the manifest already excludes everything), forget it on demand.
-     Proof: unit tests over the store seam; the placeholder text changes only
-     when a pairing exists.
+   * **A2.4 done 2026-10-19 -- pairing in the app.** One Compose screen
+     (`android/app/src/main/java/com/ztomer/multitop/android/ui/`), four honest
+     states, each carried by a glyph and words, never colour alone:
+     `· Not paired`, `→ Pairing`, `✓ Paired to <host>:<port>` (with the
+     certificate's `sha256=` for a human to compare against the server's
+     line), `✗ Pairing failed: <why>`. Scan (CameraX 1.6.2 frames into ZXing
+     core 3.5.4 with `ALSO_INVERTED`, `scan/`) or paste; both go through
+     `PairingPayload.parse`, so a wrong fingerprint is refused with its reason.
+     Storage (`store/`): the canonical pairing string (`PairingPayload.format`,
+     byte for byte what the server prints) sealed AES-256-GCM under one
+     Android Keystore key (alias `multitop-pairing-v1`), one file in
+     `noBackupFilesDir`; nothing in the clear, re-validated on every read, an
+     unreadable one (a lost key, a flipped bit) reported and forgotten. Unpair
+     deletes it. Compose UI tests run on the JVM under Robolectric 4.17.
+     Proof: `QrDecoderTest` paints the QR the server really draws
+     (`rust_server_pairing_qr.txt`, held to `pairing::qr` by the Rust test
+     `the_golden_pairing_qr_is_what_the_server_draws`) as a dark and a light
+     terminal and decodes both, and calibrates that a stock reader finds
+     nothing in the dark one (dropping the inversion hint turns it red);
+     `PairingStoreTest` and `PairingControllerTest` (round trip, no plaintext,
+     unpair clears, wrong key and tamper unreadable, wrong fingerprint refused
+     and nothing stored); `PairingScreenTest`, one per state. Not proven on a
+     device: no phone or emulator is attached here, so the live camera path
+     and the Keystore key are exercised only by building, not by a test.
    * **A2.5 -- the read-only screens** over `/api/hosts` and `/api/health`
      through `PinnedTls` (its `verifier` is the HTTPS hostname verifier: the
      LAN address may change, the pin may not). Proof: the end-to-end test

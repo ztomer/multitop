@@ -49,7 +49,7 @@ object Fixtures {
     fun text(resource: String): String =
         requireNotNull(Fixtures::class.java.getResourceAsStream("/$resource")) {
             "missing test resource $resource"
-        }.use { it.readBytes().toString(Charsets.US_ASCII) }
+        }.use { it.readBytes().toString(Charsets.UTF_8) }
 
     /** The PEM the server writes -- a CERTIFICATE then a PKCS#8 PRIVATE KEY -- as a key store. */
     private fun pemKeyStore(name: String): KeyStore {

@@ -1,9 +1,15 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
+    <!-- The pairing QR code. Optional: without a camera the string is pasted. -->
+    <uses-feature
+        android:name="android.hardware.camera.any"
+        android:required="false" />
+    <uses-permission android:name="android.permission.CAMERA" />
+
     <!--
       allowBackup is off and the extraction rules exclude everything: the
-      pairing will hold the server's bearer token, which must never leave the
+      pairing holds the server's bearer token, which must never leave the
       phone in a cloud backup or a device-to-device transfer.
       Cleartext is off explicitly as well as by default (API 28+): this client
       talks only pinned TLS (docs/roadmap.md, A2-TLS).

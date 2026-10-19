@@ -77,6 +77,18 @@ object PairingPayload {
         return fromFields(fields)
     }
 
+    /**
+     * The canonical string for [pairing]: what [parse] reads back to an equal
+     * pairing, and byte for byte what `multitop --serve` prints for it. The store
+     * keeps a pairing in this form, so a stored pairing is re-validated by the
+     * same rules as a scanned one every time it is read.
+     */
+    fun format(pairing: Pairing): String {
+        val host = if (':' in pairing.host) "[${pairing.host}]" else pairing.host
+        val cert = Base64.getUrlEncoder().withoutPadding().encodeToString(pairing.certificate.encoded)
+        return "${PREFIX}v=$VERSION&addr=$host:${pairing.port}&token=${pairing.token}&sha256=${pairing.pin.hex}&cert=$cert"
+    }
+
     private fun fromFields(fields: Map<String, String>): Result {
         val version = fields.getValue("v")
         val token = fields.getValue("token")

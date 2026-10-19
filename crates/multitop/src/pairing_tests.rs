@@ -198,3 +198,24 @@ fn the_golden_pairing_string_is_what_the_server_prints() {
         "regenerate: see this test's doc"
     );
 }
+
+/// The QR code `--serve` draws for the golden pairing string, exactly as the
+/// terminal receives it. The Kotlin scanner tests (`QrDecoderTest.kt`) paint
+/// these glyphs the way a dark AND a light terminal would and decode both, so
+/// the app is held to the code the server really draws, in both polarities.
+/// Regenerated with the pairing string (see that test's doc).
+#[test]
+fn the_golden_pairing_qr_is_what_the_server_draws() {
+    let printed = std::fs::read_to_string(golden("rust_server_pairing.txt")).unwrap();
+    let drawn = qr(printed.trim_end()).unwrap();
+    let qr_path = golden("rust_server_pairing_qr.txt");
+    if std::env::var_os("MULTITOP_REGEN_PAIRING_GOLDEN").is_some() {
+        std::fs::write(&qr_path, format!("{drawn}\n")).unwrap();
+    }
+    let on_disk = std::fs::read_to_string(&qr_path).unwrap();
+    assert_eq!(
+        on_disk.trim_end_matches('\n'),
+        drawn,
+        "regenerate: see the_golden_pairing_string_is_what_the_server_prints"
+    );
+}
