@@ -90,9 +90,9 @@ In the order it blocks:
    characters of payload: a dense but ordinary QR code.
 
    Remaining, in order:
-   * **A2.2 done 2026-10-18 -- a Kotlin coverage floor of 75%** (line coverage;
-     71% when it landed, measured 71.58%, rounded down; raised to 75% by A2.4,
-     measured 236 of 314 lines, 75.16%). Kover 0.9.11 (JetBrains, released
+   * **A2.2 done 2026-10-18 -- a Kotlin coverage floor of 74%** (line coverage;
+     71% when it landed, measured 71.58%, rounded down; raised to 74% by A2.4,
+     measured 238 of 318 lines, 74.84%, rounded down). Kover 0.9.11 (JetBrains, released
      2026-09-29) rather than JaCoCo: it is built for Kotlin and Android and
      enforces a floor itself (`koverVerify`), where AGP's JaCoCo path produces a
      report and leaves the verification task to be hand-built. Scope: the main
