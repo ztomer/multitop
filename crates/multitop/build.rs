@@ -54,6 +54,14 @@ fn try_auto_build(target_triple: &str, workspace_root: &Path) -> Option<PathBuf>
                 "--target-dir",
             ])
             .arg(&out_target_dir)
+            // Its OWN build-dir. The host config keys build-dir by workspace path
+            // (~/.cargo/build/<hash>), so a nested cargo for this same workspace
+            // resolves the very `release/.cargo-build-lock` the outer `cargo build
+            // --release` holds while it runs this script: both block at 0% CPU,
+            // forever (found 2026-10-18 by a pre-push in a fresh worktree, where
+            // no earlier step had left an agent to find). The environment
+            // outranks every config file.
+            .env("CARGO_BUILD_BUILD_DIR", out_target_dir.join("build-dir"))
             .current_dir(workspace_root)
             .stdout(std::process::Stdio::null())
             .stderr(std::process::Stdio::null())
