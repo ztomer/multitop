@@ -80,7 +80,11 @@ done
 git diff --quiet || die "working tree is dirty — commit or stash first"
 git diff --cached --quiet || die "staged changes present — commit first"
 [ "$(git branch --show-current)" = "main" ] || die "not on main"
-[ -z "$(git log --oneline origin/main..HEAD 2>/dev/null)" ] || die "main has unpushed commits — push first"
+# The bump commit may be unpushed: it and the tag go to origin in ONE atomic
+# push below. What must hold is that HEAD descends from origin/main, or that
+# push would be a rewrite.
+git fetch -q origin main || die "cannot fetch origin/main"
+git merge-base --is-ancestor origin/main HEAD || die "HEAD does not descend from origin/main — rebase first"
 if [ "${DRY_RUN}" = 1 ]; then
   info "[dry-run] no tag will be created or pushed; a tag may already exist"
 else
@@ -115,8 +119,17 @@ if [ "${DRY_RUN}" = 1 ]; then
 else
   info "tagging ${TAG} ..."
   git tag -a "${TAG}" -m "Release ${TAG}"
-  git push origin "${TAG}"
-  ok "pushed ${TAG}"
+  # Branch and tag in one atomic push: both refs move or neither, and the
+  # pre-push gate runs once over the commit both name.
+  git push --atomic origin HEAD:main "${TAG}" || {
+    git tag -d "${TAG}" >/dev/null
+    die "the push of main and ${TAG} failed — nothing moved on origin; the local tag is removed"
+  }
+  head_sha="$(git rev-parse HEAD)"
+  remote="$(git ls-remote origin refs/heads/main "refs/tags/${TAG}^{}")"
+  grep -q "^${head_sha}[[:space:]]refs/heads/main$" <<< "${remote}" || die "origin's main is not ${head_sha}"
+  grep -q "^${head_sha}[[:space:]]refs/tags/${TAG}^{}$" <<< "${remote}" || die "origin's ${TAG} does not name ${head_sha}"
+  ok "pushed main and ${TAG} together; origin has both at ${head_sha}"
 
   info "creating the GitHub release ..."
   NOTES="$(mktemp)"

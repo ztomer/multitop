@@ -32,10 +32,12 @@ The primary release tool is `./release.sh`. It gates, cross-compiles both Linux 
 ./release.sh v0.49.1
 ```
 
-`release.sh` also does the bump itself, so the two manual steps above are
-optional — pass the tag and it will write the version, the lockfiles and the
-CHANGELOG stanza, commit them through the pre-commit gates, and carry on to the
-tag, the release and the tap.
+The bump is a commit you make first, and `release.sh` refuses without it: the
+workspace `Cargo.toml` version equal to the tag, `Cargo.lock` and
+`fuzz/Cargo.lock` refreshed, both musl agents rebuilt to embed the version, and
+a `## vX.Y.Z` CHANGELOG stanza. (This file said until 2026-10-19 that the script
+made the bump itself; it never did.) The bump commit may stay unpushed: the
+script pushes it and the tag together.
 
 There was a second implementation, `scripts/release.py` (429 lines), offered
 here as an "alternative" until 2026-09-28. It was deleted rather than fixed,
@@ -53,15 +55,17 @@ per job, and the fix is to delete the copy rather than to keep both in step.
 
 ## What the script does (`release.sh`)
 
-1. **Verifies preconditions** — clean tree, on `main`, `main` pushed, tag not
+1. **Verifies preconditions** — clean tree, on `main`, HEAD descended from
+   `origin/main` (the bump commit may be unpushed), tag not
    already existing, workspace `Cargo.toml` version equal to the tag, the
    CHANGELOG stanza present, musl targets installed, `gh` present
-2. **Bumps and commits** — workspace version in `Cargo.toml`, `Cargo.lock`
-   refreshed so it cannot drift, the agents rebuilt with the new version baked
-   in (every bump stales them by definition, and the agent-version gate would
-   refuse the commit without it), and `fuzz/Cargo.lock` too
-3. **Tags and pushes** — annotated tag, branch, tag
-4. **Verifies tag** — exists locally and on origin
+2. **Gates and builds** — `make clippy-targets` and `cargo test`, then
+   `./build.sh` cross-compiles both agents and refuses one that does not embed
+   the version (the bump itself is the commit made beforehand, above)
+3. **Tags and pushes** — annotated tag, then branch and tag in ONE
+   `git push --atomic`: both refs move or neither, and the pre-push gate runs
+   once (`tests/test_release_one_push.py`)
+4. **Verifies on origin** — `git ls-remote` shows `main` and the tag both at HEAD
 5. **Builds release notes** — from commits since the last **published release**,
    not the last tag. Tags that were never released must not truncate the notes,
    or users upgrading via Homebrew silently miss everything in between.
