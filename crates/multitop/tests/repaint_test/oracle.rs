@@ -24,9 +24,11 @@ use multitop::config::Server;
 use multitop::panel::UpgradeState;
 use multitop::tasks::{painted_msg, Painter};
 use multitop_agent::color::strip_ansi;
+use std::num::NonZeroU16;
 
-const ROWS: u16 = 24;
-const COLS: u16 = 512;
+// vt100 0.18 takes the size as NonZeroU16: a zero-sized screen is unrepresentable.
+const ROWS: NonZeroU16 = NonZeroU16::new(24).unwrap();
+const COLS: NonZeroU16 = NonZeroU16::new(512).unwrap();
 
 /// apt 3.0 installing two packages in a Debian 13 container, captured from a
 /// 24x80 pty with `script` (2026-10-10). Real bytes, not a reconstruction:
@@ -111,7 +113,7 @@ fn compare(name: &str, painter_bytes: &[u8], bytes: &[u8]) {
     let mut term = vt100::Parser::new(ROWS, COLS, 0);
     // Rows the emulator's scroll region covers; apt sets `ESC[0;23r`, so its
     // last row is the pinned one.
-    let mut region = usize::from(ROWS);
+    let mut region = usize::from(ROWS.get());
 
     let painter_chunks: Vec<&[u8]> = painter_bytes.split_inclusive(|&b| b == b'\n').collect();
     for (n, chunk) in bytes.split_inclusive(|&b| b == b'\n').enumerate() {
@@ -120,13 +122,17 @@ fn compare(name: &str, painter_bytes: &[u8], bytes: &[u8]) {
         }
         term.process(&for_oracle(chunk));
         if chunk.windows(4).any(|w| w == b";23r") {
-            region = usize::from(ROWS) - 1;
+            region = usize::from(ROWS.get()) - 1;
         }
         if chunk.windows(4).any(|w| w == b";24r") {
-            region = usize::from(ROWS);
+            region = usize::from(ROWS.get());
         }
 
-        let screen: Vec<String> = term.screen().rows(0, COLS).map(|r| plain(&r)).collect();
+        let screen: Vec<String> = term
+            .screen()
+            .rows(0, COLS.get())
+            .map(|r| plain(&r))
+            .collect();
         let shown = without_trailing_blanks(screen[..region].to_vec());
         let log = without_trailing_blanks(
             app.panels[0]
@@ -148,10 +154,10 @@ fn compare(name: &str, painter_bytes: &[u8], bytes: &[u8]) {
             .as_ref()
             .filter(|(g, _)| *g == gen)
             .map(|(_, s)| plain(s));
-        if region < usize::from(ROWS) || status.is_some() {
+        if region < usize::from(ROWS.get()) || status.is_some() {
             assert_eq!(
                 status.unwrap_or_default(),
-                screen[usize::from(ROWS) - 1],
+                screen[usize::from(ROWS.get()) - 1],
                 "{name}, after line {n}: the panel's status line against the terminal's bottom row"
             );
         }
