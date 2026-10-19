@@ -1,7 +1,10 @@
 #!/usr/bin/env bash
 # Install multitop to Homebrew's bindir.
 #
-# Usage: ./install.sh [--backend zigbuild|docker] [--debug] [--prefix DIR]
+# Usage: ./install.sh [--backend zigbuild|docker] [--debug] [--prefix DIR] [--bin PATH]
+#
+# --bin installs an already-built binary instead of building one (the test seam
+# for the replace step, tests/test_install_replace.py).
 #
 # Builds via ./build.sh, then copies the host binary to
 # "$(brew --prefix)/bin" (/opt/homebrew/bin on Apple silicon,
@@ -26,10 +29,12 @@ ok()   { printf '%s+%s %s\n'  "$GRN" "$RST" "$*"; }
 die()  { printf '%sx%s %s\n'  "$RED" "$RST" "$*" >&2; exit 1; }
 
 PREFIX=""
+PREBUILT=""
 BUILD_ARGS=()
 while [ $# -gt 0 ]; do
     case "$1" in
         --prefix) PREFIX="${2:-}"; shift 2 ;;
+        --bin) PREBUILT="${2:-}"; shift 2 ;;
         --backend) BUILD_ARGS+=("$1" "${2:-}"); shift 2 ;;
         --backend=*) BUILD_ARGS+=("$1"); shift ;;
         --debug) BUILD_ARGS+=("--debug"); shift ;;
@@ -46,38 +51,51 @@ if [ -z "$PREFIX" ]; then
     fi
 fi
 
-info "building multitop"
-if [ "${#BUILD_ARGS[@]}" -gt 0 ]; then
-    ./build.sh "${BUILD_ARGS[@]}"
+if [ -n "$PREBUILT" ]; then
+    BIN="$PREBUILT"
+    [ -f "$BIN" ] || die "no binary at $BIN"
 else
-    ./build.sh
-fi
+    info "building multitop"
+    if [ "${#BUILD_ARGS[@]}" -gt 0 ]; then
+        ./build.sh "${BUILD_ARGS[@]}"
+    else
+        ./build.sh
+    fi
 
-# Resolve the binary the same way build.sh does: cargo's real target dir,
-# not a hardcoded "target" (a shared CARGO_TARGET_DIR relocates artifacts).
-PROFILE="release"
-if [ "${#BUILD_ARGS[@]}" -gt 0 ]; then
-    for a in "${BUILD_ARGS[@]}"; do
-        [ "$a" = "--debug" ] && PROFILE="debug"
-    done
+    # Resolve the binary the same way build.sh does: cargo's real target dir,
+    # not a hardcoded "target" (a shared CARGO_TARGET_DIR relocates artifacts).
+    PROFILE="release"
+    if [ "${#BUILD_ARGS[@]}" -gt 0 ]; then
+        for a in "${BUILD_ARGS[@]}"; do
+            [ "$a" = "--debug" ] && PROFILE="debug"
+        done
+    fi
+    [ -d "$HOME/.cargo/bin" ] && PATH="$HOME/.cargo/bin:$PATH"
+    export PATH
+    TARGET_DIR="$(cargo metadata --format-version 1 2>/dev/null | jq -r .target_directory)"
+    [ -n "$TARGET_DIR" ] && [ "$TARGET_DIR" != null ] || TARGET_DIR="$PWD/target"
+    BIN="$TARGET_DIR/$PROFILE/multitop"
+    [ -f "$BIN" ] || die "binary missing at $BIN"
+
 fi
-[ -d "$HOME/.cargo/bin" ] && PATH="$HOME/.cargo/bin:$PATH"
-export PATH
-TARGET_DIR="$(cargo metadata --format-version 1 2>/dev/null | jq -r .target_directory)"
-[ -n "$TARGET_DIR" ] && [ "$TARGET_DIR" != null ] || TARGET_DIR="$PWD/target"
-BIN="$TARGET_DIR/$PROFILE/multitop"
-[ -f "$BIN" ] || die "binary missing at $BIN"
 
 [ -d "$PREFIX" ] || die "destination $PREFIX does not exist"
 info "installing $BIN ${BOLD}->${RST} $PREFIX/multitop"
-cp -f "$BIN" "$PREFIX/multitop"
-chmod 755 "$PREFIX/multitop"
-
+# Never overwrite the installed binary in place. macOS caches a binary's code
+# signature per vnode; rewriting the bytes of a file that has already been
+# executed leaves the cache describing the old bytes, and every later exec of
+# that path is SIGKILLed (exit 137) -- the installed multitop was dead that way
+# on 2026-10-19 while a copy of the same bytes ran. So: copy beside it, sign the
+# copy, and rename it over the old one (a new inode, atomically).
+STAGED="$PREFIX/.multitop.install.$$"
+trap 'rm -f "$STAGED"' EXIT
+cp "$BIN" "$STAGED"
+chmod 755 "$STAGED"
 # Keep the ad-hoc signature stable so keychain "Always Allow" survives
 # reinstalls (same identifier build.sh signs with).
 if command -v codesign >/dev/null 2>&1; then
-    codesign -s - --identifier com.ztomer.multitop "$PREFIX/multitop" 2>/dev/null || true
+    codesign -f -s - --identifier com.ztomer.multitop "$STAGED" 2>/dev/null || die "could not sign $STAGED"
 fi
-
-ok "installed $PREFIX/multitop"
+mv -f "$STAGED" "$PREFIX/multitop"
+ok "installed $("$PREFIX/multitop" --version </dev/null)"
 printf '\n%sRun it:%s  multitop\n' "$BOLD" "$RST"
