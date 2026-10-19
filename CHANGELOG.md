@@ -7,7 +7,56 @@ This file starts at v0.47.0 — earlier history is in git (`git log`), and the
 per-defect record is `docs/detection-record.md`, which is the more useful
 document for anything before this point.
 
-## Unreleased
+## v0.56.0 — the phone can pair, and the installer replaces the binary instead of rewriting it _(2026-10-19)_
+
+Minor bump: the Android companion's pairing screen with its Keystore-sealed
+store, and an installer that puts the new binary in place by rename.
+
+**Upgrading:** the Android companion is new in this release, and it is the first
+slice of it that talks to a server. Nothing on the desktop changes for you until
+the read-only screens land (A2.5).
+
+ — pairing in the Android app (ROADMAP A2.4)
+
+- **The app pairs: scan the QR, or paste the string.** One Compose screen over
+  the A2.1 pairing core, four honest states, each carried by a glyph and words
+  and never by colour alone: `· Not paired`, `→ Pairing`, `✓ Paired to
+  <host>:<port>` (with the certificate's `sha256=` for a human to compare
+  against the server's line), `✗ Pairing failed: <why>`. CameraX 1.6.2 frames
+  into ZXing core 3.5.4 with `ALSO_INVERTED`, so the light-on-dark code a dark
+  terminal draws decodes as well as the dark-on-light one; the string can be
+  pasted instead. Both go through `PairingPayload.parse`, so a wrong fingerprint
+  is refused with its reason.
+- **The pairing string is sealed under one Keystore key.** The canonical string
+  (`PairingPayload.format`, byte for byte what the server prints) is sealed
+  AES-256-GCM under a single Android Keystore key (alias
+  `multitop-pairing-v1`), in one file in `noBackupFilesDir`; nothing in the
+  clear, re-validated on every read, and an unreadable one (a lost key, a
+  flipped bit) is reported and forgotten. Unpair deletes it. Proof:
+  `QrDecoderTest` paints the QR the server really draws as a dark and a light
+  terminal and decodes both, and calibrates that a stock reader finds nothing in
+  the dark one; `PairingStoreTest` and `PairingControllerTest` hold the round
+  trip, the absence of plaintext, unpair clearing, and a wrong key and a
+  tampered file being unreadable. Not proven on a device: no phone or emulator
+  is attached here, so the live camera path and the Keystore key are exercised
+  only by building, not by a test.
+
+ — the installer replaces the binary, it does not rewrite it
+
+**Upgrading:** `./install.sh` now replaces the installed binary by rename instead
+of rewriting it in place, so an install is a new inode every time. The old path
+could leave a binary that macOS had already cached a signature for and then
+SIGKILLed on every exec (exit 137); re-running the installer fixes that.
+
+- **The installed binary is replaced by rename, never rewritten in place.** macOS
+  caches a binary's code signature per vnode, and `cp -f` rewrote the executed
+  file in place: the cache went on describing the old bytes and every later exec
+  of that path was SIGKILLed (exit 137) -- the installed multitop was dead that
+  way on 2026-10-19 while a copy of the same bytes ran. The installer now copies
+  beside the target, signs the copy, and renames it over (a new inode, atomic),
+  then runs the result's `--version`. Proof: `tests/test_install_replace.py`
+  holds that a reinstall is a new inode that runs and leaves nothing staged (the
+  old step kept the inode: 1173678144 -> same).
 
 **Upgrading:** a `--serve` bound to anything but loopback now speaks **TLS only**,
 with a self-signed certificate it creates once beside the token (`serve-tls.pem`,

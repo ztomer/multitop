@@ -1,14 +1,19 @@
 # Roadmap
 
 The one forward-looking backlog. Shipped work is not listed here — it is in git
-history (`git log --oneline`) and in `docs/detection-record.md`. When an item
-here is finished, delete it rather than ticking it off.
+history (`git log --oneline`), in `CHANGELOG.md`, and in
+`docs/detection-record.md`. When an item here is finished, delete it rather than
+ticking it off.
 
-State on 2026-10-17: Phase 0 (goh 0.27.0 wiring and the shipped defects,
+State on 2026-10-19: Phase 0 (goh 0.27.0 wiring and the shipped defects,
 P0.1-P0.7) and Phase 1 (gate drift, G1-G3) are closed and pushed; their record is
 `git log --oneline` (`7a316b3`, `f096334`, `579ec14`, `3af81a5`, `dccdc7a`) and
-`git show 2475be7:docs/roadmap.md`. Phase 2's A1 closed on 2026-10-17. The open
-work is A2 (ruled D4 on 2026-10-18; slices A2.1 to A2.4 landed), then A3.
+`git show 2475be7:docs/roadmap.md`. Phase 2's A1 closed on 2026-10-17, and A2.4
+(the pairing screen and its Keystore-sealed store) closed on 2026-10-19 in
+`e7da25a`. The next open work is **A2.5**, the read-only screens over
+`/api/hosts` and `/api/health` through `PinnedTls`; then A3. The release that
+carried A2.4 is v0.56.0, and the installer's replace-by-rename fix (`2413764`)
+is in it — the release table is at the end.
 
 Every item names its proof: the test or gate that goes red until it is done.
 
@@ -121,7 +126,7 @@ In the order it blocks:
      the Kotlin tests; `crates/multitop/tests/serve_tls_test.rs` refuses a
      client pinned to
      another certificate.
-   * **A2.4 done 2026-10-19 -- pairing in the app.** One Compose screen
+   * **A2.4 done 2026-10-19 -- pairing in the app** (`e7da25a`). One Compose screen
      (`android/app/src/main/java/com/ztomer/multitop/android/ui/`), four honest
      states, each carried by a glyph and words, never colour alone:
      `· Not paired`, `→ Pairing`, `✓ Paired to <host>:<port>` (with the
@@ -145,10 +150,11 @@ In the order it blocks:
      and nothing stored); `PairingScreenTest`, one per state. Not proven on a
      device: no phone or emulator is attached here, so the live camera path
      and the Keystore key are exercised only by building, not by a test.
-   * **A2.5 -- the read-only screens** over `/api/hosts` and `/api/health`
-     through `PinnedTls` (its `verifier` is the HTTPS hostname verifier: the
-     LAN address may change, the pin may not). Proof: the end-to-end test
-     against a `--serve` started by the test, over the pinned TLS.
+   * **A2.5 -- the read-only screens (the next item)** over `/api/hosts` and
+     `/api/health` through `PinnedTls` (its `verifier` is the HTTPS hostname
+     verifier: the LAN address may change, the pin may not). Proof: the
+     end-to-end test against a `--serve` started by the test, over the pinned
+     TLS.
 
    Measured 2026-10-17: Android SDK at `~/Library/Android/sdk`, Gradle 9.8.1,
    Temurin JDK 27; no device attached; `ANDROID_HOME` unset (the gate defaults
@@ -237,6 +243,15 @@ channel); bundle it only if the vault trigger fires.
 | **Plugin SDK (WASM)** | Custom `exec` panels (`custom_command` in `crates/multitop/src/config/types.rs`) cover it without a sandbox to get wrong. Revisit if panels ever arrive from somewhere other than the user's own config. |
 | **A light variant per theme** | Superseded by background detection: one mechanism for all eight themes, correct on an image background. Shipped 2026-09-28. |
 | **Adapting the agent's tty path** | The seam exists (`emit_fetch`/`emit_docker` take a `&PaletteView`), but `crates/agent/src/lib.rs` builds it with `for_theme`, the identity, because a process on the remote host cannot measure the user's terminal background. Worth doing when a second consumer that knows the client's background appears. |
+
+## Releases
+
+One row per release, with the work it carried and the commits that carry it.
+The tag is the record; the per-release detail is in `CHANGELOG.md`.
+
+| Release | What it carried | Commits |
+|---------|-----------------|---------|
+| v0.56.0 | A2.4 (the Android pairing screen and its Keystore-sealed store, both QR polarities) and the installer's replace-by-rename fix (`install.sh` copies beside the target, signs the copy, and renames it over) | `e7da25a`, `2413764` |
 
 ## Sources consolidated (2026-10-12)
 
