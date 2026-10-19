@@ -135,6 +135,31 @@ FUZZ_RUN = re.compile(
 )
 
 
+# The Android companion (android/, docs/roadmap.md A2) is a second language in
+# this repo, and a second language inherits none of the first one's gates
+# (polyglot-gate-parity): its build, lint and unit tests run in ONE script,
+# which CI and the pre-push hook must both run, from the commit that added the
+# directory. Matched as a command, not a word, as with the fuzz targets. Push
+# scope, like the python suites (G1): a from-clean Gradle build is not a
+# per-commit cost.
+ANDROID_DIR = REPO / "android"
+ANDROID_RUN = re.compile(r"(?:^|[\s;&|(:])(?:bash\s+)?tools/android_gate\.sh(?:\s|$|[;&|):])", re.MULTILINE)
+
+
+def android_mismatches(has_android: bool, places: dict[str, str]) -> list[str]:
+    if not has_android:
+        return []
+    return [f"{name} does not run the Android gate (tools/android_gate.sh)"
+            for name, text in sorted(places.items()) if not ANDROID_RUN.search(_live(text))]
+
+
+def android_problems() -> list[str]:
+    return android_mismatches(ANDROID_DIR.is_dir(), {
+        "CI workflow": WORKFLOW.read_text(encoding="utf-8"),
+        ".gatesrc GOH_CI_STEPS": gatesrc_steps(),
+    })
+
+
 # The hook runs the steps GOH_CI_STEPS also runs through gates_of_heck's
 # proven-step cache, so the pre-push run over the same tree can skip them. The
 # cache keys on the step STRING: a hook step spelled one character differently
@@ -365,6 +390,20 @@ def self_test() -> int:
               file=sys.stderr)
         return 1
 
+    # And that the Android gate is required where it must run, both ways.
+    ran = {"CI workflow": "      - run: bash tools/android_gate.sh\n", ".gatesrc GOH_CI_STEPS": "a:bash tools/android_gate.sh:b"}
+    if android_mismatches(True, ran):
+        print("gate-parity self-test: a run Android gate was reported missing", file=sys.stderr)
+        return 1
+    mentioned = {"CI workflow": "# tools/android_gate.sh is run elsewhere\n", ".gatesrc GOH_CI_STEPS": "a:b"}
+    if len(android_mismatches(True, mentioned)) != 2:
+        print("gate-parity self-test: an Android gate only mentioned, or absent, was NOT reported",
+              file=sys.stderr)
+        return 1
+    if android_mismatches(False, mentioned):
+        print("gate-parity self-test: a repo without android/ was asked for its gate", file=sys.stderr)
+        return 1
+
     print("gate-parity self-test: passed")
     return 0
 
@@ -380,7 +419,7 @@ def main() -> int:
 
     existing = on_disk()
     problems = (differences(gates(), existing) + suite_problems() + always_run_problems()
-                + proven_problems() + wiring_problems())
+                + proven_problems() + wiring_problems() + android_problems())
     if not problems:
         print(
             f"gate-parity: clean ({len(existing)} checkers and "

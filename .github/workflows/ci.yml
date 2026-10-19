@@ -163,6 +163,10 @@ jobs:
         # stated reason when what they need is absent -- the live suite without
         # reachable hosts, the tmux suite without tmux -- so neither turns a
         # runner's missing tool into a silent pass or a red build.
+        # GOH_DIR: tests/test_android_gate.py runs tools/android_gate.sh, which
+        # sources the harness's tui/lib.sh.
+        env:
+          GOH_DIR: ${{ github.workspace }}/.gates_of_heck
         run: |
           cargo build -p multitop
           python3 -m pytest tests/ -q
@@ -216,6 +220,34 @@ jobs:
           name: lcov-workspace
           path: target/lcov.info
           if-no-files-found: error
+
+  android:
+    name: android (ktlint / lint / unit tests / build)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Check out the shared gate harness
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          repository: ztomer/gates_of_heck
+          path: .gates_of_heck
+      # The JDK the build host runs (Temurin 27). AGP fetches the compile SDK
+      # it names (android-37.2) itself once the licences are accepted, which
+      # setup-android does.
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '27'
+      - uses: android-actions/setup-android@v3
+      # The same command the pre-push hook runs (GOH_CI_STEPS), so the merge
+      # gate cannot be weaker than the local one.
+      - name: Android gate
+        env:
+          GOH_DIR: ${{ github.workspace }}/.gates_of_heck
+        run: bash tools/android_gate.sh
 
   fuzz:
     name: fuzz targets build

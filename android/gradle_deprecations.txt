@@ -1,0 +1,6 @@
+# Deprecations the Android build prints that no code in this repo can fix, each
+# held with its reason (tools/android_deprecations.py). One per line:
+#   <substring of the printed line> | <why it may stand, and what retires it>
+# An entry whose line stops printing fails the gate until it is deleted.
+Configuration.setVisible(boolean) method has been deprecated | AGP 9.4.1 calls it (BasePlugin.createAndroidJdkImageConfiguration); retires with the AGP release that stops
+A terminally deprecated method in sun.misc.Unsafe has been called | the JVM (24+) warning that ktlint 1.8.0's embedded kotlin-compiler-embeddable 2.2.21 calls sun.misc.Unsafe::objectFieldOffset; retires with the ktlint release that embeds a compiler past it

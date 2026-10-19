@@ -20,3 +20,11 @@ rustc-ice-*.txt
 
 # the shared gate harness CI checks out beside the tree
 /.gates_of_heck/
+
+# The Android companion's build state (android/, ROADMAP A2). The SDK location
+# comes from ANDROID_HOME (tools/android_gate.sh), never a committed path.
+/android/.gradle/
+/android/.kotlin/
+/android/build/
+/android/app/build/
+/android/local.properties

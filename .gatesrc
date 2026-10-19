@@ -47,6 +47,24 @@ GOH_MD_LINKS_MIN_LINKS=11
 GOH_UNREAPED_SPAWN_MIN_FILES=249
 GOH_SUBPROCESS_STDIN_MIN_CALLS=42
 
+# goh's check_ci_local_parity.py matches CI's scripts by NAME in GOH_CI_STEPS,
+# and the pre-push step runs the checkers through tools/checkers.sh's glob, which
+# names none of them. Each is exempt for that reason alone; check_gate_parity.py
+# is what holds the glob, the commit gate and CI's list to one set.
+GOH_CI_PARITY_EXEMPT='tools/check_agent_version.py: run by tools/checkers.sh, which globs tools/check_*.py (check_gate_parity.py holds the glob to the CI list)
+tools/check_codesign.py: run by tools/checkers.sh, which globs tools/check_*.py (check_gate_parity.py holds the glob to the CI list)
+tools/check_doc_paths.py: run by tools/checkers.sh, which globs tools/check_*.py (check_gate_parity.py holds the glob to the CI list)
+tools/check_gate_parity.py: run by tools/checkers.sh, which globs tools/check_*.py (check_gate_parity.py holds the glob to the CI list)
+tools/check_key_hints.py: run by tools/checkers.sh, which globs tools/check_*.py (check_gate_parity.py holds the glob to the CI list)
+tools/check_keychain_isolation.py: run by tools/checkers.sh, which globs tools/check_*.py (check_gate_parity.py holds the glob to the CI list)
+tools/check_magic_numbers.py: run by tools/checkers.sh, which globs tools/check_*.py (check_gate_parity.py holds the glob to the CI list)
+tools/check_msrv_claim.py: run by tools/checkers.sh, which globs tools/check_*.py (check_gate_parity.py holds the glob to the CI list)
+tools/check_no_hard_coded_colour.py: run by tools/checkers.sh, which globs tools/check_*.py (check_gate_parity.py holds the glob to the CI list)
+tools/check_one_escape_reader.py: run by tools/checkers.sh, which globs tools/check_*.py (check_gate_parity.py holds the glob to the CI list)
+tools/check_row0_owner.py: run by tools/checkers.sh, which globs tools/check_*.py (check_gate_parity.py holds the glob to the CI list)
+tools/check_test_only_code.py: run by tools/checkers.sh, which globs tools/check_*.py (check_gate_parity.py holds the glob to the CI list)
+tools/check_unsafe_scope.py: run by tools/checkers.sh, which globs tools/check_*.py (check_gate_parity.py holds the glob to the CI list)'
+
 # ── The gate of record ──────────────────────────────────────────────────────
 # ONE list: tools/gate.sh --full (the pre-push hook) runs it through
 # gates_of_heck/gates/local_ci.sh. It replaced scripts/local-ci.py (481 lines
@@ -72,4 +90,9 @@ export CARGO_INCREMENTAL=0
 # `tools/check_*.py` name, so check_gate_parity.py does not demand it in the
 # commit gate and in CI -- a gate that needs an install has nothing to check on a
 # runner.
-GOH_CI_STEPS='"$GOH_DIR/gates/structural.sh" --full:tools/checkers.sh:"$GOH_DIR/gates/rust_gate.sh":python3 "$GOH_DIR/lib/advisory_db.py" run --fetch -- cargo audit --deny warnings --deny unmaintained --deny unsound --deny yanked:cargo test --workspace --all-features --doc:cargo build -p multitop && MULTITOP_LIVE=1 python3 -m pytest tests/ -q:python3 tools/ratchet_check.py --self-test && python3 tools/ratchet_check.py:tools/fuzz_check.sh:python3 tools/bench_check.py --self-test && python3 tools/bench_check.py:bash tools/coverage_check.sh:python3 tools/installed_freshness.py:tools/lint_linux.sh'
+#
+# bash tools/android_gate.sh is the Android companion's whole gate (android/,
+# ROADMAP A2): ktlint, lint and kotlinc with warnings as errors, the JVM unit
+# tests, the deprecation ratchet and the 64-bit-ABI check. CI's android job runs
+# the same command; check_gate_parity.py fails either one dropping it.
+GOH_CI_STEPS='"$GOH_DIR/gates/structural.sh" --full:tools/checkers.sh:"$GOH_DIR/gates/rust_gate.sh":python3 "$GOH_DIR/lib/advisory_db.py" run --fetch -- cargo audit --deny warnings --deny unmaintained --deny unsound --deny yanked:cargo test --workspace --all-features --doc:cargo build -p multitop && MULTITOP_LIVE=1 python3 -m pytest tests/ -q:python3 tools/ratchet_check.py --self-test && python3 tools/ratchet_check.py:tools/fuzz_check.sh:bash tools/android_gate.sh:python3 tools/bench_check.py --self-test && python3 tools/bench_check.py:bash tools/coverage_check.sh:python3 tools/installed_freshness.py:tools/lint_linux.sh'

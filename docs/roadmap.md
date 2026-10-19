@@ -8,7 +8,7 @@ State on 2026-10-17: Phase 0 (goh 0.27.0 wiring and the shipped defects,
 P0.1-P0.7) and Phase 1 (gate drift, G1-G3) are closed and pushed; their record is
 `git log --oneline` (`7a316b3`, `f096334`, `579ec14`, `3af81a5`, `dccdc7a`) and
 `git show 2475be7:docs/roadmap.md`. Phase 2's A1 closed on 2026-10-17. The open
-work is A2, which waits on two owner decisions, then A3.
+work is A2 (ruled D4 on 2026-10-18; slice A2.1 landed), then A3.
 
 Every item names its proof: the test or gate that goes red until it is done.
 
@@ -57,28 +57,67 @@ In the order it blocks:
 
 1. **A2 — a read-only Android app** over `/api/*`. A glance surface, not a
    terminal emulator and not the TUI's key handling in a smaller window.
-   **Blocked on two owner decisions** before any code:
-   * **Same repo or its own.** Precedent: `koffee_big` keeps its app in
-     `android/` beside the rest. A second language in this repo inherits none of
-     its gates (`polyglot-gate-parity`): it needs its own lint, tests, coverage
-     floor and a `check_gate_parity.py` entry from the first commit.
-   * **Native (Kotlin, pinned TLS as above) or a page served by `--serve`
-     itself.** Native is assumed by everything above; a served page changes the
-     TLS answer.
+   **Owner ruling D4 (2026-10-18):** native Kotlin, in this repo at `android/`,
+   pinned self-signed TLS from pairing, its own gates and a
+   `check_gate_parity.py` entry from the first commit.
 
-   Measured 2026-10-17, present and not installed by anyone this round: Android
-   SDK at `~/Library/Android/sdk` (platforms 35 and 36, build-tools 34-36, NDK
-   27.3, emulator with three arm64-v8a AVDs from koffee), Gradle 9.8.1, Temurin
-   JDK 27; no device attached. Absent: `ANDROID_HOME` unset, `adb` not on PATH,
-   no Rust Android targets, no `cargo-ndk`. A Kotlin-only client needs none of
-   the absent four. If the app ever links Rust, its targets are
-   `aarch64-linux-android` and `x86_64-linux-android` and nothing else, and the
-   build fails on any other ABI (house platform policy). Proof: the app's own
-   gate runs in CI; an end-to-end test against a `--serve` started by the test,
-   over the pinned TLS.
+   **A2.1 done 2026-10-18** (the commit that added `android/`): Gradle 9.8.1,
+   AGP 9.4.1 with KGP 2.4.21, compileSdk android-37.2 / targetSdk 37, ktlint
+   1.8.0, JUnit 6.1.3 -- the newest releases that day. **minSdk 28**: the floor
+   at which Android refuses cleartext by default (the protection this client
+   relies on rather than opts out of), and the floor `koffee_big` already ships
+   to the owner's phone. 64-bit ABIs only (`abiFilters` plus an APK check). The
+   gate is `tools/android_gate.sh` (ktlint, Android lint and kotlinc with
+   warnings as errors, unit tests, a from-clean build, a deprecation ratchet in
+   `android/gradle_deprecations.txt`, refused on an unsupported build host and
+   red with install steps when the SDK is missing), run by CI's `android` job
+   and by GOH_CI_STEPS; `check_gate_parity.py` fails either one dropping it.
+   The pairing core is pure Kotlin under test
+   (`android/app/src/main/java/com/ztomer/multitop/android/pairing/`), and the
+   one screen says plainly that the app is not paired.
+
+   **The pairing format is fixed by the client**, and it differs from the
+   sketch above in one field: it carries the certificate itself, not only its
+   fingerprint --
+   `multitop://pair?v=1&addr=<host>:<port>&token=<64 hex>&sha256=<64 hex>&cert=<base64url DER>`.
+   Android lint refuses any hand-written `X509TrustManager`
+   (CustomX509TrustManager, reported on every implementing class), and a
+   fingerprint alone can only be enforced by one. So trust is the PLATFORM
+   trust manager over a store holding only the pinned certificate, then a
+   session check that the leaf IS that certificate by SHA-256 (the platform
+   alone accepts what the pinned key signs). `sha256` stays as the short form
+   a human compares and must agree with `cert`. A P-256 certificate is ~530
+   characters of payload: a dense but ordinary QR code.
+
+   Remaining, in order:
+   * **A2.2 -- a Kotlin coverage floor** in `tools/android_gate.sh` (JaCoCo
+     over the unit tests, scope and floor named once), before any more code
+     lands: `polyglot-gate-parity` asks for it from the first commit, and it is
+     the one gate A2.1 did not fit. Proof: the floor goes red when a pairing
+     test is deleted.
+   * **A2.3 -- the server half of A2-TLS** (item 2 below), printing exactly the
+     payload above. Proof: a server test that parses its own printed payload
+     with the field rules the client enforces, and the client's fixture test
+     re-run against a certificate the server made.
+   * **A2.4 -- pairing in the app**: paste or scan the payload, show the
+     fingerprint for a human to compare, store the pairing where no backup
+     reaches (the manifest already excludes everything), forget it on demand.
+     Proof: unit tests over the store seam; the placeholder text changes only
+     when a pairing exists.
+   * **A2.5 -- the read-only screens** over `/api/hosts` and `/api/health`
+     through `PinnedTls` (its `verifier` is the HTTPS hostname verifier: the
+     LAN address may change, the pin may not). Proof: the end-to-end test
+     against a `--serve` started by the test, over the pinned TLS.
+
+   Measured 2026-10-17: Android SDK at `~/Library/Android/sdk`, Gradle 9.8.1,
+   Temurin JDK 27; no device attached; `ANDROID_HOME` unset (the gate defaults
+   to that path on macOS). If the app ever links Rust, its targets are
+   `aarch64-linux-android` and `x86_64-linux-android` and nothing else, and
+   the build fails on any other ABI (house platform policy).
 2. **A2-TLS — the certificate.** Server half: created `0600` beside the token,
-   reused across restarts, served only on a non-loopback bind, its fingerprint
-   printed with the pairing string (to a tty only, as the token is). Proof: a
+   reused across restarts, served only on a non-loopback bind, and printed as
+   the A2.1 pairing payload (certificate and fingerprint, to a tty only, as the
+   token is). A leaf (`CA:FALSE`), since nothing it signs should be trusted. Proof: a
    server test that a non-loopback bind answers TLS and a loopback one plain
    HTTP; the client's test that a different certificate is refused.
 3. **A3 — push.** Android push is **FCM** (or UnifiedPush/ntfy to avoid a
