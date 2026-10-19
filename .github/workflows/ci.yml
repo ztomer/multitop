@@ -237,11 +237,11 @@ jobs:
       # The JDK the build host runs (Temurin 27). AGP fetches the compile SDK
       # it names (android-37.2) itself once the licences are accepted, which
       # setup-android does.
-      - uses: actions/setup-java@v5
+      - uses: actions/setup-java@v6
         with:
           distribution: temurin
           java-version: '27'
-      - uses: android-actions/setup-android@v3
+      - uses: android-actions/setup-android@v4
       # The same command the pre-push hook runs (GOH_CI_STEPS), so the merge
       # gate cannot be weaker than the local one.
       - name: Android gate
