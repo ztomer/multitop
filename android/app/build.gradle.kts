@@ -1,6 +1,7 @@
 plugins {
     id("com.android.application")
     id("org.jlleitschuh.gradle.ktlint")
+    id("org.jetbrains.kotlinx.kover")
 }
 
 android {
@@ -68,6 +69,26 @@ kotlin {
 ktlint {
     version.set("1.8.0")
     ignoreFailures.set(false)
+}
+
+// The coverage floor: line coverage of the debug variant's main code under the
+// JVM unit tests, as a whole-number percentage. The number lives in
+// tools/android_coverage_floor.txt (one place, read by the build and by the
+// roadmap's record of it); `./gradlew koverVerify` fails below it.
+kover {
+    reports {
+        verify {
+            rule {
+                minBound(
+                    providers
+                        .fileContents(rootProject.layout.projectDirectory.file("../tools/android_coverage_floor.txt"))
+                        .asText
+                        .map { it.trim().toInt() }
+                        .get(),
+                )
+            }
+        }
+    }
 }
 
 dependencies {

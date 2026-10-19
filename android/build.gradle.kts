@@ -13,4 +13,7 @@ plugins {
     // ktlint 1.8.0 through the Gradle plugin: every violation is an error
     // (ktlint has no warning level), so the style gate cannot report and pass.
     id("org.jlleitschuh.gradle.ktlint") version "14.2.0" apply false
+    // Kover 0.9.11 (JetBrains, released 2026-09-29): line coverage of the JVM
+    // unit tests, and the floor (koverVerify) in app/build.gradle.kts.
+    id("org.jetbrains.kotlinx.kover") version "0.9.11" apply false
 }

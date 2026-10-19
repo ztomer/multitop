@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
 # The Android companion's gate (android/, docs/roadmap.md A2): ktlint, Android
 # lint and the Kotlin compiler with warnings as errors, the JVM unit tests, and
-# a debug APK -- then two checks Gradle cannot make itself:
+# a debug APK, and the line-coverage floor (Kover, tools/android_coverage_floor.txt:
+# one whole number, read by the Gradle build and recorded in docs/roadmap.md A2.2) --
+# then two checks Gradle cannot make itself:
 #
 #   * every deprecation the build prints is held, with its reason, in
 #     android/gradle_deprecations.txt (tools/android_deprecations.py, a ratchet:
@@ -57,14 +59,18 @@ trap 'rm -f "$log"' EXIT
 section "android companion"
 # `clean` first: a task Gradle skips as up to date prints none of its warnings,
 # so the deprecation ratchet below would see a different log on every run.
-info "ktlint, lint, unit tests and a debug build from clean (warnings are errors)"
+floor="$(tr -d '[:space:]' <tools/android_coverage_floor.txt)"
+case "$floor" in
+    '' | *[!0-9]*) die "tools/android_coverage_floor.txt must hold one whole number, found '$floor'" ;;
+esac
+info "ktlint, lint, unit tests, a ${floor}% line-coverage floor and a debug build from clean (warnings are errors)"
 if ! (cd android && ./gradlew --no-daemon --console=plain \
-    clean ktlintCheck lintDebug testDebugUnitTest assembleDebug) >"$log" 2>&1 </dev/null; then
+    clean ktlintCheck lintDebug testDebugUnitTest koverVerify assembleDebug) >"$log" 2>&1 </dev/null; then
     python3 "$GOH/lib/fail_lines.py" "$log" >&2 || true
     tail -60 "$log" >&2
     die "the Android build, lint or unit tests failed"
 fi
-ok "ktlint, lint, unit tests and build"
+ok "ktlint, lint, unit tests, coverage floor ${floor}% and build"
 
 python3 tools/android_deprecations.py --self-test >/dev/null ||
     die "android_deprecations.py's self-test failed -- it cannot be trusted"

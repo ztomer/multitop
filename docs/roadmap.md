@@ -8,7 +8,7 @@ State on 2026-10-17: Phase 0 (goh 0.27.0 wiring and the shipped defects,
 P0.1-P0.7) and Phase 1 (gate drift, G1-G3) are closed and pushed; their record is
 `git log --oneline` (`7a316b3`, `f096334`, `579ec14`, `3af81a5`, `dccdc7a`) and
 `git show 2475be7:docs/roadmap.md`. Phase 2's A1 closed on 2026-10-17. The open
-work is A2 (ruled D4 on 2026-10-18; slice A2.1 landed), then A3.
+work is A2 (ruled D4 on 2026-10-18; slices A2.1 and A2.2 landed), then A3.
 
 Every item names its proof: the test or gate that goes red until it is done.
 
@@ -90,11 +90,21 @@ In the order it blocks:
    characters of payload: a dense but ordinary QR code.
 
    Remaining, in order:
-   * **A2.2 -- a Kotlin coverage floor** in `tools/android_gate.sh` (JaCoCo
-     over the unit tests, scope and floor named once), before any more code
-     lands: `polyglot-gate-parity` asks for it from the first commit, and it is
-     the one gate A2.1 did not fit. Proof: the floor goes red when a pairing
-     test is deleted.
+   * **A2.2 done 2026-10-18 -- a Kotlin coverage floor of 71%** (line coverage,
+     measured 71.58%, rounded down). Kover 0.9.11 (JetBrains, released
+     2026-09-29) rather than JaCoCo: it is built for Kotlin and Android and
+     enforces a floor itself (`koverVerify`), where AGP's JaCoCo path produces a
+     report and leaves the verification task to be hand-built. Scope: the main
+     code of the debug and release variants under the JVM unit tests (the one
+     activity included: it is 27 of the 95 lines, so the floor is honest about
+     the screen being untested). The number lives once, in
+     `tools/android_coverage_floor.txt`, read by `android/app/build.gradle.kts`
+     and by `tools/android_gate.sh`, which runs `koverVerify` in the same Gradle
+     invocation CI's `android` job runs; `tests/test_android_gate.py` fails if
+     this paragraph and that file disagree. Proof: the floor at 72 printed
+     `Rule violated: lines covered percentage is 71.578900, but expected minimum
+     is 72` and failed the gate; at 71 it passes. The floor only rises: lift it
+     in the commit that adds the tests.
    * **A2.3 -- the server half of A2-TLS** (item 2 below), printing exactly the
      payload above. Proof: a server test that parses its own printed payload
      with the field rules the client enforces, and the client's fixture test

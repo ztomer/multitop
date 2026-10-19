@@ -57,3 +57,10 @@ def test_a_missing_sdk_is_a_red_gate_that_says_how_to_install_it(tmp_path):
     assert proc.returncode != 0, out
     assert "no Android SDK" in out
     assert "sdkmanager" in out
+
+
+def test_the_coverage_floor_is_one_whole_number_and_the_roadmap_records_it():
+    floor = (ROOT / "tools" / "android_coverage_floor.txt").read_text().strip()
+    assert floor.isdigit(), f"tools/android_coverage_floor.txt must hold one whole number, found {floor!r}"
+    roadmap = (ROOT / "docs" / "roadmap.md").read_text()
+    assert f"a Kotlin coverage floor of {floor}%" in roadmap, "docs/roadmap.md A2.2 does not record the floor in tools/android_coverage_floor.txt"
