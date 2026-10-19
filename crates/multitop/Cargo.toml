@@ -59,4 +59,4 @@ toml = { version = "1", default-features = false, features = ["parse", "serde", 
 # tests. A dev-dependency, so it reaches `#[cfg(test)]` sites in `src/` too and
 # links into no shipped binary -- see crates/testassert/src/lib.rs.
 multitop-testassert = { path = "../testassert" }
-vt100 = "0.16.2"
+vt100 = "0.17.0"
