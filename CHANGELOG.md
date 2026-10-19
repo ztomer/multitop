@@ -9,6 +9,30 @@ document for anything before this point.
 
 ## Unreleased
 
+**Upgrading:** a `--serve` bound to anything but loopback now speaks **TLS only**,
+with a self-signed certificate it creates once beside the token (`serve-tls.pem`,
+`0600`) and reuses. Plain-HTTP clients of a LAN bind stop working; loopback binds
+are unchanged.
+
+ — `--serve` TLS, the server half of the Android companion's pinning (ROADMAP A2.3)
+
+- **A LAN bind is TLS, a loopback bind stays plain HTTP.** On a LAN the bearer
+  token and every response crossed the wire in the clear. The certificate is an
+  ECDSA P-256 leaf (`CA:FALSE`), kept so the phone pairs once; a file others can
+  open, or one whose key does not match its certificate, refuses to start rather
+  than being replaced. Loopback keeps plain HTTP: the page at `/` and same-host
+  `curl` are the one plaintext path, unobservable from another host. A plaintext
+  request to the TLS port gets no HTTP answer. Handshakes run per connection,
+  bounded and timed out, so a silent peer delays nobody.
+- **The pairing string, printed to a terminal.** `multitop://pair?v=1&addr=...`
+  exactly as the app parses it, with its QR code; the server reads its own
+  string back by the app's rules before printing it, and says why when it cannot
+  (a wildcard bind with no route, a hand-written token). A log gets the
+  certificate's fingerprint, never the string, which carries the token. The
+  `curl` line pins the key (`--pinnedpubkey`). A golden pair in
+  `android/app/src/test/resources/` is written by the Rust tests and read by the
+  Kotlin ones, so neither half can drift alone.
+
 **Upgrading:** `--serve-token <TOKEN>` is refused. Put the token in a file only you
 can read and pass `--serve-token-file <PATH>`, or pass nothing: `--serve` creates
 `serve-token` beside the config file (`0600`) on first start and reads it after.

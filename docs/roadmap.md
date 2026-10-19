@@ -105,11 +105,24 @@ In the order it blocks:
      `Rule violated: lines covered percentage is 71.578900, but expected minimum
      is 72` and failed the gate; at 71 it passes. The floor only rises: lift it
      in the commit that adds the tests.
-   * **A2.3 -- the server half of A2-TLS** (item 2 below), printing exactly the
-     payload above. Proof: a server test that parses its own printed payload
-     with the field rules the client enforces, and the client's fixture test
-     re-run against a certificate the server made.
-   * **A2.4 -- pairing in the app**: paste or scan the payload, show the
+   * **A2.3 done 2026-10-18 -- the server half of A2-TLS** (item 2 below).
+     `crates/multitop/src/serve_tls.rs` (identity, `0600` beside the token,
+     reused; the per-connection TLS listener), `pairing.rs` (the payload, read
+     back by the client's rules before it prints, and its QR code),
+     `serve_start.rs` (what `--serve` settles and prints). rustls 0.23 / rcgen
+     0.14 on `ring`, one of each in the lock. **Plain HTTP's fate:** refused on
+     every non-loopback bind (no HTTP answer on the TLS port); kept on loopback
+     only, for the page at `/` and same-host `curl`. Proof: the golden pair
+     `android/app/src/test/resources/rust_server.pem` and
+     `android/app/src/test/resources/rust_server_pairing.txt` are written
+     and checked by `crates/multitop/src/pairing_tests.rs` and parsed, then
+     handshaken against, by
+     the Kotlin tests; `crates/multitop/tests/serve_tls_test.rs` refuses a
+     client pinned to
+     another certificate.
+   * **A2.4 -- pairing in the app**: paste or scan the payload (the terminal
+     QR is drawn light-on-dark on a dark terminal, so the scanner must accept
+     both polarities), show the
      fingerprint for a human to compare, store the pairing where no backup
      reaches (the manifest already excludes everything), forget it on demand.
      Proof: unit tests over the store seam; the placeholder text changes only

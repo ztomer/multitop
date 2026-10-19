@@ -239,18 +239,6 @@ fn serve_headless(
     servers: Vec<config::Server>,
     initial_theme: Option<String>,
 ) -> ExitCode {
-    // A plain String from here on: `Option` said "no token", which downstream read
-    // as "no authentication". Any failure -- the CSPRNG, the file, its mode --
-    // REFUSES to serve rather than falling back to something weaker: a `--serve` on a
-    // LAN with a guessable token is worse than no server.
-    let token_path = token_file.unwrap_or_else(|| multitop::serve_token::default_path(config_path));
-    let (token, created) = match multitop::serve_token::load_or_create(&token_path) {
-        Ok(t) => t,
-        Err(e) => {
-            eprintln!("[Error] {e} -- refusing to start --serve");
-            return ExitCode::FAILURE;
-        }
-    };
     // Need to load full config for health thresholds
     let cfg = config::load(config_path).unwrap_or_else(|_| config::Config {
         servers: servers.clone(),
@@ -271,11 +259,23 @@ fn serve_headless(
             return ExitCode::FAILURE;
         }
     };
+    // Any failure -- the CSPRNG, a file, its mode -- REFUSES to serve rather than
+    // falling back to a weaker token or to plain HTTP on a LAN bind.
+    let token_path = token_file.unwrap_or_else(|| multitop::serve_token::default_path(config_path));
     let to_tty = std::io::IsTerminal::is_terminal(&std::io::stderr());
-    eprintln!(
-        "{}",
-        multitop::serve_token::startup_banner(addr, &token, &token_path, created, to_tty)
-    );
+    let ready = match multitop::serve_start::prepare(
+        addr,
+        &token_path,
+        to_tty,
+        multitop::pairing::route_source,
+    ) {
+        Ok(r) => r,
+        Err(e) => {
+            eprintln!("[Error] {e} -- refusing to start --serve");
+            return ExitCode::FAILURE;
+        }
+    };
+    eprintln!("{}", ready.banner);
     let runtime = match tokio::runtime::Builder::new_multi_thread()
         .enable_all()
         .build()
@@ -292,14 +292,14 @@ fn serve_headless(
         ));
         let app_state = multitop::server::AppState {
             live: live.clone(),
-            token: token.clone(),
+            token: ready.token,
             servers: servers.clone(),
             config: cfg,
         };
         // Sort for collectors
         let sort = multitop_agent::SortBy::Cpu;
         multitop::server::spawn_collectors(servers, &live, sort);
-        multitop::server::serve(addr, app_state).await
+        multitop::server::serve(addr, app_state, ready.tls).await
     });
     match code {
         Ok(()) => ExitCode::SUCCESS,

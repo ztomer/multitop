@@ -3,7 +3,8 @@
 //! Reuses `b"MTOP"` decoder (`multitop_agent::proto::decode_packet`) as JSON,
 //! no new wire. New auth surface: `Hello` already validates `proto_version`,
 //! `Token` is `Authorization: Bearer <token>`, read from a `0600` file and
-//! created there on first use (`crate::serve_token`). Same `ssh` + `agent` +
+//! created there on first use (`crate::serve_token`); a non-loopback bind is TLS
+//! only (`crate::serve_tls`). Same `ssh` + `agent` +
 //! `history` as the TUI.
 
 use std::collections::HashMap;
@@ -411,19 +412,38 @@ pub fn spawn_collectors(servers: Vec<Server>, live: &SharedState, sort: multitop
     }
 }
 
-/// Start the HTTP server.
+/// Start the companion server: TLS under `tls` when it is given (every bind
+/// other hosts can reach, [`crate::serve_tls::needs_tls`]), plain HTTP otherwise.
 ///
 /// # Errors
 /// Returns an error string if binding the TCP listener or serving requests fails.
-pub async fn serve(addr: SocketAddr, state: AppState) -> Result<(), String> {
-    let app = router(state);
+pub async fn serve(
+    addr: SocketAddr,
+    state: AppState,
+    tls: Option<Arc<rustls::ServerConfig>>,
+) -> Result<(), String> {
     let listener = tokio::net::TcpListener::bind(addr)
         .await
         .map_err(|e| format!("bind {addr}: {e}"))?;
-    axum::serve(listener, app)
+    serve_on(listener, state, tls)
         .await
-        .map_err(|e| format!("serve {addr}: {e}"))?;
-    Ok(())
+        .map_err(|e| format!("serve {addr}: {e}"))
+}
+
+/// [`serve`] over a listener already bound.
+///
+/// # Errors
+/// When serving fails.
+pub async fn serve_on(
+    listener: tokio::net::TcpListener,
+    state: AppState,
+    tls: Option<Arc<rustls::ServerConfig>>,
+) -> std::io::Result<()> {
+    let app = router(state);
+    match tls {
+        Some(config) => axum::serve(crate::serve_tls::listener(listener, config)?, app).await,
+        None => axum::serve(listener, app).await,
+    }
 }
 
 #[cfg(test)]

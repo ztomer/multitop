@@ -29,6 +29,20 @@ class PairingPayloadTest {
     }
 
     @Test
+    fun `the pairing string the server printed parses to the certificate it made`() {
+        // The cross-language contract: rust_server_pairing.txt is byte for byte what
+        // `multitop --serve` prints for rust_server.pem (the Rust test fails otherwise).
+        val printed = Fixtures.text("rust_server_pairing.txt").trim()
+        val result = PairingPayload.parse(printed)
+        assertTrue(result is PairingPayload.Parsed, "refused the server's own payload: $result")
+        val pairing = (result as PairingPayload.Parsed).pairing
+        assertEquals("192.168.1.20", pairing.host)
+        assertEquals(PORT, pairing.port)
+        assertEquals(Fixtures.certificate(Fixtures.RUST_SERVER), pairing.certificate)
+        assertTrue(printed.contains("&sha256=${pairing.pin.hex}&"), printed)
+    }
+
+    @Test
     fun `a fingerprint that disagrees with the certificate is refused`() {
         val result = refused(good.replace(Fixtures.SERVER_SHA256, Fixtures.OTHER_SHA256))
         assertTrue(result.reason.contains("does not match"), result.reason)

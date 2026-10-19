@@ -52,6 +52,21 @@ class PinnedTlsTest {
     }
 
     @Test
+    fun `a real TLS session succeeds against a certificate the Rust server made`() {
+        // The server's identity is a CA:FALSE leaf (rcgen), not openssl's default
+        // CA:TRUE: this is what proves the platform accepts it as its own anchor.
+        val rust = Fixtures.RUST_SERVER
+        assertEquals("pong", exchange(serverKey = rust, trusted = rust, pinned = rust))
+    }
+
+    @Test
+    fun `a client paired with the Rust server refuses any other certificate`() {
+        val rust = Fixtures.RUST_SERVER
+        assertThrows<SSLHandshakeException> { exchange(serverKey = "other", trusted = rust, pinned = rust) }
+        assertThrows<SSLHandshakeException> { exchange(serverKey = rust, trusted = "server", pinned = "server") }
+    }
+
+    @Test
     fun `no pin refuses every session, even one the platform accepted`() {
         // A context cannot be built without a certificate (the type says so), so
         // the only unpinned piece is the verifier, and it must refuse everything.

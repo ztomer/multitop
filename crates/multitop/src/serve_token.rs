@@ -35,8 +35,6 @@
 //! ([`startup_banner`]) -- a log gets the file's path, never its contents.
 
 use std::fmt::Write as _;
-use std::io::Write as _;
-use std::os::unix::fs::{DirBuilderExt as _, OpenOptionsExt as _, PermissionsExt as _};
 use std::path::{Path, PathBuf};
 
 use subtle::ConstantTimeEq;
@@ -112,66 +110,32 @@ pub fn default_path(config_path: &Path) -> PathBuf {
 /// I/O failure. There is no fallback to a token that lives nowhere: a server whose
 /// token the owner cannot find is a server the phone cannot pair with.
 pub fn load_or_create(path: &Path) -> Result<(String, bool), String> {
-    match std::fs::metadata(path) {
-        Ok(meta) => read_existing(path, meta.permissions().mode()).map(|t| (t, false)),
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => create(path),
-        Err(e) => Err(format!("cannot read {}: {e}", path.display())),
-    }
-}
-
-fn read_existing(path: &Path, mode: u32) -> Result<String, String> {
-    let shown = path.display();
-    if mode & 0o077 != 0 {
-        return Err(format!(
-            "{shown} is open to other users (mode {:03o}); run: chmod 600 {shown}",
-            mode & 0o777
-        ));
-    }
-    let text = std::fs::read_to_string(path).map_err(|e| format!("cannot read {shown}: {e}"))?;
-    let token = text.trim();
+    let make = || {
+        generate()
+            .map(|t| format!("{t}\n").into_bytes())
+            .map_err(|e| format!("could not read the OS CSPRNG ({e})"))
+    };
+    let (bytes, created) = match crate::owner_file::read_or_create(path, make)? {
+        crate::owner_file::Outcome::Existing(b) => (b, false),
+        crate::owner_file::Outcome::Created(b) => (b, true),
+    };
+    let token = String::from_utf8_lossy(&bytes).trim().to_string();
     if token.len() < MIN_TOKEN_LEN || !token.bytes().all(|b| b.is_ascii_graphic()) {
         return Err(format!(
-            "{shown} must hold one token of at least {MIN_TOKEN_LEN} visible ASCII \
-             characters; delete it and --serve writes a fresh 256-bit one"
+            "{} must hold one token of at least {MIN_TOKEN_LEN} visible ASCII \
+             characters; delete it and --serve writes a fresh 256-bit one",
+            path.display()
         ));
     }
-    Ok(token.to_string())
-}
-
-fn create(path: &Path) -> Result<(String, bool), String> {
-    let shown = path.display();
-    if let Some(dir) = path.parent().filter(|d| !d.as_os_str().is_empty()) {
-        std::fs::DirBuilder::new()
-            .recursive(true)
-            .mode(0o700)
-            .create(dir)
-            .map_err(|e| format!("cannot create {}: {e}", dir.display()))?;
-    }
-    let token = generate().map_err(|e| format!("could not read the OS CSPRNG ({e})"))?;
-    // `create_new`: never truncate a token another start wrote between the metadata
-    // probe and here. Losing that race reads the winner's token instead.
-    let mut file = match std::fs::OpenOptions::new()
-        .write(true)
-        .create_new(true)
-        .mode(0o600)
-        .open(path)
-    {
-        Ok(f) => f,
-        Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {
-            return load_or_create(path);
-        }
-        Err(e) => return Err(format!("cannot create {shown}: {e}")),
-    };
-    file.write_all(format!("{token}\n").as_bytes())
-        .and_then(|()| file.sync_all())
-        .map_err(|e| format!("cannot write {shown}: {e}"))?;
-    Ok((token, true))
+    Ok((token, created))
 }
 
 /// What `--serve` prints on start; the token only when `to_tty`.
 ///
 /// A person at a terminal is the token's owner, a service manager's log is not.
-/// Either way the file is named, which is all the owner needs to find it.
+/// Either way the file is named, which is all the owner needs to find it. With
+/// `tls` the scheme is `https` and the `curl` line pins the certificate's key
+/// (`--pinnedpubkey`; `-k` only skips the CA lookup a self-signed one cannot pass).
 #[must_use]
 pub fn startup_banner(
     addr: std::net::SocketAddr,
@@ -179,17 +143,22 @@ pub fn startup_banner(
     path: &Path,
     created: bool,
     to_tty: bool,
+    tls: Option<&crate::serve_tls::Identity>,
 ) -> String {
     let file = path.display();
     let fresh = if created { " (new)" } else { "" };
+    let scheme = if tls.is_some() { "https" } else { "http" };
     if to_tty {
+        let pin = tls.map_or_else(String::new, |id| {
+            format!("-k --pinnedpubkey sha256//{} ", id.curl_pin())
+        });
         format!(
-            "multitop --serve on http://{addr} token={token}\n  \
+            "multitop --serve on {scheme}://{addr} token={token}\n  \
              token file: {file}{fresh}\n  \
-             curl -H \"Authorization: Bearer {token}\" http://{addr}/api/hosts"
+             curl {pin}-H \"Authorization: Bearer {token}\" {scheme}://{addr}/api/hosts"
         )
     } else {
-        format!("multitop --serve on http://{addr}\n  token file: {file}{fresh}")
+        format!("multitop --serve on {scheme}://{addr}\n  token file: {file}{fresh}")
     }
 }
 
@@ -272,6 +241,7 @@ mod tests {
 #[cfg(test)]
 mod file_tests {
     use super::*;
+    use std::os::unix::fs::PermissionsExt as _;
 
     fn dir() -> tempfile::TempDir {
         match tempfile::tempdir() {
@@ -365,13 +335,13 @@ mod file_tests {
         let token = "f".repeat(64);
         let path = Path::new("/home/u/.config/multitop/serve-token");
         for created in [true, false] {
-            let log = startup_banner(addr, &token, path, created, false);
+            let log = startup_banner(addr, &token, path, created, false, None);
             assert!(
                 !log.contains(&token),
                 "a non-tty banner carries the token: {log}"
             );
             assert!(log.contains(&path.display().to_string()), "{log}");
-            let tty = startup_banner(addr, &token, path, created, true);
+            let tty = startup_banner(addr, &token, path, created, true, None);
             assert!(tty.contains(&token), "{tty}");
             assert!(tty.contains(&path.display().to_string()), "{tty}");
         }
