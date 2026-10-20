@@ -7,6 +7,43 @@ This file starts at v0.47.0 — earlier history is in git (`git log`), and the
 per-defect record is `docs/detection-record.md`, which is the more useful
 document for anything before this point.
 
+## v0.59.0 — the Ops view's health verdict is the PUBLISHED one, and it is DATED _(2026-10-20)_
+
+### Changed — the Ops view's health section (servers ROADMAP E12, the client half)
+- **The verdict is READ, and it is the estate's own.** The Ops view already
+  read `health://latest` and never ran the suite; what it did with the
+  answer was to count the checks. It now carries the whole verdict: the
+  machine's own freshness (`oldest_age`, in the SERVER's words — `13 min
+  ago`), each check's own age, and the suite the verdict belongs to.
+- **THE AGE IS ON THE LINE, and that is the point.** The clients read the
+  PUBLISHED verdict instead of re-running the server's 50-check suite, so
+  what the section shows is as old as the estate's last cron run. A reader
+  that cannot date a verdict cannot tell a 3-minute-old answer from a
+  29-minute-old one — and those are different answers about the same
+  machine. So the age is on the line, in the server's own words (one
+  formatter dates a verdict everywhere it is shown), and a verdict past the
+  estate's interval says so and is NOT green.
+- **THE VERDICT IS THE MACHINE'S PERIODIC SUITE.** The published table
+  carries the DAILY checks' verdicts too, and those are a day old by
+  design, so a count that included them would be paired with an age that
+  does not describe them. The suite is the server's own answer
+  (`health.list`), and the client asks: it never guesses which checks count.
+- **A machine that published NO verdict says so** — `⚠ health no verdict
+  published: nothing has run on this machine` — and it is never an
+  all-clear: "could not ask is never fine", and an empty table is not a
+  green tick.
+
+### Verified
+- `tools/gate.sh --full` 14/14 green; the Rust suite, the pytest suite and
+  the coverage gate as the gate of record ran them.
+- **The Ops view still never runs the suite.** A test drives `ops::gather`
+  against a fake `mcp_host` and asserts that no request named
+  `health.run_all` or `health.run` was made: the verdict is read, never
+  run.
+- **Each new behaviour was proven RED first** — the age on the line, the
+  stale marking, the absent verdict and the narrowing to the suite each
+  fail with an assertion when the behaviour is taken away.
+
 ## v0.58.1 — a status is an enum, and the frame's glyph is the renderer's _(2026-10-20)_
 
 ### Changed — the Ops view's models (servers ROADMAP E48)
