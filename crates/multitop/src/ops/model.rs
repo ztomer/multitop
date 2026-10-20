@@ -13,6 +13,7 @@
 //! root) and a row that does not say which root it came from cannot be
 //! attributed to either.
 
+pub use super::model_health::{Check, Health, Suite};
 use super::status::{DockerHealth, DockerState, Leak, Severity, Verdict, ZfsState};
 
 /// A gibibyte: the unit the estate's card counts disk in.
@@ -25,15 +26,6 @@ const GIB_PER_TIB: f64 = 1024.0;
 const SMALL_MEMORY_GB: f64 = 10.0;
 /// A load average is published as a float and kept in thousandths.
 const LOAD_SCALE: f64 = 1000.0;
-
-/// One health check's last recorded verdict.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct Check {
-    pub name: String,
-    pub ok: bool,
-    pub rc: i64,
-    pub ts: i64,
-}
 
 /// One cron job, as `cron.status` publishes it.
 #[derive(Clone, Debug, PartialEq, Eq)]

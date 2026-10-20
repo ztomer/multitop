@@ -10,7 +10,8 @@
 use std::fmt::Write as _;
 
 use super::super::model::{
-    amount, load_text, memory_amount, Alert, Check, Container, Disk, Egress, Job, Pool, Tunnel,
+    amount, load_text, memory_amount, Alert, Check, Container, Disk, Egress, Health, Job, Pool,
+    Tunnel,
 };
 use super::super::status::{DockerHealth, DockerState, Severity, Verdict};
 use super::super::{Part, Snapshot};
@@ -24,8 +25,8 @@ const TIGHT_PERCENT: u64 = 90;
 pub(super) fn sections(f: &mut Frame<'_>, s: &Snapshot, now: i64) {
     machine(f, s);
     if !not_ready(f, "health", &s.health) {
-        if let Part::Ready(c) = &s.health {
-            health(f, c, now);
+        if let Part::Ready(h) = &s.health {
+            health(f, h, now);
         }
     }
     if !not_ready(f, "vpn", &s.vpn) {
@@ -126,31 +127,49 @@ fn nothing(f: &mut Frame<'_>, label: &str, text: &str) {
     f.line(Tone::Quiet, label, text);
 }
 
-fn health(f: &mut Frame<'_>, checks: &[Check], now: i64) {
-    if checks.is_empty() {
-        nothing(f, "health", "no checks");
+/// The machine's health: the PUBLISHED verdict, and how old it is.
+///
+/// The verdict is read, not run (servers ROADMAP E12), so it is as old as
+/// the estate's last suite run - and the age is on the line, because a
+/// verdict that cannot be dated is a claim nobody can check. A verdict that
+/// is too old says so; a machine that published none says so; neither is
+/// ever an all-clear.
+fn health(f: &mut Frame<'_>, health: &Health, _now: i64) {
+    if health.checks.is_empty() {
+        f.line(
+            Tone::Warn,
+            "health",
+            "no verdict published: nothing has run on this machine",
+        );
         return;
     }
-    let bad: Vec<&Check> = checks.iter().filter(|c| !c.ok).collect();
+    let age = health.oldest_age.as_deref().unwrap_or("of unknown age");
+    let bad: Vec<&Check> = health.checks.iter().filter(|c| !c.ok).collect();
     if bad.is_empty() {
+        let stale = health.is_stale();
+        let detail = if stale {
+            format!("{} ok · {age} · stale", count(health.checks.len(), "check"))
+        } else {
+            format!("{} ok · {age}", count(health.checks.len(), "check"))
+        };
         f.line(
-            Tone::Good,
+            if stale { Tone::Warn } else { Tone::Good },
             "health",
-            &format!("{} ok", count(checks.len(), "check")),
+            &detail,
         );
         return;
     }
     f.line(
         Tone::Bad,
         "health",
-        &format!("{} of {} failing", bad.len(), checks.len()),
+        &format!("{} of {} failing · {age}", bad.len(), health.checks.len()),
     );
     for c in bad {
         f.item(&format!(
-            "{}  rc {}, {} ago",
+            "{}  rc {}, {}",
             check_name(&c.name),
             c.rc,
-            age(c.ts, now)
+            c.age.as_deref().unwrap_or("of unknown age")
         ));
     }
 }

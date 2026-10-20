@@ -12,8 +12,17 @@ const NOW: i64 = 1_790_170_000;
 /// The answers as .33 gave them (2026-09-23), trimmed.
 fn health_answer() -> Value {
     json!({"checks": [
-        {"check": "native:check_disk_space", "ok": true, "rc": 0, "ms": 128, "ts": NOW - 600},
-        {"check": "native:check_vpn_leak", "ok": false, "rc": 1, "ms": 24003, "ts": NOW - 900},
+        {"instance": "media_server", "check": "native:check_disk_space", "ok": true, "rc": 0, "ms": 128, "ts": NOW - 600, "age_s": 600, "age": "10 min ago"},
+        {"instance": "media_server", "check": "native:check_vpn_leak", "ok": false, "rc": 1, "ms": 24003, "ts": NOW - 900, "age_s": 900, "age": "15 min ago"},
+    ], "oldest_age_s": 900, "oldest_age": "15 min ago"})
+}
+
+/// The machine's suite: the two checks above are in it.
+fn suite_answer() -> Value {
+    json!({"checks": [
+        {"instance": "media_server", "name": "native:check_disk_space", "schedule": "*/15 * * * *", "in_suite": true},
+        {"instance": "media_server", "name": "native:check_vpn_leak", "schedule": "*/15 * * * *", "in_suite": true},
+        {"instance": "media_server", "name": "native:check_image_drift_sweep", "schedule": "35 4 * * *", "in_suite": false},
     ]})
 }
 fn cron_answer() -> Value {
@@ -42,9 +51,11 @@ fn alerts_answer() -> Value {
 fn the_fleet_answers_parse_and_trouble_follows_the_follower_rule() {
     let h = parse_health(&health_answer()).unwrap();
     assert_eq!(
-        (h[1].name.as_str(), h[1].ok, h[1].rc),
+        (h.checks[1].name.as_str(), h.checks[1].ok, h.checks[1].rc),
         ("native:check_vpn_leak", false, 1)
     );
+    assert_eq!(h.oldest_age.as_deref(), Some("15 min ago"));
+    assert_eq!(h.oldest_age_s, Some(900));
     let j = parse_cron(&cron_answer()).unwrap();
     assert!(j[0].in_trouble() && !j[1].in_trouble() && !j[2].in_trouble());
     let c = parse_containers(&containers_answer()).unwrap();
@@ -79,6 +90,7 @@ fn host(
             Reply::Result(json!({"contents": [{"text": health_answer().to_string()}]}))
         }
         "tools/call" => match params["name"].as_str().unwrap() {
+            "health.list" => Reply::Result(json!({"structuredContent": suite_answer()})),
             "cron.status" => Reply::Result(json!({"structuredContent": cron_answer()})),
             "docker.containers" => docker.clone(),
             "alerts.since" => {
@@ -95,7 +107,7 @@ fn host(
 async fn gather_asks_only_what_the_host_lists_and_one_failure_hides_nothing() {
     // .158: no Docker tool at all - an absence, stated.
     let (rd, wr, seen) = serve(host(
-        &["health.run", "cron.status", "alerts.since"],
+        &["health.list", "cron.status", "alerts.since"],
         Reply::Silent,
     ));
     let mut client = Client::connect(rd, wr, Duration::from_secs(2))
@@ -103,7 +115,7 @@ async fn gather_asks_only_what_the_host_lists_and_one_failure_hides_nothing() {
         .unwrap();
     let s = gather(&mut client, NOW).await;
     assert_eq!(s.containers, Part::Absent("no Docker on this host".into()));
-    assert!(matches!(s.health, Part::Ready(ref v) if v.len() == 2));
+    assert!(matches!(s.health, Part::Ready(ref h) if h.checks.len() == 2));
     assert!(matches!(s.alerts, Part::Ready(ref v) if v.len() == 2));
     assert!(!seen
         .lock()
@@ -114,7 +126,7 @@ async fn gather_asks_only_what_the_host_lists_and_one_failure_hides_nothing() {
     // A host whose docker.containers fails: that section says so, the rest stand.
     let (rd, wr, _) = serve(host(
         &[
-            "health.run",
+            "health.list",
             "cron.status",
             "docker.containers",
             "alerts.since",
@@ -197,8 +209,8 @@ fn a_troubled_host_names_each_thing_in_trouble_under_its_section() {
     let want = [
         "mcp_host 1.65.2 · asked 12s ago",
         "· no cpu or memory: this host lists no host.facts",
-        "✗ health     1 of 2 failing",
-        "    check_vpn_leak  rc 1, 15m ago",
+        "✗ health     1 of 2 failing · 15 min ago",
+        "    check_vpn_leak  rc 1, 15 min ago",
         "· vpn        this host lists no net.egress",
         "✗ cron       1 of 3 failing, running: healthcheck",
         "    backup  rc 1, 2h ago, alerting 2h",
@@ -218,12 +230,18 @@ fn a_troubled_host_names_each_thing_in_trouble_under_its_section() {
 #[test]
 fn a_clean_host_is_five_lines_and_absences_are_stated_not_alarmed() {
     let mut s = snapshot();
-    s.health = Part::Ready(vec![Check {
-        name: "a".into(),
-        ok: true,
-        rc: 0,
-        ts: NOW,
-    }]);
+    s.health = Part::Ready(Health {
+        checks: vec![Check {
+            name: "a".into(),
+            instance: Some("media_server".into()),
+            ok: true,
+            rc: 0,
+            ts: NOW,
+            age: Some("13 min ago".into()),
+        }],
+        oldest_age: Some("13 min ago".into()),
+        oldest_age_s: Some(780),
+    });
     s.cron = Part::Ready(vec![]);
     s.containers = Part::Absent("no Docker on this host".into());
     s.alerts = Part::Ready(vec![]);
@@ -239,7 +257,7 @@ fn a_clean_host_is_five_lines_and_absences_are_stated_not_alarmed() {
         &f[2..],
         [
             "· no cpu or memory: this host lists no host.facts",
-            "✓ health     1 check ok",
+            "✓ health     1 check ok · 13 min ago",
             "· vpn        this host lists no net.egress",
             "· cron       no jobs",
             "· containers no Docker on this host",
@@ -294,7 +312,7 @@ fn every_state_says_what_it_is() {
     };
     let f = plain(&render("h", &stale, 80, 40, NOW, &pal()));
     assert_eq!(f[2], "  the last answer, 12s old:");
-    assert_eq!(f[4], "✗ health     1 of 2 failing");
+    assert_eq!(f[4], "✗ health     1 of 2 failing · 15 min ago");
 }
 
 #[test]
@@ -384,7 +402,11 @@ fn an_empty_section_says_so_and_never_claims_all_is_well() {
     // An emptied Docker host read "✓ docker  0 running, all healthy"
     // (2026-10-10): a green verdict over nothing. Every section, empty.
     let mut s = snapshot();
-    s.health = Part::Ready(Vec::new());
+    s.health = Part::Ready(Health {
+        checks: Vec::new(),
+        oldest_age: Some("with no timestamp".into()),
+        oldest_age_s: None,
+    });
     s.cron = Part::Ready(Vec::new());
     s.containers = Part::Ready(Vec::new());
     let f = plain(&render(
@@ -396,7 +418,7 @@ fn an_empty_section_says_so_and_never_claims_all_is_well() {
         &pal(),
     ));
     for line in [
-        "· health     no checks",
+        "⚠ health     no verdict published: nothing has run on this machine",
         "· cron       no jobs",
         "· containers no containers",
     ] {

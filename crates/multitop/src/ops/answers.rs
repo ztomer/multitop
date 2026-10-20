@@ -8,8 +8,8 @@
 use serde_json::Value;
 
 use super::model::{
-    load_milli, Alert, Check, Container, Disk, Egress, Facts, InstanceRow, Instances, Job, Member,
-    Memory, Mount, Pool, Tunnel,
+    load_milli, Alert, Check, Container, Disk, Egress, Facts, Health, InstanceRow, Instances, Job,
+    Member, Memory, Mount, Pool, Suite, Tunnel,
 };
 use super::status::{DockerHealth, DockerState, Leak, ZfsState};
 
@@ -50,21 +50,52 @@ fn count(v: &Value, k: &str) -> u64 {
     v.get(k).and_then(Value::as_u64).unwrap_or_default()
 }
 
-/// `health://latest`: `{checks: [{check, ok, rc, ms, ts}]}`.
+/// `health://latest`: `{checks: [{instance, check, ok, rc, ms, ts, age_s,
+/// age}], oldest_age_s, oldest_age}`.
+///
+/// The machine's PUBLISHED verdict: what the estate's own last suite run
+/// found, and how old that verdict is. Nothing is run to read it.
 ///
 /// # Errors
 ///
 /// The answer has no `checks` list.
-pub fn parse_health(v: &Value) -> Result<Vec<Check>, String> {
-    Ok(list(v, "checks")?
-        .iter()
-        .map(|c| Check {
-            name: text(c, "check"),
-            ok: c.get("ok").and_then(Value::as_bool).unwrap_or(false),
-            rc: int(c, "rc"),
-            ts: int(c, "ts"),
-        })
-        .collect())
+pub fn parse_health(v: &Value) -> Result<Health, String> {
+    Ok(Health {
+        checks: list(v, "checks")?
+            .iter()
+            .map(|c| Check {
+                name: text(c, "check"),
+                instance: opt_text(c, "instance"),
+                ok: c.get("ok").and_then(Value::as_bool).unwrap_or(false),
+                rc: int(c, "rc"),
+                ts: int(c, "ts"),
+                age: opt_text(c, "age"),
+            })
+            .collect(),
+        oldest_age: opt_text(v, "oldest_age"),
+        oldest_age_s: v.get("oldest_age_s").and_then(Value::as_i64),
+    })
+}
+
+/// `health.list`: `{checks: [{instance, name, schedule, in_suite}]}`.
+///
+/// The machine's periodic suite: the checks it runs every fifteen minutes,
+/// as the server says. The published table carries the daily checks'
+/// verdicts too, and those are a day old by design, so a verdict narrowed
+/// to the suite is the suite's verdict - and the machine's own
+/// `oldest_age` dates exactly that set.
+///
+/// # Errors
+///
+/// The answer has no `checks` list.
+pub fn parse_suite(v: &Value) -> Result<Suite, String> {
+    Ok(Suite {
+        checks: list(v, "checks")?
+            .iter()
+            .filter(|c| c.get("in_suite").and_then(Value::as_bool) == Some(true))
+            .map(|c| (opt_text(c, "instance"), text(c, "name")))
+            .collect(),
+    })
 }
 
 /// `cron.status`: `{jobs: [{label, instance, last_start, last_rc,

@@ -8,9 +8,21 @@
 //! Sections, each read from one answer and each able to say why it is not
 //! there: a host that lists no `docker.containers` has no Docker (an honest
 //! absence, not an error), and one section failing never hides the others.
-//! Health comes from `health://latest` - each check's last verdict, as cron
-//! recorded it - never from `health.run_all`, which runs the whole suite
-//! (25 s on .33) and must not be a poll.
+//! Health comes from `health://latest` - each check's last verdict, as the
+//! estate's own cron recorded it - never from `health.run_all`, which runs
+//! the whole suite (25 s on .33) and must not be a poll.
+//!
+//! **THE VERDICT IS DATED, AND THAT IS THE POINT.** The clients read the
+//! published verdict instead of re-running the suite (servers ROADMAP E12),
+//! so what a card shows is as old as the estate's last cron run: a reader
+//! that cannot date a verdict cannot tell a 3-minute-old answer from a
+//! 29-minute-old one - and those are different answers about the same
+//! machine. So the age is on the line, in the server's own words, and a
+//! verdict past the estate's interval says so and is not green. The suite
+//! the verdict belongs to is the server's own answer (`health.list`): the
+//! published table also carries the daily checks, whose verdicts are a day
+//! old by design, and a count that included them would be paired with an
+//! age that does not describe them.
 //!
 //! Every section is decided the same way: the tool the host LISTS is asked,
 //! and a tool the host does not list is an absence carrying the server's own
@@ -30,11 +42,13 @@
 
 pub mod answers;
 pub mod model;
+pub mod model_health;
 pub mod render;
 pub mod status;
 
 pub use answers::*;
 pub use model::*;
+pub use model_health::*;
 pub use status::*;
 
 use std::time::Duration;
@@ -46,6 +60,19 @@ use crate::mcp::client::Client;
 
 /// The resource holding each health check's last recorded verdict.
 pub const HEALTH_URI: &str = "health://latest";
+/// The tool that says which checks this machine's periodic suite runs.
+pub const HEALTH_LIST: &str = "health.list";
+/// The estate's suite cadence, in minutes: the suite runs every 15 (servers
+/// ROADMAP E12; `media_server` v1.99.11's `*/15` cron, deployed).
+pub const SUITE_INTERVAL_MINUTES: i64 = 15;
+/// How old a published verdict may be before the client calls it STALE: the
+/// suite's interval plus a grace for a run that is still going.
+///
+/// A verdict read between two of the estate's own runs is at most the
+/// interval old. Past that, the estate's cron did not fire, and the
+/// verdict is not a current answer about the machine - which is the whole
+/// reason the age is published.
+pub const HEALTH_STALE_AFTER_S: i64 = (SUITE_INTERVAL_MINUTES + 5) * 60;
 /// The tool that answers about a host's ZFS pools: their state, their vdev
 /// tree, and what ZFS says to do about them.
 pub const ZFS_TOOL: &str = "zfs.health";
@@ -129,7 +156,7 @@ pub struct Snapshot {
     pub server: (String, String),
     /// When it was asked, epoch seconds.
     pub at: i64,
-    pub health: Part<Vec<Check>>,
+    pub health: Part<Health>,
     /// The machine's tunnels.
     pub vpn: Part<Egress>,
     pub cron: Part<Vec<Job>>,
@@ -162,8 +189,8 @@ impl Snapshot {
     /// Every name and subject it shows, for `/` to search.
     fn terms(&self) -> Vec<&str> {
         let mut t = Vec::new();
-        if let Part::Ready(c) = &self.health {
-            t.extend(c.iter().map(|c| c.name.as_str()));
+        if let Part::Ready(h) = &self.health {
+            t.extend(h.checks.iter().map(|c| c.name.as_str()));
         }
         if let Part::Ready(e) = &self.vpn {
             t.extend(e.tunnels.iter().flat_map(|t| {
@@ -235,10 +262,10 @@ where
     R: AsyncRead + Unpin,
     W: AsyncWrite + Unpin,
 {
-    let health = if c.has_tool("health.run") {
-        part(c.read(HEALTH_URI).await, parse_health)
+    let health = if c.has_tool(HEALTH_LIST) {
+        health_part(c).await
     } else {
-        Part::Absent(c.absent_reason("health.run", "this host lists no health checks"))
+        Part::Absent(c.absent_reason(HEALTH_LIST, "this host lists no health checks"))
     };
     let vpn = if c.has_tool(EGRESS_TOOL) {
         part(
@@ -309,6 +336,44 @@ fn part<T>(
     }
 }
 
+/// The health section: the machine's PUBLISHED verdict, narrowed to its
+/// periodic suite.
+///
+/// The verdict is READ, never run (servers ROADMAP E12): the estate's own
+/// cron runs the suite every 15 minutes and publishes what it found, and
+/// running it here would pay the suite's whole cost for an answer the
+/// estate already has. The suite's own list is asked too, so the verdict
+/// is the suite's - the published table also carries the daily checks,
+/// whose verdicts are a day old by design and would pair a count with an
+/// age that does not describe it.
+///
+/// A section that cannot be read says why: an absent verdict is never an
+/// all-clear.
+async fn health_part<R, W>(c: &mut Client<R, W>) -> Part<Health>
+where
+    R: AsyncRead + Unpin,
+    W: AsyncWrite + Unpin,
+{
+    let published = match c.read(HEALTH_URI).await {
+        Ok(v) => v,
+        Err(e) => return Part::Failed(e.to_string()),
+    };
+    let listed = match c.call(HEALTH_LIST, json!({})).await {
+        Ok(v) => v,
+        Err(e) => return Part::Failed(e.to_string()),
+    };
+    let mut health = match parse_health(&published) {
+        Ok(h) => h,
+        Err(why) => return Part::Failed(why),
+    };
+    let suite = match parse_suite(&listed) {
+        Ok(s) => s,
+        Err(why) => return Part::Failed(why),
+    };
+    health.narrow_to(&suite);
+    Part::Ready(health)
+}
+
 #[cfg(test)]
 #[path = "ops_tests.rs"]
 mod tests;
@@ -324,3 +389,7 @@ mod machine_tests;
 #[cfg(test)]
 #[path = "status_tests.rs"]
 mod status_tests;
+
+#[cfg(test)]
+#[path = "health_tests.rs"]
+mod health_tests;

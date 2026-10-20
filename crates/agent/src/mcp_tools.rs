@@ -117,6 +117,12 @@ pub fn listed(system: &dyn System) -> Vec<Tool> {
 pub fn absent(system: &dyn System) -> Value {
     let mut why = json!({
         "health.run": "no health suite on this machine",
+        // The Ops view reads the health VERDICT (`health://latest`), and
+        // the resource is listed with `health.list` - so that is the tool
+        // whose absence says why this host has no health section. This
+        // agent answers no health at all, so it names all three.
+        "health.list": "no health suite on this machine",
+        "health.run_all": "no health suite on this machine",
         "alerts.since": "nothing on this machine logs alerts",
         // The ZFS section reads `zfs.health`, the tool that owns a pool's
         // state and its vdev tree. This agent has no such tool -- it reads

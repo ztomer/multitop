@@ -22,9 +22,16 @@ pub fn ops(term: (u16, u16)) -> App {
     let at = multitop::tasks::ops_poll::now_epoch() - 12;
     let check = |n: &str, ok| Check {
         name: format!("native:{n}"),
+        instance: Some("media_server".into()),
         ok,
         rc: i64::from(!ok),
         ts: at - 900,
+        age: Some("15 min ago".into()),
+    };
+    let health = |checks: Vec<multitop::ops::Check>| multitop::ops::Health {
+        checks,
+        oldest_age: Some("15 min ago".into()),
+        oldest_age_s: Some(900),
     };
     let job = |l: &str, rc| Job {
         label: l.into(),
@@ -45,10 +52,10 @@ pub fn ops(term: (u16, u16)) -> App {
     let troubled = Snapshot {
         server: ("mcp_host".into(), "1.65.2".into()),
         at,
-        health: Part::Ready(vec![
+        health: Part::Ready(health(vec![
             check("check_disk_space", true),
             check("check_vpn_leak", false),
-        ]),
+        ])),
         vpn: Part::Absent("no VPN stack on this host".into()),
         cron: Part::Ready(vec![job("backup", 1), job("healthcheck", 0)]),
         containers: Part::Ready(vec![ct("gluetun", "unhealthy"), ct("jellyfin", "healthy")]),
@@ -70,7 +77,7 @@ pub fn ops(term: (u16, u16)) -> App {
         }]),
     };
     let mut clean = troubled.clone();
-    clean.health = Part::Ready(vec![check("check_disk_space", true)]);
+    clean.health = Part::Ready(health(vec![check("check_disk_space", true)]));
     clean.cron = Part::Ready(vec![job("healthcheck", 0)]);
     clean.containers = Part::Absent("no Docker on this host".into());
     clean.alerts = Part::Ready(vec![]);

@@ -127,7 +127,7 @@ fn the_pool_state_is_read_from_the_tool_never_re_derived() {
 async fn a_host_that_serves_the_tool_is_named_and_its_pools_are_shown() {
     // `.33`: the tool is listed, so it is asked, and its answer is the fact.
     let (snap, seen) = gather_from(
-        &["health.run", "cron.status", ZFS_TOOL],
+        &["health.list", "cron.status", ZFS_TOOL],
         &[],
         healthy_pools(),
     )
@@ -164,7 +164,7 @@ async fn a_host_that_serves_the_tool_is_named_and_its_pools_are_shown() {
 async fn a_host_without_the_tool_says_why_it_is_absent() {
     // `.158`: no ZFS, so the tool is not listed and the server says why.
     let (snap, seen) = gather_from(
-        &["health.run", "cron.status"],
+        &["health.list", "cron.status"],
         &[(ZFS_TOOL, NO_ZFS)],
         json!({"pools": []}),
     )

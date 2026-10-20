@@ -114,12 +114,18 @@ fn snapshot() -> Snapshot {
     Snapshot {
         server: ("mcp-host".into(), "1.99.6".into()),
         at: NOW - 12,
-        health: Part::Ready(vec![Check {
-            name: "native:check_vpn_leak".into(),
-            ok: true,
-            rc: 0,
-            ts: NOW - 600,
-        }]),
+        health: Part::Ready(Health {
+            checks: vec![Check {
+                name: "native:check_vpn_leak".into(),
+                instance: Some("media_server".into()),
+                ok: true,
+                rc: 0,
+                ts: NOW - 600,
+                age: Some("10 min ago".into()),
+            }],
+            oldest_age: Some("10 min ago".into()),
+            oldest_age_s: Some(600),
+        }),
         vpn: Part::Ready(parse_egress(&egress_answer()).unwrap()),
         cron: Part::Ready(vec![]),
         containers: Part::Ready(parse_containers(&containers_answer()).unwrap()),
