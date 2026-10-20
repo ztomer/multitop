@@ -30,6 +30,20 @@ pub fn discover(versions: &[&str]) -> Value {
     })
 }
 
+/// A `server/discover` answer that also names each tool the host does not
+/// list, and why: the `dev.multitop/absent` meta the estate's `mcp_host`
+/// publishes and the Ops view reads.
+#[must_use]
+pub fn discover_absent(versions: &[&str], absent: &[(&str, &str)]) -> Value {
+    let mut d = discover(versions);
+    let mut why = serde_json::Map::new();
+    for (tool, reason) in absent {
+        why.insert((*tool).to_string(), json!(reason));
+    }
+    d["_meta"]["dev.multitop/absent"] = Value::Object(why);
+    d
+}
+
 /// A `tools/list` page naming `tools`.
 #[must_use]
 pub fn tools(names: &[&str]) -> Value {

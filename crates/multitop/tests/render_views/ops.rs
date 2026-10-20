@@ -47,6 +47,16 @@ pub fn ops(term: (u16, u16)) -> App {
         ]),
         cron: Part::Ready(vec![job("backup", 1), job("healthcheck", 0)]),
         containers: Part::Ready(vec![ct("gluetun", "unhealthy"), ct("jellyfin", "healthy")]),
+        zfs: Part::Ready(vec![multitop::ops::Pool {
+            name: "pool0".into(),
+            state: "SUSPENDED".into(),
+            action: "attach the missing device".into(),
+            msg: "One or more devices could not be opened".into(),
+            members: vec![multitop::ops::Member {
+                name: "sdc".into(),
+                state: "REMOVED".into(),
+            }],
+        }]),
         alerts: Part::Ready(vec![multitop::ops::Alert {
             ts: at - 60,
             subject: "[media_server] backup FAILED (rc=1)".into(),

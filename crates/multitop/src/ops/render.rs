@@ -6,14 +6,19 @@
 //! frame reads the same): `✓` clean, `✗` the host reports a failure, `⚠` an
 //! answer that could not be read, or alerts (events, not a current fault),
 //! `·` a stated absence (no Docker here), `→` asking.
+//!
+//! The ZFS section is named by the tool that answers it (`zfs.health`),
+//! because the pools' state is that tool's fact and the view reads it
+//! rather than running `zpool status` itself.
 
 use multitop_agent::fmt::center_header;
 use multitop_agent::palette_view::PaletteView;
 
-use super::{Alert, Check, Container, Job, OpsState, Part, Snapshot};
+use super::{Alert, Check, Container, Job, OpsState, Part, Pool, Snapshot};
 
-/// Section names are padded to this, so the summaries line up.
-const LABEL_W: usize = 7;
+/// Section names are padded to this, so the summaries line up. It is the
+/// width of the longest one, `zfs.health`.
+const LABEL_W: usize = 10;
 /// Items under a section are indented this far.
 const ITEM_INDENT: &str = "    ";
 
@@ -275,6 +280,53 @@ fn alerts(f: &mut Frame<'_>, events: &[Alert], now: i64) {
     }
 }
 
+/// The ZFS pools, as `zfs.health` published them.
+///
+/// A pool that is not whole is the one thing here that must be visible: a
+/// SUSPENDED pool's I/O does not happen, so every other view of the host
+/// says "fine" while the pool serves nothing. So a pool that is not whole
+/// gets its own line, with the member that is not ONLINE and what ZFS says
+/// to do about it; a host whose pools are all whole says so in one line and
+/// names them.
+fn zfs(f: &mut Frame<'_>, pools: &[Pool]) {
+    if pools.is_empty() {
+        nothing(f, "zfs.health", "no pools");
+        return;
+    }
+    let bad: Vec<&Pool> = pools.iter().filter(|p| !p.is_whole()).collect();
+    if bad.is_empty() {
+        let names: Vec<&str> = pools.iter().map(|p| p.name.as_str()).collect();
+        f.line(
+            Tone::Good,
+            "zfs.health",
+            &format!(
+                "{} ONLINE: {}",
+                count(pools.len(), "pool"),
+                names.join(", ")
+            ),
+        );
+        return;
+    }
+    f.line(
+        Tone::Bad,
+        "zfs.health",
+        &format!("{} of {} not whole", bad.len(), pools.len()),
+    );
+    for p in bad {
+        let mut why = vec![p.state.clone()];
+        for m in p.faulted_members() {
+            why.push(format!("{} {}", m.name, m.state));
+        }
+        f.item(&format!("{}  {}", p.name, why.join(" · ")));
+        if !p.msg.is_empty() {
+            f.item(&p.msg);
+        }
+        if !p.action.is_empty() {
+            f.item(&format!("ZFS says: {}", p.action));
+        }
+    }
+}
+
 fn sections(f: &mut Frame<'_>, s: &Snapshot, now: i64) {
     if !not_ready(f, "health", &s.health) {
         if let Part::Ready(c) = &s.health {
@@ -289,6 +341,11 @@ fn sections(f: &mut Frame<'_>, s: &Snapshot, now: i64) {
     if !not_ready(f, "docker", &s.containers) {
         if let Part::Ready(c) = &s.containers {
             containers(f, c);
+        }
+    }
+    if !not_ready(f, "zfs.health", &s.zfs) {
+        if let Part::Ready(p) = &s.zfs {
+            zfs(f, p);
         }
     }
     if !not_ready(f, "alerts", &s.alerts) {

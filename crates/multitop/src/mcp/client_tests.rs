@@ -5,7 +5,7 @@ use serde_json::{json, Value};
 use super::client::{
     Client, Error, META_CLIENT_CAPABILITIES, META_PROTOCOL_VERSION, PROTOCOL_VERSION,
 };
-use super::fake::{discover, serve, tools, Reply};
+use super::fake::{discover, discover_absent, serve, tools, Reply};
 
 const T: Duration = Duration::from_secs(2);
 
@@ -79,6 +79,29 @@ async fn discovers_lists_every_page_and_sends_the_version_on_every_request() {
             "{r}"
         );
     }
+}
+
+#[tokio::test]
+async fn the_servers_own_reason_for_an_unlisted_tool_is_read() {
+    // `.158`: the tool is not listed, and the server says why (its
+    // `dev.multitop/absent` meta). The reason is the server's, not a guess
+    // the client made.
+    let (r, w, _) = serve(|m, _| match m {
+        "server/discover" => Reply::Result(discover_absent(
+            &[PROTOCOL_VERSION],
+            &[("zfs.health", "no ZFS on this host: no /usr/sbin/zpool")],
+        )),
+        "tools/list" => Reply::Result(tools(&["cron.status"])),
+        _ => Reply::Error(-32601, "no"),
+    });
+    let c = Client::connect(r, w, T).await.unwrap();
+    assert!(!c.has_tool("zfs.health"), "the host does not list it");
+    assert_eq!(
+        c.absent_reason("zfs.health", "fallback"),
+        "no ZFS on this host: no /usr/sbin/zpool"
+    );
+    // A tool the server said nothing about falls back, and says so.
+    assert_eq!(c.absent_reason("disk.usage", "fallback"), "fallback");
 }
 
 #[tokio::test]

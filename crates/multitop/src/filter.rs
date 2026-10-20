@@ -168,7 +168,7 @@ impl Panel {
                 .any(|r| hit(&r.name) || hit(&r.image) || hit(&r.status))
     }
 
-    /// The checks, jobs, containers and alerts the Ops view shows.
+    /// The checks, jobs, containers, pools and alerts the Ops view shows.
     fn ops_matches(&self, hit: &impl Fn(&str) -> bool) -> bool {
         self.last_ops
             .as_ref()

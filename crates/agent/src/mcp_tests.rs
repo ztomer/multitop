@@ -95,6 +95,10 @@ fn discover_offers_2026_and_says_why_each_unlisted_section_is_absent() {
         "{absent}"
     );
     assert!(
+        absent["zfs.health"].as_str().unwrap().contains("ZFS"),
+        "the ZFS section is named, with its reason: {absent}"
+    );
+    assert!(
         absent.get("cron.status").is_none(),
         "cron is listed on a Mac: {absent}"
     );

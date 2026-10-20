@@ -1,15 +1,22 @@
 //! The Ops view's data (servers ROADMAP 12.17b).
 //!
 //! What a host's `mcp_host` says about the things the agent does not stream:
-//! health verdicts, cron jobs, container health and the alerts its cron
-//! wrapper logged.
+//! health verdicts, cron jobs, container health, ZFS pools and the alerts
+//! its cron wrapper logged.
 //!
-//! Four sections, each read from one answer and each able to say why it is
+//! Five sections, each read from one answer and each able to say why it is
 //! not there: a host that lists no `docker.containers` has no Docker (an
 //! honest absence, not an error), and one section failing never hides the
-//! other three. Health comes from `health://latest` - each check's last
+//! other four. Health comes from `health://latest` - each check's last
 //! verdict, as cron recorded it - never from `health.run_all`, which runs
 //! the whole suite (25 s on .33) and must not be a poll.
+//!
+//! Every section is decided the same way: the tool the host LISTS is asked,
+//! and a tool the host does not list is an absence carrying the server's own
+//! reason for it (`server/discover`'s `dev.multitop/absent`), never a guess
+//! and never a green "none". The ZFS section is no exception: `zfs.health`
+//! is the tool that owns the pools' state, so the view reads its answer and
+//! never runs `zpool status` itself (servers ROADMAP O82).
 
 pub mod render;
 
@@ -20,10 +27,15 @@ use crate::mcp::client::Client;
 
 /// The resource holding each health check's last recorded verdict.
 pub const HEALTH_URI: &str = "health://latest";
+/// The tool that answers about a host's ZFS pools: their state, their vdev
+/// tree, and what ZFS says to do about them.
+pub const ZFS_TOOL: &str = "zfs.health";
 /// How far back the alerts section looks.
 /// Reason: one day is the window an operator glancing at a board cares
 /// about; older events are in `alerts.since` for whoever asks.
 pub const ALERT_WINDOW_S: i64 = 86_400;
+/// The state a pool or a vdev is in when nothing is wrong with it.
+const ONLINE: &str = "ONLINE";
 
 /// Where a host's Ops answers come from.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -117,6 +129,62 @@ pub struct Alert {
     pub subject: String,
 }
 
+/// One member of a pool's vdev tree, as `zfs.health` publishes it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Member {
+    /// The vdev's name as the pool knows it (`sdb`, `mirror-0`, ...).
+    pub name: String,
+    /// `ONLINE`, `DEGRADED`, `REMOVED`, `FAULTED`, `UNAVAIL`, ...
+    pub state: String,
+}
+
+impl Member {
+    /// A member that is not ONLINE.
+    #[must_use]
+    pub fn is_faulted(&self) -> bool {
+        self.state != ONLINE
+    }
+}
+
+/// One ZFS pool, as `zfs.health` publishes it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Pool {
+    /// The pool's name.
+    pub name: String,
+    /// `ONLINE`, `DEGRADED`, `SUSPENDED`, `UNAVAIL`, ...
+    pub state: String,
+    /// What ZFS says to do about it, when it says anything.
+    pub action: String,
+    /// ZFS's explanation, when it has one.
+    pub msg: String,
+    /// The vdev tree, the pool's children first.
+    pub members: Vec<Member>,
+}
+
+impl Pool {
+    /// The members that are not ONLINE.
+    ///
+    /// The pool's OWN row is not in the member list (it is the pool, not a
+    /// vdev of it), so a DEGRADED `mirror-0` is a faulted member and is
+    /// named - it is the level that says the pool lost redundancy.
+    #[must_use]
+    pub fn faulted_members(&self) -> Vec<&Member> {
+        self.members.iter().filter(|m| m.is_faulted()).collect()
+    }
+
+    /// Whether the pool is whole: ONLINE itself, and every member ONLINE.
+    ///
+    /// The estate's rule, the one `check_zfs_pool` fails on and the tool's
+    /// own summary uses: a pool that is not whole is invisible to every
+    /// other view of the host (a SUSPENDED pool's I/O does not happen, so
+    /// writes BLOCK rather than fail, and `disk.usage` still reports a
+    /// plausible size for it).
+    #[must_use]
+    pub fn is_whole(&self) -> bool {
+        self.state == ONLINE && self.faulted_members().is_empty()
+    }
+}
+
 /// Everything one poll learned.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Snapshot {
@@ -127,6 +195,7 @@ pub struct Snapshot {
     pub health: Part<Vec<Check>>,
     pub cron: Part<Vec<Job>>,
     pub containers: Part<Vec<Container>>,
+    pub zfs: Part<Vec<Pool>>,
     pub alerts: Part<Vec<Alert>>,
 }
 
@@ -158,6 +227,11 @@ impl Snapshot {
         }
         if let Part::Ready(c) = &self.containers {
             t.extend(c.iter().flat_map(|c| [c.name.as_str(), c.status.as_str()]));
+        }
+        if let Part::Ready(p) = &self.zfs {
+            t.extend(p.iter().flat_map(|p| {
+                std::iter::once(p.name.as_str()).chain(p.members.iter().map(|m| m.name.as_str()))
+            }));
         }
         if let Part::Ready(a) = &self.alerts {
             t.extend(a.iter().map(|a| a.subject.as_str()));
@@ -278,7 +352,49 @@ pub fn parse_alerts(v: &Value) -> Result<Vec<Alert>, String> {
         .collect())
 }
 
-/// Ask a connected server for all four sections at `now` (epoch seconds).
+/// `zfs.health`: `{pools: [{name, state, action, msg, scan, members: [{name,
+/// state, read, write, cksum}]}]}`.
+///
+/// The pool's own state and its vdev tree, as the tool publishes them: the
+/// view reads them, and never runs `zpool status` itself.
+///
+/// The error counters are not read, and that is the estate's rule rather than
+/// an omission: a pool is whole when its state and every member's state say
+/// so, and `check_zfs_pool` (which owns that verdict) fails on the states,
+/// not on a counter over a member that is still ONLINE.
+///
+/// # Errors
+///
+/// The answer has no `pools` list, or a pool has no `members` list (a pool
+/// whose vdev tree could not be read is not a pool that may be called whole).
+pub fn parse_zfs(v: &Value) -> Result<Vec<Pool>, String> {
+    list(v, "pools")?
+        .iter()
+        .map(|p| {
+            let members = list(p, "members").map_err(|_| {
+                format!(
+                    "pool {} has no `members` list",
+                    p.get("name").and_then(Value::as_str).unwrap_or_default()
+                )
+            })?;
+            Ok(Pool {
+                name: text(p, "name"),
+                state: text(p, "state"),
+                action: text(p, "action"),
+                msg: text(p, "msg"),
+                members: members
+                    .iter()
+                    .map(|m| Member {
+                        name: text(m, "name"),
+                        state: text(m, "state"),
+                    })
+                    .collect(),
+            })
+        })
+        .collect()
+}
+
+/// Ask a connected server for all five sections at `now` (epoch seconds).
 pub async fn gather<R, W>(c: &mut Client<R, W>, now: i64) -> Snapshot
 where
     R: AsyncRead + Unpin,
@@ -302,6 +418,11 @@ where
     } else {
         Part::Absent(c.absent_reason("docker.containers", "no Docker on this host"))
     };
+    let zfs = if c.has_tool(ZFS_TOOL) {
+        part(c.call(ZFS_TOOL, json!({})).await, parse_zfs)
+    } else {
+        Part::Absent(c.absent_reason(ZFS_TOOL, "this host lists no zfs.health"))
+    };
     let alerts = if c.has_tool("alerts.since") {
         part(
             c.call("alerts.since", json!({ "marker": now - ALERT_WINDOW_S }))
@@ -317,6 +438,7 @@ where
         health,
         cron,
         containers,
+        zfs,
         alerts,
     }
 }
@@ -334,3 +456,7 @@ fn part<T>(
 #[cfg(test)]
 #[path = "ops_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "zfs_tests.rs"]
+mod zfs_tests;

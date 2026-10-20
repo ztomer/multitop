@@ -81,7 +81,12 @@ pub struct Client<R, W> {
     /// Every tool the server lists, by name.
     pub tools: Vec<String>,
     /// Why the server does not list a tool the Ops view reads, by tool name,
-    /// when it says (`multitop-agent mcp` does; `mcp_host` does not).
+    /// when it says. Both servers say: `multitop-agent mcp` publishes the
+    /// tools it cannot answer, and so does the estate's `mcp_host` (its
+    /// `dev.multitop/absent` meta names `zfs.health` and the rest it
+    /// withheld, with the reason each was withheld). This comment used to
+    /// say `mcp_host` does not -- measured against `.158` on 2026-10-19, it
+    /// does, and the Ops view reads its reasons.
     pub absent: std::collections::HashMap<String, String>,
     /// Set by the first failure that ends the session (a closed pipe or a
     /// deadline missed - after a timeout a late reply could be mistaken

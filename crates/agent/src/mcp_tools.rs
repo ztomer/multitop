@@ -118,6 +118,11 @@ pub fn absent(system: &dyn System) -> Value {
     let mut why = json!({
         "health.run": "no health suite on this machine",
         "alerts.since": "nothing on this machine logs alerts",
+        // The ZFS section reads `zfs.health`, the tool that owns a pool's
+        // state and its vdev tree. This agent has no such tool -- it reads
+        // no pools -- and says so rather than letting the Ops view go
+        // quiet about the one fact a SUSPENDED pool hides.
+        "zfs.health": "this agent has no ZFS tool: it reads no pools",
     });
     if system.launchctl_list().is_none() {
         why["cron.status"] = json!("no launchd here; this agent reads cron only from launchd");

@@ -150,12 +150,13 @@ fn snapshot() -> Snapshot {
         health: Part::Ready(parse_health(&health_answer()).unwrap()),
         cron: Part::Ready(parse_cron(&cron_answer()).unwrap()),
         containers: Part::Ready(parse_containers(&containers_answer()).unwrap()),
+        zfs: Part::Absent("this host lists no zfs.health".into()),
         alerts: Part::Ready(parse_alerts(&alerts_answer()).unwrap()),
     }
 }
 
 /// The frame with its escape sequences removed.
-fn plain(lines: &[String]) -> Vec<String> {
+pub(super) fn plain(lines: &[String]) -> Vec<String> {
     let esc = regex::Regex::new("\x1b\\[[0-9;]*m").unwrap();
     lines
         .iter()
@@ -172,10 +173,9 @@ fn plain(lines: &[String]) -> Vec<String> {
 /// `const` cannot allocate. Each call builds a fresh one, which costs a dozen
 /// small allocations per test rather than nothing — and nothing would mean
 /// testing a `Palette`, which is not what production renders with.
-fn pal() -> multitop_agent::palette_view::PaletteView {
+pub(super) fn pal() -> multitop_agent::palette_view::PaletteView {
     multitop_agent::palette_view::PaletteView::for_theme(&multitop_agent::color::KARE)
 }
-
 #[test]
 fn a_troubled_host_names_each_thing_in_trouble_under_its_section() {
     let f = plain(&render(
@@ -193,14 +193,15 @@ fn a_troubled_host_names_each_thing_in_trouble_under_its_section() {
     let body = &f[1..];
     let want = [
         "mcp_host 1.65.2 · asked 12s ago",
-        "✗ health  1 of 2 failing",
+        "✗ health     1 of 2 failing",
         "    check_vpn_leak  rc 1, 15m ago",
-        "✗ cron    1 of 3 failing, running: healthcheck",
+        "✗ cron       1 of 3 failing, running: healthcheck",
         "    backup  rc 1, 2h ago, alerting 2h",
-        "✗ docker  2 of 4 in trouble",
+        "✗ docker     2 of 4 in trouble",
         "    gluetun  unhealthy",
         "    wger-web  Exited (137) 5 minutes ago",
-        "⚠ alerts  2 in 24 h",
+        "· zfs.health this host lists no zfs.health",
+        "⚠ alerts     2 in 24 h",
         "    1m ago  [media_server] backup FAILED (rc=1)",
         "    1h ago  [media_server] healthcheck FAILED (rc=1)",
     ];
@@ -208,7 +209,7 @@ fn a_troubled_host_names_each_thing_in_trouble_under_its_section() {
 }
 
 #[test]
-fn a_clean_host_is_four_lines_and_absences_are_stated_not_alarmed() {
+fn a_clean_host_is_five_lines_and_absences_are_stated_not_alarmed() {
     let mut s = snapshot();
     s.health = Part::Ready(vec![Check {
         name: "a".into(),
@@ -230,10 +231,11 @@ fn a_clean_host_is_four_lines_and_absences_are_stated_not_alarmed() {
     assert_eq!(
         &f[2..],
         [
-            "✓ health  1 check ok",
-            "· cron    no jobs",
-            "· docker  no Docker on this host",
-            "✓ alerts  none in 24 h"
+            "✓ health     1 check ok",
+            "· cron       no jobs",
+            "· docker     no Docker on this host",
+            "· zfs.health this host lists no zfs.health",
+            "✓ alerts     none in 24 h"
         ]
     );
     let mut s = snapshot();
@@ -247,7 +249,7 @@ fn a_clean_host_is_four_lines_and_absences_are_stated_not_alarmed() {
         &pal(),
     ));
     assert!(
-        f.contains(&"⚠ cron    could not read: tools/call: no answer in 10s".to_string()),
+        f.contains(&"⚠ cron       could not read: tools/call: no answer in 10s".to_string()),
         "{f:?}"
     );
 }
@@ -255,7 +257,7 @@ fn a_clean_host_is_four_lines_and_absences_are_stated_not_alarmed() {
 #[test]
 fn every_state_says_what_it_is() {
     let f = plain(&render("h", &OpsState::NotConfigured, 80, 10, NOW, &pal()));
-    assert_eq!(f[1], "· ops     no mcp_host command for this host");
+    assert_eq!(f[1], "· ops        no mcp_host command for this host");
     assert!(
         f[2].contains("mcp = \""),
         "the action sits beside the status: {f:?}"
@@ -273,7 +275,7 @@ fn every_state_says_what_it_is() {
         f,
         [
             f[0].clone(),
-            "⚠ mcp     ssh: connect to host h port 22: Connection refused".to_string()
+            "⚠ mcp        ssh: connect to host h port 22: Connection refused".to_string()
         ]
     );
     let stale = OpsState::Failed {
@@ -282,7 +284,7 @@ fn every_state_says_what_it_is() {
     };
     let f = plain(&render("h", &stale, 80, 40, NOW, &pal()));
     assert_eq!(f[2], "  the last answer, 12s old:");
-    assert_eq!(f[3], "✗ health  1 of 2 failing");
+    assert_eq!(f[3], "✗ health     1 of 2 failing");
 }
 
 #[test]
@@ -297,7 +299,7 @@ fn the_frame_fits_the_pane() {
     );
     assert_eq!(f.len(), 6);
     let p = plain(&f);
-    assert_eq!(p[5], "  +7 more");
+    assert_eq!(p[5], "  +8 more");
     assert!(p[1..].iter().all(|l| l.chars().count() <= 30), "{p:?}");
 }
 
@@ -345,7 +347,7 @@ fn a_container_without_a_health_check_is_not_counted_as_unhealthy() {
         &pal(),
     ));
     assert!(
-        f.contains(&"⚠ docker  3 running · 2 healthy · 1 unchecked".to_string()),
+        f.contains(&"⚠ docker     3 running · 2 healthy · 1 unchecked".to_string()),
         "{f:?}"
     );
     // Every one checked and healthy: said in three words.
@@ -365,7 +367,7 @@ fn a_container_without_a_health_check_is_not_counted_as_unhealthy() {
         &pal(),
     ));
     assert!(
-        f.contains(&"✓ docker  1 running, all healthy".to_string()),
+        f.contains(&"✓ docker     1 running, all healthy".to_string()),
         "{f:?}"
     );
 }
@@ -387,9 +389,9 @@ fn an_empty_section_says_so_and_never_claims_all_is_well() {
         &pal(),
     ));
     for line in [
-        "· health  no checks",
-        "· cron    no jobs",
-        "· docker  no containers",
+        "· health     no checks",
+        "· cron       no jobs",
+        "· docker     no containers",
     ] {
         assert!(f.contains(&line.to_string()), "{line} missing: {f:?}");
     }
@@ -418,7 +420,7 @@ fn an_empty_section_says_so_and_never_claims_all_is_well() {
         &pal(),
     ));
     assert!(
-        f.contains(&"· docker  none running, 2 stopped".to_string()),
+        f.contains(&"· docker     none running, 2 stopped".to_string()),
         "{f:?}"
     );
 }

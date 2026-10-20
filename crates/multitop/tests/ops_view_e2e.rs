@@ -106,7 +106,7 @@ async fn p_polls_each_hosts_server_and_draws_what_it_says() {
         plain(&app.panels[0].view)
     );
     assert!(
-        plain(&app.panels[2].view).contains("· ops     no mcp_host command for this host"),
+        plain(&app.panels[2].view).contains("· ops        no mcp_host command for this host"),
         "{}",
         plain(&app.panels[2].view)
     );
@@ -131,28 +131,34 @@ async fn p_polls_each_hosts_server_and_draws_what_it_says() {
         );
         // Absent WITH the server's reason, never a green "none".
         assert!(
-            view.contains("· health  no health suite on this machine"),
+            view.contains("· health     no health suite on this machine"),
             "{view}"
         );
         assert!(
-            view.contains("· alerts  nothing on this machine logs alerts"),
+            view.contains("· alerts     nothing on this machine logs alerts"),
+            "{view}"
+        );
+        // The ZFS section names the tool and says why it is absent: this
+        // agent has no ZFS tool, so it says so rather than going quiet.
+        assert!(
+            view.contains("· zfs.health this agent has no ZFS tool"),
             "{view}"
         );
     }
     let pinned = plain(&app.panels[1].view);
     assert!(
-        pinned.contains("⚠ docker  could not read: docker.containers: docker at unix://"),
+        pinned.contains("⚠ docker     could not read: docker.containers: docker at unix://"),
         "a configured daemon that is down is a fault: {pinned}"
     );
     if cfg!(target_os = "macos") {
         // HOME is empty, so the user has no launch agents: said, not passed.
-        assert!(pinned.contains("· cron    no jobs"), "{pinned}");
+        assert!(pinned.contains("· cron       no jobs"), "{pinned}");
     } else {
-        assert!(pinned.contains("· cron    no launchd here"), "{pinned}");
+        assert!(pinned.contains("· cron       no launchd here"), "{pinned}");
     }
     let broken = plain(&app.panels[3].view);
     assert!(
-        broken.contains("⚠ mcp     mcp_host closed the session: bin/mcp_host: not found"),
+        broken.contains("⚠ mcp        mcp_host closed the session: bin/mcp_host: not found"),
         "{broken}"
     );
 
