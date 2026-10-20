@@ -13,8 +13,7 @@
 //! root) and a row that does not say which root it came from cannot be
 //! attributed to either.
 
-/// The state a pool or a vdev is in when nothing is wrong with it.
-pub const ONLINE: &str = "ONLINE";
+use super::status::{DockerHealth, DockerState, Leak, Severity, Verdict, ZfsState};
 
 /// A gibibyte: the unit the estate's card counts disk in.
 const GIB: f64 = 1_073_741_824.0;
@@ -62,9 +61,12 @@ impl Job {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Container {
     pub name: String,
-    pub state: String,
+    /// The container's state, in Docker's own words.
+    pub state: DockerState,
+    /// The daemon's own status text - prose, not a status.
     pub status: String,
-    pub health: String,
+    /// The container's health, in Docker's own words.
+    pub health: DockerHealth,
     /// The instance the container belongs to, when the server says. The
     /// server resolves it: the compose project label is a Docker word, and
     /// the estate spells its stacks three ways.
@@ -82,10 +84,10 @@ impl Container {
     /// routines follower's.
     #[must_use]
     pub fn in_trouble(&self) -> bool {
-        if self.health == "unhealthy" {
+        if self.health == DockerHealth::Unhealthy {
             return true;
         }
-        if self.state == "running" {
+        if self.state == DockerState::Running {
             return false;
         }
         !(self.compose_project.is_none() && self.status.starts_with("Exited (0)"))
@@ -114,15 +116,15 @@ pub struct Alert {
 pub struct Member {
     /// The vdev's name as the pool knows it (`sdb`, `mirror-0`, ...).
     pub name: String,
-    /// `ONLINE`, `DEGRADED`, `REMOVED`, `FAULTED`, `UNAVAIL`, ...
-    pub state: String,
+    /// The member's state, in ZFS's own words.
+    pub state: ZfsState,
 }
 
 impl Member {
     /// A member that is not ONLINE.
     #[must_use]
-    pub fn is_faulted(&self) -> bool {
-        self.state != ONLINE
+    pub const fn is_faulted(&self) -> bool {
+        !self.state.is_online()
     }
 }
 
@@ -131,8 +133,8 @@ impl Member {
 pub struct Pool {
     /// The pool's name.
     pub name: String,
-    /// `ONLINE`, `DEGRADED`, `SUSPENDED`, `UNAVAIL`, ...
-    pub state: String,
+    /// The pool's state, in ZFS's own words.
+    pub state: ZfsState,
     /// What ZFS says to do about it, when it says anything.
     pub action: String,
     /// ZFS's explanation, when it has one.
@@ -152,7 +154,12 @@ impl Pool {
         self.members.iter().filter(|m| m.is_faulted()).collect()
     }
 
-    /// Whether the pool is whole: ONLINE itself, and every member ONLINE.
+    /// The estate's own VERDICT about the pool: WHOLE, or not.
+    ///
+    /// "2 pools whole: pool0, pool1" is OURS - computed from the vdev
+    /// tree, not read from ZFS - and it is a DIFFERENT fact from ZFS's own
+    /// word. A pool that says ONLINE with a member REMOVED is whole in
+    /// name only, and the word that lies is the word this verdict is not.
     ///
     /// The estate's rule, the one `check_zfs_pool` fails on and the tool's
     /// own summary uses: a pool that is not whole is invisible to every
@@ -160,23 +167,20 @@ impl Pool {
     /// writes BLOCK rather than fail, and `disk.usage` still reports a
     /// plausible size for it).
     #[must_use]
+    pub fn verdict(&self) -> Verdict {
+        if self.state.is_online() && self.faulted_members().is_empty() {
+            Verdict::Whole
+        } else {
+            Verdict::NotWhole
+        }
+    }
+
+    /// Whether the pool is whole: the verdict, asked as a yes.
+    #[must_use]
     pub fn is_whole(&self) -> bool {
-        self.state == ONLINE && self.faulted_members().is_empty()
+        self.verdict() == Verdict::Whole
     }
 }
-
-/// The verdict states `net.egress` publishes. They are the server's
-/// vocabulary, and the view branches on them without inventing one.
-pub const LEAK_CONFIRMED: &str = "confirmed";
-pub const LEAK_LEAKED: &str = "leaked";
-pub const LEAK_DISAGREEMENT: &str = "disagreement";
-pub const LEAK_UNVERIFIED: &str = "unverified";
-pub const LEAK_UNKNOWN: &str = "unknown";
-
-/// How bad a verdict is, as the view's tone bands.
-pub const VERDICT_OK: u8 = 0;
-pub const VERDICT_UNSETTLED: u8 = 1;
-pub const VERDICT_BAD: u8 = 2;
 
 /// One tunnel a machine's instance declares, as `net.egress` publishes it.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -191,27 +195,26 @@ pub struct Tunnel {
     /// disagreement and an unverifiable answer are all "not a country", and
     /// `leak` is what tells them apart.
     pub country: Option<String>,
-    /// The verdict: `confirmed`, `leaked`, `disagreement`, `unverified` or
-    /// `unknown`.
-    pub leak: String,
+    /// The verdict, as the server's vocabulary names it.
+    pub leak: Leak,
 }
 
 impl Tunnel {
     /// Whether the exit is where it belongs.
     #[must_use]
     pub fn is_confirmed(&self) -> bool {
-        self.leak == LEAK_CONFIRMED
+        self.leak == Leak::Confirmed
     }
 
     /// How bad the verdict is: a leak and a tunnel that is not running are
     /// faults; a disagreement and an unverifiable answer are not settled
     /// either way.
     #[must_use]
-    pub fn severity(&self) -> u8 {
-        match self.leak.as_str() {
-            LEAK_CONFIRMED => VERDICT_OK,
-            LEAK_LEAKED | LEAK_UNKNOWN => VERDICT_BAD,
-            _ => VERDICT_UNSETTLED,
+    pub const fn severity(&self) -> Severity {
+        match self.leak {
+            Leak::Confirmed => Severity::Ok,
+            Leak::Leaked | Leak::Unknown => Severity::Bad,
+            Leak::Disagreement | Leak::Unverified => Severity::Unsettled,
         }
     }
 }

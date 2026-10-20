@@ -11,8 +11,8 @@ use std::fmt::Write as _;
 
 use super::super::model::{
     amount, load_text, memory_amount, Alert, Check, Container, Disk, Egress, Job, Pool, Tunnel,
-    VERDICT_OK, VERDICT_UNSETTLED,
 };
+use super::super::status::{DockerHealth, DockerState, Severity, Verdict};
 use super::super::{Part, Snapshot};
 use super::{age, count, not_ready, Frame, Tone};
 
@@ -246,14 +246,17 @@ fn stacks(cs: &[Container]) -> Vec<(String, Vec<&Container>)> {
 /// One stack's containers.
 fn stack_row(f: &mut Frame<'_>, stack: &str, group: &[&Container]) {
     let bad: Vec<&&Container> = group.iter().filter(|c| c.in_trouble()).collect();
-    let running = group.iter().filter(|c| c.state == "running").count();
+    let running = group
+        .iter()
+        .filter(|c| c.state == DockerState::Running)
+        .count();
     // A running container that defines no Docker health check has no health
     // to report; "44 running, 33 healthy" read as 11 unhealthy when none
     // were (.33, 2026-09-23). It is named for what it is - and it is a gap
     // (nothing would notice it hang), so the line warns.
     let unchecked = group
         .iter()
-        .filter(|c| c.state == "running" && matches!(c.health.as_str(), "" | "none"))
+        .filter(|c| c.state == DockerState::Running && c.health.is_unchecked())
         .count();
     let name = if stack.is_empty() {
         String::new()
@@ -291,7 +294,7 @@ fn stack_row(f: &mut Frame<'_>, stack: &str, group: &[&Container]) {
         &format!("{name}{} of {} in trouble", bad.len(), group.len()),
     );
     for c in bad {
-        let why = if c.health == "unhealthy" {
+        let why = if c.health == DockerHealth::Unhealthy {
             "unhealthy"
         } else {
             c.status.as_str()
@@ -318,17 +321,17 @@ fn vpn(f: &mut Frame<'_>, e: &Egress, cs: &[Container]) {
         return;
     }
     let worst = e.tunnels.iter().max_by_key(|t| t.severity());
-    let tone = match worst.map_or(VERDICT_OK, Tunnel::severity) {
-        VERDICT_OK => Tone::Good,
-        VERDICT_UNSETTLED => Tone::Warn,
-        _ => Tone::Bad,
+    let tone = match worst.map_or(Severity::Ok, Tunnel::severity) {
+        Severity::Ok => Tone::Good,
+        Severity::Unsettled => Tone::Warn,
+        Severity::Bad => Tone::Bad,
     };
     let confirmed = e.tunnels.iter().filter(|t| t.is_confirmed()).count();
     let text = if confirmed == e.tunnels.len() {
         format!("{} confirmed", count(e.tunnels.len(), "tunnel"))
     } else {
-        let word = worst.map_or_default(|t| t.leak.clone());
-        let how_many = e.tunnels.iter().filter(|t| t.leak == word).count();
+        let word = worst.map_or_default(|t| t.leak.as_str());
+        let how_many = e.tunnels.iter().filter(|t| t.leak.as_str() == word).count();
         format!("{}, {how_many} {word}", count(e.tunnels.len(), "tunnel"))
     };
     f.line(tone, "vpn", &text);
@@ -351,7 +354,7 @@ fn tunnel_line(t: &Tunnel, cs: &[Container]) -> String {
         s.push_str(country);
     }
     s.push(' ');
-    s.push_str(&t.leak);
+    s.push_str(t.leak.as_str());
     if let Some(instance) = t.instance.as_deref().or_else(|| stack_of(t, cs)) {
         s.push_str(" via ");
         s.push_str(instance);
@@ -391,19 +394,29 @@ fn zfs(f: &mut Frame<'_>, pools: &[Pool]) {
         f.line(
             Tone::Good,
             "zfs",
-            &format!("{} whole: {}", count(pools.len(), "pool"), names.join(", ")),
+            &format!(
+                "{} {}: {}",
+                count(pools.len(), "pool"),
+                Verdict::Whole.as_str(),
+                names.join(", ")
+            ),
         );
         return;
     }
     f.line(
         Tone::Bad,
         "zfs",
-        &format!("{} of {} not whole", bad.len(), pools.len()),
+        &format!(
+            "{} of {} {}",
+            bad.len(),
+            pools.len(),
+            Verdict::NotWhole.as_str()
+        ),
     );
     for p in bad {
-        let mut why = vec![p.state.clone()];
+        let mut why = vec![p.state.as_str().to_owned()];
         for m in p.faulted_members() {
-            why.push(format!("{} {}", m.name, m.state));
+            why.push(format!("{} {}", m.name, m.state.as_str()));
         }
         f.item(&format!("{}  {}", p.name, why.join(" · ")));
         if !p.msg.is_empty() {
@@ -437,7 +450,7 @@ fn disk(f: &mut Frame<'_>, d: &Disk, s: &Snapshot) {
     );
     let tone = match broken {
         Some(p) => {
-            let _ = write!(text, " · {} is {}", p.name, p.state);
+            let _ = write!(text, " · {} is {}", p.name, p.state.as_str());
             Tone::Bad
         }
         None if capacity.percent >= TIGHT_PERCENT => Tone::Bad,

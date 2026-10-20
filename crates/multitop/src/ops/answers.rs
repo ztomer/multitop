@@ -11,6 +11,7 @@ use super::model::{
     load_milli, Alert, Check, Container, Disk, Egress, Facts, InstanceRow, Instances, Job, Member,
     Memory, Mount, Pool, Tunnel,
 };
+use super::status::{DockerHealth, DockerState, Leak, ZfsState};
 
 /// The string at `k`, or the empty string when there is none.
 fn text(v: &Value, k: &str) -> String {
@@ -98,9 +99,9 @@ pub fn parse_containers(v: &Value) -> Result<Vec<Container>, String> {
         .iter()
         .map(|c| Container {
             name: text(c, "name"),
-            state: text(c, "state"),
+            state: DockerState::from_word(&text(c, "state")),
             status: text(c, "status"),
-            health: text(c, "health"),
+            health: DockerHealth::from_word(&text(c, "health")),
             instance: opt_text(c, "instance"),
             compose_project: opt_text(c, "compose_project"),
         })
@@ -156,14 +157,14 @@ pub fn parse_zfs(v: &Value) -> Result<Vec<Pool>, String> {
             })?;
             Ok(Pool {
                 name: text(p, "name"),
-                state: text(p, "state"),
+                state: ZfsState::from_word(&text(p, "state")),
                 action: text(p, "action"),
                 msg: text(p, "msg"),
                 members: members
                     .iter()
                     .map(|m| Member {
                         name: text(m, "name"),
-                        state: text(m, "state"),
+                        state: ZfsState::from_word(&text(m, "state")),
                     })
                     .collect(),
             })
@@ -187,7 +188,7 @@ pub fn parse_egress(v: &Value) -> Result<Egress, String> {
     let line = text(v, "egress");
     if let Some(rows) = v.get("tunnels").and_then(Value::as_array) {
         return Ok(Egress {
-            tunnels: rows.iter().map(tunnel).collect(),
+            tunnels: rows.iter().map(tunnel).collect::<Result<Vec<_>, _>>()?,
             line,
         });
     }
@@ -199,20 +200,35 @@ pub fn parse_egress(v: &Value) -> Result<Egress, String> {
             instance: None,
             container,
             country: opt_text(v, "country"),
-            leak: text(v, "leak"),
+            leak: leak_of(v)?,
         }]
     };
     Ok(Egress { tunnels, line })
 }
 
 /// One row of the `tunnels` list.
-fn tunnel(row: &Value) -> Tunnel {
-    Tunnel {
+fn tunnel(row: &Value) -> Result<Tunnel, String> {
+    Ok(Tunnel {
         instance: opt_text(row, "instance"),
         container: text(row, "container"),
         country: opt_text(row, "country"),
-        leak: text(row, "leak"),
+        leak: leak_of(row)?,
+    })
+}
+
+/// The verdict, as the server's vocabulary names it.
+///
+/// The server's set is CLOSED, so a word outside it is a word this client
+/// does not know: the answer is REFUSED rather than read as some verdict it
+/// is not - and `unknown` means "nothing was measured", not "I do not know
+/// this word". The enum grows, not the string.
+fn leak_of(v: &Value) -> Result<Leak, String> {
+    let word = text(v, "leak");
+    if word.is_empty() {
+        return Ok(Leak::Unknown);
     }
+    Leak::parse(&word)
+        .ok_or_else(|| format!("the answer carries a verdict this client does not have: `{word}`"))
 }
 
 /// `disk.usage`: `{mounts: [{mount, device, fstype, size, used, avail,

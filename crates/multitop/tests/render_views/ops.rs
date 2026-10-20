@@ -5,7 +5,9 @@ use super::{base, App};
 /// The Ops view: a troubled host, a clean one without Docker, one whose
 /// session broke (under its last answer) and one with no `mcp` command.
 pub fn ops(term: (u16, u16)) -> App {
-    use multitop::ops::{Check, Container, Job, OpsState, Part, Snapshot};
+    use multitop::ops::{
+        Check, Container, DockerHealth, DockerState, Job, OpsState, Part, Snapshot, ZfsState,
+    };
     let mut app = base(4, term);
     for p in app.panels.iter_mut().take(3) {
         p.server.mcp = Some("cd ~/prj/x && bin/mcp_host --root .".to_string());
@@ -34,9 +36,9 @@ pub fn ops(term: (u16, u16)) -> App {
     };
     let ct = |n: &str, h: &str| Container {
         name: n.into(),
-        state: "running".into(),
+        state: DockerState::Running,
         status: "Up 2 hours".into(),
-        health: h.into(),
+        health: DockerHealth::from_word(h),
         instance: Some("m".into()),
         compose_project: Some("m".into()),
     };
@@ -52,12 +54,12 @@ pub fn ops(term: (u16, u16)) -> App {
         containers: Part::Ready(vec![ct("gluetun", "unhealthy"), ct("jellyfin", "healthy")]),
         zfs: Part::Ready(vec![multitop::ops::Pool {
             name: "pool0".into(),
-            state: "SUSPENDED".into(),
+            state: ZfsState::Suspended,
             action: "attach the missing device".into(),
             msg: "One or more devices could not be opened".into(),
             members: vec![multitop::ops::Member {
                 name: "sdc".into(),
-                state: "REMOVED".into(),
+                state: ZfsState::Removed,
             }],
         }]),
         disk: Part::Absent("this host lists no disk.usage".into()),

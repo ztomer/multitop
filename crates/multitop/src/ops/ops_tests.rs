@@ -143,7 +143,7 @@ async fn gather_asks_only_what_the_host_lists_and_one_failure_hides_nothing() {
     );
 }
 
-fn snapshot() -> Snapshot {
+pub(super) fn snapshot() -> Snapshot {
     Snapshot {
         server: ("mcp_host".into(), "1.65.2".into()),
         at: NOW - 12,

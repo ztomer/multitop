@@ -84,7 +84,7 @@ fn the_pool_state_is_read_from_the_tool_never_re_derived() {
     assert_eq!(pools.len(), 1);
     let pool = &pools[0];
     assert_eq!(pool.name, "pool0");
-    assert_eq!(pool.state, "SUSPENDED");
+    assert_eq!(pool.state, ZfsState::Suspended);
     assert_eq!(pool.action, "attach the missing device");
     assert_eq!(pool.msg, "One or more devices could not be opened");
     assert_eq!(pool.members.len(), 2);

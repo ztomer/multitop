@@ -31,9 +31,11 @@
 pub mod answers;
 pub mod model;
 pub mod render;
+pub mod status;
 
 pub use answers::*;
 pub use model::*;
+pub use status::*;
 
 use std::time::Duration;
 
@@ -318,3 +320,7 @@ mod zfs_tests;
 #[cfg(test)]
 #[path = "machine_tests.rs"]
 mod machine_tests;
+
+#[cfg(test)]
+#[path = "status_tests.rs"]
+mod status_tests;

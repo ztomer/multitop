@@ -264,22 +264,22 @@ fn the_words_are_the_ones_the_other_client_uses() {
     s.zfs = Part::Ready(vec![
         Pool {
             name: "pool0".into(),
-            state: "ONLINE".into(),
+            state: ZfsState::Online,
             action: String::new(),
             msg: String::new(),
             members: vec![Member {
                 name: "mirror-0".into(),
-                state: "ONLINE".into(),
+                state: ZfsState::Online,
             }],
         },
         Pool {
             name: "pool1".into(),
-            state: "ONLINE".into(),
+            state: ZfsState::Online,
             action: String::new(),
             msg: String::new(),
             members: vec![Member {
                 name: "sdb".into(),
-                state: "ONLINE".into(),
+                state: ZfsState::Online,
             }],
         },
     ]);
