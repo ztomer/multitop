@@ -195,6 +195,10 @@ impl Snapshot {
         if let Part::Ready(f) = &self.facts {
             if let Some(i) = &f.instances {
                 t.extend(i.rows.iter().map(|r| r.instance.as_str()));
+                // The server's own reason for a row that is not an instance
+                // is searchable: `/declaration` finds the machine whose
+                // declaration could not be read.
+                t.extend(i.rows.iter().filter_map(|r| r.problem.as_deref()));
             }
         }
         if let Part::Ready(a) = &self.alerts {

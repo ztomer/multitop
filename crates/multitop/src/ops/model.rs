@@ -369,22 +369,50 @@ pub struct Instances {
     /// machine's instances are UNKNOWN, which is not the same as "there is
     /// one".
     pub read: bool,
+    /// The declaration's mtime (epoch seconds); None when there is NO
+    /// declaration file. It is the fact that tells a machine that declares
+    /// nothing from a declaration that could not be read.
+    pub mtime: Option<i64>,
+    /// How many instances the machine has.
+    pub answered: usize,
     /// Every row the machine knows about.
     pub rows: Vec<InstanceRow>,
 }
 
 impl Instances {
-    /// The instances that are there.
+    /// The rows that are FINDINGS: a declared root that is not there, or a
+    /// row the declaration could not be read.
+    ///
+    /// A machine that simply DECLARES NOTHING is not in here: it has one
+    /// instance - itself - and says so. That is a stated absence, not a
+    /// fault, and alarm is reserved for faults.
     #[must_use]
-    pub fn present(&self) -> Vec<&InstanceRow> {
-        self.rows.iter().filter(|r| r.present).collect()
+    pub fn faults(&self) -> Vec<&InstanceRow> {
+        if self.is_undeclared() {
+            return Vec::new();
+        }
+        self.rows.iter().filter(|r| r.problem.is_some()).collect()
     }
 
-    /// The rows that are findings: a rejected row, or a root that is not
-    /// there.
+    /// Whether the machine DECLARES nothing: there is no declaration file,
+    /// so the machine has exactly one instance - itself - and says so.
+    ///
+    /// The FACTS, not a flag: the declaration's mtime is absent (there is no
+    /// file), it declares no rows and it was not read. A declaration that
+    /// EXISTS and could not be read carries an mtime, and that is a fault:
+    /// the operator declared instances and this view cannot see them.
     #[must_use]
-    pub fn problems(&self) -> Vec<&InstanceRow> {
-        self.rows.iter().filter(|r| r.problem.is_some()).collect()
+    pub fn is_undeclared(&self) -> bool {
+        self.mtime.is_none()
+            && self.declared == 0
+            && !self.read
+            && self.rows.iter().all(|r| r.present)
+    }
+
+    /// The machine's own instance, when it declares none: the first row.
+    #[must_use]
+    pub fn primary(&self) -> Option<&InstanceRow> {
+        self.rows.first()
     }
 }
 

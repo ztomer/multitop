@@ -294,6 +294,12 @@ fn parse_instances(v: &Value) -> Instances {
             .and_then(|d| usize::try_from(d).ok())
             .unwrap_or_default(),
         read: v.get("read").and_then(Value::as_bool).unwrap_or(false),
+        mtime: v.get("mtime").and_then(Value::as_i64),
+        answered: v
+            .get("answered")
+            .and_then(Value::as_u64)
+            .and_then(|a| usize::try_from(a).ok())
+            .unwrap_or_default(),
         rows,
     }
 }

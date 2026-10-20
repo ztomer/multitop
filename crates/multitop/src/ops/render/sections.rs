@@ -89,11 +89,27 @@ fn machine(f: &mut Frame<'_>, s: &Snapshot) {
             if !parts.is_empty() {
                 f.note(&parts.join(" · "));
             }
-            // A declared root that is not there is a FINDING, not an
-            // omission: the machine may be serving an instance this view
-            // cannot see.
+            // The machine's stacks, and what is wrong with them.
+            //
+            // A machine that DECLARES NOTHING has one instance - itself -
+            // and says so: that is a stated absence, not a fault, and alarm
+            // is reserved for faults. A declaration that EXISTS and could
+            // not be read is a fault (the operator declared instances and
+            // this view cannot see them), and so is a declared root that is
+            // not there.
             if let Some(instances) = &facts.instances {
-                for row in instances.problems() {
+                if instances.is_undeclared() {
+                    let name = instances.primary().map_or("", |r| r.instance.as_str());
+                    f.line(
+                        Tone::Quiet,
+                        "stacks",
+                        &format!(
+                            "{name}: {}, no declaration",
+                            count(instances.answered, "instance")
+                        ),
+                    );
+                }
+                for row in instances.faults() {
                     let why = row.problem.as_deref().unwrap_or_default();
                     f.line(Tone::Warn, "stacks", &format!("{}: {why}", row.instance));
                 }

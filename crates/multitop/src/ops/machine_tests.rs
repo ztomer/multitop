@@ -332,6 +332,68 @@ fn a_declared_root_that_is_not_there_is_a_finding() {
     );
 }
 
+/// A machine with no declaration file has ONE instance - itself - and says
+/// so. That is a stated absence, not a fault: alarm is reserved for faults,
+/// and a healthy single-instance machine is not one.
+#[test]
+fn a_machine_with_no_declaration_says_so_and_is_not_an_alarm() {
+    let mut answer = facts_answer();
+    answer["instances"] = json!({
+        "source": "/mnt/fast-nvme/projects/media_server/config/instances.tsv",
+        "mtime": Value::Null,
+        "declared": 0,
+        "read": false,
+        "answered": 1,
+        "rows": [{
+            "instance": "media_server",
+            "root": "/mnt/fast-nvme/projects/media_server",
+            "present": true,
+            "problem": "the machine's instance declaration is missing (config/instances.tsv)",
+        }],
+    });
+    let mut s = snapshot();
+    s.facts = Part::Ready(parse_facts(&answer).unwrap());
+    let f = frame(&s);
+    assert!(
+        f.contains(&"· stacks     media_server: 1 instance, no declaration".to_string()),
+        "the absence is stated, quietly: {f:?}"
+    );
+    assert!(
+        !f.iter().any(|l| l.starts_with("⚠ stacks")),
+        "a machine that simply declares no instances is not a fault: {f:?}"
+    );
+}
+
+/// A declaration that EXISTS and could not be read is a different thing:
+/// the operator declared instances and this view cannot see them, so it is
+/// a fault, and it says so.
+#[test]
+fn a_declaration_that_could_not_be_read_is_a_fault() {
+    let mut answer = facts_answer();
+    answer["instances"] = json!({
+        "source": "/mnt/fast-nvme/projects/media_server/config/instances.tsv",
+        "mtime": 1_790_000_000,
+        "declared": 0,
+        "read": false,
+        "answered": 1,
+        "rows": [{
+            "instance": "media_server",
+            "root": "/mnt/fast-nvme/projects/media_server",
+            "present": true,
+            "problem": "the machine's instance declaration could not be read (config/instances.tsv)",
+        }],
+    });
+    let mut s = snapshot();
+    s.facts = Part::Ready(parse_facts(&answer).unwrap());
+    let f = frame(&s);
+    assert!(
+        f.iter().any(|l| l.starts_with(
+            "⚠ stacks     media_server: the machine's instance declaration could not be read"
+        )),
+        "a broken declaration is a fault, with the server's reason: {f:?}"
+    );
+}
+
 /// The fake host the estate's server is: every tool the machine lists.
 fn host(tool_names: &'static [&'static str]) -> impl Fn(&str, &Value) -> Reply + Send + 'static {
     move |method, params| match method {
