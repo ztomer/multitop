@@ -244,6 +244,7 @@ mod tests {
         clear_mock_store();
 
         let server = Server {
+            name: None,
             host: "mock_host".into(),
             port: 22,
             user: "mock_user".into(),

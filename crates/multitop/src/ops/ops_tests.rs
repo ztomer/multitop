@@ -148,9 +148,12 @@ fn snapshot() -> Snapshot {
         server: ("mcp_host".into(), "1.65.2".into()),
         at: NOW - 12,
         health: Part::Ready(parse_health(&health_answer()).unwrap()),
+        vpn: Part::Absent("this host lists no net.egress".into()),
         cron: Part::Ready(parse_cron(&cron_answer()).unwrap()),
         containers: Part::Ready(parse_containers(&containers_answer()).unwrap()),
         zfs: Part::Absent("this host lists no zfs.health".into()),
+        disk: Part::Absent("this host lists no disk.usage".into()),
+        facts: Part::Absent("this host lists no host.facts".into()),
         alerts: Part::Ready(parse_alerts(&alerts_answer()).unwrap()),
     }
 }
@@ -193,14 +196,18 @@ fn a_troubled_host_names_each_thing_in_trouble_under_its_section() {
     let body = &f[1..];
     let want = [
         "mcp_host 1.65.2 · asked 12s ago",
+        "· no cpu or memory: this host lists no host.facts",
         "✗ health     1 of 2 failing",
         "    check_vpn_leak  rc 1, 15m ago",
+        "· vpn        this host lists no net.egress",
         "✗ cron       1 of 3 failing, running: healthcheck",
         "    backup  rc 1, 2h ago, alerting 2h",
-        "✗ docker     2 of 4 in trouble",
+        "✗ containers media_server 2 of 3 in trouble",
         "    gluetun  unhealthy",
         "    wger-web  Exited (137) 5 minutes ago",
-        "· zfs.health this host lists no zfs.health",
+        "· containers none running, 1 stopped",
+        "· zfs        this host lists no zfs.health",
+        "· disk       this host lists no disk.usage",
         "⚠ alerts     2 in 24 h",
         "    1m ago  [media_server] backup FAILED (rc=1)",
         "    1h ago  [media_server] healthcheck FAILED (rc=1)",
@@ -231,10 +238,13 @@ fn a_clean_host_is_five_lines_and_absences_are_stated_not_alarmed() {
     assert_eq!(
         &f[2..],
         [
+            "· no cpu or memory: this host lists no host.facts",
             "✓ health     1 check ok",
+            "· vpn        this host lists no net.egress",
             "· cron       no jobs",
-            "· docker     no Docker on this host",
-            "· zfs.health this host lists no zfs.health",
+            "· containers no Docker on this host",
+            "· zfs        this host lists no zfs.health",
+            "· disk       this host lists no disk.usage",
             "✓ alerts     none in 24 h"
         ]
     );
@@ -284,7 +294,7 @@ fn every_state_says_what_it_is() {
     };
     let f = plain(&render("h", &stale, 80, 40, NOW, &pal()));
     assert_eq!(f[2], "  the last answer, 12s old:");
-    assert_eq!(f[3], "✗ health     1 of 2 failing");
+    assert_eq!(f[4], "✗ health     1 of 2 failing");
 }
 
 #[test]
@@ -299,7 +309,7 @@ fn the_frame_fits_the_pane() {
     );
     assert_eq!(f.len(), 6);
     let p = plain(&f);
-    assert_eq!(p[5], "  +8 more");
+    assert_eq!(p[5], "  +12 more");
     assert!(p[1..].iter().all(|l| l.chars().count() <= 30), "{p:?}");
 }
 
@@ -347,7 +357,7 @@ fn a_container_without_a_health_check_is_not_counted_as_unhealthy() {
         &pal(),
     ));
     assert!(
-        f.contains(&"⚠ docker     3 running · 2 healthy · 1 unchecked".to_string()),
+        f.contains(&"⚠ containers p 3 running · 1 unchecked".to_string()),
         "{f:?}"
     );
     // Every one checked and healthy: said in three words.
@@ -366,10 +376,7 @@ fn a_container_without_a_health_check_is_not_counted_as_unhealthy() {
         NOW,
         &pal(),
     ));
-    assert!(
-        f.contains(&"✓ docker     1 running, all healthy".to_string()),
-        "{f:?}"
-    );
+    assert!(f.contains(&"✓ containers p 1 running".to_string()), "{f:?}");
 }
 
 #[test]
@@ -391,11 +398,11 @@ fn an_empty_section_says_so_and_never_claims_all_is_well() {
     for line in [
         "· health     no checks",
         "· cron       no jobs",
-        "· docker     no containers",
+        "· containers no containers",
     ] {
         assert!(f.contains(&line.to_string()), "{line} missing: {f:?}");
     }
-    for label in ["health", "cron", "docker"] {
+    for label in ["health", "cron", "containers"] {
         assert!(
             !f.iter().any(|l| l.starts_with(&format!("✓ {label}"))),
             "{label} is green over nothing: {f:?}"
@@ -420,7 +427,7 @@ fn an_empty_section_says_so_and_never_claims_all_is_well() {
         &pal(),
     ));
     assert!(
-        f.contains(&"· docker     none running, 2 stopped".to_string()),
+        f.contains(&"· containers none running, 2 stopped".to_string()),
         "{f:?}"
     );
 }

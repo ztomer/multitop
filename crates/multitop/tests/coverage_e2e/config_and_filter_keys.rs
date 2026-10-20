@@ -12,6 +12,7 @@ fn config_save_and_load_servers_roundtrip() {
 
     let servers = vec![
         Server {
+            name: None,
             host: "web-01".into(),
             port: 22,
             user: "admin".into(),
@@ -20,6 +21,7 @@ fn config_save_and_load_servers_roundtrip() {
             mcp: None,
         },
         Server {
+            name: None,
             host: "db-01".into(),
             port: 22,
             user: "admin".into(),

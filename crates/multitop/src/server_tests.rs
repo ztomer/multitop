@@ -8,6 +8,7 @@ fn test_state(token: &str) -> AppState {
         live: Arc::new(RwLock::new(LiveState::default())),
         token: token.to_string(),
         servers: vec![Server {
+            name: None,
             host: "test-host".into(),
             port: 22,
             user: String::new(),

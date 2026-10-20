@@ -151,13 +151,12 @@ async fn a_host_that_serves_the_tool_is_named_and_its_pools_are_shown() {
         &pal(),
     ));
     assert!(
-        f.iter()
-            .any(|l| l.contains("zfs.health") && l.contains("pool0")),
-        "the view names the tool and the pool: {f:?}"
+        f.iter().any(|l| l.contains("zfs") && l.contains("pool0")),
+        "the view names the section and the pool: {f:?}"
     );
     assert!(
-        f.iter().any(|l| l.contains("1 pool ONLINE")),
-        "the pool's state is shown: {f:?}"
+        f.iter().any(|l| l.contains("1 pool whole: pool0")),
+        "the pool's state is shown, in the words the other client uses: {f:?}"
     );
 }
 
@@ -190,12 +189,11 @@ async fn a_host_without_the_tool_says_why_it_is_absent() {
         &pal(),
     ));
     assert!(
-        f.iter()
-            .any(|l| l.contains("zfs.health") && l.contains(NO_ZFS)),
+        f.iter().any(|l| l.contains("zfs") && l.contains(NO_ZFS)),
         "the view names the tool and the server's reason: {f:?}"
     );
     assert!(
-        !f.iter().any(|l| l.contains("✓ zfs.health")),
+        !f.iter().any(|l| l.contains("✓ zfs")),
         "an absence is never a green line: {f:?}"
     );
 }
@@ -226,7 +224,7 @@ async fn a_pool_that_is_not_whole_is_visible_not_merely_listed() {
         "what ZFS says to do about it is shown: {f:?}"
     );
     assert!(
-        f.iter().any(|l| l.starts_with("✗ zfs.health")),
+        f.iter().any(|l| l.starts_with("✗ zfs")),
         "a pool that is not whole is a fault, not a quiet line: {f:?}"
     );
 }
@@ -257,7 +255,7 @@ async fn an_answer_that_cannot_be_read_says_so_and_hides_nothing() {
     ));
     assert!(
         f.iter()
-            .any(|l| l.contains("⚠ zfs.health") && l.contains("could not read")),
+            .any(|l| l.contains("⚠ zfs") && l.contains("could not read")),
         "{f:?}"
     );
 }
@@ -271,6 +269,9 @@ fn the_pool_names_are_searchable() {
         cron: Part::Absent("none".into()),
         containers: Part::Absent("none".into()),
         zfs: Part::Ready(parse_zfs(&broken_pools()).unwrap()),
+        vpn: Part::Absent("none".into()),
+        disk: Part::Absent("none".into()),
+        facts: Part::Absent("none".into()),
         alerts: Part::Absent("none".into()),
     };
     let terms = s.terms();

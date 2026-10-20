@@ -29,6 +29,7 @@ fn isolate_keychain() -> tokio::sync::MutexGuard<'static, ()> {
 fn sample_servers(count: usize) -> Vec<Server> {
     (0..count)
         .map(|i| Server {
+            name: None,
             host: format!("192.168.0.{}", 10 + i),
             port: 22,
             user: "root".into(),
@@ -216,6 +217,7 @@ fn a_long_filter_query_cannot_push_the_way_out_off_the_screen() {
     for query_len in [1usize, 20, 60, 200, 1000] {
         for (w, h) in [(40u16, 12u16), (80, 24), (20, 6)] {
             let mut app = multitop::app::App::new(vec![multitop::config::Server {
+                name: None,
                 host: "web-01".into(),
                 port: 22,
                 user: "admin".into(),
@@ -263,6 +265,7 @@ fn a_vault_prompt_keeps_its_way_out_at_every_size() {
         for with_error in [false, true] {
             for (w, h) in [(40u16, 12u16), (56, 14), (80, 24), (200, 50)] {
                 let mut app = multitop::app::App::new(vec![multitop::config::Server {
+                    name: None,
                     host: "web-01".into(),
                     port: 22,
                     user: "admin".into(),
@@ -328,6 +331,7 @@ fn a_status_line_is_not_eaten_by_the_banner() {
 
     let _keychain = isolate_keychain();
     let mut app = multitop::app::App::new(vec![multitop::config::Server {
+        name: None,
         host: "web-01".into(),
         port: 22,
         user: "admin".into(),

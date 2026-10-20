@@ -21,6 +21,7 @@ fn action<'a>(server: &'a Server, tx: &'a Sender<Msg>) -> ExecAction<'a> {
 
 fn server() -> Server {
     Server {
+        name: None,
         host: "host".to_string(),
         port: 0,
         user: String::new(),
@@ -67,6 +68,7 @@ async fn unterminated_final_line_is_not_appended_twice() {
     })));
 
     let server = Server {
+        name: None,
         host: "127.0.0.1".to_string(),
         port: 0,
         user: String::new(),

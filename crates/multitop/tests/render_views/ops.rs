@@ -26,6 +26,7 @@ pub fn ops(term: (u16, u16)) -> App {
     };
     let job = |l: &str, rc| Job {
         label: l.into(),
+        instance: None,
         last_start: Some(at - 7200),
         last_rc: Some(rc),
         running_since: None,
@@ -36,6 +37,7 @@ pub fn ops(term: (u16, u16)) -> App {
         state: "running".into(),
         status: "Up 2 hours".into(),
         health: h.into(),
+        instance: Some("m".into()),
         compose_project: Some("m".into()),
     };
     let troubled = Snapshot {
@@ -45,6 +47,7 @@ pub fn ops(term: (u16, u16)) -> App {
             check("check_disk_space", true),
             check("check_vpn_leak", false),
         ]),
+        vpn: Part::Absent("no VPN stack on this host".into()),
         cron: Part::Ready(vec![job("backup", 1), job("healthcheck", 0)]),
         containers: Part::Ready(vec![ct("gluetun", "unhealthy"), ct("jellyfin", "healthy")]),
         zfs: Part::Ready(vec![multitop::ops::Pool {
@@ -57,6 +60,8 @@ pub fn ops(term: (u16, u16)) -> App {
                 state: "REMOVED".into(),
             }],
         }]),
+        disk: Part::Absent("this host lists no disk.usage".into()),
+        facts: Part::Absent("this host lists no host.facts".into()),
         alerts: Part::Ready(vec![multitop::ops::Alert {
             ts: at - 60,
             subject: "[media_server] backup FAILED (rc=1)".into(),

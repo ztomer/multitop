@@ -188,6 +188,7 @@ mod tests {
 
     fn server(host: &str) -> Server {
         Server {
+            name: None,
             host: host.to_string(),
             port: 0,
             user: "a".to_string(),

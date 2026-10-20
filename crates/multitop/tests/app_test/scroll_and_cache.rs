@@ -18,6 +18,7 @@ use super::*;
 fn the_confirmation_on_screen_is_the_one_whose_keys_are_live() {
     let _keychain = isolate_keychain();
     let mut app = App::new(vec![Server {
+        name: None,
         host: "host1".to_string(),
         port: 22,
         user: "admin".to_string(),
@@ -264,6 +265,7 @@ fn mark_upgrade_interrupted_flips_started_to_done() {
 
     a.panels[0].upgrade_state = UpgradeState::STARTED;
     a.panels[0].server = Server {
+        name: None,
         host: "test.example".into(),
         port: 22,
         user: "admin".into(),
@@ -285,6 +287,7 @@ fn mark_upgrade_interrupted_persists_finished_at() {
 
     a.panels[0].upgrade_state = UpgradeState::STARTED;
     a.panels[0].server = Server {
+        name: None,
         host: "persist.example".into(),
         port: 22,
         user: "admin".into(),

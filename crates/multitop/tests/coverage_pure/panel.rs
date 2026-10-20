@@ -64,6 +64,7 @@ fn ring_lines_slice() {
 #[test]
 fn panel_show_last_frame_with_cached_frame() {
     let mut p = multitop::panel::Panel::new(multitop::config::Server {
+        name: None,
         host: "h1".into(),
         port: 22,
         user: "admin".into(),
@@ -83,6 +84,7 @@ fn panel_show_last_frame_with_cached_frame() {
 #[test]
 fn panel_note_dedup() {
     let mut p = multitop::panel::Panel::new(multitop::config::Server {
+        name: None,
         host: "h1".into(),
         port: 22,
         user: "admin".into(),
@@ -98,6 +100,7 @@ fn panel_note_dedup() {
 #[test]
 fn panel_note_bounded() {
     let mut p = multitop::panel::Panel::new(multitop::config::Server {
+        name: None,
         host: "h1".into(),
         port: 22,
         user: "admin".into(),
@@ -114,6 +117,7 @@ fn panel_note_bounded() {
 #[test]
 fn panel_show_body_reserves_row0() {
     let mut p = multitop::panel::Panel::new(multitop::config::Server {
+        name: None,
         host: "h1".into(),
         port: 22,
         user: "admin".into(),
@@ -182,6 +186,7 @@ fn shrinking_the_cap_keeps_the_newest_lines() {
 #[test]
 fn a_notice_lands_in_notes_whatever_view_is_showing() {
     let mut p = multitop::panel::Panel::new(multitop::config::Server {
+        name: None,
         host: "web-01".into(),
         port: 22,
         user: "admin".into(),

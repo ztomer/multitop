@@ -36,6 +36,7 @@ fn next_port() -> u16 {
 
 fn test_server(host: &str) -> Server {
     Server {
+        name: None,
         host: host.to_string(),
         port: next_port(),
         user: "admin".to_string(),

@@ -20,7 +20,7 @@ pub fn frame(
         (Some(_), None) => &OpsState::Asking,
     };
     crate::ops::render::render(
-        &panel.server.host,
+        &crate::ops::banner(&panel.server),
         state,
         dims.0 as usize,
         dims.1 as usize,

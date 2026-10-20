@@ -125,6 +125,12 @@ pub fn save_servers(path: &Path, servers: &[Server]) -> Result<(), String> {
         table["host"] = toml_edit::value(server.host.clone());
         table["port"] = toml_edit::value(i64::from(server.port));
         table["user"] = toml_edit::value(server.user.clone());
+        match &server.name {
+            Some(name) => table["name"] = toml_edit::value(name.clone()),
+            None => {
+                table.remove("name");
+            }
+        }
         match &server.upgrade_cmd {
             Some(command) => table["upgrade_cmd"] = toml_edit::value(command.clone()),
             None => {

@@ -130,6 +130,7 @@ fn main() {
     for num_panels in [1, 2, 4, 8, 16] {
         let servers: Vec<Server> = (0..num_panels)
             .map(|i| Server {
+                name: None,
                 host: format!("server-{i}"),
                 port: 22,
                 user: "admin".into(),

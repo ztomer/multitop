@@ -63,6 +63,7 @@ const SIZES: &[(u16, u16)] = &[(80, 24), (120, 35), (200, 50), (40, 12)];
 
 fn server(host: &str, cmd: Option<&str>) -> Server {
     Server {
+        name: None,
         host: host.to_string(),
         port: 22,
         user: "ztomer".to_string(),

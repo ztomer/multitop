@@ -301,6 +301,7 @@ mod replace_agent_tests {
 
     fn server(host: &str, port: u16) -> Server {
         Server {
+            name: None,
             host: host.to_string(),
             port,
             user: "admin".to_string(),

@@ -236,6 +236,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("============================================================\n");
 
     let server = Server {
+        name: None,
         host: remote_host.clone(),
         port: 22,
         user: remote_user,

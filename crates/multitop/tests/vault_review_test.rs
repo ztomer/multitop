@@ -28,6 +28,7 @@ async fn isolate_keychain_async() -> tokio::sync::MutexGuard<'static, ()> {
 
 fn srv() -> Server {
     Server {
+        name: None,
         host: "h".into(),
         port: 22,
         user: "u".into(),

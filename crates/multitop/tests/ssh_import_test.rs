@@ -16,6 +16,7 @@ use multitop::config::{merge_ssh_hosts, parse_ssh_config, Server};
 
 fn server(host: &str, user: &str, port: u16, cmd: Option<&str>) -> Server {
     Server {
+        name: None,
         host: host.to_string(),
         port,
         user: user.to_string(),

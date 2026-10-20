@@ -15,6 +15,7 @@ fn one_notice_is_one_notice_across_views() {
                      interrupted run will not be detectable after a restart.";
     let _keychain = isolate_keychain();
     let mut app = multitop::app::App::new(vec![multitop::config::Server {
+        name: None,
         host: "web-01".to_string(),
         port: 22,
         user: "admin".to_string(),

@@ -123,6 +123,13 @@ pub fn absent(system: &dyn System) -> Value {
         // no pools -- and says so rather than letting the Ops view go
         // quiet about the one fact a SUSPENDED pool hides.
         "zfs.health": "this agent has no ZFS tool: it reads no pools",
+        // The machine model's tools (servers ROADMAP O92): the tunnel, the
+        // machine's filesystems, and the machine's own facts. This agent
+        // streams the cpu, the memory and the disks it watches; it does not
+        // answer them as facts, and it measures no tunnel's exit.
+        "net.egress": "this agent has no net.egress tool: it measures no tunnel's exit",
+        "disk.usage": "this agent has no disk.usage tool: it streams the disks it watches",
+        "host.facts": "this agent has no host.facts tool: it streams the machine's cpu and memory",
     });
     if system.launchctl_list().is_none() {
         why["cron.status"] = json!("no launchd here; this agent reads cron only from launchd");

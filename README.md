@@ -76,11 +76,16 @@ Additional views accessible via keys:
 - **Update view** (`u`) — per-server update status; press `u` again to run
 - **Alerts view** (`H`) — threshold breaches over the last 30 minutes, from the stats stream already running
 - **Ops view** (`p`) — what each host's `mcp_host` says that the agent does not
-  stream: its health checks' last verdicts, its cron jobs, its containers' health
-  and the alerts its cron wrapper logged in the last 24 hours. One line per
+  stream: its health checks' last verdicts, its cron jobs, its containers' health,
+  the alerts its cron wrapper logged in the last 24 hours, the machine's tunnel
+  (where it exits, whether it leaked, and which stack declares it) and the
+  machine's capacity (its CPUs, its memory, its free disk). One line per
   section, and under a section in trouble one line per thing in trouble. A
-  remote host needs its `mcp` command in its `[[servers]]` entry, and one
-  without says so. This machine needs nothing: with no `mcp` it is served by the
+  machine may run several roots, so every row names the stack it came from —
+  the containers are one row per stack, with its count. A remote host needs its
+  `mcp` command in its `[[servers]]` entry, and one without says so; give the
+  entry a `name` and the panel's banner says the machine's name beside its
+  address. This machine needs nothing: with no `mcp` it is served by the
   agent's own `mcp` mode -- cron from your launchd agents
   (`~/Library/LaunchAgents`), containers from whichever daemon your docker
   context names (Colima included); health and alerts show as absent, with the
@@ -120,7 +125,7 @@ otherwise sit on "connecting..." with nothing behind it.
 | **G** | Toggle the graphs view: CPU (with core clock), memory, and download/upload history per pane |
 | **u** | Show the update status view; press again to run the updates. **The run is scoped to the filter** — what is on screen is what gets upgraded |
 | **f** | Toggle the Fetch view |
-| **p** | The Ops view: health, cron, containers and alerts from each host's `mcp_host` |
+| **p** | The Ops view: health, cron, containers, the tunnel, the pools, the disk and alerts from each host's `mcp_host` |
 | **e** | Open Settings: servers, passwords, vault |
 | **/** | Filter the grid. Matches the host and user in every view, plus whatever the panes are showing right now: process names in **Stats** and **Graphs** (every process the host is running, not only the ones its table had room to draw), container names, images and status in **Docker**, the OS/kernel/model card in **Fetch**, check, job and container names and alert subjects (and why a session failed) in **Ops**, the log in **Update**. **Enter** keeps it, **ESC** clears it |
 | **1**–**9** | Select a panel |
@@ -162,6 +167,9 @@ banner_style = "plain"
 host = "192.168.0.33"
 port = 22            # optional, default 22
 user = ""            # optional
+# The machine's name, as you know it ("beelink"). The Ops view's banner says it
+# beside the address; without it the banner says the address alone.
+# name = "beelink"
 # The command runs as the SSH user, so it needs its own `sudo`. Without it apt
 # exits 100 with "are you root?" -- the per-host sudo password does not save
 # you, because the preamble authenticates sudo and the command then runs

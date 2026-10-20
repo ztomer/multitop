@@ -1,24 +1,41 @@
 //! The Ops view's data (servers ROADMAP 12.17b).
 //!
 //! What a host's `mcp_host` says about the things the agent does not stream:
-//! health verdicts, cron jobs, container health, ZFS pools and the alerts
-//! its cron wrapper logged.
+//! health verdicts, cron jobs, container health, ZFS pools, the alerts its
+//! cron wrapper logged - and, since the machine model (servers ROADMAP O92),
+//! the machine's TUNNEL and its CAPACITY.
 //!
-//! Five sections, each read from one answer and each able to say why it is
-//! not there: a host that lists no `docker.containers` has no Docker (an
-//! honest absence, not an error), and one section failing never hides the
-//! other four. Health comes from `health://latest` - each check's last
-//! verdict, as cron recorded it - never from `health.run_all`, which runs
-//! the whole suite (25 s on .33) and must not be a poll.
+//! Sections, each read from one answer and each able to say why it is not
+//! there: a host that lists no `docker.containers` has no Docker (an honest
+//! absence, not an error), and one section failing never hides the others.
+//! Health comes from `health://latest` - each check's last verdict, as cron
+//! recorded it - never from `health.run_all`, which runs the whole suite
+//! (25 s on .33) and must not be a poll.
 //!
 //! Every section is decided the same way: the tool the host LISTS is asked,
 //! and a tool the host does not list is an absence carrying the server's own
 //! reason for it (`server/discover`'s `dev.multitop/absent`), never a guess
 //! and never a green "none". The ZFS section is no exception: `zfs.health`
 //! is the tool that owns the pools' state, so the view reads its answer and
-//! never runs `zpool status` itself (servers ROADMAP O82).
+//! never runs `zpool status` itself (servers ROADMAP O82). The tunnel is
+//! `net.egress`'s the same way: the view reads the verdict, and never probes
+//! an exit country itself.
+//!
+//! A MACHINE may run several roots (`.90` runs the storage root and the
+//! solver root), so every row that came from an instance carries the
+//! instance's name. The view draws one card per machine and names the stack
+//! each row belongs to, which is the whole point of the machine model: a
+//! tunnel in the solver root that every view called "fine" (2026-10-19) is
+//! a fact nobody could attribute.
 
+pub mod answers;
+pub mod model;
 pub mod render;
+
+pub use answers::*;
+pub use model::*;
+
+use std::time::Duration;
 
 use serde_json::{json, Value};
 use tokio::io::{AsyncRead, AsyncWrite};
@@ -30,12 +47,28 @@ pub const HEALTH_URI: &str = "health://latest";
 /// The tool that answers about a host's ZFS pools: their state, their vdev
 /// tree, and what ZFS says to do about them.
 pub const ZFS_TOOL: &str = "zfs.health";
+/// The tool that answers where the machine's tunnels exit: the exit
+/// country, the leak verdict, and the stack that declares each tunnel.
+pub const EGRESS_TOOL: &str = "net.egress";
+/// The tool that answers the machine's filesystems: their size, their free
+/// space and the share used.
+pub const DISK_TOOL: &str = "disk.usage";
+/// The tool that answers the machine's identity and load: its CPUs, its
+/// memory, and the instances it declares.
+pub const FACTS_TOOL: &str = "host.facts";
 /// How far back the alerts section looks.
 /// Reason: one day is the window an operator glancing at a board cares
 /// about; older events are in `alerts.since` for whoever asks.
 pub const ALERT_WINDOW_S: i64 = 86_400;
-/// The state a pool or a vdev is in when nothing is wrong with it.
-const ONLINE: &str = "ONLINE";
+
+/// How long the egress answer may take.
+///
+/// Reason: `net.egress` measures the tunnel's exit country with the check's
+/// own probe - three sources, about half a minute on a machine whose tunnel
+/// is up. A timeout BREAKS the session (a late reply could be mistaken for
+/// the next one's), so a deadline shorter than the probe would fail the
+/// whole poll instead of one section.
+pub const EGRESS_TIMEOUT: Duration = Duration::from_secs(75);
 
 /// Where a host's Ops answers come from.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -62,6 +95,21 @@ impl Source {
     }
 }
 
+/// The machine's banner: its name and its address.
+///
+/// The name is the one the operator gave the machine in the config; the
+/// address is beside it, because a name alone does not say which box this
+/// is. A machine with no name shows its address alone, as it always did.
+#[must_use]
+pub fn banner(server: &crate::config::Server) -> String {
+    let name = server
+        .name
+        .as_deref()
+        .map(str::trim)
+        .filter(|n| !n.is_empty());
+    name.map_or_else(|| server.host.clone(), |n| format!("{n} ({})", server.host))
+}
+
 /// One section: its data, or why there is none.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Part<T> {
@@ -72,119 +120,6 @@ pub enum Part<T> {
     Failed(String),
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct Check {
-    pub name: String,
-    pub ok: bool,
-    pub rc: i64,
-    pub ts: i64,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct Job {
-    pub label: String,
-    pub last_start: Option<i64>,
-    pub last_rc: Option<i64>,
-    pub running_since: Option<i64>,
-    pub alert_since: Option<i64>,
-}
-
-impl Job {
-    /// Its last run failed, or it is alerting.
-    #[must_use]
-    pub fn in_trouble(&self) -> bool {
-        self.last_rc.is_some_and(|rc| rc != 0) || self.alert_since.is_some()
-    }
-}
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct Container {
-    pub name: String,
-    pub state: String,
-    pub status: String,
-    pub health: String,
-    pub compose_project: Option<String>,
-}
-
-impl Container {
-    /// Unhealthy, or not running when it should be. A container outside any
-    /// compose project that exited 0 is a finished one-shot (a `docker run`
-    /// that did its job), not a stopped service - the same rule as the
-    /// routines follower's.
-    #[must_use]
-    pub fn in_trouble(&self) -> bool {
-        if self.health == "unhealthy" {
-            return true;
-        }
-        if self.state == "running" {
-            return false;
-        }
-        !(self.compose_project.is_none() && self.status.starts_with("Exited (0)"))
-    }
-}
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct Alert {
-    pub ts: i64,
-    pub subject: String,
-}
-
-/// One member of a pool's vdev tree, as `zfs.health` publishes it.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct Member {
-    /// The vdev's name as the pool knows it (`sdb`, `mirror-0`, ...).
-    pub name: String,
-    /// `ONLINE`, `DEGRADED`, `REMOVED`, `FAULTED`, `UNAVAIL`, ...
-    pub state: String,
-}
-
-impl Member {
-    /// A member that is not ONLINE.
-    #[must_use]
-    pub fn is_faulted(&self) -> bool {
-        self.state != ONLINE
-    }
-}
-
-/// One ZFS pool, as `zfs.health` publishes it.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct Pool {
-    /// The pool's name.
-    pub name: String,
-    /// `ONLINE`, `DEGRADED`, `SUSPENDED`, `UNAVAIL`, ...
-    pub state: String,
-    /// What ZFS says to do about it, when it says anything.
-    pub action: String,
-    /// ZFS's explanation, when it has one.
-    pub msg: String,
-    /// The vdev tree, the pool's children first.
-    pub members: Vec<Member>,
-}
-
-impl Pool {
-    /// The members that are not ONLINE.
-    ///
-    /// The pool's OWN row is not in the member list (it is the pool, not a
-    /// vdev of it), so a DEGRADED `mirror-0` is a faulted member and is
-    /// named - it is the level that says the pool lost redundancy.
-    #[must_use]
-    pub fn faulted_members(&self) -> Vec<&Member> {
-        self.members.iter().filter(|m| m.is_faulted()).collect()
-    }
-
-    /// Whether the pool is whole: ONLINE itself, and every member ONLINE.
-    ///
-    /// The estate's rule, the one `check_zfs_pool` fails on and the tool's
-    /// own summary uses: a pool that is not whole is invisible to every
-    /// other view of the host (a SUSPENDED pool's I/O does not happen, so
-    /// writes BLOCK rather than fail, and `disk.usage` still reports a
-    /// plausible size for it).
-    #[must_use]
-    pub fn is_whole(&self) -> bool {
-        self.state == ONLINE && self.faulted_members().is_empty()
-    }
-}
-
 /// Everything one poll learned.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Snapshot {
@@ -193,9 +128,15 @@ pub struct Snapshot {
     /// When it was asked, epoch seconds.
     pub at: i64,
     pub health: Part<Vec<Check>>,
+    /// The machine's tunnels.
+    pub vpn: Part<Egress>,
     pub cron: Part<Vec<Job>>,
     pub containers: Part<Vec<Container>>,
     pub zfs: Part<Vec<Pool>>,
+    /// The machine's filesystems.
+    pub disk: Part<Disk>,
+    /// The machine's identity and capacity.
+    pub facts: Part<Facts>,
     pub alerts: Part<Vec<Alert>>,
 }
 
@@ -222,16 +163,39 @@ impl Snapshot {
         if let Part::Ready(c) = &self.health {
             t.extend(c.iter().map(|c| c.name.as_str()));
         }
+        if let Part::Ready(e) = &self.vpn {
+            t.extend(e.tunnels.iter().flat_map(|t| {
+                [
+                    t.container.as_str(),
+                    t.leak.as_str(),
+                    t.instance.as_deref().unwrap_or_default(),
+                ]
+            }));
+        }
         if let Part::Ready(j) = &self.cron {
-            t.extend(j.iter().map(|j| j.label.as_str()));
+            t.extend(
+                j.iter()
+                    .flat_map(|j| [j.label.as_str(), j.instance.as_deref().unwrap_or_default()]),
+            );
         }
         if let Part::Ready(c) = &self.containers {
-            t.extend(c.iter().flat_map(|c| [c.name.as_str(), c.status.as_str()]));
+            t.extend(
+                c.iter()
+                    .flat_map(|c| [c.name.as_str(), c.status.as_str(), c.stack()]),
+            );
         }
         if let Part::Ready(p) = &self.zfs {
             t.extend(p.iter().flat_map(|p| {
                 std::iter::once(p.name.as_str()).chain(p.members.iter().map(|m| m.name.as_str()))
             }));
+        }
+        if let Part::Ready(d) = &self.disk {
+            t.extend(d.mounts.iter().map(|m| m.mount.as_str()));
+        }
+        if let Part::Ready(f) = &self.facts {
+            if let Some(i) = &f.instances {
+                t.extend(i.rows.iter().map(|r| r.instance.as_str()));
+            }
         }
         if let Part::Ready(a) = &self.alerts {
             t.extend(a.iter().map(|a| a.subject.as_str()));
@@ -259,142 +223,7 @@ impl OpsState {
     }
 }
 
-fn text(v: &Value, k: &str) -> String {
-    v.get(k)
-        .and_then(Value::as_str)
-        .unwrap_or_default()
-        .to_string()
-}
-
-fn list<'a>(v: &'a Value, k: &str) -> Result<&'a Vec<Value>, String> {
-    v.get(k)
-        .and_then(Value::as_array)
-        .ok_or_else(|| format!("the answer has no `{k}` list"))
-}
-
-/// `health://latest`: `{checks: [{check, ok, rc, ms, ts}]}`.
-///
-/// # Errors
-///
-/// The answer has no `checks` list.
-pub fn parse_health(v: &Value) -> Result<Vec<Check>, String> {
-    Ok(list(v, "checks")?
-        .iter()
-        .map(|c| Check {
-            name: text(c, "check"),
-            ok: c.get("ok").and_then(Value::as_bool).unwrap_or(false),
-            rc: c.get("rc").and_then(Value::as_i64).unwrap_or_default(),
-            ts: c.get("ts").and_then(Value::as_i64).unwrap_or_default(),
-        })
-        .collect())
-}
-
-/// `cron.status`: `{jobs: [{label, last_start, last_rc, running_since, alert_since, ...}]}`.
-///
-/// # Errors
-///
-/// The answer has no `jobs` list.
-pub fn parse_cron(v: &Value) -> Result<Vec<Job>, String> {
-    let int = |j: &Value, k: &str| j.get(k).and_then(Value::as_i64);
-    Ok(list(v, "jobs")?
-        .iter()
-        .map(|j| Job {
-            label: text(j, "label"),
-            last_start: int(j, "last_start"),
-            last_rc: int(j, "last_rc"),
-            running_since: int(j, "running_since"),
-            alert_since: int(j, "alert_since"),
-        })
-        .collect())
-}
-
-/// `docker.containers`: `{containers: [{name, state, status, health, compose_project, ...}]}`.
-///
-/// # Errors
-///
-/// The answer has no `containers` list.
-pub fn parse_containers(v: &Value) -> Result<Vec<Container>, String> {
-    Ok(list(v, "containers")?
-        .iter()
-        .map(|c| Container {
-            name: text(c, "name"),
-            state: text(c, "state"),
-            status: text(c, "status"),
-            health: text(c, "health"),
-            compose_project: c
-                .get("compose_project")
-                .and_then(Value::as_str)
-                .filter(|p| !p.is_empty())
-                .map(str::to_string),
-        })
-        .collect())
-}
-
-/// `alerts.since`: `{events: [{ts, subject, ...}], marker}`. `ts` arrives
-/// as a string or a number.
-///
-/// # Errors
-///
-/// The answer has no `events` list.
-pub fn parse_alerts(v: &Value) -> Result<Vec<Alert>, String> {
-    Ok(list(v, "events")?
-        .iter()
-        .map(|e| Alert {
-            ts: e
-                .get("ts")
-                .and_then(|t| {
-                    t.as_i64()
-                        .or_else(|| t.as_str().and_then(|s| s.parse().ok()))
-                })
-                .unwrap_or_default(),
-            subject: text(e, "subject"),
-        })
-        .collect())
-}
-
-/// `zfs.health`: `{pools: [{name, state, action, msg, scan, members: [{name,
-/// state, read, write, cksum}]}]}`.
-///
-/// The pool's own state and its vdev tree, as the tool publishes them: the
-/// view reads them, and never runs `zpool status` itself.
-///
-/// The error counters are not read, and that is the estate's rule rather than
-/// an omission: a pool is whole when its state and every member's state say
-/// so, and `check_zfs_pool` (which owns that verdict) fails on the states,
-/// not on a counter over a member that is still ONLINE.
-///
-/// # Errors
-///
-/// The answer has no `pools` list, or a pool has no `members` list (a pool
-/// whose vdev tree could not be read is not a pool that may be called whole).
-pub fn parse_zfs(v: &Value) -> Result<Vec<Pool>, String> {
-    list(v, "pools")?
-        .iter()
-        .map(|p| {
-            let members = list(p, "members").map_err(|_| {
-                format!(
-                    "pool {} has no `members` list",
-                    p.get("name").and_then(Value::as_str).unwrap_or_default()
-                )
-            })?;
-            Ok(Pool {
-                name: text(p, "name"),
-                state: text(p, "state"),
-                action: text(p, "action"),
-                msg: text(p, "msg"),
-                members: members
-                    .iter()
-                    .map(|m| Member {
-                        name: text(m, "name"),
-                        state: text(m, "state"),
-                    })
-                    .collect(),
-            })
-        })
-        .collect()
-}
-
-/// Ask a connected server for all five sections at `now` (epoch seconds).
+/// Ask a connected server for every section at `now` (epoch seconds).
 pub async fn gather<R, W>(c: &mut Client<R, W>, now: i64) -> Snapshot
 where
     R: AsyncRead + Unpin,
@@ -404,6 +233,14 @@ where
         part(c.read(HEALTH_URI).await, parse_health)
     } else {
         Part::Absent(c.absent_reason("health.run", "this host lists no health checks"))
+    };
+    let vpn = if c.has_tool(EGRESS_TOOL) {
+        part(
+            c.call_within(EGRESS_TOOL, json!({}), EGRESS_TIMEOUT).await,
+            parse_egress,
+        )
+    } else {
+        Part::Absent(c.absent_reason(EGRESS_TOOL, "this host lists no net.egress"))
     };
     let cron = if c.has_tool("cron.status") {
         part(c.call("cron.status", json!({})).await, parse_cron)
@@ -423,6 +260,16 @@ where
     } else {
         Part::Absent(c.absent_reason(ZFS_TOOL, "this host lists no zfs.health"))
     };
+    let disk = if c.has_tool(DISK_TOOL) {
+        part(c.call(DISK_TOOL, json!({})).await, parse_disk)
+    } else {
+        Part::Absent(c.absent_reason(DISK_TOOL, "this host lists no disk.usage"))
+    };
+    let facts = if c.has_tool(FACTS_TOOL) {
+        part(c.call(FACTS_TOOL, json!({})).await, parse_facts)
+    } else {
+        Part::Absent(c.absent_reason(FACTS_TOOL, "this host lists no host.facts"))
+    };
     let alerts = if c.has_tool("alerts.since") {
         part(
             c.call("alerts.since", json!({ "marker": now - ALERT_WINDOW_S }))
@@ -436,9 +283,12 @@ where
         server: c.server.clone(),
         at: now,
         health,
+        vpn,
         cron,
         containers,
         zfs,
+        disk,
+        facts,
         alerts,
     }
 }
@@ -460,3 +310,7 @@ mod tests;
 #[cfg(test)]
 #[path = "zfs_tests.rs"]
 mod zfs_tests;
+
+#[cfg(test)]
+#[path = "machine_tests.rs"]
+mod machine_tests;

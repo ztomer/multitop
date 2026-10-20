@@ -42,6 +42,7 @@ fn isolate_keychain() -> tokio::sync::MutexGuard<'static, ()> {
 
 fn server(host: &str) -> Server {
     Server {
+        name: None,
         host: host.to_string(),
         port: 22,
         user: "ztomer".to_string(),

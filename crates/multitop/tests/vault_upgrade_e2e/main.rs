@@ -31,6 +31,7 @@ async fn isolate_keychain_async() -> tokio::sync::MutexGuard<'static, ()> {
 fn test_servers() -> Vec<Server> {
     vec![
         Server {
+            name: None,
             host: "test-host-1".into(),
             port: 22,
             user: "testuser".into(),
@@ -39,6 +40,7 @@ fn test_servers() -> Vec<Server> {
             mcp: None,
         },
         Server {
+            name: None,
             host: "test-host-2".into(),
             port: 22,
             user: "testuser".into(),

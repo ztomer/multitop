@@ -39,6 +39,7 @@ pub fn target(
         p.parse::<u16>().map_err(|e| format!("{PORT_VAR}={p}: {e}"))
     })?;
     let server = Server {
+        name: None,
         host: host.to_string(),
         port,
         user: user.to_string(),

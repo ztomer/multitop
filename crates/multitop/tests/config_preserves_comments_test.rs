@@ -44,6 +44,7 @@ fn scratch(tag: &str) -> std::io::Result<std::path::PathBuf> {
 
 fn server(host: &str, cmd: Option<&str>) -> Server {
     Server {
+        name: None,
         host: host.to_string(),
         port: 22,
         user: "ztomer".to_string(),

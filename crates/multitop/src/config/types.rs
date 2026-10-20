@@ -21,6 +21,13 @@ impl std::error::Error for ConfigError {}
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct Server {
     pub host: String,
+    /// The machine's name, as the operator knows it: `beelink` for `.33`.
+    ///
+    /// The address alone does not say which box this is, and a card that
+    /// carries a ROLE's name ("storage") announces the wrong owner once the
+    /// machine runs more than one root (servers ROADMAP O92). The name is
+    /// the machine's own; the stacks keep their role names.
+    pub name: Option<String>,
     pub port: u16,
     pub user: String,
     pub upgrade_cmd: Option<String>,

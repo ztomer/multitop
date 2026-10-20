@@ -179,6 +179,7 @@ fn frame_fetch_view_shows_host() {
 fn frame_upgrade_view_shows_command() {
     let _g = isolate_keychain();
     let mut a = App::new(vec![Server {
+        name: None,
         host: "h1".into(),
         port: 22,
         user: "admin".into(),

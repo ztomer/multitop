@@ -32,6 +32,7 @@ pub fn use_this_builds_agent() {
 pub fn local_server(host: &str) -> Server {
     use_this_builds_agent();
     Server {
+        name: None,
         host: host.to_string(),
         port: 0,
         user: String::new(),

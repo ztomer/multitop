@@ -25,6 +25,7 @@ const TOKEN: &str = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789a
 fn state() -> AppState {
     let cfg = Config {
         servers: vec![Server {
+            name: None,
             host: "test-host".into(),
             port: 22,
             user: String::new(),

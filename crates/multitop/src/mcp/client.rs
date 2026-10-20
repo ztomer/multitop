@@ -199,8 +199,33 @@ impl<R: AsyncRead + Unpin, W: AsyncWrite + Unpin> Client<R, W> {
     /// [`Error::Tool`] with its text, and an answer without structured
     /// content is a protocol error (every fleet tool types its answers).
     pub async fn call(&mut self, tool: &str, args: Value) -> Result<Value, Error> {
+        let timeout = self.timeout;
+        self.call_within(tool, args, timeout).await
+    }
+
+    /// `tools/call` with a deadline of its own.
+    ///
+    /// Reason: a tool that probes the network needs longer than a file
+    /// read - `net.egress` measures the tunnel's exit country with the
+    /// check's own probe, about half a minute - and a missed deadline
+    /// BREAKS the session, so the tool that needs the room has to ask for
+    /// it here rather than have it cut short.
+    ///
+    /// # Errors
+    ///
+    /// As [`Client::call`].
+    pub async fn call_within(
+        &mut self,
+        tool: &str,
+        args: Value,
+        timeout: Duration,
+    ) -> Result<Value, Error> {
         let r = self
-            .request("tools/call", json!({ "name": tool, "arguments": args }))
+            .request_within(
+                "tools/call",
+                json!({ "name": tool, "arguments": args }),
+                timeout,
+            )
             .await?;
         if r.get("isError").and_then(Value::as_bool) == Some(true) {
             let text = r
@@ -241,17 +266,38 @@ impl<R: AsyncRead + Unpin, W: AsyncWrite + Unpin> Client<R, W> {
     /// [`Error::Closed`], [`Error::Timeout`], [`Error::Rpc`] or
     /// [`Error::Protocol`].
     pub async fn request(&mut self, method: &str, params: Value) -> Result<Value, Error> {
+        let timeout = self.timeout;
+        self.request_within(method, params, timeout).await
+    }
+
+    /// One request with a deadline of its own.
+    ///
+    /// # Errors
+    ///
+    /// [`Error::Closed`], [`Error::Timeout`], [`Error::Rpc`] or
+    /// [`Error::Protocol`].
+    pub async fn request_within(
+        &mut self,
+        method: &str,
+        params: Value,
+        timeout: Duration,
+    ) -> Result<Value, Error> {
         if let Some(e) = &self.broken {
             return Err(e.clone());
         }
-        let out = self.exchange(method, params).await;
+        let out = self.exchange(method, params, timeout).await;
         if let Err(e @ (Error::Closed(_) | Error::Timeout { .. })) = &out {
             self.broken = Some(e.clone());
         }
         out
     }
 
-    async fn exchange(&mut self, method: &str, mut params: Value) -> Result<Value, Error> {
+    async fn exchange(
+        &mut self,
+        method: &str,
+        mut params: Value,
+        timeout: Duration,
+    ) -> Result<Value, Error> {
         self.next_id += 1;
         let id = self.next_id;
         params["_meta"] = json!({
@@ -269,7 +315,7 @@ impl<R: AsyncRead + Unpin, W: AsyncWrite + Unpin> Client<R, W> {
             .flush()
             .await
             .map_err(|e| Error::Closed(e.to_string()))?;
-        let after = self.timeout;
+        let after = timeout;
         let reply = tokio::time::timeout(after, self.reply(id))
             .await
             .map_err(|_| Error::Timeout {

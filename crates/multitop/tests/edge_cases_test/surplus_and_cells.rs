@@ -15,6 +15,7 @@ async fn writing_the_server_list_creates_the_directory_it_needs() {
     multitop::config::save_servers(
         &config,
         &[Server {
+            name: None,
             host: "web-01".into(),
             port: 2222,
             user: "root".into(),

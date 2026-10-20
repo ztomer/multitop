@@ -4,6 +4,7 @@ use crate::panel::UpgradeState;
 
 fn server(host: &str) -> Server {
     Server {
+        name: None,
         host: host.to_string(),
         port: 22,
         user: "u".to_string(),

@@ -30,6 +30,7 @@ fn local_server_deduplication() {
         ..crate::common::local_server("localhost")
     };
     let s3 = Server {
+        name: None,
         host: "192.168.0.33".into(),
         port: 22,
         user: String::new(),
@@ -117,6 +118,7 @@ fn rebuilt_panels_keep_the_configured_upgrade_history() {
 fn a_state_write_that_failed_is_reported() {
     let _keychain = isolate_keychain();
     let mut app = App::new(vec![Server {
+        name: None,
         host: "host1".to_string(),
         port: 22,
         user: "admin".to_string(),
@@ -169,6 +171,7 @@ fn a_state_write_that_failed_is_reported() {
 fn the_failed_state_write_notice_survives_confirm_upgrade() {
     let _keychain = isolate_keychain();
     let mut app = App::new(vec![Server {
+        name: None,
         host: "host1".to_string(),
         port: 22,
         user: "admin".to_string(),

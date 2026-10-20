@@ -252,6 +252,7 @@ async fn a_local_server_is_recognised_however_it_is_spelled() {
     // touch the filesystem, so none can run while another has diverted it.
     let _g = isolate().await;
     let local = |host: &str, port: u16| Server {
+        name: None,
         host: host.into(),
         port,
         user: String::new(),
@@ -282,6 +283,7 @@ async fn no_ssh_command_asks_for_a_pty() {
     // moment someone adds a flag to make an interactive command work.
     let _g = isolate().await;
     let server = Server {
+        name: None,
         host: "web-01".into(),
         port: 2222,
         user: "root".into(),

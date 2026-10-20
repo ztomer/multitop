@@ -15,6 +15,7 @@ use tempfile::TempDir;
 
 fn test_server(host: &str, user: &str, port: u16, upgrade_cmd: Option<&str>) -> Server {
     Server {
+        name: None,
         host: host.to_string(),
         user: user.to_string(),
         port,

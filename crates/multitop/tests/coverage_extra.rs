@@ -23,6 +23,7 @@ fn port_plaintext_passwords_moves_and_strips() {
     password_store::clear_mock_store();
 
     let server = Server {
+        name: None,
         host: "port-test".into(),
         port: 22,
         user: "admin".into(),
@@ -56,6 +57,7 @@ fn apply_cycle_banner_style_no_config() {
     password_store::clear_mock_store();
 
     let server = Server {
+        name: None,
         host: "h1".into(),
         port: 22,
         user: "admin".into(),
@@ -87,6 +89,7 @@ fn apply_import_ssh_hosts_no_file() {
     password_store::clear_mock_store();
 
     let server = Server {
+        name: None,
         host: "h1".into(),
         port: 22,
         user: "admin".into(),
@@ -119,6 +122,7 @@ fn apply_save_with_empty_password_deletes() {
     password_store::clear_mock_store();
 
     let server = Server {
+        name: None,
         host: "save-test".into(),
         port: 22,
         user: "admin".into(),
@@ -156,6 +160,7 @@ fn apply_delete_action() {
     password_store::clear_mock_store();
 
     let server = Server {
+        name: None,
         host: "delete-test".into(),
         port: 22,
         user: "admin".into(),
@@ -188,6 +193,7 @@ fn apply_apply_servers() {
     password_store::clear_mock_store();
 
     let server = Server {
+        name: None,
         host: "apply-test".into(),
         port: 22,
         user: "admin".into(),
@@ -199,6 +205,7 @@ fn apply_apply_servers() {
 
     let new_servers = vec![
         Server {
+            name: None,
             host: "new1".into(),
             port: 22,
             user: "admin".into(),
@@ -207,6 +214,7 @@ fn apply_apply_servers() {
             mcp: None,
         },
         Server {
+            name: None,
             host: "new2".into(),
             port: 22,
             user: "admin".into(),
@@ -235,6 +243,7 @@ fn app_scroll_panel_up_down() {
     password_store::clear_mock_store();
 
     let server = Server {
+        name: None,
         host: "scroll-test".into(),
         port: 22,
         user: "admin".into(),
@@ -258,6 +267,7 @@ fn app_accessors() {
     password_store::clear_mock_store();
 
     let server = Server {
+        name: None,
         host: "accessor-test".into(),
         port: 22,
         user: "admin".into(),

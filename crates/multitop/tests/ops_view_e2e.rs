@@ -141,13 +141,23 @@ async fn p_polls_each_hosts_server_and_draws_what_it_says() {
         // The ZFS section names the tool and says why it is absent: this
         // agent has no ZFS tool, so it says so rather than going quiet.
         assert!(
-            view.contains("· zfs.health this agent has no ZFS tool"),
+            view.contains("· zfs        this agent has no ZFS tool"),
+            "{view}"
+        );
+        // The machine model's tools are absent with the agent's own reason,
+        // never a green tick.
+        assert!(
+            view.contains("· vpn        this agent has no net.egress tool"),
+            "{view}"
+        );
+        assert!(
+            view.contains("· disk       this agent has no disk.usage tool"),
             "{view}"
         );
     }
     let pinned = plain(&app.panels[1].view);
     assert!(
-        pinned.contains("⚠ docker     could not read: docker.containers: docker at unix://"),
+        pinned.contains("⚠ containers could not read: docker.containers: docker at unix://"),
         "a configured daemon that is down is a fault: {pinned}"
     );
     if cfg!(target_os = "macos") {

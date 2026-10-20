@@ -117,6 +117,7 @@ fn upgrade_pane_header_running_state() {
 fn upgrade_pane_header_not_configured() {
     let _g = isolate_keychain();
     let mut a = App::new(vec![Server {
+        name: None,
         host: "h1".into(),
         port: 22,
         user: "admin".into(),
@@ -151,6 +152,7 @@ fn confirm_upgrade_runs_configured_hosts() {
 fn confirm_upgrade_skips_hosts_without_cmd() {
     let _g = isolate_keychain();
     let mut a = App::new(vec![Server {
+        name: None,
         host: "h1".into(),
         port: 22,
         user: "admin".into(),
@@ -170,6 +172,7 @@ fn confirm_upgrade_skips_hosts_without_cmd() {
 fn note_nothing_to_upgrade_says_so() {
     let _g = isolate_keychain();
     let mut a = App::new(vec![Server {
+        name: None,
         host: "h1".into(),
         port: 22,
         user: "admin".into(),

@@ -12,7 +12,12 @@ P0.1-P0.7) and Phase 1 (gate drift, G1-G3) are closed and pushed; their record i
 (the pairing screen and its Keystore-sealed store) closed on 2026-10-19 in
 `e7da25a`, and the Ops view's fifth section - it reads `zfs.health` now, and
 names the tool where a host does not serve it - closed on 2026-10-20 in
-`d595639`. The next open work is **A2.5**, the read-only screens over
+`d595639`. The Ops view then grew the machine model's sections on 2026-10-20:
+the tunnel (`net.egress`) with the stack that declares it, the machine's
+capacity (`disk.usage` and `host.facts`), the containers grouped by their
+stack, and the estate's words for the sections the other client uses
+(`zfs`, `containers`, `vpn`, `disk`) - servers ROADMAP O92, the plan of record
+for the estate. The next open work is **A2.5**, the read-only screens over
 `/api/hosts` and `/api/health` through `PinnedTls`; then A3. The releases:
 v0.56.0 carried A2.4 and the installer's replace-by-rename fix (`2413764`),
 v0.57.0 carried the Ops view's ZFS section and the Android wrapper's move to

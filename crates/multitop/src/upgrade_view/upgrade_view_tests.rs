@@ -5,6 +5,7 @@ const NOW: u64 = 1_800_000_000;
 
 fn server(cmd: Option<&str>) -> Server {
     Server {
+        name: None,
         host: "web-01".into(),
         port: 22,
         user: "admin".into(),
@@ -278,6 +279,7 @@ mod header_width_tests {
     #[test]
     fn every_credential_state_fits_the_pane_it_is_drawn_in() {
         let server = Server {
+            name: None,
             host: "web-01".into(),
             port: 22,
             user: "admin".into(),

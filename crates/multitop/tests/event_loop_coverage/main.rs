@@ -32,6 +32,7 @@ static PORT_COUNTER: AtomicU16 = AtomicU16::new(43000);
 /// task that reaches for one of these cannot touch anything real.
 fn test_server(host: &str) -> Server {
     Server {
+        name: None,
         host: host.to_string(),
         port: PORT_COUNTER.fetch_add(1, Ordering::Relaxed),
         user: "admin".to_string(),

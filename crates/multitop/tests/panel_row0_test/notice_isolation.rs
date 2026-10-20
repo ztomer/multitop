@@ -16,6 +16,7 @@ fn a_notice_survives_every_view_switch() {
                           pane with nothing to show; using 50 instead.";
     let _keychain = isolate_keychain();
     let mut app = multitop::app::App::new(vec![multitop::config::Server {
+        name: None,
         host: "web-01".to_string(),
         port: 22,
         user: "admin".to_string(),
@@ -73,6 +74,7 @@ fn a_notice_survives_every_view_switch() {
 fn notices_never_take_the_pane_from_the_host() {
     let _keychain = isolate_keychain();
     let mut app = multitop::app::App::new(vec![multitop::config::Server {
+        name: None,
         host: "web-01".to_string(),
         port: 22,
         user: "admin".to_string(),
@@ -158,6 +160,7 @@ fn notices_never_take_the_pane_from_the_host() {
 fn a_held_notice_is_above_the_content_not_on_screen_twice() {
     let _keychain = isolate_keychain();
     let mut app = multitop::app::App::new(vec![multitop::config::Server {
+        name: None,
         host: "web-01".to_string(),
         port: 22,
         user: "admin".to_string(),

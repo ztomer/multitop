@@ -165,6 +165,7 @@ fn an_agent_that_is_still_missing_after_an_install_is_not_installed_again() {
 fn a_missing_binary_names_the_program_that_is_actually_missing() {
     let local = crate::common::local_server("localhost");
     let remote = Server {
+        name: None,
         host: "web-01".into(),
         port: 22,
         user: "root".into(),
@@ -184,6 +185,7 @@ fn a_missing_binary_names_the_program_that_is_actually_missing() {
 fn any_other_spawn_failure_still_names_the_program() {
     let local = crate::common::local_server("localhost");
     let remote = Server {
+        name: None,
         host: "web-01".into(),
         port: 22,
         user: "root".into(),

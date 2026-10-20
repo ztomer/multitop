@@ -351,6 +351,7 @@ async fn a_failing_command_on_a_reachable_host_is_reported_honestly() {
 async fn an_unreachable_host_reaches_a_terminal_state() {
     let _keychain = isolate_keychain_async().await;
     let mut h = Live::new(vec![Server {
+        name: None,
         // Reserved for documentation; never routable.
         host: "192.0.2.1".into(),
         port: 22,

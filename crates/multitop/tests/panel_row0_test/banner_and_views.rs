@@ -4,6 +4,7 @@ use super::*;
 fn the_scroll_badge_survives_into_the_rendered_frame() {
     let _keychain = isolate_keychain();
     let mut app = multitop::app::App::new(vec![multitop::config::Server {
+        name: None,
         host: "web-01".to_string(),
         port: 22,
         user: "admin".to_string(),
@@ -44,6 +45,7 @@ fn the_scroll_badge_survives_into_the_rendered_frame() {
 fn a_connecting_host_says_connecting() {
     let _keychain = isolate_keychain();
     let mut app = multitop::app::App::new(vec![multitop::config::Server {
+        name: None,
         host: "web-01".to_string(),
         port: 22,
         user: "admin".to_string(),
@@ -88,6 +90,7 @@ fn two_hosts_never_share_a_banner() {
         hosts
             .iter()
             .map(|h| multitop::config::Server {
+                name: None,
                 host: (*h).to_string(),
                 port: 22,
                 user: "ztomer".to_string(),
@@ -137,6 +140,7 @@ fn two_hosts_never_share_a_banner() {
 fn home_reaches_the_oldest_line_when_the_pane_carries_notices() {
     let _keychain = isolate_keychain();
     let mut app = multitop::app::App::new(vec![multitop::config::Server {
+        name: None,
         host: "web-01".to_string(),
         port: 22,
         user: "admin".to_string(),
@@ -201,6 +205,7 @@ fn entering_a_view_puts_something_on_the_screen() {
         ("s", "waiting for data"),
     ] {
         let mut app = multitop::app::App::new(vec![multitop::config::Server {
+            name: None,
             host: "web-01".to_string(),
             port: 22,
             user: "admin".to_string(),

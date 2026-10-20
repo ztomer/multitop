@@ -33,6 +33,7 @@ fn isolate_keychain() -> tokio::sync::MutexGuard<'static, ()> {
 fn servers(n: usize) -> Vec<Server> {
     (0..n)
         .map(|i| Server {
+            name: None,
             host: format!("s{i}"),
             port: 22,
             user: String::new(),

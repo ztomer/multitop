@@ -12,6 +12,7 @@ use super::*;
 /// with `upgrade_cmd` commented out).
 fn no_upgrade_server(host: &str) -> Server {
     Server {
+        name: None,
         host: host.to_string(),
         port: 22,
         user: String::new(),

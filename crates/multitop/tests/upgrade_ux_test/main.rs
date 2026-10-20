@@ -35,6 +35,7 @@ async fn isolate_keychain_async() -> tokio::sync::MutexGuard<'static, ()> {
 
 fn server(host: &str, cmd: Option<&str>) -> Server {
     Server {
+        name: None,
         host: host.to_string(),
         port: 22,
         user: "admin".to_string(),

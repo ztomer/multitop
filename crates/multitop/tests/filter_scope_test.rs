@@ -31,6 +31,7 @@ use tokio::sync::{mpsc, watch};
 
 fn test_server(host: &str) -> Server {
     Server {
+        name: None,
         host: host.to_string(),
         port: 22,
         user: "deploy".to_string(),

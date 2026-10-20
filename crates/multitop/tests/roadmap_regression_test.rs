@@ -32,6 +32,7 @@ fn isolate_keychain() -> tokio::sync::MutexGuard<'static, ()> {
 
 fn test_server(user: &str, host: &str) -> Server {
     Server {
+        name: None,
         host: host.to_string(),
         port: 22,
         user: user.to_string(),
@@ -144,6 +145,7 @@ fn test_username_consistency_across_panes() {
     let _keychain = isolate_keychain();
     let server_with_user = test_server("alice", "db-host");
     let server_no_user = Server {
+        name: None,
         host: "bare-host".to_string(),
         port: 22,
         user: String::new(),
@@ -171,6 +173,7 @@ fn test_username_consistency_across_panes() {
 fn a_packet_from_the_old_panel_list_cannot_paint_the_new_one() {
     let _keychain = isolate_keychain();
     let a = Server {
+        name: None,
         host: "alpha".to_string(),
         port: 22,
         user: "admin".to_string(),

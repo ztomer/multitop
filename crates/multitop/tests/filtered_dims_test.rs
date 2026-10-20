@@ -35,6 +35,7 @@ static PORT_COUNTER: std::sync::atomic::AtomicU16 = std::sync::atomic::AtomicU16
 /// task spawned by the real event loop cannot reach anything.
 fn test_server(host: &str) -> Server {
     Server {
+        name: None,
         host: format!("{host}.example"),
         port: PORT_COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed),
         user: "admin".to_string(),

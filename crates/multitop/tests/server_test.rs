@@ -53,6 +53,7 @@ fn test_state(token: &str) -> (AppState, multitop::server::SharedState) {
     let shared = Arc::new(RwLock::new(live));
     let cfg = Config {
         servers: vec![Server {
+            name: None,
             host: "test-host".to_string(),
             port: 22,
             user: "root".to_string(),

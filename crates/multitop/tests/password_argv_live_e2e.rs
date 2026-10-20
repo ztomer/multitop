@@ -87,6 +87,7 @@ fn strip_ansi(s: &str) -> String {
 fn live_server() -> Option<Server> {
     let host = std::env::var("MULTITOP_LIVE_HOST").ok()?;
     Some(Server {
+        name: None,
         host,
         port: std::env::var("MULTITOP_LIVE_PORT")
             .ok()

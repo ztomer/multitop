@@ -254,6 +254,7 @@ async fn test_remote_upgrade_empty_command() {
 #[tokio::test]
 async fn test_remote_upgrade_connection_failure() {
     let server = Server {
+        name: None,
         host: "192.0.2.1".to_string(), // TEST-NET-1 (RFC 5737), guaranteed non-routable
         port: 22,
         user: "testuser".to_string(),
