@@ -7,6 +7,50 @@ This file starts at v0.47.0 — earlier history is in git (`git log`), and the
 per-defect record is `docs/detection-record.md`, which is the more useful
 document for anything before this point.
 
+## v0.58.0 — the Ops view draws the machine's tunnel, its capacity and its stacks _(2026-10-20)_
+
+### Added — the machine model in the Ops view (servers ROADMAP O92, the client half)
+- **The machine's tunnel, with the stack that declares it.** `net.egress` is
+  the estate's most consequential tool — where the tunnel exits, whether it
+  LEAKED, and which stack owns it — and no client rendered it at all: the
+  2026-10-19 incident was a tunnel in Zurich that every view called "fine",
+  because no view drew one. The Ops view draws it now: the tunnel's
+  container, the country it exits, the verdict, and the stack that declares
+  it (`solver-vpn CH confirmed via solver`). The answer is a list, so a
+  machine with two tunnels says so rather than hiding one, and a machine with
+  none says so with the SERVER's own reason — never a green tick.
+- **The machine's capacity.** The Ops view had the pools' state and no disk,
+  no memory and no cpu: on the storage machine it could say "1 pool whole"
+  and never how full the pool was. It draws the machine's free disk and the
+  share used now — over the filesystems that count (each ZFS pool once, its
+  datasets share its space), in the card's own arithmetic, so the two clients
+  say the same number — and the machine's CPUs, its load and its memory, flat
+  and unlabelled above the sections, the way the card keeps them.
+- **The containers, one row per stack.** A machine may run several roots
+  (`.90` runs the storage root and the solver root), so the containers are
+  grouped by the stack they belong to, each row with its count, and the
+  containers in trouble named under their stack. The server resolves the
+  instance on every row; the compose project label is the fallback.
+- **The machine's name.** `[[servers]]` takes an optional `name`, and the
+  banner says it beside the address (`storage (192.168.0.90)`). A card
+  titled by a ROLE ("storage") that now carries the solver's cron announces
+  the wrong owner.
+- **One set of words with the other client.** The Ops view's sections are
+  the estate's — the same ones the routines card uses — and no longer say
+  `zfs.health` and `docker` where the card says `zfs` and `containers`. The
+  pools' whole case says "2 pools whole: pool0, pool1" and not "ONLINE",
+  which is the word that lies when a member is REMOVED.
+
+### Fixed — a stated absence is not an alarm
+- A machine with no instance declaration is not a fault. `.33` — healthy,
+  one instance, no `config/instances.tsv` — read `⚠ stacks media_server: the
+  machine's instance declaration is missing`. A machine with no declaration
+  has one instance (itself) and says so; that is a stated absence, and alarm
+  is reserved for faults. It reads `· stacks media_server: 1 instance, no
+  declaration` now. A declaration that EXISTS and could not be read, and a
+  declared root that is not there, are still warnings — the two are told
+  apart by the facts the server publishes, not by a flag.
+
 ## v0.57.0 — the Ops view reads zfs.health, and names it where the host does not _(2026-10-20)_
 
 ### Added — the Ops view's fifth section (servers ROADMAP O82)
