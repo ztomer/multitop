@@ -7,6 +7,34 @@ This file starts at v0.47.0 — earlier history is in git (`git log`), and the
 per-defect record is `docs/detection-record.md`, which is the more useful
 document for anything before this point.
 
+## v0.57.0 — the Ops view reads zfs.health, and names it where the host does not _(2026-10-20)_
+
+### Added — the Ops view's fifth section (servers ROADMAP O82)
+- **The Ops view reads `zfs.health`**: a pool's name, its state, and the
+  member that is not ONLINE — from the tool's own structured answer, never
+  from `zpool status`. A pool that is not whole is drawn with the fault and
+  what ZFS says to do about it (`✗ zfs.health 1 of 1 not whole`), so the
+  2026-10-19 SUSPENDED pool on `.90` — the one thing every other view of
+  that host called "fine" — is visible to the client that was meant to show
+  it.
+- **A host that does not serve the tool says why**, in the server's own
+  words (`· zfs.health no ZFS on this host: no /usr/sbin/zpool` on `.158`),
+  never a guess and never a green "none".
+- **The section is named after the tool that answers it**, so the panel says
+  whose answer it is showing.
+
+### Fixed — the client and the local agent
+- The client's comment claimed `mcp_host` published no absent reasons. It
+  has, since its `dev.multitop/absent` meta landed; the comment now says
+  what is true.
+- The local agent names `zfs.health` in its absent map too, so this Mac's
+  own panel says why the pools are not there instead of going quiet.
+
+### Changed
+- **The Android Gradle wrapper moves to 9.8.2** — the release the lint
+  asked for (9.8.1 is refused by `AndroidGradlePluginVersion`). It was red
+  on `main` before this change.
+
 ## v0.56.0 — the phone can pair, and the installer replaces the binary instead of rewriting it _(2026-10-19)_
 
 Minor bump: the Android companion's pairing screen with its Keystore-sealed
