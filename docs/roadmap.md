@@ -5,15 +5,25 @@ history (`git log --oneline`), in `CHANGELOG.md`, and in
 `docs/detection-record.md`. When an item here is finished, delete it rather than
 ticking it off.
 
-State on 2026-10-19: Phase 0 (goh 0.27.0 wiring and the shipped defects,
+State on 2026-10-20: Phase 0 (goh 0.27.0 wiring and the shipped defects,
 P0.1-P0.7) and Phase 1 (gate drift, G1-G3) are closed and pushed; their record is
 `git log --oneline` (`7a316b3`, `f096334`, `579ec14`, `3af81a5`, `dccdc7a`) and
-`git show 2475be7:docs/roadmap.md`. Phase 2's A1 closed on 2026-10-17, and A2.4
+`git show 2475be7:docs/roadmap.md`. Phase 2's A1 closed on 2026-10-17, A2.4
 (the pairing screen and its Keystore-sealed store) closed on 2026-10-19 in
-`e7da25a`. The next open work is **A2.5**, the read-only screens over
-`/api/hosts` and `/api/health` through `PinnedTls`; then A3. The release that
-carried A2.4 is v0.56.0, and the installer's replace-by-rename fix (`2413764`)
-is in it — the release table is at the end.
+`e7da25a`, and the Ops view's fifth section - it reads `zfs.health` now, and
+names the tool where a host does not serve it - closed on 2026-10-20 in
+`d595639`. The next open work is **A2.5**, the read-only screens over
+`/api/hosts` and `/api/health` through `PinnedTls`; then A3. The releases:
+v0.56.0 carried A2.4 and the installer's replace-by-rename fix (`2413764`),
+v0.57.0 carried the Ops view's ZFS section and the Android wrapper's move to
+Gradle 9.8.2 — the release table is at the end.
+
+**One thing the servers plan said that was wrong.** The plan (servers ROADMAP
+O82) claimed the Ops view "reads `tools/list` generically ... with no code
+change". The CLIENT read the list generically; the VIEW had four hard-coded
+sections and named no tool at all, so the estate's SUSPENDED pool on 2026-10-19
+was invisible to the client meant to show it. The plan is the plan of record for
+the estate; this repo's own roadmap is the one for the phone.
 
 Every item names its proof: the test or gate that goes red until it is done.
 
