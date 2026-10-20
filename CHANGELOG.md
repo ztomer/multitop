@@ -7,6 +7,59 @@ This file starts at v0.47.0 — earlier history is in git (`git log`), and the
 per-defect record is `docs/detection-record.md`, which is the more useful
 document for anything before this point.
 
+## v0.58.1 — a status is an enum, and the frame's glyph is the renderer's _(2026-10-20)_
+
+### Changed — the Ops view's models (servers ROADMAP E48)
+- **A status travels as a STATUS, not as a word that can lie.** The owner,
+  2026-10-20: *"V is a visual representation of a status. we should use
+  enums, not utf symbols. it shouldn't be something we transport around."*
+  The Ops view's models held their statuses as `String`s, and a string is
+  compared as TEXT: `"ONLINE" == "ONLINE"` says a pool is whole, and a pool
+  whose member is `REMOVED` says `ONLINE`.
+- **OURS are enums, and a word we do not have is REFUSED.** The egress
+  verdict (`confirmed` / `leaked` / `disagreement` / `unverified` /
+  `unknown`) and the estate's verdict about a pool (`whole` / `not whole`)
+  are the estate's OWN vocabularies — enums in the code, named words on the
+  wire, and a word outside the set is a FAULT: the section is unreadable
+  rather than read as some verdict it is not. The enum grows; the string
+  does not.
+- **A verdict's severity was a NUMBER wearing a status's clothes.** The
+  bands were a `u8` compared with `max_by_key`, so "how bad is the worst
+  verdict on this machine" was answered by arithmetic on a number rather
+  than by asking a status. `Severity` is an enum now (`Ok` / `Unsettled` /
+  `Bad`), ordered the same way, so the question is answered by asking it.
+- **THEIRS stay open and are quoted VERBATIM.** ZFS's `ONLINE` /
+  `DEGRADED` / `FAULTED` / `OFFLINE` / `REMOVED` / `UNAVAIL` / `SUSPENDED`
+  and Docker's `running` / `exited` / `paused` / `created` / `restarting` /
+  `removing` / `dead` and `healthy` / `unhealthy` / `starting` / `none`
+  belong to OTHER programs, so they are parsed into enums AT THE EDGE —
+  where the drawing happens — and each keeps an `Other(String)` arm: a
+  closed list would make the answer fail its own schema the day ZFS adds a
+  word, and the frame would show something the server never published.
+- **THE FRAME'S GLYPH was already the renderer's, and still is.** `Tone` was
+  the picture of a state, and the renderer chose it. This release moves the
+  STATE out of the model and leaves the picture where it was — the same
+  picture, drawn the same way.
+
+### Verified
+- `tools/gate.sh --full` 14/14 green; 1743 Rust tests (0 failed, 21
+  ignored), 64 pytest tests and 40 subtests — the LIVE suite, against the
+  real hosts — 0 failed; 96.34% of coverable lines (16070/16681).
+- **The rendered output did not change.** Every frame line the suites
+  assert — `✓ vpn        1 tunnel confirmed`, `✓ zfs        2 pools whole:
+  pool0, pool1`, `⚠ stacks     …` — was authored against the OLD code and
+  passes unchanged now; only the fixtures that BUILD the model changed,
+  from strings to enum constructors. Three assertions were ADDED, for the
+  cases the enums make explicit.
+- **On the live estate, before and after** — the Ops view against `.33`,
+  `.90` and `.158`, through the crate's own `ops::gather` and
+  `ops::render::render`, the same tree built at `6bd8d73^` and at
+  `6bd8d73`: **the three frames are BYTE-IDENTICAL**, every glyph with it.
+- **The two clients' vocabularies are the same WORDS** —
+  `scripts/dev/check_client_vocabularies.py` in `media_server` compares the
+  server's, this client's and the routines client's, and it is green: a fact
+  cannot come back as `"ONLINE"` to one client and `"online"` to the other.
+
 ## v0.58.0 — the Ops view draws the machine's tunnel, its capacity and its stacks _(2026-10-20)_
 
 ### Added — the machine model in the Ops view (servers ROADMAP O92, the client half)
