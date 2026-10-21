@@ -20,6 +20,8 @@ use super::cache::*;
 
 /// The poll's interval, in seconds: the rule.
 const EVERY: i64 = 450;
+/// The epoch second the gather happens at.
+const NOW: i64 = 1_790_170_000;
 
 /// A cache in a directory of its own.
 fn cache(dir: &tempfile::TempDir) -> Cache {
@@ -180,6 +182,70 @@ fn an_answer_carries_the_rate_the_client_actually_kept() {
         sampled_every_s(EVERY, Some(1_000), 1_600),
         600,
         "a missed cycle carries the truth"
+    );
+}
+
+/// **THE ANSWER THE POLL KEPT IS THE ANSWER THE VIEW DRAWS.** The whole
+/// chain of E36 in one test: the gather asks the estate, the answer is
+/// kept, the answer is read back, and the view draws it - with the age the
+/// estate published on it, and no run of the suite anywhere in it.
+#[tokio::test]
+async fn the_answer_the_poll_kept_is_the_answer_the_view_draws() {
+    use crate::mcp::client::{Client, PROTOCOL_VERSION};
+    use crate::mcp::fake::{discover, serve, tools, Reply};
+
+    let published = json!({"checks": [
+        {"instance": "media_server", "check": "native:check_disk_space", "ok": true, "rc": 0, "ms": 128, "ts": NOW - 600, "age_s": 600, "age": "10 min ago"},
+    ], "oldest_age_s": 600, "oldest_age": "10 min ago"});
+    let suite = json!({"checks": [
+        {"instance": "media_server", "name": "native:check_disk_space", "schedule": "*/15 * * * *", "in_suite": true},
+    ]});
+    let published = published.to_string();
+    let suite = suite.to_string();
+    let (rd, wr, seen) = serve(move |method, params| match method {
+        "server/discover" => Reply::Result(discover(&[PROTOCOL_VERSION])),
+        "tools/list" => Reply::Result(tools(&["health.list"])),
+        "resources/read" => Reply::Result(json!({"contents": [{"text": published.clone()}]})),
+        "tools/call" if params["name"] == "health.list" => {
+            Reply::Result(json!({"structuredContent":
+                serde_json::from_str::<serde_json::Value>(&suite).unwrap_or_default()}))
+        }
+        _ => Reply::Error(-32602, "unknown tool"),
+    });
+    let mut client = Client::connect(rd, wr, std::time::Duration::from_secs(2))
+        .await
+        .unwrap();
+    let raw = crate::ops::gather_raw(&mut client, NOW, EVERY).await;
+
+    let dir = tempfile::tempdir().unwrap();
+    let cache = cache(&dir);
+    let key = "ztomer@192.168.0.33:22";
+    cache.write(key, &raw).unwrap();
+
+    let back = cache.read(key).expect("the answer");
+    let snapshot = crate::ops::parse_snapshot(&back);
+    let frame = crate::ops::render::render(
+        "media-server",
+        &crate::ops::OpsState::Ready(Box::new(snapshot)),
+        80,
+        40,
+        NOW,
+        &crate::ops::tests::pal(),
+    );
+    let said = crate::ops::tests::plain(&frame).join("\n");
+    assert!(
+        said.contains("1 check ok · 10 min ago"),
+        "the kept answer is not what the view draws: {said}"
+    );
+    let asked: Vec<String> = seen
+        .lock()
+        .unwrap()
+        .iter()
+        .filter_map(|r| r["params"]["name"].as_str().map(str::to_string))
+        .collect();
+    assert!(
+        !asked.iter().any(|t| t == "health.run_all"),
+        "the Ops view ran the suite: {asked:?}"
     );
 }
 
