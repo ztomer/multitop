@@ -14,6 +14,7 @@ use tokio::io::AsyncReadExt;
 use tokio::process::{Child, ChildStdin, ChildStdout, Command};
 use tokio::task::JoinHandle;
 
+use super::catalogue;
 use super::client::{Client, Error};
 use crate::config::Server;
 use crate::ops::Source;
@@ -68,11 +69,19 @@ async fn last_words(stderr: JoinHandle<String>, fallback: String) -> String {
 
 /// Start `source` for `server` and discover it.
 ///
+/// The tool list is taken from `store` when the kept list is the list this
+/// server is offering now (servers ROADMAP E61).
+///
 /// # Errors
 ///
 /// The process could not start, or the session failed to open; a closed
 /// session carries ssh's or the server's last stderr line as its reason.
-pub async fn open(server: &Server, source: &Source, timeout: Duration) -> Result<Running, Error> {
+pub async fn open(
+    server: &Server,
+    source: &Source,
+    timeout: Duration,
+    store: &catalogue::Store,
+) -> Result<Running, Error> {
     let mut cmd = match source {
         // The same resolver as the streaming panel and the exec channel, so
         // the Ops view is served by the binary drawing the panel beside it.
@@ -112,7 +121,7 @@ pub async fn open(server: &Server, source: &Source, timeout: Duration) -> Result
         }
         String::from_utf8_lossy(&buf).into_owned()
     });
-    match Client::connect(stdout, stdin, timeout).await {
+    match Client::connect_with(stdout, stdin, timeout, store).await {
         Ok(session) => Ok(Running {
             session,
             _child: child,

@@ -44,6 +44,7 @@ fn answer(at: i64) -> RawSnapshot {
         at,
         rule_every_s: 450,
         sampled_every_s: 450,
+        catalogue: crate::mcp::catalogue::Catalogue::Listed { ttl_s: 3_600 },
         health: Raw::Absent("this host lists no health checks".into()),
         health_list: Raw::Absent("this host lists no health checks".into()),
         vpn: Raw::Absent("this host lists no net.egress".into()),

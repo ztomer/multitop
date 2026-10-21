@@ -195,10 +195,16 @@ pub fn spawn_ops(
         key: crate::ops::cache::host_key(&server),
         cache,
     };
+    // The tool list is kept between sessions, keyed to the server's
+    // advertised version and to the tools it says it does not offer
+    // (servers ROADMAP E61): a reopened session does not pull the whole
+    // catalogue off the host again.
+    let store = to.cache.catalogue_store(&to.key);
     let connect = move || {
         let (server, source) = (server.clone(), source.clone());
+        let store = store.clone();
         async move {
-            crate::mcp::spawn::open(&server, &source, OPS_TIMEOUT)
+            crate::mcp::spawn::open(&server, &source, OPS_TIMEOUT, &store)
                 .await
                 .map_err(|e| e.to_string())
         }

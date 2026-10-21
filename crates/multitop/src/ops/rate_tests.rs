@@ -87,6 +87,7 @@ fn snapshot_with(h: Health) -> Snapshot {
         server: ("mcp_host".into(), "1.99.13".into()),
         at: NOW - 12,
         sampled_every_s: 450,
+        catalogue: Catalogue::Listed { ttl_s: 3_600 },
         health: Part::Ready(h),
         vpn: Part::Absent("this host lists no net.egress".into()),
         cron: Part::Ready(Vec::new()),

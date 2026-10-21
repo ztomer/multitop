@@ -57,6 +57,11 @@ pub use model_health::*;
 pub use rate::*;
 pub use status::*;
 
+/// The tool list, and where this client got it: the state the panel says.
+pub use crate::mcp::catalogue::Catalogue;
+/// The reasons a kept tool list was not used.
+pub use crate::mcp::catalogue::Miss;
+
 use std::time::Duration;
 
 /// The resource holding each health check's last recorded verdict.
@@ -168,6 +173,12 @@ pub struct Snapshot {
     /// two publications behind looks exactly like a fresh one. So the answer
     /// says it, where the verdict is shown, rather than in silence.
     pub sampled_every_s: i64,
+    /// Where the TOOL LIST came from: the server, or the kept list.
+    ///
+    /// The list is this panel's SHAPE - a tool the list does not name has no
+    /// section - so a panel that cannot say where its shape came from could
+    /// be showing yesterday's tools as today's (servers ROADMAP E61).
+    pub catalogue: Catalogue,
     pub health: Part<Health>,
     /// The machine's tunnels.
     pub vpn: Part<Egress>,
@@ -303,3 +314,7 @@ mod rate_tests;
 #[cfg(test)]
 #[path = "wording_tests.rs"]
 mod wording_tests;
+
+#[cfg(test)]
+#[path = "catalogue_tests.rs"]
+mod catalogue_tests;

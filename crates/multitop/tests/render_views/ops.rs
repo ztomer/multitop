@@ -57,6 +57,7 @@ pub fn ops(term: (u16, u16)) -> App {
         server: ("mcp_host".into(), "1.65.2".into()),
         at,
         sampled_every_s: multitop::ops::FALLBACK_INTERVAL_S,
+        catalogue: multitop::ops::Catalogue::Listed { ttl_s: 3_600 },
         health: Part::Ready(health(vec![
             check("check_disk_space", true),
             check("check_vpn_leak", false),

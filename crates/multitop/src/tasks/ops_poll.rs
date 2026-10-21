@@ -67,12 +67,11 @@ pub const OPS_CHECK: Duration = Duration::from_secs(60);
 pub const OPS_TIMEOUT: Duration = Duration::from_secs(20);
 
 /// Epoch seconds now.
-#[must_use]
-pub fn now_epoch() -> i64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map_or(0, |d| i64::try_from(d.as_secs()).unwrap_or(i64::MAX))
-}
+///
+/// The one clock, in [`crate::clock`]: the answer the poll keeps and the
+/// tool list it keeps are both read against it, and two copies of "now"
+/// would be two answers to the same question.
+pub use crate::clock::now_epoch;
 
 /// The poll's interval in whole seconds, for the answer that carries it.
 ///

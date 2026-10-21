@@ -115,6 +115,7 @@ fn snapshot() -> Snapshot {
         server: ("mcp-host".into(), "1.99.6".into()),
         at: NOW - 12,
         sampled_every_s: FALLBACK_INTERVAL_S,
+        catalogue: Catalogue::Listed { ttl_s: 3_600 },
         health: Part::Ready(Health {
             cadence: Cadence::default(),
             checks: vec![Check {

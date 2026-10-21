@@ -19,7 +19,7 @@ pub mod sections;
 use multitop_agent::fmt::center_header;
 use multitop_agent::palette_view::PaletteView;
 
-use super::{OpsState, Part};
+use super::{Catalogue, Miss, OpsState, Part};
 
 /// Section names are padded to this, so the summaries line up. It is the
 /// width of the longest one, `containers`.
@@ -72,10 +72,16 @@ fn count(n: usize, noun: &str) -> String {
 /// "12s", "5m", "3h", "2d": how long before `now` `ts` was.
 #[must_use]
 pub fn age(ts: i64, now: i64) -> String {
+    span(now - ts)
+}
+
+/// "45s", "12m", "3h": how long a span of seconds is.
+#[must_use]
+pub fn span(d: i64) -> String {
     const MIN: i64 = 60;
     const HOUR: i64 = 3_600;
     const DAY: i64 = 86_400;
-    let d = (now - ts).max(0);
+    let d = d.max(0);
     if d < MIN {
         format!("{d}s")
     } else if d < HOUR {
@@ -84,6 +90,49 @@ pub fn age(ts: i64, now: i64) -> String {
         format!("{}h", d / HOUR)
     } else {
         format!("{}d", d / DAY)
+    }
+}
+
+/// The tool list's own line: where the list came from, and how old it is.
+///
+/// The list is the panel's shape, so a list nobody can date is a shape
+/// nobody can trust: a panel that drew yesterday's tools would look exactly
+/// like one that drew today's. So the line says which it is, and a kept
+/// list that had to be put aside says why.
+///
+/// Its own line, not the server's: the server's line says when the ANSWER
+/// was asked, and this says when the SHAPE was taken. They are different
+/// moments, and one line that said both would be cut short on a narrow
+/// panel - which is exactly where a reader would lose the shape's age.
+fn catalogue_note(c: &Catalogue) -> String {
+    match c {
+        Catalogue::Listed { ttl_s } => {
+            format!("tool list: from the server (window {})", span(*ttl_s))
+        }
+        Catalogue::Kept { age_s, ttl_s } => format!(
+            "tool list: kept {} old (window {})",
+            span(*age_s),
+            span(*ttl_s)
+        ),
+        Catalogue::Relisted { miss, .. } => {
+            format!("tool list: re-listed, {}", miss_reason(miss))
+        }
+    }
+}
+
+/// Why a kept list was not used, in words.
+fn miss_reason(miss: &Miss) -> String {
+    match miss {
+        Miss::None => "there was no kept list".to_string(),
+        Miss::Released { kept, now } => {
+            format!("the kept list was for {kept}, the server is {now}")
+        }
+        Miss::Reshaped { .. } => "the host's tool set changed".to_string(),
+        Miss::Expired { age_s, ttl_s } => format!(
+            "the kept list had expired ({} old, window {})",
+            span(*age_s),
+            span(*ttl_s)
+        ),
     }
 }
 
@@ -170,6 +219,7 @@ pub fn render(
                 s.server.1,
                 age(s.at, now)
             ));
+            f.note(&catalogue_note(&s.catalogue));
             sections::sections(&mut f, s, now);
         }
     }

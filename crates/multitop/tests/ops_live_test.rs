@@ -61,7 +61,11 @@ fn server(host: &str, mcp: &str) -> Server {
 /// The frame the view draws for `server`, as plain lines, at `cols`.
 async fn frame(server: &Server, cols: usize) -> Option<Vec<String>> {
     let source = Source::of(server)?;
-    let mut session = match multitop::mcp::spawn::open(server, &source, OPEN_TIMEOUT).await {
+    // The tool list is not kept here: this test asks the live server every
+    // time, and the cache is proved by the unit tests, not by a live host.
+    let store = multitop::mcp::catalogue::Store::nowhere();
+    let mut session = match multitop::mcp::spawn::open(server, &source, OPEN_TIMEOUT, &store).await
+    {
         Ok(s) => s,
         Err(why) => {
             println!("the session did not open: {why}");

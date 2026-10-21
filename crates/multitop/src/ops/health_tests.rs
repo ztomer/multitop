@@ -85,6 +85,7 @@ fn snapshot(h: &Health) -> Snapshot {
         // This client's own sampling rate: the rule's own number, so an
         // answer that sampled at the rule says nothing about it.
         sampled_every_s: FALLBACK_INTERVAL_S,
+        catalogue: Catalogue::Listed { ttl_s: 3_600 },
         health: Part::Ready(h.clone()),
         vpn: Part::Absent("this host lists no net.egress".into()),
         cron: Part::Ready(Vec::new()),

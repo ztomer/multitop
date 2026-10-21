@@ -44,10 +44,57 @@ pub fn discover_absent(versions: &[&str], absent: &[(&str, &str)]) -> Value {
     d
 }
 
+/// A `server/discover` answer of this version that also names each tool the
+/// host does not list, and why.
+///
+/// The version and the absent set are the two halves of the catalogue's
+/// key, so a fake that could change one and not the other could not show
+/// what either one does to a kept list.
+#[must_use]
+pub fn discover_absent_as(
+    versions: &[&str],
+    absent: &[(&str, &str)],
+    name: &str,
+    version: &str,
+) -> Value {
+    let mut d = discover_as(versions, name, version);
+    let mut why = serde_json::Map::new();
+    for (tool, reason) in absent {
+        why.insert((*tool).to_string(), json!(reason));
+    }
+    d["_meta"]["dev.multitop/absent"] = Value::Object(why);
+    d
+}
+
+/// A `server/discover` answer naming a server of this version.
+///
+/// The version is the half of the catalogue's key that says which binary
+/// holds the tool table, so a fake that cannot change it cannot show what
+/// a release does to a kept list.
+#[must_use]
+pub fn discover_as(versions: &[&str], name: &str, version: &str) -> Value {
+    let mut d = discover(versions);
+    d["_meta"]["io.modelcontextprotocol/serverInfo"] = json!({ "name": name, "version": version });
+    d
+}
+
 /// A `tools/list` page naming `tools`.
 #[must_use]
 pub fn tools(names: &[&str]) -> Value {
     json!({ "tools": names.iter().map(|n| json!({"name": n})).collect::<Vec<_>>() })
+}
+
+/// A `tools/list` page naming `tools`, and the window the server gave.
+///
+/// The estate's servers answer a list with `ttlMs` - how long the answer
+/// may be kept - and a fake that left it out would be a server saying its
+/// list is a live fact.
+#[must_use]
+pub fn tools_cached(names: &[&str], ttl_ms: u64) -> Value {
+    json!({
+        "tools": names.iter().map(|n| json!({"name": n})).collect::<Vec<_>>(),
+        "ttlMs": ttl_ms,
+    })
 }
 
 /// A client-side pipe pair wired to a fake answering `route(method, params)`.

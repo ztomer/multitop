@@ -36,6 +36,7 @@ fn raw(at: i64) -> RawSnapshot {
         at,
         rule_every_s: EVERY,
         sampled_every_s: EVERY,
+        catalogue: crate::mcp::catalogue::Catalogue::Listed { ttl_s: 3_600 },
         health: Raw::Value(json!({"checks": [], "oldest_age": "10 min ago"})),
         health_list: Raw::Value(json!({"checks": []})),
         vpn: Raw::Absent("this host lists no net.egress".into()),
@@ -89,6 +90,159 @@ fn an_older_answer_does_not_replace_a_newer_one() {
     cache.write(key, &raw(2_000)).unwrap();
     cache.write(key, &raw(1_000)).unwrap();
     assert_eq!(cache.read(key).expect("the answer").at, 2_000);
+}
+
+/// **THE CACHE DIRECTORY HOLDS THE ANSWERS, AND NOTHING ELSE.** The
+/// routines client reads this directory to find what the monitor knows
+/// about a host, and it takes the FIRST file it finds whose name holds the
+/// host - so a tool list kept beside the answer, named for the same host,
+/// would be taken for the answer itself, and the parity check would read a
+/// tool list where it expects the estate's own answers.
+///
+/// The rule this test pins is that reader's: the files of this directory
+/// that are named for a host are the answer and the answer only.
+#[test]
+fn the_cache_directory_holds_the_answers_and_nothing_else() {
+    let dir = tempfile::tempdir().unwrap();
+    let cache = cache(&dir);
+    let key = "ztomer@192.168.0.33:22";
+    cache.write(key, &raw(2_000)).unwrap();
+    let store = cache.catalogue_store(key);
+    store
+        .store("1.99.19", "", &["health.list".to_string()], 3_600_000)
+        .unwrap();
+
+    let mut named: Vec<String> = std::fs::read_dir(dir.path().join("ops"))
+        .unwrap()
+        .filter_map(std::result::Result::ok)
+        .map(|e| e.path())
+        .filter(|p| p.extension().is_some_and(|e| e == "json"))
+        .filter(|p| {
+            p.file_name()
+                .is_some_and(|n| n.to_string_lossy().contains("192.168.0.33"))
+        })
+        .map(|p| p.file_name().unwrap().to_string_lossy().into_owned())
+        .collect();
+    named.sort();
+    assert_eq!(
+        named,
+        [file_name(key)],
+        "the tool list would be read for the answer: {named:?}"
+    );
+    // The list is kept all the same - in the directory that reader does not
+    // look in.
+    assert!(
+        cache
+            .catalogue_path(key)
+            .expect("the list's place")
+            .exists(),
+        "the tool list was not kept"
+    );
+}
+
+/// **THE ANSWER SAYS WHERE THE TOOL LIST CAME FROM.** The list is the
+/// panel's shape, so the answer the poll keeps says whether that shape came
+/// from the server or from the kept copy - and a kept copy that had to be
+/// put aside is said to be stale.
+#[tokio::test]
+async fn the_answer_says_where_the_tool_list_came_from() {
+    use crate::mcp::catalogue::Catalogue;
+    use crate::mcp::client::{Client, PROTOCOL_VERSION};
+    use crate::mcp::fake::{discover_as, serve, tools_cached, Reply};
+
+    let dir = tempfile::tempdir().unwrap();
+    let store = crate::mcp::catalogue::Store::at(Some(dir.path().join("catalogue.json")));
+    let route = |method: &str, _: &serde_json::Value| match method {
+        "server/discover" => Reply::Result(discover_as(&[PROTOCOL_VERSION], "mcp_host", "1.99.19")),
+        "tools/list" => Reply::Result(tools_cached(&["health.list"], 3_600_000)),
+        _ => Reply::Error(-32601, "no"),
+    };
+    let (rd, wr, _) = serve(route);
+    let mut client = Client::connect_with(rd, wr, std::time::Duration::from_secs(2), &store)
+        .await
+        .unwrap();
+    let first = crate::ops::gather_raw(&mut client, NOW, crate::ops::Previous::default()).await;
+    assert!(
+        matches!(first.catalogue, Catalogue::Listed { .. }),
+        "the first gather has nothing to keep: {:?}",
+        first.catalogue
+    );
+
+    let (rd, wr, _) = serve(route);
+    let mut client = Client::connect_with(rd, wr, std::time::Duration::from_secs(2), &store)
+        .await
+        .unwrap();
+    let second = crate::ops::gather_raw(&mut client, NOW, crate::ops::Previous::default()).await;
+    assert!(
+        matches!(second.catalogue, Catalogue::Kept { .. }),
+        "the second gather does not say the list was kept: {:?}",
+        second.catalogue
+    );
+
+    // The answer the poll KEEPS carries it, so the view can say it too.
+    let cache = cache(&dir);
+    cache.write("ztomer@192.168.0.33:22", &second).unwrap();
+    let back = cache.read("ztomer@192.168.0.33:22").expect("the answer");
+    assert!(
+        matches!(back.catalogue, Catalogue::Kept { .. }),
+        "the kept answer lost the list's state: {:?}",
+        back.catalogue
+    );
+}
+
+/// **THE KEPT LIST IS NOT A FILE THE OTHER CLIENT COULD TAKE FOR AN
+/// ANSWER.** The routines client's parity check reads this cache directory
+/// to find what the monitor knows about a host, and it takes the FIRST
+/// file whose name holds the host and ends in `.json`. A kept list beside
+/// the answer, named for the same host, would be taken for the answer
+/// itself - and the check would read a tool list where it expects the
+/// estate's own answers.
+///
+/// So the lists live in their own DIRECTORY, which that reader does not
+/// descend into, and this test is that reader's rule, written down.
+#[test]
+fn the_kept_list_is_not_a_file_the_other_client_could_take_for_an_answer() {
+    let dir = tempfile::tempdir().unwrap();
+    let cache = cache(&dir);
+    let key = "ztomer@192.168.0.33:22";
+    cache.write(key, &raw(1_000)).unwrap();
+    let store = cache.catalogue_store(key);
+    store
+        .store("1.99.19", "", &["cron.status".to_string()], 3_600_000)
+        .expect("the list is kept");
+
+    // The other client's rule: the files of the cache directory that end in
+    // `.json` and whose name holds the host.
+    let ops = dir.path().join("ops");
+    let mut found: Vec<String> = std::fs::read_dir(&ops)
+        .expect("the cache directory")
+        .filter_map(Result::ok)
+        .map(|e| e.path())
+        .filter(|p| p.extension().is_some_and(|e| e == "json"))
+        .filter(|p| {
+            p.file_name()
+                .is_some_and(|n| n.to_string_lossy().contains("192.168.0.33"))
+        })
+        .map(|p| p.file_name().unwrap().to_string_lossy().into_owned())
+        .collect();
+    found.sort();
+    assert_eq!(
+        found,
+        ["ztomer@192.168.0.33_22.json"],
+        "the other client would read the kept list for the answer: {found:?}"
+    );
+    // And the list is where it should be: in its own directory.
+    let kept = cache.catalogue_path(key).expect("a path");
+    assert!(
+        kept.parent().is_some_and(|p| p.ends_with(CATALOGUE_DIR)),
+        "the kept list is not in its own directory: {}",
+        kept.display()
+    );
+    assert!(
+        kept.exists(),
+        "the kept list is not there: {}",
+        kept.display()
+    );
 }
 
 /// A host with no answer is DUE: the estate has never been asked.

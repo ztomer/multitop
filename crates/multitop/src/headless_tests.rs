@@ -35,6 +35,7 @@ fn answer() -> RawSnapshot {
         at: NOW - 12,
         rule_every_s: 450,
         sampled_every_s: 450,
+        catalogue: crate::mcp::catalogue::Catalogue::Listed { ttl_s: 3_600 },
         health: Raw::Value(json!({"checks": [
             {"instance": "media_server", "check": "native:check_disk_space", "ok": true, "rc": 0, "ms": 128, "ts": NOW - 600, "age_s": 600, "age": "10 min ago"},
         ], "oldest_age_s": 600, "oldest_age": "10 min ago",

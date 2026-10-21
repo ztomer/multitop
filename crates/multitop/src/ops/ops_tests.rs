@@ -161,6 +161,7 @@ pub(super) fn snapshot() -> Snapshot {
         server: ("mcp_host".into(), "1.65.2".into()),
         at: NOW - 12,
         sampled_every_s: FALLBACK_INTERVAL_S,
+        catalogue: Catalogue::Listed { ttl_s: 3_600 },
         health: Part::Ready(parse_health(&health_answer()).unwrap()),
         vpn: Part::Absent("this host lists no net.egress".into()),
         cron: Part::Ready(parse_cron(&cron_answer()).unwrap()),
@@ -210,6 +211,7 @@ fn a_troubled_host_names_each_thing_in_trouble_under_its_section() {
     let body = &f[1..];
     let want = [
         "mcp_host 1.65.2 · asked 12s ago",
+        "tool list: from the server (window 1h)",
         "· no cpu or memory: this host lists no host.facts",
         "✗ health     1 of 2 failing · 15 min ago",
         "    check_vpn_leak  rc 1, 15 min ago",
@@ -260,7 +262,7 @@ fn a_clean_host_is_five_lines_and_absences_are_stated_not_alarmed() {
         &pal(),
     ));
     assert_eq!(
-        &f[2..],
+        &f[3..],
         [
             "· no cpu or memory: this host lists no host.facts",
             "✓ health     1 check ok · 13 min ago",
@@ -333,7 +335,7 @@ fn the_frame_fits_the_pane() {
     );
     assert_eq!(f.len(), 6);
     let p = plain(&f);
-    assert_eq!(p[5], "  +12 more");
+    assert_eq!(p[5], "  +13 more");
     assert!(p[1..].iter().all(|l| l.chars().count() <= 30), "{p:?}");
 }
 

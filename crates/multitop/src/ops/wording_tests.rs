@@ -59,6 +59,7 @@ fn snapshot() -> Snapshot {
         server: ("mcp_host".into(), "1.99.14".into()),
         at: NOW - 12,
         sampled_every_s: 450,
+        catalogue: Catalogue::Listed { ttl_s: 3_600 },
         health: Part::Absent("this host lists no health.list".into()),
         vpn: Part::Absent(NO_TUNNEL.to_owned()),
         cron: Part::Ready(Vec::new()),

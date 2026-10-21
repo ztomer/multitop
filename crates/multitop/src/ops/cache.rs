@@ -80,6 +80,13 @@ pub struct RawSnapshot {
     /// The truth, and what the answer says: a client that slept through a
     /// cycle says so, rather than carrying a rate it did not keep.
     pub sampled_every_s: i64,
+    /// Where the TOOL LIST came from: the server, or the kept list.
+    ///
+    /// The list is the panel's shape, so where it came from travels with
+    /// the answer the panel draws - a panel that cannot say whether its
+    /// shape is today's is a panel that could be showing yesterday's tools
+    /// (servers ROADMAP E61).
+    pub catalogue: crate::mcp::catalogue::Catalogue,
     pub health: Raw,
     pub health_list: Raw,
     pub vpn: Raw,
@@ -150,7 +157,34 @@ pub fn host_key(server: &crate::config::Server) -> String {
 /// and the key itself is in the file, so a collision would be visible.
 #[must_use]
 pub fn file_name(key: &str) -> String {
-    let mut out = String::with_capacity(key.len() + ".json".len());
+    format!("{}.json", sanitised(key))
+}
+
+/// The file name a host's TOOL LIST lives under.
+///
+/// The same key, sanitised the same way, so the file of one host cannot
+/// collide with another's.
+#[must_use]
+pub fn catalogue_file_name(key: &str) -> String {
+    format!("{}.catalogue.json", sanitised(key))
+}
+
+/// The directory, inside the cache directory, that holds the TOOL LISTS.
+///
+/// **A DIRECTORY, NOT A SECOND FILE BESIDE EACH ANSWER.** The routines
+/// client reads this cache directory to find what the monitor knows about a
+/// host, and it takes the FIRST file it finds whose name holds the host -
+/// so a second file beside the answer, named for the same host, would be
+/// taken for the answer itself, and the parity check would read a tool list
+/// where it expects the estate's own answers.
+///
+/// A directory is out of that reader's way: it does not descend into it,
+/// and a directory's name is not a file name ending in `.json`. The lists
+/// therefore live where that reader never looks (servers ROADMAP E61).
+pub const CATALOGUE_DIR: &str = "catalogue";
+/// The key with every character that is not safe in a file name replaced.
+fn sanitised(key: &str) -> String {
+    let mut out = String::with_capacity(key.len());
     for c in key.chars() {
         if c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | '@' | '_') {
             out.push(c);
@@ -158,7 +192,6 @@ pub fn file_name(key: &str) -> String {
             out.push('_');
         }
     }
-    out.push_str(".json");
     out
 }
 
@@ -193,6 +226,30 @@ impl Cache {
     #[must_use]
     pub fn path(&self, key: &str) -> Option<PathBuf> {
         self.dir.as_ref().map(|d| d.join(file_name(key)))
+    }
+
+    /// Where one host's TOOL LIST lives.
+    ///
+    /// The list is kept in its own directory inside the cache directory:
+    /// they are two halves of what this client knows about one machine, and
+    /// a host that moved has moved both - but the list is not an answer,
+    /// and it must not be mistaken for one (see [`CATALOGUE_DIR`]).
+    #[must_use]
+    pub fn catalogue_path(&self, key: &str) -> Option<PathBuf> {
+        self.dir
+            .as_ref()
+            .map(|d| d.join(CATALOGUE_DIR).join(catalogue_file_name(key)))
+    }
+
+    /// The store that keeps one host's tool list.
+    ///
+    /// servers ROADMAP E61: the list is the biggest thing this client pulls
+    /// off a host, and it changes at a RELEASE - so it is kept, keyed to the
+    /// server's advertised version and to the set of tools it says it does
+    /// not offer, and bounded by the server's own `ttlMs`.
+    #[must_use]
+    pub fn catalogue_store(&self, key: &str) -> crate::mcp::catalogue::Store {
+        crate::mcp::catalogue::Store::at(self.catalogue_path(key))
     }
 
     /// What the last gather found for `key`, if it is still there.

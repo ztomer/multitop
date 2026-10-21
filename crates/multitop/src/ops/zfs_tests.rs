@@ -266,6 +266,7 @@ fn the_pool_names_are_searchable() {
         server: ("mcp_host".into(), "1.65.2".into()),
         at: NOW,
         sampled_every_s: FALLBACK_INTERVAL_S,
+        catalogue: Catalogue::Listed { ttl_s: 3_600 },
         health: Part::Absent("none".into()),
         cron: Part::Absent("none".into()),
         containers: Part::Absent("none".into()),

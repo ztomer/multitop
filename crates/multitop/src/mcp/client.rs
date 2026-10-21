@@ -18,6 +18,8 @@ use std::time::Duration;
 use serde_json::{json, Value};
 use tokio::io::{AsyncBufReadExt, AsyncRead, AsyncWrite, AsyncWriteExt, BufReader, Lines};
 
+use super::catalogue;
+
 /// The one version this client speaks.
 pub const PROTOCOL_VERSION: &str = "2026-07-28";
 /// The request `_meta` key naming the version (2026-07-28 `RequestMeta`).
@@ -70,6 +72,14 @@ impl fmt::Display for Error {
 
 impl std::error::Error for Error {}
 
+/// The tool list the server gave, and the window it said it may be kept.
+struct Listing {
+    /// Every tool the server listed, every page of them.
+    tools: Vec<String>,
+    /// How long the server said the list may be kept (`ttlMs`).
+    ttl_ms: u64,
+}
+
 /// One session with one server.
 pub struct Client<R, W> {
     lines: Lines<BufReader<R>>,
@@ -80,6 +90,13 @@ pub struct Client<R, W> {
     pub server: (String, String),
     /// Every tool the server lists, by name.
     pub tools: Vec<String>,
+    /// Where the tool list came from: the server, or the kept list.
+    ///
+    /// The list is the panel's SHAPE - a tool the list does not name has no
+    /// section - so where it came from, and how old it is, travels with the
+    /// answer the panel draws. A list nobody can date is a list nobody can
+    /// trust (servers ROADMAP E61).
+    pub catalogue: catalogue::Catalogue,
     /// Why the server does not list a tool the Ops view reads, by tool name,
     /// when it says. Both servers say: `multitop-agent mcp` publishes the
     /// tools it cannot answer, and so does the estate's `mcp_host` (its
@@ -98,11 +115,37 @@ impl<R: AsyncRead + Unpin, W: AsyncWrite + Unpin> Client<R, W> {
     /// Discover the server and list its tools; every request, these two
     /// included, has `timeout` to answer.
     ///
+    /// The list is asked for every time here: this is the client with no
+    /// catalogue kept, and it is the shape the tests and the one-shot paths
+    /// use. [`Client::connect_with`] is the client that keeps one.
+    ///
     /// # Errors
     ///
     /// The server could not be reached, does not offer 2026-07-28, or
     /// answered something unreadable.
     pub async fn connect(reader: R, writer: W, timeout: Duration) -> Result<Self, Error> {
+        Self::connect_with(reader, writer, timeout, &catalogue::Store::nowhere()).await
+    }
+
+    /// Discover the server and list its tools, taking the list from `store`
+    /// when the kept list IS the list this server is offering now.
+    ///
+    /// servers ROADMAP E61: the list is the biggest thing this client pulls
+    /// off a host, and it changes at a RELEASE - so it is kept between
+    /// sessions, keyed to the server's advertised version and to the set of
+    /// tools the server says it does not offer. BOTH are read from the LIVE
+    /// server on every session, so a release or a changed tool set asks the
+    /// server again; and the server's own `ttlMs` bounds the kept list.
+    ///
+    /// # Errors
+    ///
+    /// As [`Client::connect`].
+    pub async fn connect_with(
+        reader: R,
+        writer: W,
+        timeout: Duration,
+        store: &catalogue::Store,
+    ) -> Result<Self, Error> {
         let mut c = Self {
             lines: BufReader::new(reader).lines(),
             writer,
@@ -111,6 +154,7 @@ impl<R: AsyncRead + Unpin, W: AsyncWrite + Unpin> Client<R, W> {
             server: (String::new(), String::new()),
             tools: Vec::new(),
             absent: std::collections::HashMap::new(),
+            catalogue: catalogue::Catalogue::Listed { ttl_s: 0 },
             broken: None,
         };
         let d = c.request("server/discover", json!({})).await?;
@@ -146,11 +190,54 @@ impl<R: AsyncRead + Unpin, W: AsyncWrite + Unpin> Client<R, W> {
                 .filter_map(|(k, v)| Some((k.clone(), v.as_str()?.to_string())))
                 .collect();
         }
+        // The tool list: the KEPT one when it is the list this server is
+        // offering now, the server's own list otherwise. Both halves of the
+        // key - the version and the absent set - were read from the LIVE
+        // server above, so a release or a changed tool set cannot hide
+        // behind a kept list.
+        let version = c.server.1.clone();
+        let absent = catalogue::fingerprint(&c.absent);
+        match store.hit(&version, &absent) {
+            catalogue::Hit::Current {
+                tools,
+                age_s,
+                ttl_s,
+            } => {
+                c.tools = tools;
+                c.catalogue = catalogue::Catalogue::Kept { age_s, ttl_s };
+            }
+            catalogue::Hit::Missed(miss) => {
+                let listing = c.list_tools().await?;
+                let ttl_s = i64::try_from(listing.ttl_ms / catalogue::MS_PER_S).unwrap_or(i64::MAX);
+                if let Err(why) = store.store(&version, &absent, &listing.tools, listing.ttl_ms) {
+                    crate::diag::report(&format!("the tool list was not kept: {why}"));
+                }
+                c.tools = listing.tools;
+                c.catalogue = match miss {
+                    catalogue::Miss::None => catalogue::Catalogue::Listed { ttl_s },
+                    other => catalogue::Catalogue::Relisted { miss: other, ttl_s },
+                };
+            }
+        }
+        Ok(c)
+    }
+
+    /// `tools/list`, every page of it, and the window the server gave.
+    ///
+    /// The pages are followed and the tools are accumulated: a list that
+    /// kept only the first page would lose every tool on the second, and a
+    /// tool that is not in the list has no section in the panel.
+    async fn list_tools(&mut self) -> Result<Listing, Error> {
         let mut cursor: Option<String> = None;
+        let mut tools: Vec<String> = Vec::new();
+        let mut ttl_ms = 0;
         loop {
             let params = cursor.map_or_else(|| json!({}), |c| json!({ "cursor": c }));
-            let page = c.request("tools/list", params).await?;
-            c.tools.extend(
+            let page = self.request("tools/list", params).await?;
+            if ttl_ms == 0 {
+                ttl_ms = page.get("ttlMs").and_then(Value::as_u64).unwrap_or(0);
+            }
+            tools.extend(
                 page.get("tools")
                     .and_then(Value::as_array)
                     .into_iter()
@@ -166,7 +253,7 @@ impl<R: AsyncRead + Unpin, W: AsyncWrite + Unpin> Client<R, W> {
                 break;
             }
         }
-        Ok(c)
+        Ok(Listing { tools, ttl_ms })
     }
 
     /// Why this session can no longer be used, once it cannot.

@@ -124,23 +124,34 @@ where
 /// list: the pass holds the list for the whole pass, and a session that
 /// borrowed it could not outlive the iteration that opened it.
 ///
+/// The tool list is taken from the kept one when it is the list this server
+/// is offering now (servers ROADMAP E61), so a pass does not pull the whole
+/// catalogue off the host every time.
+///
 /// # Errors
 ///
 /// The host has no `mcp` command, or the session could not be opened.
-pub async fn open_ssh(server: Server) -> Result<crate::mcp::spawn::Running, String> {
+pub async fn open_ssh(server: Server, cache: &Cache) -> Result<crate::mcp::spawn::Running, String> {
     let Some(source) = crate::ops::Source::of(&server) else {
         return Err("this host has no mcp_host command".into());
     };
-    crate::mcp::spawn::open(&server, &source, crate::tasks::ops_poll::OPS_TIMEOUT)
-        .await
-        .map_err(|e| e.to_string())
+    let store = cache.catalogue_store(&cache::host_key(&server));
+    crate::mcp::spawn::open(
+        &server,
+        &source,
+        crate::tasks::ops_poll::OPS_TIMEOUT,
+        &store,
+    )
+    .await
+    .map_err(|e| e.to_string())
 }
 
 /// One pass over `servers`, over ssh.
 pub async fn run_real(servers: &[Server], cache: &Cache, now: i64, fallback: Duration) -> Pass {
     run(servers, cache, now, fallback, |server: &Server| {
         let server = server.clone();
-        async move { open_ssh(server).await }
+        let cache = cache.clone();
+        async move { open_ssh(server, &cache).await }
     })
     .await
 }
