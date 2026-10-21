@@ -7,6 +7,80 @@ This file starts at v0.47.0 — earlier history is in git (`git log`), and the
 per-defect record is `docs/detection-record.md`, which is the more useful
 document for anything before this point.
 
+## v0.65.0 — a timed-out call reads as UNKNOWN, and the estate's other readings stand _(2026-10-21)_
+
+### Fixed — the poll's timed-out call is a GAP in the reading, not a fault of the estate (servers ROADMAP E74)
+- **THE LOCAL HOST'S READING WAS THROWN AWAY WITH THE CALL THAT MISSED
+  ITS DEADLINE.** The launchd poll's local host failed intermittently with
+  `tools/call: no answer in 20s` — **17 of 125 passes** in the poll's own
+  log (measured 2026-10-21: **9** at a `tools/call` deadline and **8** at a
+  `server/discover` one, so **13.6%** of the passes). A missed deadline
+  ENDED the session, so the host's whole reading was discarded, the host
+  was reported as failed, and the sections the estate had answered were
+  never asked. The estate's health is read from these answers, so an
+  intermittent local failure was an intermittent **blind spot** — and it
+  was read as "a flaky tool", which is a failure that is not a fault.
+- **A MISSED DEADLINE IS A GAP IN ONE ANSWER, AND THE SESSION SURVIVES
+  IT.** A late answer carries the id of the request it answers, and this
+  client matches that id — so a late answer is read and discarded, never
+  taken for the next one. The old reason for ending the session ("a late
+  reply could be mistaken for the next one's") could not happen, and
+  paying for it was the whole of E74: the estate's other readings are
+  read again. A test drives a server that answers late and reads the
+  NEXT answer back, to keep the id match honest.
+- **THE SECTION THAT MISSED IT READS UNKNOWN, AND NAMES THE CALL.** The
+  frame draws `⚠ containers unknown: docker.containers: no answer in
+  20s` — the TOOL is named, where the old wording named the JSON-RPC
+  method (`tools/call: no answer in 20s`) and so named no tool at all: a
+  log of timeouts said nothing about which call had missed its deadline.
+  A section is now in one of three states and they are not the same:
+  **ABSENT** (the host does not offer it, and says why), **FAILED** (the
+  estate's own report — `failed: ...` — a finding), **UNKNOWN** (the
+  answer did not arrive — `unknown: ...` — a gap, never an all-clear and
+  never a fault of the estate).
+- **THE HOST IS NOT FAILED, AND THE PASS IS NOT ALL-CLEAR.** The pass
+  gathers the host, keeps the reading, and names the fact that is
+  missing: `127.0.0.1 · gathered · containers unknown: docker.containers:
+  no answer in 20s`. The pass's exit code is still a failure while a gap
+  stands — a gap is not an all-clear, and a fresh answer that still
+  carries one says so too.
+- **THE 20-SECOND BUDGET IS THE ESTATE'S, AND IT WAS NOT RAISED.** The
+  deadline is the estate's own (`OPS_TIMEOUT`), the agent was not given a
+  longer or a second one of its own, and a missed deadline is reported
+  rather than waited out.
+
+### Measured (2026-10-21, on the live estate)
+- **THE LOCAL CALLS ON AN AWAKE MACHINE NEVER MISS IT.** 100 runs of the
+  local agent's `docker.containers`: **max 5.039 s**, **1** over the
+  agent's own 5-second IO timeout (the daemon did not answer, and the
+  tool said so), **0** over 20 s. 100 runs of `cron.status`: **max
+  0.094 s**, **0** over 20 s. The 20-second timeouts in the poll's log
+  are therefore not the call being slow — they are the **machine not
+  answering within the estate's budget**, which is also why 8 of the 17
+  failures were a `server/discover` deadline: the agent did not even
+  answer the first request.
+- **THE SAME ESTATE, THE SAME TIMEOUT, BEFORE AND AFTER.** With a local
+  agent that answers everything except `docker.containers`, on the live
+  estate:
+  - **before** (v0.64.0): `127.0.0.1 · failed: tools/call: no answer in
+    20s`, exit 1, and **no answer file at all** — the reading was
+    discarded, and the card went stale;
+  - **after** (this build): `127.0.0.1 · gathered · containers unknown:
+    docker.containers: no answer in 20s`, exit 1, and the answer is
+    kept — `cron` a value, `containers` `{"Unknown": "docker.containers:
+    no answer in 20s"}`, and the absences keep their own reasons.
+  - the frame it draws: `✓ cron 1 job ok` beside `⚠ containers
+    unknown: docker.containers: no answer in 20s`.
+
+### Verified
+- `tools/gate.sh --full` green (14/14); the Rust suite and the pytest
+  suite as the gate of record ran them.
+- The red before the fix: the four tests that carry E74 failed on the
+  shipped behaviour — *"tools/call: no answer in 200ms"* (the tool not
+  named), *"a missed deadline does not end the session"*, *"the section
+  that could not be read does not say so"*, and *"the host was thrown
+  away with the call that timed out"*.
+
 ## v0.64.0 — the kept catalogue is checked against the server's own DIGEST _(2026-10-21)_
 
 ### Changed — the kept list is checked against the server's WORD, not a guess (servers ROADMAP E72)

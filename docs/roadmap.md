@@ -50,7 +50,19 @@ handed and checks its kept copy against it, and a digest that is ABSENT
 says so rather than passing for a check. Measured on the live estate
 after the fleet shipped v1.99.21: the digest costs **+105 B a session a
 host** and saves the **149,997 B a gather** the guess forced at every
-release — **149,682 B a gather** net. The next open work is
+release — **149,682 B a gather** net. **A MISSED DEADLINE IS A GAP IN ONE
+ANSWER since 2026-10-21** (servers ROADMAP E74): the poll's local host
+failed intermittently with `tools/call: no answer in 20s` — **17 of 125
+passes** in the poll's own log — and the deadline ENDED the session, so
+the host's whole reading was discarded and the estate's other readings
+were never asked: an intermittent blind spot, read as a flaky tool. A
+missed deadline now leaves the session good (a late answer carries its
+own request's id, and the client matches the id, so it can never be taken
+for the next one), the section that missed it reads **UNKNOWN** with the
+call that missed it named, the host is gathered with the rest of its
+reading kept, and the pass still says the gap instead of passing for
+clear. The 20-second budget is the estate's and was not raised. The next
+open work is
 **A2.5**, the read-only screens over
 `/api/hosts` and `/api/health` through `PinnedTls`; then A3. The releases:
 v0.56.0 carried A2.4 and the installer's replace-by-rename fix (`2413764`),
