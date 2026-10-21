@@ -47,8 +47,10 @@ tool table at all — and could not see a table that moved without one. The
 server publishes the digest of the exact list it serves
 (`dev.multitop/catalogueDigest`), the client remembers the digest it was
 handed and checks its kept copy against it, and a digest that is ABSENT
-says so rather than passing for a check. The estate's half of that
-measurement waits for the fleet to ship v1.99.21. The next open work is
+says so rather than passing for a check. Measured on the live estate
+after the fleet shipped v1.99.21: the digest costs **+105 B a session a
+host** and saves the **149,997 B a gather** the guess forced at every
+release — **149,682 B a gather** net. The next open work is
 **A2.5**, the read-only screens over
 `/api/hosts` and `/api/health` through `PinnedTls`; then A3. The releases:
 v0.56.0 carried A2.4 and the installer's replace-by-rename fix (`2413764`),
