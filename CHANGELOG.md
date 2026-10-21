@@ -60,27 +60,36 @@ document for anything before this point.
 
 ### Measured (2026-10-21, on the live estate and on the shipped binary)
 - **THE ESTATE'S HALF OF THE BYTES**: the digest costs **+105 B per
-  session per host** on the wire (the server's own measurement: its
-  `server/discover` answer grew 3,457 → 3,562 B on a fixture host, +0.2%)
-  and saves the **149,997 B a gather** the version inference forced at
-  every release — the three `tools/list` answers measured today: 65,557 B
-  on `.33`, 51,716 B on `.90`, 32,724 B on `.158`.
+  session per host** on the wire — measured on the live estate, the
+  `server/discover` answer grew by exactly that on every host when the
+  fleet shipped v1.99.21: **667 → 772 B** on `.33`, **1,097 → 1,202 B** on
+  `.90`, **1,711 → 1,816 B** on `.158` — and it saves the **149,997 B a
+  gather** the version inference forced at every release: the three
+  `tools/list` answers, 65,557 B on `.33`, 51,716 B on `.90`, 32,724 B on
+  `.158`. A release that touched no tool table now costs **315 B** (three
+  digests) instead of **149,997 B** (three catalogues): **149,682 B a
+  gather saved.**
 - **THE CLIENT'S HALF, ON DISK**: the kept list grows by **87 B per host**
-  (672 → 759 B on `.33` — the 71-byte digest and the JSON around it; 18 B of
-  that until the fleet ships the digest, when the word is there to keep) and
+  (672 → 759 B on `.33` — the 71-byte digest and the JSON around it) and
   the answer the poll keeps grows by **108 B per host per gather** (its
   catalogue field, 39 → 147 B — it now carries the proof). Neither is on
   the wire.
 - **THE PASS, WITH AND WITHOUT THE KEPT LISTS**, measured with the
-  counting shim in front of `ssh` (`tools/measure_poll.py`): **148,618 B
+  counting shim in front of `ssh` (`tools/measure_poll.py`): **149,024 B
   a gather** with the kept list (no `tools/list` line in the per-answer
-  table at all) against **298,617 B** with them dropped — the same
+  table at all) against **299,023 B** with them dropped — the same
   149,997 B of catalogue, measured twice.
-- **THE ESTATE HAS NO DIGEST YET** (the server's release is the
-  coordinator's, and v1.99.21 is not shipped), so this measurement is the
-  **fallback path**: the client keeps the list the old way and says the
-  digest was absent. That is the path measured above, and it is
-  unchanged by this release — the saving lands when the fleet ships.
+- **AND THE FRAME SAYS IT, ON THE LIVE ESTATE**: *"tool list: kept 24m
+  old (window 1h), the server's digest matches"*.
+- **THE MIGRATION, ON THE LIVE ESTATE**: the fleet shipped the digest
+  while this was being written, and the lists this client had kept under
+  the older servers carried **no digest** — so they were put aside ONCE
+  (the one path where a kept copy cannot be checked at all), and the
+  digest was remembered with the list from then on. Measured on `.158`:
+  the answer said `Relisted/Uncheckable` and the frame said *"the kept
+  list carried no digest to check against"*; the next session said
+  *"tool list: kept 4s old (window 1h), the server's digest matches"*,
+  and the host was not asked for its list again.
 
 ### Verified
 - `tools/gate.sh --full` green; the Rust suite green.
