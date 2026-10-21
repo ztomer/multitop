@@ -299,3 +299,7 @@ mod health_tests;
 #[cfg(test)]
 #[path = "rate_tests.rs"]
 mod rate_tests;
+
+#[cfg(test)]
+#[path = "wording_tests.rs"]
+mod wording_tests;

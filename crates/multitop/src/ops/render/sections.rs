@@ -29,14 +29,19 @@ pub(super) fn sections(f: &mut Frame<'_>, s: &Snapshot, now: i64) {
             health(f, h, now, s.sampled_every_s);
         }
     }
-    if !not_ready(f, "vpn", &s.vpn) {
-        if let Part::Ready(e) = &s.vpn {
+    // The tunnel's section says what the server said - except where this
+    // client knows the machine's declaration better than the server's
+    // wording does (see `vpn_absent`).
+    match &s.vpn {
+        Part::Ready(e) => {
             let containers = match &s.containers {
                 Part::Ready(c) => c.as_slice(),
                 Part::Absent(_) | Part::Failed(_) => &[],
             };
             vpn(f, e, containers);
         }
+        Part::Absent(why) => vpn_absent(f, why, s),
+        Part::Failed(why) => f.line(Tone::Warn, "vpn", &format!("could not read: {why}")),
     }
     if !not_ready(f, "cron", &s.cron) {
         if let Part::Ready(j) = &s.cron {
@@ -269,6 +274,48 @@ fn stack_row(f: &mut Frame<'_>, stack: &str, group: &[&Container]) {
         };
         f.item(&format!("{}  {why}", c.name));
     }
+}
+
+/// The `vpn` section when the server does not offer the tool.
+///
+/// **A MACHINE THAT DECLARES NOTHING IS NOT A FAULT** (servers ROADMAP
+/// E26): the machine has one instance - itself - and it declares none,
+/// which is a stated absence and never an alarm. The server's own reason
+/// for the absence reads "its instances are unknown", which is a fault's
+/// wording for a machine that is fine - so where this client knows the
+/// declaration is absent (`host.facts` publishes the facts that tell the
+/// three cases apart), it says what it knows, in the card's own words
+/// ("no declaration"), and the alarm is gone.
+///
+/// What the server's reason carried besides the declaration is not lost:
+/// the machine's own facts are on the `stacks` line above, and the
+/// containers section says whether the machine has Docker at all.
+fn vpn_absent(f: &mut Frame<'_>, why: &str, s: &Snapshot) {
+    if let Some(name) = undeclared_machine(s) {
+        f.line(
+            Tone::Quiet,
+            "vpn",
+            &format!("no tunnel on this machine: {name}, no declaration"),
+        );
+        return;
+    }
+    f.line(Tone::Quiet, "vpn", why);
+}
+
+/// The machine that DECLARES NOTHING, and its name.
+///
+/// The facts, not a flag: no declaration file, nothing declared, nothing
+/// read, and every row present. A declaration that EXISTS and could not
+/// be read is a fault, and it is not this.
+fn undeclared_machine(s: &Snapshot) -> Option<&str> {
+    let Part::Ready(facts) = &s.facts else {
+        return None;
+    };
+    let instances = facts.instances.as_ref()?;
+    if !instances.is_undeclared() {
+        return None;
+    }
+    instances.primary().map(|r| r.instance.as_str())
 }
 
 /// The machine's tunnels: where they exit, whether they leaked, and which
