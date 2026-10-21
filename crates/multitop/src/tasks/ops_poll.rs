@@ -6,6 +6,13 @@
 //! panel says why, under the last answer it had - never a blank pane, and
 //! never old data passed off as current.
 //!
+//! **THE POLL DOES NOT ASK THE ESTATE TWICE.** The answer every poll finds
+//! is kept in the cache, and a host whose answer is younger than the poll's
+//! interval is not asked again - by this poll, and not by the other poller
+//! of this same client (the `--ops-poll` pass, which runs whether or not a
+//! terminal is watching). One card, one read of the estate: the client is
+//! the estate's second reader, and the estate is not billed twice for it.
+//!
 //! Generic over how a session is opened, so a test drives it with an
 //! in-memory server; `spawn.rs` passes the real ssh opener.
 
@@ -20,7 +27,8 @@ use tokio::sync::watch;
 
 use crate::app::Msg;
 use crate::mcp::client::Client;
-use crate::ops::{gather, OpsState, Snapshot};
+use crate::ops::cache::Cache;
+use crate::ops::{gather_raw, parse_snapshot, OpsState, Snapshot};
 
 /// How often a panel in the Ops view asks again.
 ///
@@ -43,6 +51,13 @@ use crate::ops::{gather, OpsState, Snapshot};
 /// The interval is DERIVED from the rule, not written next to it: two
 /// numbers that must agree cannot drift apart if one of them is the other.
 pub const OPS_POLL: Duration = Duration::from_secs(crate::ops::MAX_SAMPLING_INTERVAL_S as u64);
+/// How often the poll looks at the answer it already has.
+///
+/// The answer the estate published is younger than the poll's interval when
+/// it is fresh, and it ages while the panel shows it: the poll looks often
+/// enough that the answer on the panel is never older than the rule allows
+/// plus this. A minute is a stat of the cache file, not a read of it.
+pub const OPS_CHECK: Duration = Duration::from_secs(60);
 /// How long each request may take.
 /// Reason: `alerts.since` reads a day of logs; every other answer is a
 /// file read. A host that takes longer than this is reported as slow.
@@ -60,7 +75,8 @@ pub fn now_epoch() -> i64 {
 ///
 /// The answer says how often it was sampled, so a client that samples too
 /// slowly can say so where its verdict is shown (DECISIONS D15).
-fn sampling_interval_s(every: Duration) -> i64 {
+#[must_use]
+pub fn interval_s(every: Duration) -> i64 {
     every.as_secs().try_into().unwrap_or(i64::MAX)
 }
 
@@ -70,6 +86,11 @@ pub struct Target {
     pub gen: u64,
     pub tx: Sender<Msg>,
     pub dims: Arc<watch::Receiver<(u16, u16)>>,
+    /// Where the answers are kept: the cache is what stops this poll and
+    /// the `--ops-poll` pass from asking the estate twice for one card.
+    pub cache: Cache,
+    /// This host's key in the cache.
+    pub key: String,
 }
 
 impl Target {
@@ -88,10 +109,19 @@ impl Target {
     }
 }
 
-/// Poll forever (until aborted, or the app stops listening): open with
-/// `connect` when there is no session, gather, send, wait `every`.
-pub async fn poll<S, R, W, F, Fut>(to: Target, mut connect: F, every: Duration, now: fn() -> i64)
-where
+/// Poll forever (until aborted, or the app stops listening).
+///
+/// The loop is: is there a FRESH answer already (ours, or the pass's)?
+/// Then show it - the estate is not asked. If there is not, gather, keep the
+/// answer, and show that. Either way the panel is never blank and never
+/// shows an answer older than the rule allows without saying so.
+pub async fn poll<S, R, W, F, Fut>(
+    to: Target,
+    mut connect: F,
+    every: Duration,
+    check: Duration,
+    now: fn() -> i64,
+) where
     F: FnMut() -> Fut,
     Fut: Future<Output = Result<S, String>>,
     S: DerefMut<Target = Client<R, W>>,
@@ -100,7 +130,22 @@ where
 {
     let mut session: Option<S> = None;
     let mut last: Option<Box<Snapshot>> = None;
+    // The answer the panel is already showing, so a fresh answer is shown
+    // once and not on every look.
+    let mut shown: Option<i64> = None;
     loop {
+        if let Some(raw) = to.cache.fresh(&to.key, now(), every) {
+            if shown != Some(raw.at) {
+                let snap = Box::new(parse_snapshot(&raw));
+                shown = Some(raw.at);
+                last = Some(snap.clone());
+                if !to.send(OpsState::Ready(snap)).await {
+                    return;
+                }
+            }
+            tokio::time::sleep(check).await;
+            continue;
+        }
         if session.is_none() {
             match connect().await {
                 Ok(s) => session = Some(s),
@@ -114,7 +159,7 @@ where
                     {
                         return;
                     }
-                    tokio::time::sleep(every).await;
+                    tokio::time::sleep(check).await;
                     continue;
                 }
             }
@@ -122,7 +167,7 @@ where
         let Some(s) = session.as_mut() else {
             continue;
         };
-        let snap = gather(s, now(), sampling_interval_s(every)).await;
+        let raw = gather_raw(s, now(), interval_s(every)).await;
         let broken = s.broken().map(ToString::to_string);
         let state = if let Some(why) = broken {
             session = None;
@@ -131,14 +176,21 @@ where
                 last: last.clone(),
             }
         } else {
-            let snap = Box::new(snap);
+            // Keep what was found: the next poller of this client - the
+            // pass, or this poll after a restart - finds it and does not
+            // ask the estate for it again.
+            if let Err(why) = to.cache.write(&to.key, &raw) {
+                crate::diag::report(&format!("the Ops answer was not kept: {why}"));
+            }
+            let snap = Box::new(parse_snapshot(&raw));
+            shown = Some(raw.at);
             last = Some(snap.clone());
             OpsState::Ready(snap)
         };
         if !to.send(state).await {
             return;
         }
-        tokio::time::sleep(every).await;
+        tokio::time::sleep(check).await;
     }
 }
 

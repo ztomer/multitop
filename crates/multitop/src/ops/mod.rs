@@ -41,22 +41,21 @@
 //! a fact nobody could attribute.
 
 pub mod answers;
+pub mod cache;
+pub mod gather;
 pub mod model;
 pub mod model_health;
+pub mod pass;
 pub mod render;
 pub mod status;
 
 pub use answers::*;
+pub use gather::*;
 pub use model::*;
 pub use model_health::*;
 pub use status::*;
 
 use std::time::Duration;
-
-use serde_json::{json, Value};
-use tokio::io::{AsyncRead, AsyncWrite};
-
-use crate::mcp::client::Client;
 
 /// The resource holding each health check's last recorded verdict.
 pub const HEALTH_URI: &str = "health://latest";
@@ -288,132 +287,17 @@ impl OpsState {
     }
 }
 
-/// Ask a connected server for every section at `now` (epoch seconds).
-///
-/// `sampled_every_s` is this client's own sampling rate, and it travels with
-/// the answer: a client that samples slower than half the publication
-/// interval says so where the verdict is shown (DECISIONS D15).
-pub async fn gather<R, W>(c: &mut Client<R, W>, now: i64, sampled_every_s: i64) -> Snapshot
-where
-    R: AsyncRead + Unpin,
-    W: AsyncWrite + Unpin,
-{
-    let health = if c.has_tool(HEALTH_LIST) {
-        health_part(c).await
-    } else {
-        Part::Absent(c.absent_reason(HEALTH_LIST, "this host lists no health checks"))
-    };
-    let vpn = if c.has_tool(EGRESS_TOOL) {
-        part(
-            c.call_within(EGRESS_TOOL, json!({}), EGRESS_TIMEOUT).await,
-            parse_egress,
-        )
-    } else {
-        Part::Absent(c.absent_reason(EGRESS_TOOL, "this host lists no net.egress"))
-    };
-    let cron = if c.has_tool("cron.status") {
-        part(c.call("cron.status", json!({})).await, parse_cron)
-    } else {
-        Part::Absent(c.absent_reason("cron.status", "this host lists no cron.status"))
-    };
-    let containers = if c.has_tool("docker.containers") {
-        part(
-            c.call("docker.containers", json!({})).await,
-            parse_containers,
-        )
-    } else {
-        Part::Absent(c.absent_reason("docker.containers", "no Docker on this host"))
-    };
-    let zfs = if c.has_tool(ZFS_TOOL) {
-        part(c.call(ZFS_TOOL, json!({})).await, parse_zfs)
-    } else {
-        Part::Absent(c.absent_reason(ZFS_TOOL, "this host lists no zfs.health"))
-    };
-    let disk = if c.has_tool(DISK_TOOL) {
-        part(c.call(DISK_TOOL, json!({})).await, parse_disk)
-    } else {
-        Part::Absent(c.absent_reason(DISK_TOOL, "this host lists no disk.usage"))
-    };
-    let facts = if c.has_tool(FACTS_TOOL) {
-        part(c.call(FACTS_TOOL, json!({})).await, parse_facts)
-    } else {
-        Part::Absent(c.absent_reason(FACTS_TOOL, "this host lists no host.facts"))
-    };
-    let alerts = if c.has_tool("alerts.since") {
-        part(
-            c.call("alerts.since", json!({ "marker": now - ALERT_WINDOW_S }))
-                .await,
-            parse_alerts,
-        )
-    } else {
-        Part::Absent(c.absent_reason("alerts.since", "this host lists no alerts.since"))
-    };
-    Snapshot {
-        server: c.server.clone(),
-        at: now,
-        sampled_every_s,
-        health,
-        vpn,
-        cron,
-        containers,
-        zfs,
-        disk,
-        facts,
-        alerts,
-    }
-}
-
-fn part<T>(
-    answer: Result<Value, crate::mcp::client::Error>,
-    parse: fn(&Value) -> Result<T, String>,
-) -> Part<T> {
-    match answer {
-        Ok(v) => parse(&v).map_or_else(Part::Failed, Part::Ready),
-        Err(e) => Part::Failed(e.to_string()),
-    }
-}
-
-/// The health section: the machine's PUBLISHED verdict, narrowed to its
-/// periodic suite.
-///
-/// The verdict is READ, never run (servers ROADMAP E12): the estate's own
-/// cron runs the suite every 15 minutes and publishes what it found, and
-/// running it here would pay the suite's whole cost for an answer the
-/// estate already has. The suite's own list is asked too, so the verdict
-/// is the suite's - the published table also carries the daily checks,
-/// whose verdicts are a day old by design and would pair a count with an
-/// age that does not describe it.
-///
-/// A section that cannot be read says why: an absent verdict is never an
-/// all-clear.
-async fn health_part<R, W>(c: &mut Client<R, W>) -> Part<Health>
-where
-    R: AsyncRead + Unpin,
-    W: AsyncWrite + Unpin,
-{
-    let published = match c.read(HEALTH_URI).await {
-        Ok(v) => v,
-        Err(e) => return Part::Failed(e.to_string()),
-    };
-    let listed = match c.call(HEALTH_LIST, json!({})).await {
-        Ok(v) => v,
-        Err(e) => return Part::Failed(e.to_string()),
-    };
-    let mut health = match parse_health(&published) {
-        Ok(h) => h,
-        Err(why) => return Part::Failed(why),
-    };
-    let suite = match parse_suite(&listed) {
-        Ok(s) => s,
-        Err(why) => return Part::Failed(why),
-    };
-    health.narrow_to(&suite);
-    Part::Ready(health)
-}
-
 #[cfg(test)]
 #[path = "ops_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "cache_tests.rs"]
+mod cache_tests;
+
+#[cfg(test)]
+#[path = "pass_tests.rs"]
+mod pass_tests;
 
 #[cfg(test)]
 #[path = "zfs_tests.rs"]

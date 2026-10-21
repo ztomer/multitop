@@ -19,6 +19,7 @@ pub mod fetch_render;
 pub mod filter;
 pub mod fmt;
 pub mod graphs;
+pub mod headless;
 pub mod health;
 pub mod history;
 pub mod history_store;

@@ -47,6 +47,13 @@ pub fn execute_cmds(
             Command::RunOps { panel, gen } => {
                 if let Some(source) = crate::ops::Source::of(&app.panels[panel].server) {
                     let dims = tasks.dims_or(dims);
+                    // The cache is where the answers are kept: beside the
+                    // config, so the poll and the `--ops-poll` pass find the
+                    // same one and the estate is asked once per card.
+                    let cache = app.config_path.as_deref().map_or_else(
+                        crate::ops::cache::Cache::nowhere,
+                        crate::ops::cache::Cache::beside,
+                    );
                     tasks.set_ops(
                         panel,
                         crate::tasks::spawn_ops(
@@ -56,6 +63,7 @@ pub fn execute_cmds(
                             source,
                             dims,
                             tx.clone(),
+                            cache,
                         ),
                     );
                 }

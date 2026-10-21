@@ -184,13 +184,16 @@ pub fn spawn_ops(
     source: crate::ops::Source,
     dims: std::sync::Arc<tokio::sync::watch::Receiver<(u16, u16)>>,
     tx: Sender<Msg>,
+    cache: crate::ops::cache::Cache,
 ) -> JoinHandle<()> {
-    use super::ops_poll::{now_epoch, poll, Target, OPS_POLL, OPS_TIMEOUT};
+    use super::ops_poll::{now_epoch, poll, Target, OPS_CHECK, OPS_POLL, OPS_TIMEOUT};
     let to = Target {
         panel,
         gen,
         tx,
         dims,
+        key: crate::ops::cache::host_key(&server),
+        cache,
     };
     let connect = move || {
         let (server, source) = (server.clone(), source.clone());
@@ -200,5 +203,5 @@ pub fn spawn_ops(
                 .map_err(|e| e.to_string())
         }
     };
-    tokio::spawn(poll(to, connect, OPS_POLL, now_epoch))
+    tokio::spawn(poll(to, connect, OPS_POLL, OPS_CHECK, now_epoch))
 }

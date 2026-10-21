@@ -23,6 +23,10 @@ OPTIONS:
         --serve [<ADDR>]   Run as headless HTTP companion (default :8080)
         --serve-token-file <PATH>  Token file for --serve, created 0600 if absent
                            (default: serve-token beside the config file)
+        --ops-poll             One pass of the Ops poll: gather every host that is
+                           due, keep the answer, and exit. The poll is a job, not
+                           a screen (servers ROADMAP E36); run it from a
+                           scheduler, at the poll's own interval
     -h, --help             Print this help
     -V, --version          Print version
     --print-background    Which background the terminal reported, and from where
@@ -48,6 +52,8 @@ pub struct CliOptions {
     pub remote_hosts: Vec<String>,
     pub serve_addr: Option<String>,
     pub serve_token_file: Option<PathBuf>,
+    /// One pass of the Ops poll, and exit.
+    pub ops_poll: bool,
 }
 
 enum Startup {
@@ -116,6 +122,7 @@ fn parse_cli<I: IntoIterator<Item = String>>(argv: I) -> Startup {
                 Some(p) => opts.serve_token_file = Some(PathBuf::from(p)),
                 None => return Startup::Fail("--serve-token-file requires a path".into()),
             },
+            "--ops-poll" => opts.ops_poll = true,
             // Refused, not accepted: a token on the command line is readable by every
             // local user through `ps` (ROADMAP A1).
             "--serve-token" => return Startup::Fail(SERVE_TOKEN_ON_ARGV.into()),
@@ -217,100 +224,6 @@ fn resolve_servers(
 
 /// The `--serve` address: `:8080`, `8080` and `127.0.0.1:8080` all mean the
 /// loopback port; anything else must parse as a socket address.
-fn serve_socket_addr(addr: &str) -> Result<std::net::SocketAddr, String> {
-    if let Ok(a) = addr.parse() {
-        return Ok(a);
-    }
-    let a = if addr.starts_with(':') {
-        format!("127.0.0.1{addr}")
-    } else if addr.chars().all(|c| c.is_ascii_digit()) {
-        format!("127.0.0.1:{addr}")
-    } else {
-        addr.to_string()
-    };
-    a.parse()
-        .map_err(|e| format!("Invalid --serve address '{addr}': {e}"))
-}
-
-/// `--serve`: the headless HTTP companion, reusing the MTOP pipeline. Runs
-/// until the server stops; the exit code is the outcome.
-fn serve_headless(
-    addr: &str,
-    token_file: Option<PathBuf>,
-    config_path: &Path,
-    servers: Vec<config::Server>,
-    initial_theme: Option<String>,
-) -> ExitCode {
-    // Need to load full config for health thresholds
-    let cfg = config::load(config_path).unwrap_or_else(|_| config::Config {
-        servers: servers.clone(),
-        theme: initial_theme,
-        upgrade_history_lines: crate::config::DEFAULT_UPGRADE_HISTORY_LINES,
-        history_lines_raised_from: None,
-        banner_style: multitop::layout::BannerStyle::default(),
-        plaintext_passwords: vec![],
-        alert_cpu: None,
-        alert_mem: None,
-        alert_disk: None,
-        alerts: vec![],
-    });
-    let addr = match serve_socket_addr(addr) {
-        Ok(a) => a,
-        Err(e) => {
-            eprintln!("[Error] {e}");
-            return ExitCode::FAILURE;
-        }
-    };
-    // Any failure -- the CSPRNG, a file, its mode -- REFUSES to serve rather than
-    // falling back to a weaker token or to plain HTTP on a LAN bind.
-    let token_path = token_file.unwrap_or_else(|| multitop::serve_token::default_path(config_path));
-    let to_tty = std::io::IsTerminal::is_terminal(&std::io::stderr());
-    let ready = match multitop::serve_start::prepare(
-        addr,
-        &token_path,
-        to_tty,
-        multitop::pairing::route_source,
-    ) {
-        Ok(r) => r,
-        Err(e) => {
-            eprintln!("[Error] {e} -- refusing to start --serve");
-            return ExitCode::FAILURE;
-        }
-    };
-    eprintln!("{}", ready.banner);
-    let runtime = match tokio::runtime::Builder::new_multi_thread()
-        .enable_all()
-        .build()
-    {
-        Ok(r) => r,
-        Err(e) => {
-            eprintln!("[Error] Could not start async runtime: {e}");
-            return ExitCode::FAILURE;
-        }
-    };
-    let code = runtime.block_on(async move {
-        let live = std::sync::Arc::new(tokio::sync::RwLock::new(
-            multitop::server::LiveState::default(),
-        ));
-        let app_state = multitop::server::AppState {
-            live: live.clone(),
-            token: ready.token,
-            servers: servers.clone(),
-            config: cfg,
-        };
-        // Sort for collectors
-        let sort = multitop_agent::SortBy::Cpu;
-        multitop::server::spawn_collectors(servers, &live, sort);
-        multitop::server::serve(addr, app_state, ready.tls).await
-    });
-    match code {
-        Ok(()) => ExitCode::SUCCESS,
-        Err(e) => {
-            eprintln!("[Error] {e}");
-            ExitCode::FAILURE
-        }
-    }
-}
 fn main() -> ExitCode {
     let opts = match parse_cli(std::env::args().skip(1)) {
         Startup::Run(opts) => opts,
@@ -356,9 +269,15 @@ fn main() -> ExitCode {
         }
     }
 
+    // --ops-poll: one pass of the Ops poll, and exit. The poll is a job,
+    // not a screen: it runs whether or not a terminal is watching.
+    if opts.ops_poll {
+        return multitop::headless::ops_poll_pass(&servers, &config_path);
+    }
+
     // --serve: headless HTTP companion reusing the MTOP pipeline.
     if let Some(addr) = opts.serve_addr.clone() {
-        return serve_headless(
+        return multitop::headless::serve_headless(
             &addr,
             opts.serve_token_file,
             &config_path,
