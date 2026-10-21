@@ -157,7 +157,7 @@ async fn p_polls_each_hosts_server_and_draws_what_it_says() {
     }
     let pinned = plain(&app.panels[1].view);
     assert!(
-        pinned.contains("⚠ containers could not read: docker.containers: docker at unix://"),
+        pinned.contains("⚠ containers failed: docker.containers: docker at unix://"),
         "a configured daemon that is down is a fault: {pinned}"
     );
     if cfg!(target_os = "macos") {

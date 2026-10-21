@@ -2,6 +2,7 @@
 //! records what it was sent, and can go quiet or hang up on cue.
 
 use std::sync::{Arc, Mutex};
+use std::time::Duration;
 
 use serde_json::{json, Value};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader, DuplexStream};
@@ -26,6 +27,13 @@ pub enum Reply {
     Silent,
     /// Close the pipe instead of answering.
     HangUp,
+    /// Answer, but only after `delay`: a server that is SLOW, not gone.
+    ///
+    /// The delay is the whole point: the client gives up on this one and
+    /// asks again, and the late answer arrives while the client is
+    /// waiting for the NEXT one - which is the case the id match has to
+    /// survive.
+    Late(Value, Duration),
 }
 
 /// The requests the fake saw, in order.
@@ -148,6 +156,12 @@ pub fn serve(
                 }
                 Reply::Silent => continue,
                 Reply::HangUp => return,
+                Reply::Late(r, delay) => {
+                    // The server is busy: it answers this one late, and it
+                    // does not read the next request until it has.
+                    tokio::time::sleep(delay).await;
+                    json!({"jsonrpc": "2.0", "id": req["id"], "result": r})
+                }
             };
             // A notification first, as a real server may interleave one.
             let note = json!({"jsonrpc": "2.0", "method": "notifications/message", "params": {}});

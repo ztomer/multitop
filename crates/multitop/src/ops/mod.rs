@@ -12,6 +12,14 @@
 //! estate's own cron recorded it - never from `health.run_all`, which runs
 //! the whole suite (25 s on .33) and must not be a poll.
 //!
+//! **THREE WAYS A SECTION IS NOT READY, AND THEY ARE NOT THE SAME.** A
+//! section can be ABSENT (the host does not offer it, and says why), FAILED
+//! (the estate's own report that it could not do it), or UNKNOWN (the
+//! answer did not arrive: this client did not hear, and knows nothing
+//! about the thing it asked - servers ROADMAP E74). The last is a GAP in
+//! the reading and never a fault of the estate, and it is never an
+//! all-clear either: the section says it is unknown, and says why.
+//!
 //! **THE VERDICT IS DATED, AND THAT IS THE POINT.** The clients read the
 //! published verdict instead of re-running the suite (servers ROADMAP E12),
 //! so what a card shows is as old as the estate's last cron run: a reader
@@ -156,8 +164,15 @@ pub enum Part<T> {
     Ready(T),
     /// The host does not offer it (a stated status, not a fault).
     Absent(String),
-    /// It was asked for and the answer failed.
+    /// It was asked for, and the ESTATE reported a failure: its own words.
     Failed(String),
+    /// It was asked for, and the ANSWER DID NOT ARRIVE: the fact is
+    /// unknown, and this is why it is unknown.
+    ///
+    /// A gap in the reading, NOT a finding about the estate: a deadline
+    /// missed says the client did not hear, not that the estate is
+    /// broken. It is never an all-clear either (servers ROADMAP E74).
+    Unknown(String),
 }
 
 /// Everything one poll learned.
@@ -211,6 +226,25 @@ pub enum OpsState {
 }
 
 impl Snapshot {
+    /// The sections whose answer did not arrive, with the reason.
+    ///
+    /// A gap in the reading, NAMED: the operator has to be able to see
+    /// which fact is missing, and not only that something is (servers
+    /// ROADMAP E74).
+    #[must_use]
+    pub fn unknowns(&self) -> Vec<(&'static str, &str)> {
+        let mut out: Vec<(&'static str, &str)> = Vec::new();
+        gap("health", &self.health, &mut out);
+        gap("vpn", &self.vpn, &mut out);
+        gap("cron", &self.cron, &mut out);
+        gap("containers", &self.containers, &mut out);
+        gap("zfs", &self.zfs, &mut out);
+        gap("disk", &self.disk, &mut out);
+        gap("facts", &self.facts, &mut out);
+        gap("alerts", &self.alerts, &mut out);
+        out
+    }
+
     /// Every name and subject it shows, for `/` to search.
     fn terms(&self) -> Vec<&str> {
         let mut t = Vec::new();
@@ -258,6 +292,9 @@ impl Snapshot {
         if let Part::Ready(a) = &self.alerts {
             t.extend(a.iter().map(|a| a.subject.as_str()));
         }
+        // A gap in the reading is searchable too: `/no answer` finds the
+        // host whose docker call missed its deadline.
+        t.extend(self.unknowns().into_iter().map(|(_, why)| why));
         t
     }
 }
@@ -278,6 +315,13 @@ impl OpsState {
                 t
             }
         }
+    }
+}
+
+/// One section's gap, if it has one: the section, and why it is unknown.
+fn gap<'a, T>(name: &'static str, part: &'a Part<T>, out: &mut Vec<(&'static str, &'a str)>) {
+    if let Part::Unknown(why) = part {
+        out.push((name, why.as_str()));
     }
 }
 
@@ -320,3 +364,7 @@ mod wording_tests;
 #[cfg(test)]
 #[path = "catalogue_tests.rs"]
 mod catalogue_tests;
+
+#[cfg(test)]
+#[path = "unknown_tests.rs"]
+mod unknown_tests;

@@ -11,14 +11,19 @@
 //! Read-only by construction: this client declares no capabilities, so the
 //! server never asks it to confirm anything, and the Ops view only calls
 //! tools that read.
+//!
+//! **A MISSED DEADLINE IS A GAP IN ONE ANSWER.** A server that goes quiet
+//! is a stated timeout, naming the CALL that missed its deadline, and the
+//! session is still good: the estate's other readings are read (servers
+//! ROADMAP E74). Only a closed pipe ends the session.
 
-use std::fmt;
 use std::time::Duration;
 
 use serde_json::{json, Value};
 use tokio::io::{AsyncBufReadExt, AsyncRead, AsyncWrite, AsyncWriteExt, BufReader, Lines};
 
 use super::catalogue;
+pub use super::error::Error;
 
 /// The one version this client speaks.
 pub const PROTOCOL_VERSION: &str = "2026-07-28";
@@ -26,51 +31,6 @@ pub const PROTOCOL_VERSION: &str = "2026-07-28";
 pub const META_PROTOCOL_VERSION: &str = "io.modelcontextprotocol/protocolVersion";
 /// The request `_meta` key carrying this client's capabilities.
 pub const META_CLIENT_CAPABILITIES: &str = "io.modelcontextprotocol/clientCapabilities";
-
-/// Why a request did not produce an answer.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum Error {
-    /// The pipe closed or broke: the server exited, or ssh did.
-    Closed(String),
-    /// No reply within the deadline.
-    Timeout { method: String, after: Duration },
-    /// A JSON-RPC error reply.
-    Rpc { code: i64, message: String },
-    /// The tool ran and reported failure (`isError`), with its text.
-    Tool(String),
-    /// The server does not offer 2026-07-28; these are what it offers.
-    Unsupported(Vec<String>),
-    /// A reply this client cannot read.
-    Protocol(String),
-}
-
-impl fmt::Display for Error {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::Closed(why) => write!(f, "mcp_host closed the session: {why}"),
-            Self::Timeout { method, after } if after.as_secs() == 0 => {
-                write!(f, "{method}: no answer in {}ms", after.as_millis())
-            }
-            Self::Timeout { method, after } => {
-                write!(f, "{method}: no answer in {}s", after.as_secs())
-            }
-            Self::Rpc { code, message } => write!(f, "{message} ({code})"),
-            Self::Tool(text) => write!(f, "{text}"),
-            Self::Unsupported(v) => write!(
-                f,
-                "mcp_host offers protocol {} - this client speaks {PROTOCOL_VERSION} only",
-                if v.is_empty() {
-                    "none".to_string()
-                } else {
-                    v.join(", ")
-                }
-            ),
-            Self::Protocol(why) => write!(f, "unreadable answer: {why}"),
-        }
-    }
-}
-
-impl std::error::Error for Error {}
 
 /// The tool list the server gave, and the window it said it may be kept.
 struct Listing {
@@ -105,9 +65,18 @@ pub struct Client<R, W> {
     /// say `mcp_host` does not -- measured against `.158` on 2026-10-19, it
     /// does, and the Ops view reads its reasons.
     pub absent: std::collections::HashMap<String, String>,
-    /// Set by the first failure that ends the session (a closed pipe or a
-    /// deadline missed - after a timeout a late reply could be mistaken
-    /// for the next one's, so the session is not trusted again).
+    /// Set by the first failure that ends the session (a closed pipe - the
+    /// server exited, or ssh did).
+    ///
+    /// **A MISSED DEADLINE DOES NOT END THE SESSION.** The old reason was
+    /// that "a late reply could be mistaken for the next one's" - and it
+    /// cannot: a reply carries the id of the request it answers, and this
+    /// client matches that id, so a late answer is read and discarded,
+    /// never taken for the next one (servers ROADMAP E74). A session that
+    /// ends on the first missed deadline throws away the estate's OTHER
+    /// readings with it - and the local host lost its whole card to a
+    /// `docker.containers` call that missed the deadline on 17 of about
+    /// 124 passes.
     broken: Option<Error>,
 }
 
@@ -318,6 +287,17 @@ impl<R: AsyncRead + Unpin, W: AsyncWrite + Unpin> Client<R, W> {
         self.tools.iter().any(|t| t == tool)
     }
 
+    /// How long each request may take: the estate's deadline for one
+    /// answer.
+    ///
+    /// The estate's, not this client's: it is the budget the caller was
+    /// given, and it is not raised to make a failure go away (servers
+    /// ROADMAP E74).
+    #[must_use]
+    pub const fn timeout(&self) -> Duration {
+        self.timeout
+    }
+
     /// `tools/call`: the answer's `structuredContent`.
     ///
     /// # Errors
@@ -334,9 +314,8 @@ impl<R: AsyncRead + Unpin, W: AsyncWrite + Unpin> Client<R, W> {
     ///
     /// Reason: a tool that probes the network needs longer than a file
     /// read - `net.egress` measures the tunnel's exit country with the
-    /// check's own probe, about half a minute - and a missed deadline
-    /// BREAKS the session, so the tool that needs the room has to ask for
-    /// it here rather than have it cut short.
+    /// check's own probe, about half a minute - so the tool that needs
+    /// the room has to ask for it here rather than have it cut short.
     ///
     /// # Errors
     ///
@@ -348,10 +327,11 @@ impl<R: AsyncRead + Unpin, W: AsyncWrite + Unpin> Client<R, W> {
         timeout: Duration,
     ) -> Result<Value, Error> {
         let r = self
-            .request_within(
+            .request_named(
                 "tools/call",
                 json!({ "name": tool, "arguments": args }),
                 timeout,
+                tool,
             )
             .await?;
         if r.get("isError").and_then(Value::as_bool) == Some(true) {
@@ -375,7 +355,7 @@ impl<R: AsyncRead + Unpin, W: AsyncWrite + Unpin> Client<R, W> {
     /// error.
     pub async fn read(&mut self, uri: &str) -> Result<Value, Error> {
         let r = self
-            .request("resources/read", json!({ "uri": uri }))
+            .request_named("resources/read", json!({ "uri": uri }), self.timeout, uri)
             .await?;
         let text = r
             .pointer("/contents/0/text")
@@ -409,11 +389,38 @@ impl<R: AsyncRead + Unpin, W: AsyncWrite + Unpin> Client<R, W> {
         params: Value,
         timeout: Duration,
     ) -> Result<Value, Error> {
+        self.request_named(method, params, timeout, method).await
+    }
+
+    /// One request with a deadline of its own, and a NAME for what was
+    /// asked.
+    ///
+    /// The name is what the operator reads when the deadline is missed:
+    /// `docker.containers: no answer in 20s`, not `tools/call: no answer
+    /// in 20s` - which named a method and no tool at all, so a log full
+    /// of timeouts said nothing about which call had missed its deadline
+    /// (servers ROADMAP E74).
+    ///
+    /// **A MISSED DEADLINE IS A GAP IN ONE ANSWER, NOT THE END OF THE
+    /// SESSION.** The session ends when the pipe closes - the estate's
+    /// session is gone - and not when one answer is late: a late answer
+    /// carries the id of the request it answers, and this client matches
+    /// that id, so a late answer is read and discarded rather than taken
+    /// for the next answer. The estate's other readings are therefore
+    /// still read, which is the whole of E74: a timed-out call must not
+    /// blind them.
+    async fn request_named(
+        &mut self,
+        method: &str,
+        params: Value,
+        timeout: Duration,
+        what: &str,
+    ) -> Result<Value, Error> {
         if let Some(e) = &self.broken {
             return Err(e.clone());
         }
-        let out = self.exchange(method, params, timeout).await;
-        if let Err(e @ (Error::Closed(_) | Error::Timeout { .. })) = &out {
+        let out = self.exchange(method, params, timeout, what).await;
+        if let Err(e @ Error::Closed(_)) = &out {
             self.broken = Some(e.clone());
         }
         out
@@ -424,6 +431,7 @@ impl<R: AsyncRead + Unpin, W: AsyncWrite + Unpin> Client<R, W> {
         method: &str,
         mut params: Value,
         timeout: Duration,
+        what: &str,
     ) -> Result<Value, Error> {
         self.next_id += 1;
         let id = self.next_id;
@@ -446,7 +454,7 @@ impl<R: AsyncRead + Unpin, W: AsyncWrite + Unpin> Client<R, W> {
         let reply = tokio::time::timeout(after, self.reply(id))
             .await
             .map_err(|_| Error::Timeout {
-                method: method.to_string(),
+                what: what.to_string(),
                 after,
             })??;
         if let Some(e) = reply.get("error") {

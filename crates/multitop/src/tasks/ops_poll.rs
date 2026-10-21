@@ -6,6 +6,11 @@
 //! panel says why, under the last answer it had - never a blank pane, and
 //! never old data passed off as current.
 //!
+//! **A MISSED DEADLINE IS NOT A BROKEN SESSION.** One answer that did not
+//! arrive in time leaves the session good - the estate's other readings
+//! are read - and the section that missed it reads UNKNOWN, stated
+//! (servers ROADMAP E74). Only a session whose pipe closed is dropped.
+//!
 //! **THE POLL DOES NOT ASK THE ESTATE TWICE.** The answer every poll finds
 //! is kept in the cache, and a host whose answer is younger than the poll's
 //! interval is not asked again - by this poll, and not by the other poller
@@ -64,6 +69,13 @@ pub const OPS_CHECK: Duration = Duration::from_secs(60);
 /// How long each request may take.
 /// Reason: `alerts.since` reads a day of logs; every other answer is a
 /// file read. A host that takes longer than this is reported as slow.
+///
+/// **THE ESTATE'S BUDGET, AND IT IS NOT RAISED.** The number is the
+/// deadline the estate's own poll gives one answer, and a deadline that
+/// is missed is a fact about the reading - "this answer did not arrive"
+/// (servers ROADMAP E74) - and not something to be made to pass by
+/// waiting longer. A missed deadline reads as UNKNOWN, stated; it is
+/// never an all-clear, and it never fails the host.
 pub const OPS_TIMEOUT: Duration = Duration::from_secs(20);
 
 /// Epoch seconds now.

@@ -36,12 +36,13 @@ pub(super) fn sections(f: &mut Frame<'_>, s: &Snapshot, now: i64) {
         Part::Ready(e) => {
             let containers = match &s.containers {
                 Part::Ready(c) => c.as_slice(),
-                Part::Absent(_) | Part::Failed(_) => &[],
+                Part::Absent(_) | Part::Failed(_) | Part::Unknown(_) => &[],
             };
             vpn(f, e, containers);
         }
         Part::Absent(why) => vpn_absent(f, why, s),
-        Part::Failed(why) => f.line(Tone::Warn, "vpn", &format!("could not read: {why}")),
+        Part::Failed(why) => f.line(Tone::Warn, "vpn", &format!("failed: {why}")),
+        Part::Unknown(why) => f.line(Tone::Warn, "vpn", &format!("unknown: {why}")),
     }
     if !not_ready(f, "cron", &s.cron) {
         if let Part::Ready(j) = &s.cron {
@@ -122,7 +123,8 @@ fn machine(f: &mut Frame<'_>, s: &Snapshot) {
             }
         }
         Part::Absent(why) => f.note(&format!("· no cpu or memory: {why}")),
-        Part::Failed(why) => f.note(&format!("· no cpu or memory: could not read: {why}")),
+        Part::Failed(why) => f.note(&format!("· no cpu or memory: failed: {why}")),
+        Part::Unknown(why) => f.note(&format!("· no cpu or memory: unknown: {why}")),
     }
 }
 
@@ -456,7 +458,7 @@ fn disk(f: &mut Frame<'_>, d: &Disk, s: &Snapshot) {
     };
     let broken = match &s.zfs {
         Part::Ready(pools) => pools.iter().find(|p| !p.is_whole()),
-        Part::Absent(_) | Part::Failed(_) => None,
+        Part::Absent(_) | Part::Failed(_) | Part::Unknown(_) => None,
     };
     let mut text = format!(
         "{} free · {}% used",

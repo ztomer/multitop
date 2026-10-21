@@ -255,7 +255,7 @@ async fn an_answer_that_cannot_be_read_says_so_and_hides_nothing() {
     ));
     assert!(
         f.iter()
-            .any(|l| l.contains("⚠ zfs") && l.contains("could not read")),
+            .any(|l| l.contains("⚠ zfs") && l.contains("failed")),
         "{f:?}"
     );
 }

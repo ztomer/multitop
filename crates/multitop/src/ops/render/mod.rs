@@ -4,8 +4,10 @@
 //!
 //! The glyph carries the meaning and colour only reinforces it (a greyscale
 //! frame reads the same): `✓` clean, `✗` the host reports a failure, `⚠` an
-//! answer that could not be read, or alerts (events, not a current fault),
-//! `·` a stated absence (no Docker here), `→` asking.
+//! answer that could not be read - the estate's own report of a failure
+//! ("failed: ...") or a fact this client does not have ("unknown: ...") -
+//! or alerts (events, not a current fault), `·` a stated absence (no Docker
+//! here), `→` asking.
 //!
 //! The section names are the ESTATE's words, the ones the routines card uses
 //! as well: `health`, `cron`, `containers`, `zfs`, `vpn`, `disk`. A view
@@ -188,7 +190,15 @@ impl Frame<'_> {
     }
 }
 
-/// A section that is not ready: its absence or its failure, on one line.
+/// A section that is not ready: its absence, its failure, or the gap in
+/// the reading, on one line.
+///
+/// **THE THREE SAY DIFFERENT THINGS.** An ABSENCE is a stated status ("no
+/// Docker here"); a FAILURE is the estate's own report ("the tool ran and
+/// said it failed"); an UNKNOWN is the answer that did not arrive, so
+/// this client knows nothing about the thing it asked (servers ROADMAP
+/// E74). The last is a gap in the reading - never an all-clear, and
+/// never a fault of the estate.
 fn not_ready<T>(f: &mut Frame<'_>, label: &str, part: &Part<T>) -> bool {
     match part {
         Part::Ready(_) => false,
@@ -197,7 +207,11 @@ fn not_ready<T>(f: &mut Frame<'_>, label: &str, part: &Part<T>) -> bool {
             true
         }
         Part::Failed(why) => {
-            f.line(Tone::Warn, label, &format!("could not read: {why}"));
+            f.line(Tone::Warn, label, &format!("failed: {why}"));
+            true
+        }
+        Part::Unknown(why) => {
+            f.line(Tone::Warn, label, &format!("unknown: {why}"));
             true
         }
     }

@@ -44,6 +44,12 @@ pub struct HostPass {
     pub why: Option<String>,
     /// When the answer the host now has was gathered.
     pub at: i64,
+    /// The sections whose answer did not arrive, in the operator's words.
+    ///
+    /// A gap in the reading, and NOT a fault of the estate: the call was
+    /// made and the answer did not come (servers ROADMAP E74). The host
+    /// is still gathered - the estate answered for its other sections.
+    pub unknown: Vec<String>,
 }
 
 /// What one pass did.
@@ -53,14 +59,19 @@ pub struct Pass {
 }
 
 impl Pass {
-    /// Whether every host ended up with an answer.
+    /// Whether every host ended up with an answer - and with EVERY
+    /// SECTION of it read.
     ///
     /// A pass that could not reach a host is a pass that failed, and the
     /// job says so: a poll that silently does nothing is the defect this
-    /// whole round is about.
+    /// whole round is about. And a pass whose answer has a GAP in it is a
+    /// pass that failed the same way: a section that could not be read is
+    /// not an all-clear (servers ROADMAP E74).
     #[must_use]
     pub fn complete(&self) -> bool {
-        self.hosts.iter().all(|h| h.gathered || h.fresh)
+        self.hosts
+            .iter()
+            .all(|h| (h.gathered || h.fresh) && h.unknown.is_empty())
     }
 
     /// The hosts that were gathered.
@@ -108,7 +119,11 @@ where
                 gathered: false,
                 fresh: true,
                 why: None,
-                at: kept.map_or(0, |r| r.at),
+                at: kept.as_ref().map_or(0, |r| r.at),
+                // The answer this client already has may still carry a
+                // gap: a section that could not be read last time is
+                // still a gap, and it is still stated.
+                unknown: gaps_of(kept.as_ref()),
             });
             continue;
         }
@@ -179,6 +194,7 @@ where
         fresh: false,
         why: None,
         at: now,
+        unknown: Vec::new(),
     };
     let mut session = match open(server).await {
         Ok(s) => s,
@@ -196,13 +212,33 @@ where
     );
     let raw = crate::ops::gather_raw(&mut session, now, prev).await;
     if let Some(why) = session.broken() {
+        // The estate's session is GONE (its pipe closed): the readings
+        // this pass took are not a reading of the machine, so the host
+        // failed and the last good answer stands.
         outcome.why = Some(why.to_string());
         return outcome;
     }
     outcome.at = raw.at;
+    outcome.unknown = gaps_of(Some(&raw));
     match cache.write(&key, &raw) {
         Ok(()) => outcome.gathered = true,
         Err(e) => outcome.why = Some(e),
     }
     outcome
+}
+
+/// The gaps in a reading: the sections whose answer did not arrive, in
+/// the operator's words.
+///
+/// A section and the reason it is unknown - "containers unknown:
+/// docker.containers: no answer in 20s" - so the log names the fact that
+/// is missing and not only that one is (servers ROADMAP E74).
+fn gaps_of(raw: Option<&cache::RawSnapshot>) -> Vec<String> {
+    raw.map_or_else(Vec::new, |r| {
+        crate::ops::parse_snapshot(r)
+            .unknowns()
+            .into_iter()
+            .map(|(section, why)| format!("{section} unknown: {why}"))
+            .collect()
+    })
 }

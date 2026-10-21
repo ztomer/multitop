@@ -181,6 +181,71 @@ async fn the_poll_ends_when_nobody_listens() {
     .expect("a poll with no listener must return");
 }
 
+/// **A MISSED DEADLINE IS A GAP IN THE CARD, NOT A FAILED HOST.** servers
+/// ROADMAP E74: the local host's `docker.containers` call missed the
+/// estate's deadline on 17 of about 124 passes, and the poll called the
+/// whole HOST failed - so the card showed the last answer, aged, and the
+/// sections that were read went with it.
+///
+/// So the card is drawn from the reading this poll took: the section
+/// that could not be read says it is unknown, and the sections that were
+/// read stand.
+#[tokio::test]
+async fn a_missed_deadline_leaves_the_card_with_its_other_sections() {
+    let (tx, mut rx) = mpsc::channel(8);
+    let dims = Arc::new(watch::channel((80, 24)).1);
+    let dir = tempfile::tempdir().unwrap();
+    let to = Target {
+        panel: 1,
+        gen: 3,
+        tx,
+        dims,
+        cache: cache(&dir),
+        key: KEY.into(),
+    };
+    let connect = || async {
+        let (r, w, _) = serve(|method, params| match method {
+            "server/discover" => Reply::Result(discover(&[PROTOCOL_VERSION])),
+            "tools/list" => Reply::Result(tools(&["cron.status", "docker.containers"])),
+            "tools/call" if params["name"] == "cron.status" => {
+                Reply::Result(json!({"structuredContent": {"jobs": []}}))
+            }
+            "tools/call" if params["name"] == "docker.containers" => Reply::Silent,
+            _ => Reply::Error(-32601, "no"),
+        });
+        Client::connect(r, w, Duration::from_millis(200))
+            .await
+            .map(Box::new)
+            .map_err(|e| e.to_string())
+    };
+    let task = tokio::spawn(poll(
+        to,
+        connect,
+        Duration::from_millis(5),
+        Duration::from_millis(5),
+        tick,
+    ));
+    let state = tokio::time::timeout(Duration::from_secs(2), rx.recv())
+        .await
+        .expect("no answer")
+        .expect("no answer");
+    task.abort();
+    let Msg::Ops { state, .. } = state else {
+        panic!("not an Ops message")
+    };
+    let OpsState::Ready(snap) = *state else {
+        panic!("the host was called failed for one missed deadline: {state:?}");
+    };
+    assert!(
+        matches!(snap.cron, Part::Ready(_)),
+        "the section that was read is gone: {snap:?}"
+    );
+    assert!(
+        matches!(snap.containers, Part::Unknown(_)),
+        "the section that could not be read is not unknown: {snap:?}"
+    );
+}
+
 /// **THE ESTATE IS NOT ASKED FOR AN ANSWER THE CLIENT ALREADY HAS.** A
 /// fresh answer in the cache - the pass's, or this poll's own - is shown,
 /// and no session is opened at all: one card, one read of the estate.

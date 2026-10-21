@@ -3,6 +3,7 @@
 
 pub mod catalogue;
 pub mod client;
+pub mod error;
 pub mod spawn;
 
 #[cfg(test)]

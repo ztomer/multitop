@@ -143,14 +143,7 @@ pub fn ops_poll_pass(servers: &[config::Server], config_path: &Path) -> ExitCode
         )
         .await;
         for h in &pass.hosts {
-            let said = if h.gathered {
-                "gathered".to_string()
-            } else if h.fresh {
-                "already fresh".to_string()
-            } else {
-                format!("failed: {}", h.why.as_deref().unwrap_or("no reason given"))
-            };
-            println!("{} · {said}", h.host);
+            println!("{} · {}", h.host, said(h));
         }
         pass.complete()
     });
@@ -159,6 +152,27 @@ pub fn ops_poll_pass(servers: &[config::Server], config_path: &Path) -> ExitCode
     } else {
         ExitCode::FAILURE
     }
+}
+
+/// What the pass says about one host, in the operator's words.
+///
+/// A host that was gathered is "gathered" - and when a section's answer
+/// did not arrive, the GAP is named beside it: the reading is not
+/// complete, and the log says which fact is missing (servers ROADMAP
+/// E74). A host the pass could not reach at all is "failed", with the
+/// reason.
+fn said(h: &crate::ops::pass::HostPass) -> String {
+    let state = if h.gathered {
+        "gathered"
+    } else if h.fresh {
+        "already fresh"
+    } else {
+        return format!("failed: {}", h.why.as_deref().unwrap_or("no reason given"));
+    };
+    if h.unknown.is_empty() {
+        return state.to_string();
+    }
+    format!("{state} · {}", h.unknown.join(" · "))
 }
 
 #[cfg(test)]

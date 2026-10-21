@@ -42,10 +42,17 @@ use super::Snapshot;
 pub enum Raw {
     /// The server answered, and the answer is here verbatim.
     Value(Value),
-    /// The answer could not be read, and this is why.
+    /// The answer could not be read, and this is why: the ESTATE reported
+    /// a failure, in its own words.
     Failed(String),
     /// The host does not offer the tool, and this is the server's own reason.
     Absent(String),
+    /// The answer DID NOT ARRIVE, and this is why: the fact is unknown.
+    ///
+    /// A gap in the reading, kept apart from the estate's own report of a
+    /// failure (servers ROADMAP E74): a missed deadline says this client
+    /// did not hear, not that the estate is broken.
+    Unknown(String),
 }
 
 impl Raw {
@@ -54,7 +61,7 @@ impl Raw {
     pub const fn value(&self) -> Option<&Value> {
         match self {
             Self::Value(v) => Some(v),
-            Self::Failed(_) | Self::Absent(_) => None,
+            Self::Failed(_) | Self::Absent(_) | Self::Unknown(_) => None,
         }
     }
 }

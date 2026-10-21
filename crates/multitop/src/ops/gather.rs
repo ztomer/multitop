@@ -8,6 +8,8 @@
 //! and the view draws the second - so an answer read back from the cache is
 //! parsed by exactly the code that parses a live answer.
 
+use std::time::Duration;
+
 use serde_json::{json, Value};
 use tokio::io::{AsyncRead, AsyncWrite};
 
@@ -59,39 +61,43 @@ where
         (cache::Raw::Absent(why.clone()), cache::Raw::Absent(why))
     };
     let vpn = if c.has_tool(EGRESS_TOOL) {
-        raw(c.call_within(EGRESS_TOOL, json!({}), EGRESS_TIMEOUT).await)
+        ask(c, EGRESS_TOOL, json!({}), EGRESS_TIMEOUT).await
     } else {
         cache::Raw::Absent(c.absent_reason(EGRESS_TOOL, "this host lists no net.egress"))
     };
     let cron = if c.has_tool("cron.status") {
-        raw(c.call("cron.status", json!({})).await)
+        ask(c, "cron.status", json!({}), c.timeout()).await
     } else {
         cache::Raw::Absent(c.absent_reason("cron.status", "this host lists no cron.status"))
     };
     let containers = if c.has_tool("docker.containers") {
-        raw(c.call("docker.containers", json!({})).await)
+        ask(c, "docker.containers", json!({}), c.timeout()).await
     } else {
         cache::Raw::Absent(c.absent_reason("docker.containers", "no Docker on this host"))
     };
     let zfs = if c.has_tool(ZFS_TOOL) {
-        raw(c.call(ZFS_TOOL, json!({})).await)
+        ask(c, ZFS_TOOL, json!({}), c.timeout()).await
     } else {
         cache::Raw::Absent(c.absent_reason(ZFS_TOOL, "this host lists no zfs.health"))
     };
     let disk = if c.has_tool(DISK_TOOL) {
-        raw(c.call(DISK_TOOL, json!({})).await)
+        ask(c, DISK_TOOL, json!({}), c.timeout()).await
     } else {
         cache::Raw::Absent(c.absent_reason(DISK_TOOL, "this host lists no disk.usage"))
     };
     let facts = if c.has_tool(FACTS_TOOL) {
-        raw(c.call(FACTS_TOOL, json!({})).await)
+        ask(c, FACTS_TOOL, json!({}), c.timeout()).await
     } else {
         cache::Raw::Absent(c.absent_reason(FACTS_TOOL, "this host lists no host.facts"))
     };
     let alerts = if c.has_tool("alerts.since") {
-        raw(c
-            .call("alerts.since", json!({ "marker": now - ALERT_WINDOW_S }))
-            .await)
+        ask(
+            c,
+            "alerts.since",
+            json!({ "marker": now - ALERT_WINDOW_S }),
+            c.timeout(),
+        )
+        .await
     } else {
         cache::Raw::Absent(c.absent_reason("alerts.since", "this host lists no alerts.since"))
     };
@@ -164,6 +170,7 @@ fn parse_part<T>(raw: &cache::Raw, parse: fn(&Value) -> Result<T, String>) -> Pa
         cache::Raw::Value(v) => parse(v).map_or_else(Part::Failed, Part::Ready),
         cache::Raw::Failed(why) => Part::Failed(why.clone()),
         cache::Raw::Absent(why) => Part::Absent(why.clone()),
+        cache::Raw::Unknown(why) => Part::Unknown(why.clone()),
     }
 }
 
@@ -185,23 +192,17 @@ where
     R: AsyncRead + Unpin,
     W: AsyncWrite + Unpin,
 {
+    if let Some(why) = c.broken() {
+        let why = format!("not read: the session ended: {why}");
+        return (cache::Raw::Unknown(why.clone()), cache::Raw::Unknown(why));
+    }
     let published = match c.read(HEALTH_URI).await {
         Ok(v) => v,
-        Err(e) => {
-            return (
-                cache::Raw::Failed(e.to_string()),
-                cache::Raw::Value(Value::Null),
-            )
-        }
+        Err(e) => return (raw(Err(e)), cache::Raw::Value(Value::Null)),
     };
     let listed = match c.call(HEALTH_LIST, json!({})).await {
         Ok(v) => v,
-        Err(e) => {
-            return (
-                cache::Raw::Value(published),
-                cache::Raw::Failed(e.to_string()),
-            )
-        }
+        Err(e) => return (cache::Raw::Value(published), raw(Err(e))),
     };
     (cache::Raw::Value(published), cache::Raw::Value(listed))
 }
@@ -212,6 +213,9 @@ fn parse_health_raw(published: &cache::Raw, listed: &cache::Raw) -> Part<Health>
         return match (published, listed) {
             (cache::Raw::Failed(why), _) | (_, cache::Raw::Failed(why)) => {
                 Part::Failed(why.clone())
+            }
+            (cache::Raw::Unknown(why), _) | (_, cache::Raw::Unknown(why)) => {
+                Part::Unknown(why.clone())
             }
             (cache::Raw::Absent(why), _) | (_, cache::Raw::Absent(why)) => {
                 Part::Absent(why.clone())
@@ -231,10 +235,34 @@ fn parse_health_raw(published: &cache::Raw, listed: &cache::Raw) -> Part<Health>
     Part::Ready(health)
 }
 
-/// An answer, as the server gave it.
+/// One section's answer, asked of a connected server.
+///
+/// **A MISSED DEADLINE IS A GAP IN ONE SECTION.** The answer did not
+/// arrive, so the fact is unknown - and it is unknown because this
+/// client did not hear, NOT because the estate is broken (servers
+/// ROADMAP E74). The session is still good after a missed deadline, so
+/// the estate's other readings are still read.
+async fn ask<R, W>(c: &mut Client<R, W>, tool: &str, args: Value, timeout: Duration) -> cache::Raw
+where
+    R: AsyncRead + Unpin,
+    W: AsyncWrite + Unpin,
+{
+    if let Some(why) = c.broken() {
+        // The session is gone: this section was never asked, and the
+        // reason is the session's end - not this section's own.
+        return cache::Raw::Unknown(format!("not read: the session ended: {why}"));
+    }
+    raw(c.call_within(tool, args, timeout).await)
+}
+
+/// An answer, as the server gave it - or the reason there is none.
 fn raw(answer: Result<Value, crate::mcp::client::Error>) -> cache::Raw {
     match answer {
         Ok(v) => cache::Raw::Value(v),
+        // The answer did not arrive: the fact is UNKNOWN, and the reason
+        // says so. The estate's own report of a failure is a FINDING, and
+        // stays one.
+        Err(e) if e.is_unread() => cache::Raw::Unknown(e.to_string()),
         Err(e) => cache::Raw::Failed(e.to_string()),
     }
 }

@@ -154,11 +154,6 @@ async fn each_failure_is_named_never_a_hang() {
     );
     let e = c.call("quiet", json!({})).await.err().unwrap();
     assert!(matches!(e, Error::Timeout { .. }), "{e:?}");
-    assert_eq!(e.to_string(), "tools/call: no answer in 200ms");
-    // After a timeout a late reply could be taken for the next request's:
-    // the session is done, and says so without asking again.
-    assert_eq!(c.broken(), Some(&e));
-    assert_eq!(c.call("cron.status", json!({})).await, Err(e));
     let (r, w, _) = serve(fleet);
     let mut c = Client::connect(r, w, T).await.unwrap();
     let e = c.call("gone", json!({})).await.err().unwrap();
@@ -166,5 +161,79 @@ async fn each_failure_is_named_never_a_hang() {
     assert!(
         e.to_string().starts_with("mcp_host closed the session"),
         "{e}"
+    );
+}
+
+/// **A DEADLINE THAT IS MISSED NAMES THE CALL THAT MISSED IT.** The
+/// JSON-RPC method names a METHOD (`tools/call`), never a tool - so the
+/// operator could not tell which call had timed out, and the log said
+/// "tools/call: no answer in 20s" for every call on the host.
+///
+/// servers ROADMAP E74: the local host's `docker.containers` call missed
+/// the estate's deadline on 17 of about 124 passes, and the log could
+/// not say which call it was.
+#[tokio::test]
+async fn a_deadline_missed_names_the_call_that_missed_it() {
+    let (r, w, _) = serve(fleet);
+    let mut c = Client::connect(r, w, Duration::from_millis(200))
+        .await
+        .unwrap();
+    let e = c.call("quiet", json!({})).await.err().unwrap();
+    assert_eq!(e.to_string(), "quiet: no answer in 200ms");
+    // A resource is named the same way.
+    let (r, w, _) = serve(|method, _| match method {
+        "server/discover" => Reply::Result(discover(&[PROTOCOL_VERSION])),
+        "tools/list" => Reply::Result(tools(&["alerts.since"])),
+        "resources/read" => Reply::Silent,
+        _ => Reply::Error(-32601, "no"),
+    });
+    let mut c = Client::connect(r, w, Duration::from_millis(200))
+        .await
+        .unwrap();
+    let e = c.read("health://latest").await.err().unwrap();
+    assert_eq!(e.to_string(), "health://latest: no answer in 200ms");
+}
+
+/// **A MISSED DEADLINE DOES NOT BLIND THE OTHER READINGS.** The session
+/// is still good: a late answer carries the id of the request it answers,
+/// and the client matches that id - so a late answer can never be taken
+/// for the answer to the NEXT request.
+///
+/// servers ROADMAP E74: the local host's `docker.containers` call missed
+/// the deadline, and the poll threw the whole host's reading away with
+/// it - the other sections were never asked.
+#[tokio::test]
+async fn a_late_answer_is_never_taken_for_the_next_one() {
+    let (rd, wr, _) = serve(|method, params| match method {
+        "server/discover" => Reply::Result(discover(&[PROTOCOL_VERSION])),
+        "tools/list" => Reply::Result(tools(&["slow", "fast"])),
+        // The slow one answers LATE: after the client has given up on it.
+        "tools/call" if params["name"] == "slow" => Reply::Late(
+            json!({"structuredContent": {"slow": true}}),
+            Duration::from_millis(300),
+        ),
+        "tools/call" if params["name"] == "fast" => {
+            Reply::Result(json!({"structuredContent": {"fast": true}}))
+        }
+        _ => Reply::Error(-32601, "no"),
+    });
+    let mut client = Client::connect(rd, wr, Duration::from_millis(100))
+        .await
+        .unwrap();
+    let e = client.call("slow", json!({})).await.err().unwrap();
+    assert!(matches!(e, Error::Timeout { .. }), "{e:?}");
+    assert!(
+        client.broken().is_none(),
+        "a missed deadline does not end the session: {e:?}"
+    );
+    // The next call is answered - with ITS OWN answer, not the late one.
+    let answer = client
+        .call_within("fast", json!({}), Duration::from_secs(2))
+        .await
+        .unwrap();
+    assert_eq!(
+        answer,
+        json!({"fast": true}),
+        "the late answer was taken for this one"
     );
 }

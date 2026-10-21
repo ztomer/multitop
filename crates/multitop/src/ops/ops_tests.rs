@@ -80,7 +80,7 @@ fn the_fleet_answers_parse_and_trouble_follows_the_follower_rule() {
     );
 }
 
-fn host(
+pub(super) fn host(
     tool_names: &'static [&'static str],
     docker: Reply,
 ) -> impl Fn(&str, &Value) -> Reply + Send + 'static {
@@ -274,8 +274,13 @@ fn a_clean_host_is_five_lines_and_absences_are_stated_not_alarmed() {
             "✓ alerts     none in 24 h"
         ]
     );
+    // **A SECTION THAT FAILED AND A SECTION THAT IS UNKNOWN ARE TWO
+    // DIFFERENT THINGS.** The first is the estate's own report; the
+    // second is a fact this client does not have, because the answer did
+    // not arrive (servers ROADMAP E74).
     let mut s = snapshot();
-    s.cron = Part::Failed("tools/call: no answer in 10s".into());
+    s.cron = Part::Failed("cron.status: no such unit (-32602)".into());
+    s.containers = Part::Unknown("docker.containers: no answer in 20s".into());
     let f = plain(&render(
         "h",
         &OpsState::Ready(Box::new(s)),
@@ -285,7 +290,11 @@ fn a_clean_host_is_five_lines_and_absences_are_stated_not_alarmed() {
         &pal(),
     ));
     assert!(
-        f.contains(&"⚠ cron       could not read: tools/call: no answer in 10s".to_string()),
+        f.contains(&"⚠ cron       failed: cron.status: no such unit (-32602)".to_string()),
+        "{f:?}"
+    );
+    assert!(
+        f.contains(&"⚠ containers unknown: docker.containers: no answer in 20s".to_string()),
         "{f:?}"
     );
 }
