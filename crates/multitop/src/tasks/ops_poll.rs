@@ -24,10 +24,25 @@ use crate::ops::{gather, OpsState, Snapshot};
 
 /// How often a panel in the Ops view asks again.
 ///
-/// Reason: the fastest thing it shows moves on cron's clock (health every
-/// 30 minutes, `vpn_watchdog` every 3); a poll every 30 s shows a finished
-/// job within half a minute and costs the host four small reads.
-pub const OPS_POLL: Duration = Duration::from_secs(30);
+/// **TWICE THE ESTATE'S PUBLICATION RATE, and the number IS the rule.**
+/// DECISIONS D15 (owner, 2026-10-20): the estate publishes its health
+/// verdict every 15 minutes, so a client that samples at the publication
+/// rate can ALIAS - its read lands just before a publication and then waits
+/// a whole cycle, and its verdict is two publications behind the truth.
+/// Half the publication interval (7.5 minutes) is the fastest a client may
+/// go and still never be two publications behind, so that is what this
+/// client does.
+///
+/// This was 30 s, and the 30 s rate is retired. It gathered 2,880 times a
+/// day - TEN times what the rule needs - and every gather moved the whole
+/// tool catalogue off the host (134,840 B on `.33` alone, 388 MB a day).
+/// A verdict published every 15 minutes cannot be fresher than its
+/// publication, so ten reads a minute bought nothing and cost the estate
+/// the most it spends on anything.
+///
+/// The interval is DERIVED from the rule, not written next to it: two
+/// numbers that must agree cannot drift apart if one of them is the other.
+pub const OPS_POLL: Duration = Duration::from_secs(crate::ops::MAX_SAMPLING_INTERVAL_S as u64);
 /// How long each request may take.
 /// Reason: `alerts.since` reads a day of logs; every other answer is a
 /// file read. A host that takes longer than this is reported as slow.
@@ -39,6 +54,14 @@ pub fn now_epoch() -> i64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map_or(0, |d| i64::try_from(d.as_secs()).unwrap_or(i64::MAX))
+}
+
+/// The poll's interval in whole seconds, for the answer that carries it.
+///
+/// The answer says how often it was sampled, so a client that samples too
+/// slowly can say so where its verdict is shown (DECISIONS D15).
+fn sampling_interval_s(every: Duration) -> i64 {
+    every.as_secs().try_into().unwrap_or(i64::MAX)
 }
 
 /// Where a poll's answers go.
@@ -99,7 +122,7 @@ where
         let Some(s) = session.as_mut() else {
             continue;
         };
-        let snap = gather(s, now()).await;
+        let snap = gather(s, now(), sampling_interval_s(every)).await;
         let broken = s.broken().map(ToString::to_string);
         let state = if let Some(why) = broken {
             session = None;

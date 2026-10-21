@@ -26,7 +26,7 @@ pub(super) fn sections(f: &mut Frame<'_>, s: &Snapshot, now: i64) {
     machine(f, s);
     if !not_ready(f, "health", &s.health) {
         if let Part::Ready(h) = &s.health {
-            health(f, h, now);
+            health(f, h, now, s.sampled_every_s);
         }
     }
     if !not_ready(f, "vpn", &s.vpn) {

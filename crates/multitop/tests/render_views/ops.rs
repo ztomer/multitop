@@ -52,6 +52,7 @@ pub fn ops(term: (u16, u16)) -> App {
     let troubled = Snapshot {
         server: ("mcp_host".into(), "1.65.2".into()),
         at,
+        sampled_every_s: multitop::ops::MAX_SAMPLING_INTERVAL_S,
         health: Part::Ready(health(vec![
             check("check_disk_space", true),
             check("check_vpn_leak", false),

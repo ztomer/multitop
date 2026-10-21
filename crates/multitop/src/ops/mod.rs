@@ -180,6 +180,14 @@ pub struct Snapshot {
     pub server: (String, String),
     /// When it was asked, epoch seconds.
     pub at: i64,
+    /// How often THIS client samples the published verdict, in seconds.
+    ///
+    /// The answer carries the client's own rate, because the rate is what
+    /// decides whether the verdict can be two publications behind the truth
+    /// (DECISIONS D15) - and the age on the line cannot say that: a verdict
+    /// two publications behind looks exactly like a fresh one. So the answer
+    /// says it, where the verdict is shown, rather than in silence.
+    pub sampled_every_s: i64,
     pub health: Part<Health>,
     /// The machine's tunnels.
     pub vpn: Part<Egress>,
@@ -281,7 +289,11 @@ impl OpsState {
 }
 
 /// Ask a connected server for every section at `now` (epoch seconds).
-pub async fn gather<R, W>(c: &mut Client<R, W>, now: i64) -> Snapshot
+///
+/// `sampled_every_s` is this client's own sampling rate, and it travels with
+/// the answer: a client that samples slower than half the publication
+/// interval says so where the verdict is shown (DECISIONS D15).
+pub async fn gather<R, W>(c: &mut Client<R, W>, now: i64, sampled_every_s: i64) -> Snapshot
 where
     R: AsyncRead + Unpin,
     W: AsyncWrite + Unpin,
@@ -339,6 +351,7 @@ where
     Snapshot {
         server: c.server.clone(),
         at: now,
+        sampled_every_s,
         health,
         vpn,
         cron,

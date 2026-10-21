@@ -113,7 +113,7 @@ async fn gather_asks_only_what_the_host_lists_and_one_failure_hides_nothing() {
     let mut client = Client::connect(rd, wr, Duration::from_secs(2))
         .await
         .unwrap();
-    let s = gather(&mut client, NOW).await;
+    let s = gather(&mut client, NOW, MAX_SAMPLING_INTERVAL_S).await;
     assert_eq!(s.containers, Part::Absent("no Docker on this host".into()));
     assert!(matches!(s.health, Part::Ready(ref h) if h.checks.len() == 2));
     assert!(matches!(s.alerts, Part::Ready(ref v) if v.len() == 2));
@@ -136,7 +136,7 @@ async fn gather_asks_only_what_the_host_lists_and_one_failure_hides_nothing() {
     let mut client = Client::connect(rd, wr, Duration::from_secs(2))
         .await
         .unwrap();
-    let s = gather(&mut client, NOW).await;
+    let s = gather(&mut client, NOW, MAX_SAMPLING_INTERVAL_S).await;
     assert_eq!(
         s.containers,
         Part::Failed("docker is not answering (-32603)".into())
@@ -147,7 +147,7 @@ async fn gather_asks_only_what_the_host_lists_and_one_failure_hides_nothing() {
     let mut client = Client::connect(rd, wr, Duration::from_secs(2))
         .await
         .unwrap();
-    let s = gather(&mut client, NOW).await;
+    let s = gather(&mut client, NOW, MAX_SAMPLING_INTERVAL_S).await;
     assert!(
         matches!(s.health, Part::Absent(_))
             && matches!(s.cron, Part::Absent(_))
@@ -159,6 +159,7 @@ pub(super) fn snapshot() -> Snapshot {
     Snapshot {
         server: ("mcp_host".into(), "1.65.2".into()),
         at: NOW - 12,
+        sampled_every_s: MAX_SAMPLING_INTERVAL_S,
         health: Part::Ready(parse_health(&health_answer()).unwrap()),
         vpn: Part::Absent("this host lists no net.egress".into()),
         cron: Part::Ready(parse_cron(&cron_answer()).unwrap()),

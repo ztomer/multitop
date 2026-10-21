@@ -68,7 +68,12 @@ async fn frame(server: &Server, cols: usize) -> Option<Vec<String>> {
             return None;
         }
     };
-    let snapshot = gather(&mut session, multitop::tasks::ops_poll::now_epoch()).await;
+    let snapshot = gather(
+        &mut session,
+        multitop::tasks::ops_poll::now_epoch(),
+        multitop::ops::MAX_SAMPLING_INTERVAL_S,
+    )
+    .await;
     let state = OpsState::Ready(Box::new(snapshot));
     let pal = multitop_agent::palette_view::PaletteView::for_theme(&multitop_agent::color::KARE);
     let lines = render(

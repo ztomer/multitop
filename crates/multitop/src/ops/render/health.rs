@@ -2,7 +2,7 @@
 //!
 //! Split from `sections.rs` for the house's line cap, along the seam that
 //! was already there: the health verdict is its own fact, with its own age
-//! and its own rules, and the section that draws it grew with them (the
+//! and its own rules, and the section that drew it grew with them (the
 //! age, the staleness, the client's own sampling rate).
 //!
 //! The verdict is read, not run (servers ROADMAP E12), so it is as old as
@@ -16,36 +16,42 @@ use super::super::model::Health;
 use super::{count, Frame, Tone};
 
 /// The machine's health: the PUBLISHED verdict, and how old it is.
-pub(super) fn health(f: &mut Frame<'_>, health: &Health, _now: i64) {
+///
+/// `sampled_every_s` is the rate THIS answer was sampled at, and it is
+/// carried by the answer: a client that samples slower than half the
+/// publication interval says so here, where the verdict is shown, because
+/// the age on the line cannot say it - a verdict two publications behind
+/// looks exactly like one that is fresh (DECISIONS D15).
+///
+/// **THE WARNING GETS A LINE OF ITS OWN.** Appended to the summary, the
+/// panel's width cut the meaning off the end of it: "sampled every 15 min:
+/// the verdict can be" - a sentence with the point taken off the end, which
+/// says nothing about what the verdict can be behind. Under the section it
+/// is said whole, and the section above it is not green.
+pub(super) fn health(f: &mut Frame<'_>, health: &Health, _now: i64, sampled_every_s: i64) {
+    // The client's own sampling: too slow, and the verdict can be two
+    // publications behind - which no age on the line can say.
+    let slow = super::super::sampling_warning(sampled_every_s);
     if health.checks.is_empty() {
         f.line(
             Tone::Warn,
             "health",
             "no verdict published: nothing has run on this machine",
         );
+        if let Some(w) = &slow {
+            f.item(w);
+        }
         return;
     }
     let age = health.oldest_age.as_deref().unwrap_or("of unknown age");
-    // The client's own sampling: too slow, and the verdict can be two
-    // publications behind - which no age on the line can say.
-    let slow = super::super::sampling_warning(
-        crate::tasks::ops_poll::OPS_POLL
-            .as_secs()
-            .try_into()
-            .unwrap_or(i64::MAX),
-    );
     let bad: Vec<&Check> = health.checks.iter().filter(|c| !c.ok).collect();
     if bad.is_empty() {
         let stale = health.is_stale();
-        let mut detail = if stale {
+        let detail = if stale {
             format!("{} ok · {age} · stale", count(health.checks.len(), "check"))
         } else {
             format!("{} ok · {age}", count(health.checks.len(), "check"))
         };
-        if let Some(w) = &slow {
-            detail.push_str(" · ");
-            detail.push_str(w);
-        }
         f.line(
             if stale || slow.is_some() {
                 Tone::Warn
@@ -55,6 +61,9 @@ pub(super) fn health(f: &mut Frame<'_>, health: &Health, _now: i64) {
             "health",
             &detail,
         );
+        if let Some(w) = &slow {
+            f.item(w);
+        }
         return;
     }
     f.line(
@@ -69,6 +78,9 @@ pub(super) fn health(f: &mut Frame<'_>, health: &Health, _now: i64) {
             c.rc,
             c.age.as_deref().unwrap_or("of unknown age")
         ));
+    }
+    if let Some(w) = &slow {
+        f.item(w);
     }
 }
 

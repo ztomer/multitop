@@ -53,21 +53,27 @@ fn suite() -> serde_json::Value {
 
 /// The health section's line, without the escape sequences.
 fn health_line(h: &Health) -> String {
+    health_frame(h, MAX_SAMPLING_INTERVAL_S)
+        .into_iter()
+        .find(|l| l.contains("health"))
+        .unwrap_or_default()
+}
+
+/// The frame for an answer that was sampled every `sampled_every_s` seconds.
+fn health_frame(h: &Health, sampled_every_s: i64) -> Vec<String> {
     let mut s = snapshot(h);
+    s.sampled_every_s = sampled_every_s;
     s.cron = Part::Ready(Vec::new());
     s.containers = Part::Absent("no Docker on this host".into());
     s.alerts = Part::Ready(Vec::new());
-    let f = plain(&render(
+    plain(&render(
         "media-server",
         &OpsState::Ready(Box::new(s)),
         80,
         40,
         NOW,
         &pal(),
-    ));
-    f.into_iter()
-        .find(|l| l.contains("health"))
-        .unwrap_or_default()
+    ))
 }
 
 /// A snapshot whose only interesting section is the health one.
@@ -75,6 +81,9 @@ fn snapshot(h: &Health) -> Snapshot {
     Snapshot {
         server: ("mcp_host".into(), "1.99.11".into()),
         at: NOW - 12,
+        // This client's own sampling rate: the rule's own number, so an
+        // answer that sampled at the rule says nothing about it.
+        sampled_every_s: MAX_SAMPLING_INTERVAL_S,
         health: Part::Ready(h.clone()),
         vpn: Part::Absent("this host lists no net.egress".into()),
         cron: Part::Ready(Vec::new()),
@@ -177,7 +186,7 @@ async fn the_ops_view_never_runs_the_suite() {
     let mut client = Client::connect(rd, wr, std::time::Duration::from_secs(2))
         .await
         .unwrap();
-    let s = gather(&mut client, NOW).await;
+    let s = gather(&mut client, NOW, MAX_SAMPLING_INTERVAL_S).await;
     let Part::Ready(h) = &s.health else {
         panic!("the health section did not read: {:?}", s.health);
     };
@@ -254,10 +263,73 @@ fn the_sampling_rule_is_twice_the_publication_rate() {
         MAX_SAMPLING_INTERVAL_S, 450,
         "half the publication interval"
     );
-    // This client's poll is faster than that already.
+}
+
+/// **THE OPS POLL RUNS AT THE RULE'S OWN RATE.** servers ROADMAP E36: the
+/// poll was 30 s - 2,880 gathers a day, TEN times what the rule needs, and
+/// every gather moves the whole tool catalogue off the host (134,840 B on
+/// `.33` alone). The estate's verdict is published every 15 minutes, so a
+/// read every 7.5 minutes is never two publications behind, and the poll
+/// costs a fifteenth of what it did.
+#[test]
+fn the_ops_poll_samples_at_the_rules_own_rate() {
+    /// A day, in seconds: the unit the poll's rate is counted in.
+    const SECS_A_DAY: u64 = 86_400;
+    let poll = crate::tasks::ops_poll::OPS_POLL;
+    assert_eq!(
+        poll.as_secs(),
+        MAX_SAMPLING_INTERVAL_S as u64,
+        "the poll's interval IS the rule, not a number near it"
+    );
+    assert_eq!(
+        SECS_A_DAY / poll.as_secs(),
+        192,
+        "gathers a day at the rule's rate"
+    );
+}
+
+/// **A CLIENT THAT SAMPLES TOO SLOWLY SAYS SO IN ITS ANSWER** - and the
+/// answer is what the view draws. The age on the line cannot say it: a
+/// verdict that is two publications behind looks exactly like one that is
+/// fresh, so the warning has to be ON the line, or it is nowhere.
+#[test]
+fn an_answer_that_sampled_too_slowly_says_so_on_the_line() {
+    let frame = health_frame(&verdict(), 15 * 60);
+    let said = frame.join("\n");
     assert!(
-        crate::tasks::ops_poll::OPS_POLL.as_secs() <= MAX_SAMPLING_INTERVAL_S as u64,
-        "the Ops poll samples faster than the rule allows"
+        said.contains("two publications behind"),
+        "a too-slow answer does not say so: {said}"
+    );
+    let line = frame
+        .iter()
+        .find(|l| l.contains("health"))
+        .cloned()
+        .unwrap_or_default();
+    assert!(
+        !line.starts_with('✓'),
+        "a too-slow answer is not green: {line}"
+    );
+}
+
+/// **AN ANSWER THAT SAMPLED AT THE RULE SAYS NOTHING** - the warning is for
+/// the clients that are too slow, and a client that is exactly at the rule
+/// must not cry wolf on every line of every card.
+#[test]
+fn an_answer_that_sampled_at_the_rule_says_nothing() {
+    let frame = health_frame(&verdict(), MAX_SAMPLING_INTERVAL_S);
+    let said = frame.join("\n");
+    assert!(
+        !said.contains("two publications behind"),
+        "an answer at the rule warns anyway: {said}"
+    );
+    let line = frame
+        .iter()
+        .find(|l| l.contains("health"))
+        .cloned()
+        .unwrap_or_default();
+    assert!(
+        line.starts_with('✓'),
+        "an answer at the rule is green: {line}"
     );
 }
 
