@@ -27,6 +27,10 @@ OPTIONS:
                            due, keep the answer, and exit. The poll is a job, not
                            a screen (servers ROADMAP E36); run it from a
                            scheduler, at the poll's own interval
+        --ops-frame <HOST>     Print the Ops frame for one host, uncoloured: the
+                           lines the Ops view draws, from this client's own
+                           answers. The parity check reads it (servers ROADMAP
+                           O90); the host is named by its name or its address
     -h, --help             Print this help
     -V, --version          Print version
     --print-background    Which background the terminal reported, and from where
@@ -54,6 +58,8 @@ pub struct CliOptions {
     pub serve_token_file: Option<PathBuf>,
     /// One pass of the Ops poll, and exit.
     pub ops_poll: bool,
+    /// The Ops frame for one host, printed, and exit.
+    pub ops_frame: Option<String>,
 }
 
 enum Startup {
@@ -123,6 +129,10 @@ fn parse_cli<I: IntoIterator<Item = String>>(argv: I) -> Startup {
                 None => return Startup::Fail("--serve-token-file requires a path".into()),
             },
             "--ops-poll" => opts.ops_poll = true,
+            "--ops-frame" => match iter.next() {
+                Some(host) => opts.ops_frame = Some(host),
+                None => return Startup::Fail("--ops-frame requires a host".into()),
+            },
             // Refused, not accepted: a token on the command line is readable by every
             // local user through `ps` (ROADMAP A1).
             "--serve-token" => return Startup::Fail(SERVE_TOKEN_ON_ARGV.into()),
@@ -271,6 +281,12 @@ fn main() -> ExitCode {
 
     // --ops-poll: one pass of the Ops poll, and exit. The poll is a job,
     // not a screen: it runs whether or not a terminal is watching.
+    // --ops-frame: the Ops frame for one host, printed, and exit. It asks
+    // the estate for nothing: it draws the answer this client's own poll
+    // already found (servers ROADMAP O90).
+    if let Some(host) = opts.ops_frame.clone() {
+        return multitop::headless::ops_frame_pass(&servers, &config_path, &host);
+    }
     if opts.ops_poll {
         return multitop::headless::ops_poll_pass(&servers, &config_path);
     }
@@ -413,5 +429,21 @@ mod tests {
         for key in ["ESC", "f", "d", "s", "u"] {
             assert!(USAGE.contains(key), "usage is missing {key}");
         }
+    }
+
+    /// **THE OPS FRAME IS A COMMAND.** The other client's parity check
+    /// reads the monitor's rendering, and the monitor keeps no copy of it
+    /// -- so there is one command that prints it (servers ROADMAP O90).
+    #[test]
+    fn the_ops_frame_names_the_host_it_prints() -> Result<(), String> {
+        let Startup::Run(opts) = cli(&["--ops-frame", "beelink"]) else {
+            return Err("expected Run for --ops-frame".into());
+        };
+        assert_eq!(opts.ops_frame.as_deref(), Some("beelink"));
+        let Startup::Fail(e) = cli(&["--ops-frame"]) else {
+            return Err("a frame with no host was accepted".into());
+        };
+        assert!(e.contains("--ops-frame"), "{e}");
+        Ok(())
     }
 }

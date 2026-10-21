@@ -56,6 +56,11 @@ cp config.example.toml ~/.config/multitop/config.toml
 # every 7.5 minutes (twice the estate's publication rate):
 multitop --ops-poll        # one pass: gather what is due, keep the answer
 ./tools/install_ops_poller.sh
+
+# Print the Ops frame for one host, uncoloured: the lines the Ops view
+# draws, from this client's own answers. The other client's parity check
+# reads it:
+multitop --ops-frame beelink
 ```
 
 ## What you see
@@ -99,7 +104,18 @@ Additional views accessible via keys:
   `tools/install_ops_poller.sh` runs that pass from launchd every 7.5
   minutes -- twice the estate's publication rate, so a verdict is never two
   publications behind. The view shows what the poll found, and asks the
-  estate itself only when the answer is older than that
+  estate itself only when the answer is older than that. **The rate is
+  read, not carried:** the server publishes its publication cadence with
+  the verdict, and this client samples at half of it, so a server that
+  publishes faster than its clients read is a warning the client prints
+  rather than a silent aliasing. A cadence the server could not read is
+  said, and the rate this client had is kept
+- **`multitop --ops-frame <HOST>`** — the Ops frame for one host, printed
+  and uncoloured: the same lines the Ops view draws, from this client's
+  own answers, so the other client can compare the two renderings
+  (`routines parity` reads it). The host is named by the name in its
+  `[[servers]]` entry or by its address, and it asks the estate for
+  nothing
 - **`multitop-agent mcp`** — that same server, on stdio, for any MCP client.
   Register it with Claude Code as this Mac's ops server:
   `claude mcp add --scope user mac -- multitop --agent mcp`

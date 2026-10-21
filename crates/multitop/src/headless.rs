@@ -160,3 +160,92 @@ pub fn ops_poll_pass(servers: &[config::Server], config_path: &Path) -> ExitCode
         ExitCode::FAILURE
     }
 }
+
+#[cfg(test)]
+#[path = "headless_tests.rs"]
+mod tests;
+
+/// `--ops-frame <HOST>`: the Ops frame for one host, printed, uncoloured.
+///
+/// The monitor draws its Ops view in its TUI and keeps no copy of the
+/// DRAWING, so a check that compares the two clients' panels had to read
+/// the monitor's screen through tmux and say out loud that the rendered
+/// half was a stand-in (servers ROADMAP O90). This is the seam: one
+/// command that prints the frame, from the client's own cache - the same
+/// answers the view draws from, and the same renderer.
+///
+/// Read-only, and it asks the estate for nothing: the frame is drawn from
+/// the answer the poll already found.
+#[must_use]
+pub fn ops_frame_pass(servers: &[config::Server], config_path: &Path, host: &str) -> ExitCode {
+    match ops_frame_lines(servers, config_path, host) {
+        Ok(lines) => {
+            for line in lines {
+                println!("{line}");
+            }
+            ExitCode::SUCCESS
+        }
+        Err(why) => {
+            eprintln!("[Error] {why}");
+            ExitCode::FAILURE
+        }
+    }
+}
+
+/// The Ops frame for `host`, as the lines the view draws.
+///
+/// The host is named by the name the operator gave it ("beelink") or by
+/// its address ("192.168.0.33"). The frame is drawn from the client's own
+/// cache - the answer the poll found - with the colour taken out, so a
+/// checker can read it.
+///
+/// # Errors
+///
+/// The config names no such host, or this client holds no answer for it.
+pub fn ops_frame_lines(
+    servers: &[config::Server],
+    config_path: &Path,
+    host: &str,
+) -> Result<Vec<String>, String> {
+    let server = find_server(servers, host)
+        .ok_or_else(|| format!("no host named `{host}` in the config"))?;
+    let cache = crate::ops::cache::Cache::beside(config_path);
+    let key = crate::ops::cache::host_key(server);
+    let raw = cache
+        .read(&key)
+        .ok_or_else(|| format!("this client holds no answer for `{host}` yet"))?;
+    let snapshot = crate::ops::parse_snapshot(&raw);
+    let state = crate::ops::OpsState::Ready(Box::new(snapshot));
+    // The frame, uncoloured: the picture is the glyph, and a checker reads
+    // text.
+    let pal = multitop_agent::palette_view::PaletteView::for_theme(&multitop_agent::color::PLAIN);
+    Ok(crate::ops::render::render(
+        &crate::ops::banner(server),
+        &state,
+        FRAME_COLS,
+        FRAME_ROWS,
+        crate::tasks::ops_poll::now_epoch(),
+        &pal,
+    ))
+}
+
+/// The host `name` names: by the name the operator gave it, or by its
+/// address. The name is matched case-insensitively, because a name is
+/// something a person types.
+fn find_server<'a>(servers: &'a [config::Server], name: &str) -> Option<&'a config::Server> {
+    let want = name.trim().to_lowercase();
+    servers
+        .iter()
+        .find(|s| {
+            s.name
+                .as_deref()
+                .is_some_and(|n| n.trim().to_lowercase() == want)
+        })
+        .or_else(|| servers.iter().find(|s| s.host.to_lowercase() == want))
+}
+
+/// How wide the printed frame is: the house's line budget, so nothing the
+/// frame says is cut off by the width.
+const FRAME_COLS: usize = 240;
+/// How tall the printed frame is: every section, and nothing hidden.
+const FRAME_ROWS: usize = 200;
