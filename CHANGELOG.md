@@ -7,6 +7,88 @@ This file starts at v0.47.0 — earlier history is in git (`git log`), and the
 per-defect record is `docs/detection-record.md`, which is the more useful
 document for anything before this point.
 
+## v0.64.0 — the kept catalogue is checked against the server's own DIGEST _(2026-10-21)_
+
+### Changed — the kept list is checked against the server's WORD, not a guess (servers ROADMAP E72)
+- **THE KEPT LIST WAS CHECKED BY A GUESS.** The client decided that its
+  kept copy of a host's tool list was still the truth by INFERring it from
+  two things it could see cheaply: the server's advertised **version** and
+  the set of tools the server says it does **not** offer. Both are hints,
+  not facts — and the guess was wrong often enough to measure: it sent the
+  client back for the whole catalogue at every release, and **four of the
+  last ten releases touched no tool table at all** (v1.99.13→14, 15→16,
+  16→17, 17→18), so those downloads were needless — and, the other way
+  round, a table that moved WITHOUT a release was invisible to it.
+- **THE SERVER NOW PUBLISHES THE DIGEST OF THE EXACT LIST `tools/list`
+  ANSWERS**, in `server/discover`, beside the absent map this client
+  already reads: `dev.multitop/catalogueDigest`, the SHA-256 of the
+  list's own canonical bytes, in the estate's spelling (`sha256:` and 64
+  lowercase hex). That is the server's own word about the list it serves,
+  and it is the fact the client checks its copy against — the server's
+  half is `media_server` `7c3b02b1`, shipped there and not written here.
+- **A DIGEST THAT MATCHES KEEPS THE KEPT LIST — ACROSS A RELEASE.** The
+  version moving no longer costs a download: the digest says the list is
+  byte-for-byte the one the client holds, so a release that touched no
+  tool table leaves the catalogue alone (**149,997 B a gather** measured
+  on the live estate today). The client asks for the list only when the
+  digest says the list moved.
+- **A DIGEST THAT CHANGED PUTS THE KEPT LIST ASIDE**, and the host is
+  asked again — and this is the case the guess could not see at all: the
+  same binary, the same absent set, a different digest. The frame says
+  so: *"tool list: re-listed, the server's catalogue digest changed"*.
+- **THE DIGEST IS REMEMBERED, NOT COMPUTED.** It is of the **whole** list
+  — names **and** schemas — and this client keeps only the names, so it
+  cannot compute it again: it keeps the digest it was **handed**, beside
+  the list the word was given for. A digest over the names alone would be
+  a smaller fact and a weaker one (a schema change would go unseen); the
+  server publishes the stronger one, and the client takes it.
+- **A DIGEST THE CLIENT CANNOT CHECK SAYS THE FACT IS ABSENT.** A server
+  that publishes none — one too old to know the field, or the local
+  agent, which publishes none — has said nothing about its list: the kept
+  copy is then checked the OLDER way (the version and the absent set),
+  the frame says *"the server published no digest"*, and **that is not an
+  all-clear**: an absent fact is stated, never drawn as a copy-is-fine. A
+  digest that is not in the estate's spelling is not a digest either, and
+  is treated the same way.
+- **AND THE CLIENT DOES NOT RE-LIST EVERY SESSION.** The absent digest
+  does not turn into a download on every pass — that is the defect this
+  closes, not a new one. A kept list taken before the server published a
+  digest is put aside **once** (it cannot be checked), and the digest is
+  remembered with the list from then on.
+- **THE KEPT LIST IS STILL THE WHOLE LIST** — an optimisation, never a
+  filter (E61's rule): every tool of it, every page of it, by name.
+
+### Measured (2026-10-21, on the live estate and on the shipped binary)
+- **THE ESTATE'S HALF OF THE BYTES**: the digest costs **+105 B per
+  session per host** on the wire (the server's own measurement: its
+  `server/discover` answer grew 3,457 → 3,562 B on a fixture host, +0.2%)
+  and saves the **149,997 B a gather** the version inference forced at
+  every release — the three `tools/list` answers measured today: 65,557 B
+  on `.33`, 51,716 B on `.90`, 32,724 B on `.158`.
+- **THE CLIENT'S HALF, ON DISK**: the kept list grows by **87 B per host**
+  (672 → 759 B on `.33` — the 71-byte digest and the JSON around it; 18 B of
+  that until the fleet ships the digest, when the word is there to keep) and
+  the answer the poll keeps grows by **108 B per host per gather** (its
+  catalogue field, 39 → 147 B — it now carries the proof). Neither is on
+  the wire.
+- **THE PASS, WITH AND WITHOUT THE KEPT LISTS**, measured with the
+  counting shim in front of `ssh` (`tools/measure_poll.py`): **148,618 B
+  a gather** with the kept list (no `tools/list` line in the per-answer
+  table at all) against **298,617 B** with them dropped — the same
+  149,997 B of catalogue, measured twice.
+- **THE ESTATE HAS NO DIGEST YET** (the server's release is the
+  coordinator's, and v1.99.21 is not shipped), so this measurement is the
+  **fallback path**: the client keeps the list the old way and says the
+  digest was absent. That is the path measured above, and it is
+  unchanged by this release — the saving lands when the fleet ships.
+
+### Verified
+- `tools/gate.sh --full` green; the Rust suite green.
+- The tests were **red first**: a changed digest did not put the kept list
+  aside, a release that changed no tool re-listed the catalogue anyway,
+  the digest was not kept with the list, and the frame said nothing about
+  the digest — all four failed against the old code, and pass now.
+
 ## v0.63.0 — the Ops poll stops re-downloading the TOOL CATALOGUE _(2026-10-21)_
 
 ### Added — the tool list is kept, keyed to what determines it (servers ROADMAP E61)

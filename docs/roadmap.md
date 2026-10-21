@@ -39,7 +39,17 @@ advertised version and to the set of tools the server says it does not
 offer, BOTH read from the live server on every pass, and bounded by the
 server's own `ttlMs`. The poll's inbound bytes fall from **66.0 MB a day
 to 36.5 MB a day**, and the frame says where the list came from and how
-old it is. The next open work is **A2.5**, the read-only screens over
+old it is. **The kept list is checked against the server's own DIGEST
+since 2026-10-21** (servers ROADMAP E72): the version and the absent set
+were a guess about the list, and the guess re-listed the whole catalogue
+at every release — including the four of the last ten that touched no
+tool table at all — and could not see a table that moved without one. The
+server publishes the digest of the exact list it serves
+(`dev.multitop/catalogueDigest`), the client remembers the digest it was
+handed and checks its kept copy against it, and a digest that is ABSENT
+says so rather than passing for a check. The estate's half of that
+measurement waits for the fleet to ship v1.99.21. The next open work is
+**A2.5**, the read-only screens over
 `/api/hosts` and `/api/health` through `PinnedTls`; then A3. The releases:
 v0.56.0 carried A2.4 and the installer's replace-by-rename fix (`2413764`),
 v0.57.0 carried the Ops view's ZFS section and the Android wrapper's move to
