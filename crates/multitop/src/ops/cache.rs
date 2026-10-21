@@ -207,6 +207,19 @@ pub fn is_fresh(raw: &RawSnapshot, now: i64, every: Duration) -> bool {
     age < crate::tasks::ops_poll::interval_s(every)
 }
 
+/// How much EARLIER than the poll's interval a host may be gathered.
+///
+/// The scheduler that runs the pass ticks on its own clock, and a tick that
+/// lands a second early must not SKIP the gather: the pass would then wait a
+/// whole extra cycle, and the client's read rate would halve without
+/// anything saying so.
+///
+/// The slack is only ever taken OFF the interval - the client reads MORE
+/// often than the rule asks, never less - so it cannot weaken the rule it
+/// serves (DECISIONS D15: a client must read at least twice as often as the
+/// estate publishes).
+pub const DUE_SLACK_S: i64 = 30;
+
 /// Whether a host is DUE: it has no answer, or its answer is older than the
 /// poll's interval.
 ///
@@ -218,7 +231,8 @@ pub fn is_fresh(raw: &RawSnapshot, now: i64, every: Duration) -> bool {
 /// for twice.
 #[must_use]
 pub fn due(raw: Option<&RawSnapshot>, now: i64, every: Duration) -> bool {
-    raw.is_none_or(|r| !is_fresh(r, now, every))
+    let threshold = crate::tasks::ops_poll::interval_s(every) - DUE_SLACK_S;
+    raw.is_none_or(|r| now.saturating_sub(r.at) >= threshold)
 }
 
 /// The answer as the view draws it: the raw answers, parsed.

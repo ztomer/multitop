@@ -7,6 +7,58 @@ This file starts at v0.47.0 — earlier history is in git (`git log`), and the
 per-defect record is `docs/detection-record.md`, which is the more useful
 document for anything before this point.
 
+## v0.61.0 — the Ops poll is a JOB: it runs whether or not anyone is watching _(2026-10-21)_
+
+### Changed — the Ops poll (servers ROADMAP E36)
+- **THE POLL NEVER RAN.** It was spawned by the Ops VIEW's keypress and by
+  nothing else, so the estate's fingerprint tools fired **0.3 a day** while
+  the shared tools fired 87: the Ops view was shipped, installed, and nothing
+  asked the estate for it. The code said so out loud — *"Polled every 30 s
+  while the view is up, and never while it is not"* — so this was a design,
+  not a bug, and the design was the defect.
+- **THE POLL IS A JOB NOW.** `multitop --ops-poll` is one pass: it gathers
+  the hosts whose answer is **due** and keeps what it found beside the
+  config. `tools/install_ops_poller.sh` installs the launchd agent that runs
+  that pass every 7.5 minutes. A pass that exits cannot be left half-dead;
+  the next pass opens a fresh session.
+- **THE RATE IS THE RULING'S.** DECISIONS D15 (owner, 2026-10-20): the
+  estate publishes every 15 minutes, so a client reads at least every 7.5
+  minutes. The 30 s rate is retired — it gathered **2,880 times a day**, ten
+  times what the rule needs, and every gather moved the whole tool
+  catalogue off the host. The interval is now DERIVED from the rule
+  (`OPS_POLL = MAX_SAMPLING_INTERVAL_S`), so the two cannot drift apart.
+- **ONE CARD, ONE READ OF THE ESTATE.** The answer a pass found is kept, and
+  a host whose answer is younger than the interval is not asked again — by
+  the pass, and not by the view either. The two pollers share one due rule,
+  so the client's second reader costs the estate one read and not two.
+- **THE ANSWER CARRIES THE CLIENT'S OWN RATE.** A client that samples
+  slower than half the publication interval says so where the verdict is
+  shown, on a line of its own (appended to the summary it was cut off by the
+  panel's width, which left the meaning off the end of the sentence).
+- **THE CACHE KEEPS THE SERVER'S OWN WORDS.** The raw answers are kept, and
+  the client parses them when it draws: an answer read back from the cache
+  is parsed by exactly the code that parses a live answer.
+
+### Measured, on the live estate (2026-10-21)
+- **One gather, in bytes the host sends:** `.33` **128,455 B** (of which the
+  tool catalogue is 63,749 B), `.90` **75,574 B**, `.158` **40,988 B**.
+- **A day at the rule's rate** (192 gathers a host): `.33` **24.7 MB**,
+  `.90` **14.5 MB**, `.158` **7.9 MB** — **47.1 MB a day** for the estate,
+  against **706 MB a day** at the retired 30 s rate: a fifteenth.
+- **The client:** one pass over all four hosts is **0.55 s** of wall time, so
+  **1.8 min a day** — against **26 min a day** at the 30 s rate.
+- **The estate's own time** for one gather on `.33` is **15 ms** of the
+  server's own measurement (the audit log's `ms` column), so 2.9 s a day at
+  the rule's rate.
+
+### Verified
+- `tools/gate.sh --full` green; the Rust suite (1,217 tests in this crate),
+  the pytest suite and the coverage gate as the gate of record ran them.
+- **Each new behaviour was proven RED first**: the interval, the warning on
+  the line, the due rule, the pass that gathers what is due, and the view
+  that shows the answer it already has each fail with an assertion when the
+  behaviour is taken away.
+
 ## v0.60.0 — the Ops view samples at TWICE the estate's publication rate _(2026-10-20)_
 ### Changed — the Ops view's health section (DECISIONS D15)
 - **The owner's ruling, 2026-10-20:** *"don't we need to double the data

@@ -110,11 +110,16 @@ fn a_host_whose_answer_is_older_than_the_interval_is_due() {
 #[test]
 fn a_host_whose_answer_is_inside_the_interval_is_not_due() {
     let fresh = raw(1_000);
-    assert!(!due(
-        Some(&fresh),
-        1_000 + EVERY - 1,
-        Duration::from_secs(EVERY as u64)
-    ));
+    let every = Duration::from_secs(EVERY as u64);
+    let threshold = EVERY - DUE_SLACK_S;
+    assert!(
+        !due(Some(&fresh), 1_000 + threshold - 1, every),
+        "an answer inside the slack is not due"
+    );
+    assert!(
+        due(Some(&fresh), 1_000 + threshold, every),
+        "an answer past the slack is due"
+    );
 }
 
 /// The FRESH answer is the one the card shows; a stale one is not, whatever
@@ -132,7 +137,36 @@ fn cache_read_fresh(answer: &RawSnapshot, now: i64, every: Duration) -> bool {
     is_fresh(answer, now, every)
 }
 
-/// The key a host is filed under: the same shape the state file uses.
+/// **THE SCHEDULER'S TICK MUST NOT HALVE THE CLIENT'S RATE.** The pass runs
+/// on the scheduler's clock, and a tick that lands a second early must not
+/// skip the gather: the pass would then wait a whole extra cycle, and the
+/// client would read the estate at half the rate the ruling asks - without
+/// anything saying so. The slack is taken OFF the interval, so the client
+/// reads MORE often than the rule, never less.
+#[test]
+fn a_gather_is_due_a_little_before_the_interval_is_up() {
+    let answer = raw(1_000);
+    let every = Duration::from_secs(EVERY as u64);
+    let threshold = 1_000 + EVERY - DUE_SLACK_S;
+    assert!(
+        due(Some(&answer), threshold, every),
+        "a tick that lands a second early skipped the gather"
+    );
+    assert!(
+        !due(Some(&answer), threshold - 1, every),
+        "the slack took the interval with it"
+    );
+}
+
+/// A host the cache knows nothing about is due, and that is the whole of
+/// the first pass: the estate has never been asked.
+#[test]
+fn a_host_the_cache_knows_nothing_about_is_due() {
+    assert!(due(None, 1_000, Duration::from_secs(EVERY as u64)));
+}
+
+/// A host in the cache: the key a host is filed under is the same shape the
+/// state file uses, so one host is one key everywhere.
 #[test]
 fn a_host_is_filed_under_its_own_key() {
     let server = crate::config::Server {

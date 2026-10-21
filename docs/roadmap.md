@@ -5,7 +5,7 @@ history (`git log --oneline`), in `CHANGELOG.md`, and in
 `docs/detection-record.md`. When an item here is finished, delete it rather than
 ticking it off.
 
-State on 2026-10-20: Phase 0 (goh 0.27.0 wiring and the shipped defects,
+State on 2026-10-21: Phase 0 (goh 0.27.0 wiring and the shipped defects,
 P0.1-P0.7) and Phase 1 (gate drift, G1-G3) are closed and pushed; their record is
 `git log --oneline` (`7a316b3`, `f096334`, `579ec14`, `3af81a5`, `dccdc7a`) and
 `git show 2475be7:docs/roadmap.md`. Phase 2's A1 closed on 2026-10-17, A2.4
@@ -17,7 +17,13 @@ the tunnel (`net.egress`) with the stack that declares it, the machine's
 capacity (`disk.usage` and `host.facts`), the containers grouped by their
 stack, and the estate's words for the sections the other client uses
 (`zfs`, `containers`, `vpn`, `disk`) - servers ROADMAP O92, the plan of record
-for the estate. The next open work is **A2.5**, the read-only screens over
+for the estate. **The Ops poll became a JOB on 2026-10-21** (servers ROADMAP
+E36): it was bound to the Ops view, so it ran only while a human was looking
+at the panel and the estate's fingerprint tools fired 0.3 a day against the
+shared tools' 87. It is now `multitop --ops-poll`, a pass the scheduler runs
+at twice the estate's publication rate, and what it finds is kept beside the
+config so the view shows the poll's answer instead of asking the estate
+again. The next open work is **A2.5**, the read-only screens over
 `/api/hosts` and `/api/health` through `PinnedTls`; then A3. The releases:
 v0.56.0 carried A2.4 and the installer's replace-by-rename fix (`2413764`),
 v0.57.0 carried the Ops view's ZFS section and the Android wrapper's move to

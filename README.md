@@ -51,6 +51,11 @@ cp config.example.toml ~/.config/multitop/config.toml
 
 # Or install to Homebrew's bindir and run from anywhere:
 ./install.sh
+
+# Run the Ops poll as a job, and install the launchd agent that runs it
+# every 7.5 minutes (twice the estate's publication rate):
+multitop --ops-poll        # one pass: gather what is due, keep the answer
+./tools/install_ops_poller.sh
 ```
 
 ## What you see
@@ -89,8 +94,12 @@ Additional views accessible via keys:
   agent's own `mcp` mode -- cron from your launchd agents
   (`~/Library/LaunchAgents`), containers from whichever daemon your docker
   context names (Colima included); health and alerts show as absent, with the
-  reason. Polled every 30 s while the view is up, over the same ssh connection,
-  and never while it is not
+  reason. **The poll is a job, not a screen:** `multitop --ops-poll` gathers
+  the hosts whose answer is due and keeps it beside the config, and
+  `tools/install_ops_poller.sh` runs that pass from launchd every 7.5
+  minutes -- twice the estate's publication rate, so a verdict is never two
+  publications behind. The view shows what the poll found, and asks the
+  estate itself only when the answer is older than that
 - **`multitop-agent mcp`** — that same server, on stdio, for any MCP client.
   Register it with Claude Code as this Mac's ops server:
   `claude mcp add --scope user mac -- multitop --agent mcp`
