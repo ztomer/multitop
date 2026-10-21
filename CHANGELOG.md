@@ -7,6 +7,95 @@ This file starts at v0.47.0 — earlier history is in git (`git log`), and the
 per-defect record is `docs/detection-record.md`, which is the more useful
 document for anything before this point.
 
+## v0.63.0 — the Ops poll stops re-downloading the TOOL CATALOGUE _(2026-10-21)_
+
+### Added — the tool list is kept, keyed to what determines it (servers ROADMAP E61)
+- **THE OPS POLL PULLED THE WHOLE CATALOGUE, EVERY GATHER.** The list of
+  tools a host offers is the biggest thing this client pulls off a host —
+  **65,467 B on `.33`**, 51,716 B on `.90`, 32,724 B on `.158`, measured on
+  the live estate — and it is the SAME list every time: it changes at a
+  RELEASE, not every six and a half minutes. At the scheduler's own rate
+  (a pass every 390 s) that is **149,907 B a gather, 33.1 MB a day**, of
+  one immutable list, over and over.
+- **THE KEY IS (the server's advertised version, the set of tools it says
+  it does NOT offer)**, and BOTH are read from the LIVE server on every
+  session, so the kept list cannot hide a change: a release moves the
+  version, and a host that gains or loses a tool moves the absent set. A
+  kept list taken under another binary, or under another tool set, is put
+  aside and the host is asked again — and the reasons the server gives for
+  what it does not list are read live every session, so they are never
+  the kept copy's.
+- **THE SERVER'S OWN `ttlMs` BOUNDS IT** — an hour, for a list — so this
+  client never keeps an answer longer than the answer's owner says it is
+  good for. A window of zero is the protocol's "a live fact": there is
+  nothing to keep, so there is nothing to use, and nothing is kept. A
+  server that names no version is not keyed at all, so nothing is kept
+  either: the version is the only thing that says which binary holds the
+  tool table.
+- **THE CACHE IS AN OPTIMISATION, NEVER A FILTER.** What is kept is EVERY
+  tool the server listed, every page of them: a tool the kept list omitted
+  would lose its section from the panel, and a list that kept only the
+  first page would lose every tool on the second.
+- **WHERE THE LIST CAME FROM IS ON THE PANEL.** The list is the panel's
+  SHAPE — a tool the list does not name has no section — so the frame says
+  it: *"tool list: kept 12m old (window 1h)"*, *"tool list: from the
+  server (window 1h)"*, and, when a kept list was put aside, WHY: *"tool
+  list: re-listed, the kept list was for 1.99.19, the server is 1.99.20"*,
+  *"… the kept list had expired (2h old, window 1h)"*. A list nobody can
+  date is a shape nobody can trust, and a list quietly replaced would hide
+  the very thing the operator needs to know.
+
+### Fixed — the kept lists cannot be taken for the answers
+- **THE OTHER CLIENT READS THIS CACHE DIRECTORY TO FIND WHAT THE MONITOR
+  KNOWS**, and it takes the FIRST file whose name holds the host — so a
+  tool list kept beside the answer, named for the same host, would have
+  been taken for the answer itself, and the parity check would have read a
+  tool list where it expects the estate's own answers. The lists live in
+  the cache directory's own `catalogue/` directory now: out of that
+  reader's way, and the directory still holds one answer per host and
+  nothing else.
+
+### Measured, on the live estate (2026-10-21)
+- **THE LIST, A GATHER:** `tools/list` costs **65,467 B** on `.33`,
+  **51,716 B** on `.90` and **32,724 B** on `.158` — **149,907 B** a gather
+  across the estate.
+- **THE PASS, BEFORE AND AFTER**, measured on the shipped binary with a
+  counting shim in front of `ssh` (`tools/measure_poll.py`): the whole
+  poll cost **298,728 B a gather** (66.0 MB a day) with the released
+  client, and **148,817 B a gather** (32.9 MB a day) with the kept list —
+  and the kept list is pulled an hour, not a gather (**3.6 MB a day**). So
+  the poll's inbound bytes fall from **66.0 MB a day to 36.5 MB a day**,
+  and the catalogue's own share from **33.1 MB a day to 3.6 MB a day**.
+- **THE FALL IS THE CATALOGUE, TO THE BYTE**: 298,728 − 148,817 =
+  **149,911 B** a gather, against the **149,907 B** the three `tools/list`
+  answers cost on their own — and the warm pass's per-answer table has no
+  `tools/list` line in it at all. The discover answer (667–1,711 B) is
+  still read every session, because that is what says whether the kept
+  list is still the truth.
+- **A RELEASE STILL RE-LISTS**: every kept list was given another binary's
+  version, and the next pass asked every host for its list again — the
+  whole poll's bytes back to the cold figure (**298,726 B**) — and the
+  client said why, in its own answer (*"Relisted — the kept list was for
+  1.99.19-before-a-release, the server is 1.99.19"*) and on the panel
+  (*"tool list: re-listed, the kept list was for 1.99.19-before-a-release,
+  the server is 1.99.19"*).
+
+### Reported, not written — the better place may be the server
+- **THE CATALOGUE IS A PER-BINARY CONSTANT, AND THE SERVER KNOWS IT.** The
+  estate's plan says the better place for this may be the server
+  (`media_server`'s lane), and it is: the tool table is fixed in the
+  binary, so the server could publish the list's DIGEST beside the absent
+  map it already publishes in `server/discover` — a few dozen bytes — and
+  then any client could check its copy against the server's own word
+  instead of inferring it from the version and the absent set. That is
+  reported to the estate's plan; **nothing was written in that repo.**
+
+### Verified
+- `tools/gate.sh --full` green; the Rust suite green.
+- The kept lists are the client's own copy and nothing else: the cache
+  directory still holds one answer per host, and the tool lists live in
+  `catalogue/`, where the reader that looks for the answers does not look.
+
 ## v0.62.0 — the rate is READ from the estate, and the Ops frame can be PRINTED _(2026-10-21)_
 
 ### Changed — the client's sampling rate (servers ROADMAP E53)

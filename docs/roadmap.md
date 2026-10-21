@@ -30,9 +30,17 @@ than its clients read is a warning the client prints rather than a silent
 aliasing. **The Ops frame can be PRINTED since 2026-10-21** (servers ROADMAP
 O90): `multitop --ops-frame <host>` draws the frame the Ops view draws, from
 the client's own answers, so the other client's parity check can compare the
-two renderings without reading a terminal. The next open work is **A2.5**,
-the read-only screens over `/api/hosts` and `/api/health` through
-`PinnedTls`; then A3. The releases:
+two renderings without reading a terminal. **The TOOL CATALOGUE is KEPT
+since 2026-10-21** (servers ROADMAP E61): the list of tools a host offers
+is the biggest thing this client pulled off a host — 149,907 B a gather
+across the estate, 33.1 MB a day of one immutable list, at the scheduler's
+own rate — and it is now kept between passes, keyed to the server's
+advertised version and to the set of tools the server says it does not
+offer, BOTH read from the live server on every pass, and bounded by the
+server's own `ttlMs`. The poll's inbound bytes fall from **66.0 MB a day
+to 36.5 MB a day**, and the frame says where the list came from and how
+old it is. The next open work is **A2.5**, the read-only screens over
+`/api/hosts` and `/api/health` through `PinnedTls`; then A3. The releases:
 v0.56.0 carried A2.4 and the installer's replace-by-rename fix (`2413764`),
 v0.57.0 carried the Ops view's ZFS section and the Android wrapper's move to
 Gradle 9.8.2 — the release table is at the end.
