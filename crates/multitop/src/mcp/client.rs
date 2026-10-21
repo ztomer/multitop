@@ -76,7 +76,7 @@ pub struct Client<R, W> {
     /// ends on the first missed deadline throws away the estate's OTHER
     /// readings with it - and the local host lost its whole card to a
     /// `docker.containers` call that missed the deadline on 17 of about
-    /// 124 passes.
+    /// 124 passes of the poll's log.
     broken: Option<Error>,
 }
 

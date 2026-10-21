@@ -52,7 +52,7 @@ after the fleet shipped v1.99.21: the digest costs **+105 B a session a
 host** and saves the **149,997 B a gather** the guess forced at every
 release — **149,682 B a gather** net. **A MISSED DEADLINE IS A GAP IN ONE
 ANSWER since 2026-10-21** (servers ROADMAP E74): the poll's local host
-failed intermittently with `tools/call: no answer in 20s` — **17 of 125
+failed intermittently with `tools/call: no answer in 20s` — **20 of 133
 passes** in the poll's own log — and the deadline ENDED the session, so
 the host's whole reading was discarded and the estate's other readings
 were never asked: an intermittent blind spot, read as a flaky tool. A

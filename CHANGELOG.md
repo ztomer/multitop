@@ -12,14 +12,15 @@ document for anything before this point.
 ### Fixed — the poll's timed-out call is a GAP in the reading, not a fault of the estate (servers ROADMAP E74)
 - **THE LOCAL HOST'S READING WAS THROWN AWAY WITH THE CALL THAT MISSED
   ITS DEADLINE.** The launchd poll's local host failed intermittently with
-  `tools/call: no answer in 20s` — **17 of 125 passes** in the poll's own
-  log (measured 2026-10-21: **9** at a `tools/call` deadline and **8** at a
-  `server/discover` one, so **13.6%** of the passes). A missed deadline
-  ENDED the session, so the host's whole reading was discarded, the host
-  was reported as failed, and the sections the estate had answered were
-  never asked. The estate's health is read from these answers, so an
-  intermittent local failure was an intermittent **blind spot** — and it
-  was read as "a flaky tool", which is a failure that is not a fault.
+  `tools/call: no answer in 20s` — **20 of 133 passes** in the poll's own
+  log (measured 2026-10-21 at 16:38: **11** at a `tools/call` deadline
+  and **9** at a `server/discover` one, so **15.0%** of the passes). A
+  missed deadline ENDED the session, so the host's whole reading was
+  discarded, the host was reported as failed, and the sections the estate
+  had answered were never asked. The estate's health is read from these
+  answers, so an intermittent local failure was an intermittent **blind
+  spot** — and it was read as "a flaky tool", which is a failure that is
+  not a fault.
 - **A MISSED DEADLINE IS A GAP IN ONE ANSWER, AND THE SESSION SURVIVES
   IT.** A late answer carries the id of the request it answers, and this
   client matches that id — so a late answer is read and discarded, never
@@ -50,27 +51,37 @@ document for anything before this point.
   rather than waited out.
 
 ### Measured (2026-10-21, on the live estate)
+- **THE LOCAL HOST FAILED ON 20 OF 133 PASSES.** The poll's own log, read
+  at 16:38: **20 failures in 133 local passes** — **11** at a `tools/call`
+  deadline and **9** at a `server/discover` one — so **15.0%** of the
+  passes (the finding recorded 17 of about 124; the log keeps growing and
+  the ratio holds).
 - **THE LOCAL CALLS ON AN AWAKE MACHINE NEVER MISS IT.** 100 runs of the
   local agent's `docker.containers`: **max 5.039 s**, **1** over the
   agent's own 5-second IO timeout (the daemon did not answer, and the
   tool said so), **0** over 20 s. 100 runs of `cron.status`: **max
   0.094 s**, **0** over 20 s. The 20-second timeouts in the poll's log
   are therefore not the call being slow — they are the **machine not
-  answering within the estate's budget**, which is also why 8 of the 17
+  answering within the estate's budget**, which is also why 9 of the 20
   failures were a `server/discover` deadline: the agent did not even
   answer the first request.
-- **THE SAME ESTATE, THE SAME TIMEOUT, BEFORE AND AFTER.** With a local
-  agent that answers everything except `docker.containers`, on the live
-  estate:
-  - **before** (v0.64.0): `127.0.0.1 · failed: tools/call: no answer in
-    20s`, exit 1, and **no answer file at all** — the reading was
-    discarded, and the card went stale;
-  - **after** (this build): `127.0.0.1 · gathered · containers unknown:
-    docker.containers: no answer in 20s`, exit 1, and the answer is
-    kept — `cron` a value, `containers` `{"Unknown": "docker.containers:
-    no answer in 20s"}`, and the absences keep their own reasons.
+- **THE SAME ESTATE, THE SAME MISSED DEADLINE, TWENTY TIMES OVER.** With
+  a local agent that answers everything except `docker.containers`, on
+  the live estate, twenty passes each:
+  - **before** (v0.64.0), **20 of 20**: `127.0.0.1 · failed: tools/call:
+    no answer in 20s`, exit 1, and **no answer file at all** — the
+    reading was discarded and the card went stale;
+  - **after** (this build), **20 of 20**: `127.0.0.1 · gathered ·
+    containers unknown: docker.containers: no answer in 20s`, exit 1, and
+    the answer is **kept** — `cron` a value, `containers`
+    `{"Unknown": "docker.containers: no answer in 20s"}`, and the
+    absences keep their own reasons.
   - the frame it draws: `✓ cron 1 job ok` beside `⚠ containers
     unknown: docker.containers: no answer in 20s`.
+- **THE GAP STAYS SAID WHILE THE ANSWER IS FRESH.** A pass that finds
+  the answer it already has says so and names the gap with it: `127.0.0.1
+  · already fresh · containers unknown: docker.containers: no answer in
+  20s`, exit 1.
 
 ### Verified
 - `tools/gate.sh --full` green (14/14); the Rust suite and the pytest
