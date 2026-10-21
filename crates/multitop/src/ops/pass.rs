@@ -169,8 +169,14 @@ where
             return outcome;
         }
     };
-    let raw =
-        crate::ops::gather_raw(&mut session, now, crate::tasks::ops_poll::interval_s(every)).await;
+    // The rate the answer carries: the poll's own, unless the client missed
+    // its schedule - then the gap since the last answer, which is the truth.
+    let rate = cache::sampled_every_s(
+        crate::tasks::ops_poll::interval_s(every),
+        cache.read(&key).map(|r| r.at),
+        now,
+    );
+    let raw = crate::ops::gather_raw(&mut session, now, rate).await;
     if let Some(why) = session.broken() {
         outcome.why = Some(why.to_string());
         return outcome;

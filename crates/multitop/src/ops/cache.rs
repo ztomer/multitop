@@ -209,16 +209,29 @@ pub fn is_fresh(raw: &RawSnapshot, now: i64, every: Duration) -> bool {
 
 /// How much EARLIER than the poll's interval a host may be gathered.
 ///
-/// The scheduler that runs the pass ticks on its own clock, and a tick that
-/// lands a second early must not SKIP the gather: the pass would then wait a
-/// whole extra cycle, and the client's read rate would halve without
+/// The scheduler that runs the pass ticks on its own clock, and launchd's
+/// timer wheel has a granularity of its own (measured on this Mac on
+/// 2026-10-21: a 450 s `StartInterval` fired every 480 s). A tick that
+/// lands a second early must not SKIP the gather: the pass would then wait
+/// a whole extra cycle, and the client's read rate would halve without
 /// anything saying so.
 ///
 /// The slack is only ever taken OFF the interval - the client reads MORE
 /// often than the rule asks, never less - so it cannot weaken the rule it
 /// serves (DECISIONS D15: a client must read at least twice as often as the
 /// estate publishes).
-pub const DUE_SLACK_S: i64 = 30;
+pub const DUE_SLACK_S: i64 = 60;
+
+/// The rate an answer carries.
+///
+/// The poll's own interval - the rule's number - UNLESS the client missed
+/// its schedule, in which case the gap since the last answer is the truth,
+/// and the truth is what the answer says. A client that slept through a
+/// cycle says so, rather than carrying a rate it did not keep.
+#[must_use]
+pub fn sampled_every_s(configured: i64, previous_at: Option<i64>, now: i64) -> i64 {
+    previous_at.map_or(configured, |at| configured.max(now.saturating_sub(at)))
+}
 
 /// Whether a host is DUE: it has no answer, or its answer is older than the
 /// poll's interval.

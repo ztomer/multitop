@@ -31,9 +31,9 @@ if [ -f "$GOH/tui/lib.sh" ]; then
     # shellcheck source=/dev/null
     source "$GOH/tui/lib.sh"
 fi
-info() { printf '-> %s\n' "$*"; }
-ok() { printf '+ %s\n' "$*"; }
-die() { printf 'x %s\n' "$*" >&2; exit 1; }
+info() { printf -- '-> %s\n' "$*"; }
+ok() { printf -- '+ %s\n' "$*"; }
+die() { printf -- 'x %s\n' "$*" >&2; exit 1; }
 
 label="com.ztomer.multitop.ops-poll"
 plist="$HOME/Library/LaunchAgents/$label.plist"
@@ -41,7 +41,12 @@ support="$HOME/Library/Application Support/multitop"
 runner="$support/ops-poll-agent.sh"
 log_dir="$HOME/Library/Logs"
 log="$log_dir/multitop-ops-poll.log"
-interval=450
+# The scheduler's tick, a little under the poll's interval: launchd's timer
+# wheel added about 30 s to a 450 s `StartInterval` on this Mac (measured
+# 2026-10-21), which would put the client at 8 minutes a gather - the rate
+# the routines client has, and one step outside the rule's 7.5. At 420 s
+# the gathers land every 7 to 7.5 minutes, inside it.
+interval=420
 domain="gui/$(id -u)"
 
 uninstall() {

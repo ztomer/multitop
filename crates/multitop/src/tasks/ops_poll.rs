@@ -167,7 +167,15 @@ pub async fn poll<S, R, W, F, Fut>(
         let Some(s) = session.as_mut() else {
             continue;
         };
-        let raw = gather_raw(s, now(), interval_s(every)).await;
+        // The rate the answer carries: the poll's own, unless the client
+        // missed its schedule - then the gap since the last answer, which
+        // is the truth.
+        let rate = crate::ops::cache::sampled_every_s(
+            interval_s(every),
+            to.cache.read(&to.key).map(|r| r.at),
+            now(),
+        );
+        let raw = gather_raw(s, now(), rate).await;
         let broken = s.broken().map(ToString::to_string);
         let state = if let Some(why) = broken {
             session = None;

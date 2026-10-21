@@ -158,6 +158,31 @@ fn a_gather_is_due_a_little_before_the_interval_is_up() {
     );
 }
 
+/// **AN ANSWER SAYS WHEN THE CLIENT MISSED ITS SCHEDULE.** The rate an
+/// answer carries is the poll's own - the rule's number - unless the gap
+/// since the last answer is LONGER, in which case the gap is the truth, and
+/// the truth is what the answer says. A client that slept through a cycle
+/// must not carry a rate it did not keep: the age on the line cannot say it
+/// (DECISIONS D15).
+#[test]
+fn an_answer_carries_the_rate_the_client_actually_kept() {
+    assert_eq!(
+        sampled_every_s(EVERY, None, 1_000),
+        EVERY,
+        "the first answer carries the rule"
+    );
+    assert_eq!(
+        sampled_every_s(EVERY, Some(1_000), 1_420),
+        EVERY,
+        "a gather inside the rule carries the rule"
+    );
+    assert_eq!(
+        sampled_every_s(EVERY, Some(1_000), 1_600),
+        600,
+        "a missed cycle carries the truth"
+    );
+}
+
 /// A host the cache knows nothing about is due, and that is the whole of
 /// the first pass: the estate has never been asked.
 #[test]
