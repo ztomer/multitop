@@ -23,8 +23,16 @@ at the panel and the estate's fingerprint tools fired 0.3 a day against the
 shared tools' 87. It is now `multitop --ops-poll`, a pass the scheduler runs
 at twice the estate's publication rate, and what it finds is kept beside the
 config so the view shows the poll's answer instead of asking the estate
-again. The next open work is **A2.5**, the read-only screens over
-`/api/hosts` and `/api/health` through `PinnedTls`; then A3. The releases:
+again. **The rate is READ, not carried, since 2026-10-21** (servers ROADMAP
+E53): the server publishes its publication cadence with the verdict, and the
+client derives its rate from what it read, so a server that publishes faster
+than its clients read is a warning the client prints rather than a silent
+aliasing. **The Ops frame can be PRINTED since 2026-10-21** (servers ROADMAP
+O90): `multitop --ops-frame <host>` draws the frame the Ops view draws, from
+the client's own answers, so the other client's parity check can compare the
+two renderings without reading a terminal. The next open work is **A2.5**,
+the read-only screens over `/api/hosts` and `/api/health` through
+`PinnedTls`; then A3. The releases:
 v0.56.0 carried A2.4 and the installer's replace-by-rename fix (`2413764`),
 v0.57.0 carried the Ops view's ZFS section and the Android wrapper's move to
 Gradle 9.8.2 — the release table is at the end.

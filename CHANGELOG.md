@@ -7,6 +7,92 @@ This file starts at v0.47.0 — earlier history is in git (`git log`), and the
 per-defect record is `docs/detection-record.md`, which is the more useful
 document for anything before this point.
 
+## v0.62.0 — the rate is READ from the estate, and the Ops frame can be PRINTED _(2026-10-21)_
+
+### Changed — the client's sampling rate (servers ROADMAP E53)
+- **THE RATE WAS A NUMBER COPIED INTO THIS CLIENT.** `MAX_SAMPLING_INTERVAL_S`
+  (450 s) was half of a fifteen-minute publication, written down here, and
+  the due rule and the staleness threshold were written against it. The
+  estate's cron can move — and if it moved to every five minutes, this
+  client would have kept sampling every 7.5 minutes and **neither** of its
+  own staleness thresholds would have noticed. The server now publishes its
+  publication cadence with the verdict (`health://latest`, beside the age:
+  `cadence_s` and `cadence`), and this client **derives** its rate from
+  what it read: half of the cadence the server published.
+- **THE WARNING IS DRIVEN BY THE PUBLISHED CADENCE**, not by the local
+  copy: a client that samples slower than half the cadence the server
+  published says so where the verdict is shown — *"sampled every 15 min,
+  server publishes every 5 min: two publications behind"*. The age on the
+  line cannot say it: a verdict two publications behind looks exactly like
+  a fresh one.
+- **A CADENCE THE SERVER COULD NOT READ IS NOT A WARNING.** It is a gap in
+  the reading, not a fault: the client says the rate could not be read
+  (*"the cadence could not be read: this client keeps its rate (every 15
+  min)"*) and keeps the rate it had.
+- **THE STALENESS THRESHOLD FOLLOWS THE CADENCE TOO** — the published
+  cadence plus a grace for a suite that is still running — so a verdict is
+  stale against the estate's own publication, not against a number typed
+  here.
+- **THE CACHE CARRIES THE RULE AND THE TRUTH.** A kept answer holds the
+  rate the client KEEPS (the rule) and the rate the answer was TAKEN AT
+  (the rule, raised to the gap when the client missed its schedule). A
+  missed cycle is not a new rate: a client that missed one must not keep
+  sampling at half the rate for ever.
+
+### Added — the Ops frame can be printed (servers ROADMAP O90)
+- **`multitop --ops-frame <HOST>`** prints the Ops frame for one host,
+  uncoloured: the same lines the Ops view draws, from this client's own
+  answers (the cache the poll writes), and it asks the estate for nothing.
+  The host is named by the name in its `[[servers]]` entry or by its
+  address. The other client's parity check (`routines parity`) reads it
+  through `--monitor-cmd`, so the two renderings can be compared without
+  reading a terminal — the monitor draws its Ops view in its TUI and keeps
+  no copy of it, so the check had to read the monitor's screen and say out
+  loud that the rendered half was a stand-in.
+
+### Fixed — a machine that declares nothing is not a fault (servers ROADMAP E26)
+- **THE `vpn` LINE READ A HEALTHY MACHINE AS A FAULT.** The server's own
+  reason for not offering `net.egress` reads *"the machine's instance
+  declaration is missing or unreadable (…): its instances are unknown"*,
+  and the monitor repeated it. E26's rule is that a machine which declares
+  nothing has one instance — itself — and says so; the routines card says
+  *"1 stack: adguard_server · no declaration"*. The monitor now says what
+  it knows, in the card's words, and a declaration that EXISTS and could
+  not be read still keeps the server's own reason — that one IS a fault.
+
+### Measured, on the live estate (2026-10-21)
+- **THE CADENCE IS PUBLISHED, on all three hosts:** `cadence_s: 900`,
+  `cadence: "every 15 min"` (`.33`, `.90` and `.158`, read over ssh with
+  `resources/read health://latest`). The client's rate is therefore
+  **450 s**, and the answers say so: `rule_every_s: 450`.
+- **THE GATHERS A DAY: 221** per host — the launchd agent's tick is 390 s
+  and every tick finds a gather due (measured over six ticks:
+  **390–391 s** between them), against the rule's own floor of 192
+  (450 s).
+- **THE BYTES A DAY: 60.3 MB** across the estate, from **153,111 B**
+  (`.33`), **77,273 B** (`.90`) and **42,341 B** (`.158`) per gather —
+  measured with `python3 tools/measure_gather.py <label> <ssh-target>
+  <mcp-command>`, which asks the host's own `mcp_host` over ssh for exactly
+  the requests the gather makes and counts the bytes each reply crossed the
+  wire for.
+- **THE FRAME FOR A HOST WITH NO DECLARATION** (`.158`), from
+  `multitop --ops-frame pihole`:
+  `· vpn        no tunnel on this machine: adguard_server, no declaration`
+  — where it read *"no Docker on this machine: no daemon socket; the
+  machine's instance declaration is missing or unreadable
+  (/home/ztomer/prj/adguard_server/config/instances.tsv): its instances are
+  unknown"*. The machine's own facts are on the line above it
+  (`· stacks     adguard_server: 1 instance, no declaration`), and the
+  containers section still says whether the machine has Docker at all.
+
+### Verified
+- `tools/gate.sh --full` green (14/14); the Rust suite (1,794 tests across
+  the workspace) and the pytest suite as the gate of record ran them.
+- The other client's parity check now reads the monitor's RENDERED frame
+  (`routines parity --monitor-cmd "multitop --ops-frame"`): **23
+  differences across 3 hosts**, every one named, and the note that the
+  rendered half was a stand-in is gone.
+
 ## v0.61.1 — the poll's rate lands INSIDE the rule, whatever the scheduler does _(2026-10-21)_
 
 ### Fixed — the poll's schedule
