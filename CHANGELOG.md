@@ -52,8 +52,9 @@ document for anything before this point.
   the rule's rate.
 
 ### Verified
-- `tools/gate.sh --full` green; the Rust suite (1,217 tests in this crate),
-  the pytest suite and the coverage gate as the gate of record ran them.
+- `tools/gate.sh --full` green (14/14); the Rust suite (**1,772 tests**
+  across the workspace), the pytest suite and the coverage gate as the gate
+  of record ran them.
 - **Each new behaviour was proven RED first**: the interval, the warning on
   the line, the due rule, the pass that gathers what is due, and the view
   that shows the answer it already has each fail with an assertion when the
