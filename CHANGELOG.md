@@ -7,6 +7,35 @@ This file starts at v0.47.0 — earlier history is in git (`git log`), and the
 per-defect record is `docs/detection-record.md`, which is the more useful
 document for anything before this point.
 
+## v0.61.1 — the poll's rate lands INSIDE the rule, whatever the scheduler does _(2026-10-21)_
+
+### Fixed — the poll's schedule
+- **launchd's timer wheel has a granularity of its own.** Measured on this
+  Mac on 2026-10-21: a 420 s `StartInterval` fired **425 to 470 s** after
+  the last run, so the client's read rate was sometimes 7 minutes 50
+  seconds — outside the rule's 7.5, and the card would have said so on the
+  days it drifted. The agent's tick is now **390 s**, which puts every
+  gather between 6.5 and 7.5 minutes: inside the rule every time.
+- **THE DUE RULE FOLLOWS THE SCHEDULER.** The age a host must reach to be
+  gathered is now 90 s under the poll's interval, so a tick that lands early
+  still finds a gather DUE: the client's read rate cannot halve because a
+  second was lost.
+- **AN ANSWER SAYS WHEN THE CLIENT MISSED ITS SCHEDULE.** The rate an
+  answer carries is the poll's own — unless the gap since the last answer
+  is LONGER, in which case the gap is the truth. A client that slept
+  through a cycle says so, rather than carrying a rate it did not keep.
+
+### Measured, on the live estate (2026-10-21, after the fix)
+- **The gathers:** every **390–450 s** on `.33` (measured: 406 s between
+  two gathers), against the retired rate's 30 s.
+- **The answer carries 450 s**, so the aliasing warning stays silent
+  because the client IS inside the rule — and it fires the moment the
+  client is not.
+
+### Verified
+- `tools/gate.sh --full` green (14/14); the Rust suite (1,773 tests across
+  the workspace) and the pytest suite as the gate of record ran them.
+
 ## v0.61.0 — the Ops poll is a JOB: it runs whether or not anyone is watching _(2026-10-21)_
 
 ### Changed — the Ops poll (servers ROADMAP E36)
