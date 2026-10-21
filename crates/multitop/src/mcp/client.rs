@@ -132,10 +132,24 @@ impl<R: AsyncRead + Unpin, W: AsyncWrite + Unpin> Client<R, W> {
     ///
     /// servers ROADMAP E61: the list is the biggest thing this client pulls
     /// off a host, and it changes at a RELEASE - so it is kept between
-    /// sessions, keyed to the server's advertised version and to the set of
-    /// tools the server says it does not offer. BOTH are read from the LIVE
-    /// server on every session, so a release or a changed tool set asks the
-    /// server again; and the server's own `ttlMs` bounds the kept list.
+    /// sessions.
+    ///
+    /// servers ROADMAP E72: the kept list is checked against the SERVER'S
+    /// OWN WORD - the digest of the exact list `tools/list` answers, which
+    /// the server publishes in `server/discover` beside the absent map. A
+    /// digest that matches keeps the list, even across a release that
+    /// touched no tool table (four of the last ten releases did not, and
+    /// each of those cost the estate a whole catalogue for nothing); a
+    /// digest that does not match puts the kept list aside and the host is
+    /// asked again - which is how a table that moved WITHOUT a release is
+    /// caught at last.
+    ///
+    /// A server that publishes NO digest has said nothing about its list:
+    /// the kept list is then checked the older way (the version and the
+    /// absent set), and the answer says the digest was ABSENT, because an
+    /// absent fact is not an all-clear. The client does not re-list every
+    /// session in that case - that is the defect the digest closes, not a
+    /// new one.
     ///
     /// # Errors
     ///
@@ -190,26 +204,52 @@ impl<R: AsyncRead + Unpin, W: AsyncWrite + Unpin> Client<R, W> {
                 .filter_map(|(k, v)| Some((k.clone(), v.as_str()?.to_string())))
                 .collect();
         }
+        // The server's OWN WORD about the list it serves: the digest of the
+        // exact list `tools/list` answers, published beside the absent map
+        // (servers ROADMAP E72). A server that publishes none - one too old
+        // to know the field, or one publishing something that is not a
+        // digest - has said nothing about its list, and the client says so
+        // rather than drawing the absence as an all-clear.
+        let digest = d
+            .pointer(&format!(
+                "/_meta/{}",
+                catalogue::META_DIGEST.replace('/', "~1")
+            ))
+            .and_then(Value::as_str)
+            .filter(|s| catalogue::is_digest(s))
+            .map(str::to_string);
         // The tool list: the KEPT one when it is the list this server is
-        // offering now, the server's own list otherwise. Both halves of the
-        // key - the version and the absent set - were read from the LIVE
-        // server above, so a release or a changed tool set cannot hide
-        // behind a kept list.
+        // offering now, the server's own list otherwise. The check is made
+        // against the LIVE server's own word - the digest when it published
+        // one, the older key (the version and the absent set) when it did
+        // not - so a release that touched no tool table no longer costs a
+        // download, and a table that moved without a release is caught.
         let version = c.server.1.clone();
         let absent = catalogue::fingerprint(&c.absent);
-        match store.hit(&version, &absent) {
+        match store.hit(&version, &absent, digest.as_deref()) {
             catalogue::Hit::Current {
                 tools,
                 age_s,
                 ttl_s,
+                proof,
             } => {
                 c.tools = tools;
-                c.catalogue = catalogue::Catalogue::Kept { age_s, ttl_s };
+                c.catalogue = catalogue::Catalogue::Kept {
+                    age_s,
+                    ttl_s,
+                    proof,
+                };
             }
             catalogue::Hit::Missed(miss) => {
                 let listing = c.list_tools().await?;
                 let ttl_s = i64::try_from(listing.ttl_ms / catalogue::MS_PER_S).unwrap_or(i64::MAX);
-                if let Err(why) = store.store(&version, &absent, &listing.tools, listing.ttl_ms) {
+                if let Err(why) = store.store(
+                    &version,
+                    &absent,
+                    digest.as_deref(),
+                    &listing.tools,
+                    listing.ttl_ms,
+                ) {
                     crate::diag::report(&format!("the tool list was not kept: {why}"));
                 }
                 c.tools = listing.tools;

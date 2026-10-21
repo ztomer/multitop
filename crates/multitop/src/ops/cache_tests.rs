@@ -109,7 +109,7 @@ fn the_cache_directory_holds_the_answers_and_nothing_else() {
     cache.write(key, &raw(2_000)).unwrap();
     let store = cache.catalogue_store(key);
     store
-        .store("1.99.19", "", &["health.list".to_string()], 3_600_000)
+        .store("1.99.19", "", None, &["health.list".to_string()], 3_600_000)
         .unwrap();
 
     let mut named: Vec<String> = std::fs::read_dir(dir.path().join("ops"))
@@ -208,7 +208,7 @@ fn the_kept_list_is_not_a_file_the_other_client_could_take_for_an_answer() {
     cache.write(key, &raw(1_000)).unwrap();
     let store = cache.catalogue_store(key);
     store
-        .store("1.99.19", "", &["cron.status".to_string()], 3_600_000)
+        .store("1.99.19", "", None, &["cron.status".to_string()], 3_600_000)
         .expect("the list is kept");
 
     // The other client's rule: the files of the cache directory that end in

@@ -1,28 +1,36 @@
 //! The catalogue's own rules, proved where they can be got wrong.
 //!
-//! Four things, and each is a way the kept list could lie:
+//! Five things, and each is a way the kept list could lie:
 //!
-//! - the KEY: the list is kept under the server's advertised version and the
-//!   set of tools it says it does not offer, and under nothing else;
+//! - the KEY: the server's own word - the DIGEST of the list it serves -
+//!   when the server publishes one, and the version and the absent set
+//!   when it does not;
 //! - the WINDOW: the server's own `ttlMs` bounds the entry, and a window of
 //!   zero is a live fact with nothing to keep;
 //! - the SET: the absent set is a set, so the order the server published it
 //!   in is not part of what it says;
 //! - the WHOLE LIST: what is kept is every tool the server listed, so a
-//!   tool the cache omits cannot vanish from the panel.
+//!   tool the cache omits cannot vanish from the panel;
+//! - the ABSENCE: a digest the client cannot check says the fact is
+//!   absent, and never means "the copy is fine".
 
 use std::collections::HashMap;
 
-use super::catalogue::{fingerprint, Entry, Hit, Miss, Store};
+use super::catalogue::{fingerprint, is_digest, Entry, Hit, Miss, Proof, Store};
 
 /// The window the estate's servers give a list: an hour, in milliseconds.
 const TTL_MS: u64 = 3_600_000;
+/// A digest in the estate's spelling.
+const DIGEST: &str = "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
+/// Another digest, for a catalogue that moved.
+const OTHER: &str = "sha256:fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210";
 
 /// An entry, as the store keeps one.
 fn entry(version: &str, absent: &str, ttl_ms: u64, fetched_at: i64) -> Entry {
     Entry {
         version: version.to_string(),
         absent: absent.to_string(),
+        digest: None,
         tools: vec!["cron.status".to_string(), "health.list".to_string()],
         ttl_ms,
         fetched_at,
@@ -110,10 +118,13 @@ fn the_kept_list_is_the_whole_list() {
     let store = Store::at(Some(dir.path().join("catalogue.json")));
     let tools: Vec<String> = (0..40).map(|i| format!("tool.{i}")).collect();
     store
-        .store("1.99.19", "", &tools, TTL_MS)
+        .store("1.99.19", "", None, &tools, TTL_MS)
         .expect("the list is kept");
-    let Hit::Current { tools: kept, .. } = store.hit("1.99.19", "") else {
-        panic!("the kept list was not used: {:?}", store.hit("1.99.19", ""));
+    let Hit::Current { tools: kept, .. } = store.hit("1.99.19", "", None) else {
+        panic!(
+            "the kept list was not used: {:?}",
+            store.hit("1.99.19", "", None)
+        );
     };
     assert_eq!(kept, tools, "the kept list lost a tool");
 }
@@ -126,7 +137,10 @@ fn a_file_that_cannot_be_read_is_no_list() {
     let path = dir.path().join("catalogue.json");
     std::fs::write(&path, "{not json at all").unwrap();
     let store = Store::at(Some(path));
-    assert!(matches!(store.hit("1.99.19", ""), Hit::Missed(Miss::None)));
+    assert!(matches!(
+        store.hit("1.99.19", "", None),
+        Hit::Missed(Miss::None)
+    ));
 }
 
 /// **A LIST FOR ANOTHER SERVER IS NOT USED, AND THE CLIENT IS TOLD WHY.**
@@ -138,18 +152,19 @@ fn a_list_for_another_server_is_not_used() {
         .store(
             "1.99.19",
             "docker.containers",
+            None,
             &["cron.status".to_string()],
             TTL_MS,
         )
         .expect("the list is kept");
-    match store.hit("1.99.20", "docker.containers") {
+    match store.hit("1.99.20", "docker.containers", None) {
         Hit::Missed(Miss::Released { kept, now }) => {
             assert_eq!(kept, "1.99.19");
             assert_eq!(now, "1.99.20");
         }
         other => panic!("a release must put the kept list aside: {other:?}"),
     }
-    match store.hit("1.99.19", "docker.containers,zfs.health") {
+    match store.hit("1.99.19", "docker.containers,zfs.health", None) {
         Hit::Missed(Miss::Reshaped { kept, now }) => {
             assert_eq!(kept, "docker.containers");
             assert_eq!(now, "docker.containers,zfs.health");
@@ -164,7 +179,7 @@ fn a_list_past_its_window_is_not_used() {
     let dir = tempfile::tempdir().unwrap();
     let store = Store::at(Some(dir.path().join("catalogue.json")));
     store
-        .store("1.99.19", "", &["cron.status".to_string()], TTL_MS)
+        .store("1.99.19", "", None, &["cron.status".to_string()], TTL_MS)
         .expect("the list is kept");
     // The entry was taken an hour and a half ago, and the server's window is
     // an hour.
@@ -180,7 +195,7 @@ fn a_list_past_its_window_is_not_used() {
         serde_json::to_string(&old).unwrap(),
     )
     .unwrap();
-    match store.hit("1.99.19", "") {
+    match store.hit("1.99.19", "", None) {
         Hit::Missed(Miss::Expired { age_s, ttl_s }) => {
             assert!(age_s >= 5_400, "the age is the truth: {age_s}");
             assert_eq!(ttl_s, 3_600);
@@ -197,7 +212,116 @@ fn a_server_that_names_no_version_keeps_nothing() {
     let dir = tempfile::tempdir().unwrap();
     let store = Store::at(Some(dir.path().join("catalogue.json")));
     store
-        .store("", "", &["cron.status".to_string()], TTL_MS)
+        .store("", "", None, &["cron.status".to_string()], TTL_MS)
         .expect("the write is refused, not the process");
-    assert!(matches!(store.hit("", ""), Hit::Missed(Miss::None)));
+    assert!(matches!(store.hit("", "", None), Hit::Missed(Miss::None)));
+}
+
+/// **THE DIGEST IS THE KEY, WHEN THE SERVER PUBLISHES ONE.** The digest
+/// is the server's own word about the list it serves: a digest that
+/// MATCHES keeps the list, even when the version moved - a release that
+/// touched no tool table is not a change to the list - and a digest that
+/// does not match puts the list aside.
+#[test]
+fn the_digest_is_the_key_when_the_server_publishes_one() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = Store::at(Some(dir.path().join("catalogue.json")));
+    store
+        .store(
+            "1.99.19",
+            "",
+            Some(DIGEST),
+            &["cron.status".to_string()],
+            TTL_MS,
+        )
+        .expect("the list is kept");
+    // The same digest, and a NEW version: the release touched no tool.
+    let Hit::Current { proof, .. } = store.hit("1.99.20", "", Some(DIGEST)) else {
+        panic!(
+            "the kept list was not used: {:?}",
+            store.hit("1.99.20", "", Some(DIGEST))
+        );
+    };
+    assert_eq!(
+        proof,
+        Proof::Digest {
+            digest: DIGEST.to_string()
+        }
+    );
+    // Another digest: the table moved.
+    match store.hit("1.99.20", "", Some(OTHER)) {
+        Hit::Missed(Miss::Changed { kept, now }) => {
+            assert_eq!(kept, DIGEST);
+            assert_eq!(now, OTHER);
+        }
+        other => panic!("a changed digest must put the kept list aside: {other:?}"),
+    }
+}
+
+/// **A KEPT LIST TAKEN WITHOUT A DIGEST IS NOT USED AGAINST ONE.** The
+/// client cannot check a list it has no digest for, and a list it cannot
+/// check is not a list it may use: it is put aside, and the server is
+/// asked again - once, and then the digest is remembered with the list.
+#[test]
+fn a_kept_list_taken_without_a_digest_is_not_used_against_one() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = Store::at(Some(dir.path().join("catalogue.json")));
+    store
+        .store("1.99.19", "", None, &["cron.status".to_string()], TTL_MS)
+        .expect("the list is kept");
+    assert!(matches!(
+        store.hit("1.99.19", "", Some(DIGEST)),
+        Hit::Missed(Miss::Uncheckable)
+    ));
+}
+
+/// **A DIGEST THE CLIENT CANNOT CHECK SAYS THE FACT IS ABSENT.** A server
+/// that publishes no digest has said nothing about its list: the kept list
+/// is checked the older way, and the answer says the digest was absent -
+/// which is NOT the same as saying the copy is fine.
+#[test]
+fn a_digest_the_client_cannot_check_says_the_fact_is_absent() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = Store::at(Some(dir.path().join("catalogue.json")));
+    store
+        .store(
+            "1.99.19",
+            "",
+            Some(DIGEST),
+            &["cron.status".to_string()],
+            TTL_MS,
+        )
+        .expect("the list is kept");
+    let Hit::Current { proof, .. } = store.hit("1.99.19", "", None) else {
+        panic!(
+            "the kept list was not used: {:?}",
+            store.hit("1.99.19", "", None)
+        );
+    };
+    assert_eq!(proof, Proof::Absent);
+}
+
+/// **ONLY THE ESTATE'S SPELLING IS A DIGEST.** A digest without its
+/// algorithm is a number nobody can check, and one in the wrong shape is
+/// not a digest at all: the client says the fact is absent rather than
+/// comparing strings it does not understand.
+#[test]
+fn only_the_estates_spelling_is_a_digest() {
+    assert!(is_digest(DIGEST));
+    assert!(!is_digest("0123456789abcdef"), "no algorithm, no digest");
+    assert!(!is_digest("sha256:"), "no hex, no digest");
+    assert!(!is_digest("md5:0123456789abcdef"), "another algorithm, no");
+    assert!(!is_digest(&format!("sha256:{}", "z".repeat(64))));
+    assert!(
+        !is_digest(&format!("sha256:{}", "A".repeat(64))),
+        "not the estate's hex"
+    );
+    assert!(
+        !is_digest(&format!("sha256:{}", "a".repeat(63))),
+        "too short"
+    );
+    assert!(
+        !is_digest(&format!("sha256:{}", "a".repeat(65))),
+        "too long"
+    );
 }

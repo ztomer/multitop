@@ -6,6 +6,17 @@ use std::sync::{Arc, Mutex};
 use serde_json::{json, Value};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader, DuplexStream};
 
+/// A catalogue digest in the estate's spelling: the algorithm, a colon,
+/// and the hex.
+///
+/// The server's word about the list it serves (servers ROADMAP E70), and
+/// the word a client keeps a list against.
+pub const DIGEST: &str = "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
+
+/// A second digest, for a catalogue that moved.
+pub const OTHER_DIGEST: &str =
+    "sha256:fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210";
+
 /// How to answer one method.
 #[derive(Clone)]
 pub enum Reply {
@@ -75,6 +86,19 @@ pub fn discover_absent_as(
 pub fn discover_as(versions: &[&str], name: &str, version: &str) -> Value {
     let mut d = discover(versions);
     d["_meta"]["io.modelcontextprotocol/serverInfo"] = json!({ "name": name, "version": version });
+    d
+}
+
+/// A `server/discover` answer that also publishes the catalogue's DIGEST.
+///
+/// The digest is the server's own word about the list `tools/list`
+/// answers (servers ROADMAP E70). A fake that could not change it could
+/// not show what the digest does to a kept list - and a fake that could
+/// not leave it out could not show what its ABSENCE does either.
+#[must_use]
+pub fn discover_digest_as(versions: &[&str], name: &str, version: &str, digest: &str) -> Value {
+    let mut d = discover_as(versions, name, version);
+    d["_meta"][super::catalogue::META_DIGEST] = json!(digest);
     d
 }
 

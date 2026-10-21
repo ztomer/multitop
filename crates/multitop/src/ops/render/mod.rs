@@ -19,7 +19,7 @@ pub mod sections;
 use multitop_agent::fmt::center_header;
 use multitop_agent::palette_view::PaletteView;
 
-use super::{Catalogue, Miss, OpsState, Part};
+use super::{Catalogue, Miss, OpsState, Part, Proof};
 
 /// Section names are padded to this, so the summaries line up. It is the
 /// width of the longest one, `containers`.
@@ -109,14 +109,32 @@ fn catalogue_note(c: &Catalogue) -> String {
         Catalogue::Listed { ttl_s } => {
             format!("tool list: from the server (window {})", span(*ttl_s))
         }
-        Catalogue::Kept { age_s, ttl_s } => format!(
-            "tool list: kept {} old (window {})",
+        Catalogue::Kept {
+            age_s,
+            ttl_s,
+            proof,
+        } => format!(
+            "tool list: kept {} old (window {}), {}",
             span(*age_s),
-            span(*ttl_s)
+            span(*ttl_s),
+            proof_note(proof)
         ),
         Catalogue::Relisted { miss, .. } => {
             format!("tool list: re-listed, {}", miss_reason(miss))
         }
+    }
+}
+
+/// How the kept list was checked, in words.
+///
+/// The distinction is the point (servers ROADMAP E72): the server's digest
+/// MATCHING is the server's own word, and a digest that was ABSENT is a
+/// fact this client could not check - which is not the same as saying the
+/// copy is fine. So the line says which of the two it was.
+fn proof_note(proof: &Proof) -> String {
+    match proof {
+        Proof::Digest { .. } => "the server's digest matches".to_string(),
+        Proof::Absent => "the server published no digest".to_string(),
     }
 }
 
@@ -133,6 +151,8 @@ fn miss_reason(miss: &Miss) -> String {
             span(*age_s),
             span(*ttl_s)
         ),
+        Miss::Changed { .. } => "the server's catalogue digest changed".to_string(),
+        Miss::Uncheckable => "the kept list carried no digest to check against".to_string(),
     }
 }
 

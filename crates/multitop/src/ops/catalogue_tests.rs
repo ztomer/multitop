@@ -8,7 +8,7 @@
 
 use super::render::render;
 use super::tests::{pal, plain};
-use super::{Catalogue, Miss, OpsState, Part, Snapshot};
+use super::{Catalogue, Miss, OpsState, Part, Proof, Snapshot};
 
 const NOW: i64 = 1_790_170_000;
 
@@ -60,6 +60,9 @@ fn the_frame_says_where_the_tool_list_came_from() {
     s.catalogue = Catalogue::Kept {
         age_s: 12 * 60,
         ttl_s: 3_600,
+        proof: Proof::Digest {
+            digest: "sha256:0123".to_string(),
+        },
     };
     let f = frame(s);
     assert!(
@@ -121,5 +124,67 @@ fn the_frame_says_the_list_came_from_the_server() {
         f.iter()
             .any(|l| l.contains("tool list: from the server (window 1h)")),
         "the frame does not say where the list came from: {f:?}"
+    );
+}
+
+/// **THE PANEL SAYS THE DIGEST WAS CHECKED.** A kept list is the server's
+/// list only if the server says so, and the digest is how it says so: the
+/// panel has to say the check happened, or a reader cannot tell a checked
+/// copy from an unchecked one.
+#[test]
+fn the_frame_says_the_digest_was_checked() {
+    let mut s = snapshot();
+    s.catalogue = Catalogue::Kept {
+        age_s: 12 * 60,
+        ttl_s: 3_600,
+        proof: Proof::Digest {
+            digest: "sha256:0123".to_string(),
+        },
+    };
+    let f = frame(s);
+    assert!(
+        f.iter()
+            .any(|l| l.contains("tool list: kept 12m old (window 1h), the server's digest matches")),
+        "the frame does not say the server's digest matched: {f:?}"
+    );
+}
+
+/// **A DIGEST THAT WAS ABSENT IS SAID TO BE ABSENT.** The server published
+/// none, so the kept copy was checked the older way - and the panel has to
+/// say that, because a check that did not happen is not an all-clear.
+#[test]
+fn the_frame_says_the_digest_was_absent() {
+    let mut s = snapshot();
+    s.catalogue = Catalogue::Kept {
+        age_s: 12 * 60,
+        ttl_s: 3_600,
+        proof: Proof::Absent,
+    };
+    let f = frame(s);
+    assert!(
+        f.iter()
+            .any(|l| l.contains("the server published no digest")),
+        "the frame does not say the digest was absent: {f:?}"
+    );
+}
+
+/// **A CHANGED DIGEST IS SAID TOO.** The kept list was for another
+/// catalogue, so it was not used - and the frame says the server's own
+/// word moved.
+#[test]
+fn the_frame_says_the_digest_changed() {
+    let mut s = snapshot();
+    s.catalogue = Catalogue::Relisted {
+        miss: Miss::Changed {
+            kept: "sha256:0123".into(),
+            now: "sha256:4567".into(),
+        },
+        ttl_s: 3_600,
+    };
+    let f = frame(s);
+    assert!(
+        f.iter()
+            .any(|l| l.contains("tool list: re-listed, the server's catalogue digest changed")),
+        "the frame does not say the digest changed: {f:?}"
     );
 }

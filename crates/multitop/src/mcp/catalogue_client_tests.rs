@@ -2,19 +2,28 @@
 //!
 //! servers ROADMAP E61: the list is the biggest thing this client pulls off
 //! a host, and it changes at a RELEASE - so it is kept between sessions,
-//! keyed to the server's advertised version and to the set of tools the
-//! server says it does not offer.
+//! keyed to what the server says about the list it serves.
 //!
-//! Four things are proved here, and each is a way the kept list could lie:
+//! servers ROADMAP E72: the key is the server's OWN WORD - the digest of
+//! the exact list `tools/list` answers, published in `server/discover`.
+//! The version and the absent set were a GUESS about the list, and the
+//! guess was wrong often enough to measure: it re-listed on every release,
+//! including the four of the last ten that touched no tool table at all,
+//! and it could not see a table that moved without a release. The digest
+//! half of that - and what the client does when the server publishes no
+//! digest at all - is proved in `catalogue_digest_tests.rs`.
+//!
+//! What is proved here, and each is a way the kept list could lie:
 //!
 //! - the kept list is the WHOLE list: a tool the cache omits may not
 //!   vanish from the panel, and the cache is an optimisation, never a
 //!   filter;
-//! - a RELEASE asks the server again, because the version moved;
-//! - a host that gained or lost a tool asks the server again, because the
-//!   absent set moved;
+//! - a RELEASE asks the server again, when the server publishes no digest;
+//! - a host that gained or lost a tool asks the server again, when the
+//!   server publishes no digest;
 //! - a kept list past the window the server gave is not used at all, and
-//!   the client says why.
+//!   the client says why;
+//! - a server that names no version keeps nothing at all.
 
 use std::time::Duration;
 
@@ -102,7 +111,7 @@ async fn the_client_says_where_the_list_came_from() {
     let (r, w, _) = serve(server("1.99.19"));
     let second = Client::connect_with(r, w, T, &store).await.unwrap();
     match second.catalogue {
-        Catalogue::Kept { age_s, ttl_s } => {
+        Catalogue::Kept { age_s, ttl_s, .. } => {
             assert!(age_s >= 0, "the age is the truth: {age_s}");
             assert_eq!(ttl_s, 3_600, "the window is the server's own");
         }

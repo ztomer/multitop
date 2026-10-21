@@ -61,6 +61,8 @@ pub use status::*;
 pub use crate::mcp::catalogue::Catalogue;
 /// The reasons a kept tool list was not used.
 pub use crate::mcp::catalogue::Miss;
+/// How the kept tool list was checked against the server's own word.
+pub use crate::mcp::catalogue::Proof;
 
 use std::time::Duration;
 

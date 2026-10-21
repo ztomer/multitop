@@ -18,5 +18,9 @@ mod catalogue_tests;
 mod catalogue_client_tests;
 
 #[cfg(test)]
+#[path = "catalogue_digest_tests.rs"]
+mod catalogue_digest_tests;
+
+#[cfg(test)]
 #[path = "client_tests.rs"]
 mod tests;
