@@ -73,6 +73,30 @@ pub const SUITE_INTERVAL_MINUTES: i64 = 15;
 /// verdict is not a current answer about the machine - which is the whole
 /// reason the age is published.
 pub const HEALTH_STALE_AFTER_S: i64 = (SUITE_INTERVAL_MINUTES + 5) * 60;
+/// The longest a client may go between reads before its verdict can be two
+/// publications behind: half the publication interval, in seconds.
+///
+/// DECISIONS D15 (owner, 2026-10-20): a client that samples at the rate
+/// the estate publishes can ALIAS - its read can land just before a
+/// publication and then wait a whole cycle, so its verdict is two
+/// publications behind the truth. A client that reads slower than this
+/// says so in its answer rather than in silence.
+pub const MAX_SAMPLING_INTERVAL_S: i64 = (SUITE_INTERVAL_MINUTES * 60) / 2;
+
+/// The warning the health section carries when this client samples the
+/// published verdict too slowly.
+///
+/// The age on the line cannot say it: a verdict that is two publications
+/// behind looks exactly like one that is fresh.
+#[must_use]
+pub fn sampling_warning(interval_s: i64) -> Option<String> {
+    (interval_s > MAX_SAMPLING_INTERVAL_S).then(|| {
+        format!(
+            "sampled every {} min: the verdict can be two publications behind",
+            interval_s / 60
+        )
+    })
+}
 /// The tool that answers about a host's ZFS pools: their state, their vdev
 /// tree, and what ZFS says to do about them.
 pub const ZFS_TOOL: &str = "zfs.health";

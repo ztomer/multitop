@@ -242,6 +242,43 @@ fn the_stale_threshold_is_the_estates_own_cadence() {
     assert!(h.is_stale(), "past the threshold is stale");
 }
 
+/// **THE CLIENT SAMPLES AT TWICE THE PUBLICATION RATE.** DECISIONS D15
+/// (owner, 2026-10-20): a client that samples at the rate the estate
+/// publishes can ALIAS - its read can land just before a publication and
+/// then wait a whole cycle, so its verdict is two publications behind the
+/// truth.
+#[test]
+fn the_sampling_rule_is_twice_the_publication_rate() {
+    assert_eq!(SUITE_INTERVAL_MINUTES, 15, "the estate publishes every 15");
+    assert_eq!(
+        MAX_SAMPLING_INTERVAL_S, 450,
+        "half the publication interval"
+    );
+    // This client's poll is faster than that already.
+    assert!(
+        crate::tasks::ops_poll::OPS_POLL.as_secs() <= MAX_SAMPLING_INTERVAL_S as u64,
+        "the Ops poll samples faster than the rule allows"
+    );
+}
+
+/// **A client that samples TOO SLOWLY says so**, in its answer, where the
+/// verdict is shown - not in silence. The age on the line cannot say it: a
+/// verdict that is two publications behind looks exactly like one that is
+/// fresh.
+#[test]
+fn a_client_that_samples_too_slowly_says_so_in_its_answer() {
+    let warning = sampling_warning(15 * 60).expect("15 minutes is too slow");
+    assert!(warning.contains("15 min"), "{warning}");
+    assert!(
+        warning.contains("two publications behind"),
+        "the warning does not say what it means: {warning}"
+    );
+    assert!(
+        sampling_warning(450).is_none(),
+        "7.5 minutes is the rule, and says nothing"
+    );
+}
+
 /// A check the suite does not run, and a check with no instance at all,
 /// are both matched by the suite's own list.
 #[test]

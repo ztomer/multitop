@@ -13,6 +13,7 @@
 //! card says `containers`, is a view that disagrees with the card about the
 //! same machine in the same minute (servers ROADMAP O92).
 
+pub mod health;
 pub mod sections;
 
 use multitop_agent::fmt::center_header;

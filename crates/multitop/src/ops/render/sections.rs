@@ -10,11 +10,11 @@
 use std::fmt::Write as _;
 
 use super::super::model::{
-    amount, load_text, memory_amount, Alert, Check, Container, Disk, Egress, Health, Job, Pool,
-    Tunnel,
+    amount, load_text, memory_amount, Alert, Container, Disk, Egress, Job, Pool, Tunnel,
 };
 use super::super::status::{DockerHealth, DockerState, Severity, Verdict};
 use super::super::{Part, Snapshot};
+use super::health::health;
 use super::{age, count, not_ready, Frame, Tone};
 
 /// The share used at which a filesystem is a fault, as the estate's card
@@ -125,57 +125,6 @@ fn machine(f: &mut Frame<'_>, s: &Snapshot) {
 /// "all healthy" over an empty set is a claim about nothing.
 fn nothing(f: &mut Frame<'_>, label: &str, text: &str) {
     f.line(Tone::Quiet, label, text);
-}
-
-/// The machine's health: the PUBLISHED verdict, and how old it is.
-///
-/// The verdict is read, not run (servers ROADMAP E12), so it is as old as
-/// the estate's last suite run - and the age is on the line, because a
-/// verdict that cannot be dated is a claim nobody can check. A verdict that
-/// is too old says so; a machine that published none says so; neither is
-/// ever an all-clear.
-fn health(f: &mut Frame<'_>, health: &Health, _now: i64) {
-    if health.checks.is_empty() {
-        f.line(
-            Tone::Warn,
-            "health",
-            "no verdict published: nothing has run on this machine",
-        );
-        return;
-    }
-    let age = health.oldest_age.as_deref().unwrap_or("of unknown age");
-    let bad: Vec<&Check> = health.checks.iter().filter(|c| !c.ok).collect();
-    if bad.is_empty() {
-        let stale = health.is_stale();
-        let detail = if stale {
-            format!("{} ok · {age} · stale", count(health.checks.len(), "check"))
-        } else {
-            format!("{} ok · {age}", count(health.checks.len(), "check"))
-        };
-        f.line(
-            if stale { Tone::Warn } else { Tone::Good },
-            "health",
-            &detail,
-        );
-        return;
-    }
-    f.line(
-        Tone::Bad,
-        "health",
-        &format!("{} of {} failing · {age}", bad.len(), health.checks.len()),
-    );
-    for c in bad {
-        f.item(&format!(
-            "{}  rc {}, {}",
-            check_name(&c.name),
-            c.rc,
-            c.age.as_deref().unwrap_or("of unknown age")
-        ));
-    }
-}
-
-fn check_name(name: &str) -> &str {
-    name.strip_prefix("native:").unwrap_or(name)
 }
 
 /// The machine's cron: every instance's jobs, and the trouble under the
