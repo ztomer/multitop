@@ -14,7 +14,8 @@ fn health_answer() -> Value {
     json!({"checks": [
         {"instance": "media_server", "check": "native:check_disk_space", "ok": true, "rc": 0, "ms": 128, "ts": NOW - 600, "age_s": 600, "age": "10 min ago"},
         {"instance": "media_server", "check": "native:check_vpn_leak", "ok": false, "rc": 1, "ms": 24003, "ts": NOW - 900, "age_s": 900, "age": "15 min ago"},
-    ], "oldest_age_s": 900, "oldest_age": "15 min ago"})
+    ], "oldest_age_s": 900, "oldest_age": "15 min ago",
+    "cadence_s": 900, "cadence": "every 15 min"})
 }
 
 /// The machine's suite: the two checks above are in it.
@@ -113,7 +114,7 @@ async fn gather_asks_only_what_the_host_lists_and_one_failure_hides_nothing() {
     let mut client = Client::connect(rd, wr, Duration::from_secs(2))
         .await
         .unwrap();
-    let s = gather(&mut client, NOW, MAX_SAMPLING_INTERVAL_S).await;
+    let s = gather(&mut client, NOW, Previous::default()).await;
     assert_eq!(s.containers, Part::Absent("no Docker on this host".into()));
     assert!(matches!(s.health, Part::Ready(ref h) if h.checks.len() == 2));
     assert!(matches!(s.alerts, Part::Ready(ref v) if v.len() == 2));
@@ -136,7 +137,7 @@ async fn gather_asks_only_what_the_host_lists_and_one_failure_hides_nothing() {
     let mut client = Client::connect(rd, wr, Duration::from_secs(2))
         .await
         .unwrap();
-    let s = gather(&mut client, NOW, MAX_SAMPLING_INTERVAL_S).await;
+    let s = gather(&mut client, NOW, Previous::default()).await;
     assert_eq!(
         s.containers,
         Part::Failed("docker is not answering (-32603)".into())
@@ -147,7 +148,7 @@ async fn gather_asks_only_what_the_host_lists_and_one_failure_hides_nothing() {
     let mut client = Client::connect(rd, wr, Duration::from_secs(2))
         .await
         .unwrap();
-    let s = gather(&mut client, NOW, MAX_SAMPLING_INTERVAL_S).await;
+    let s = gather(&mut client, NOW, Previous::default()).await;
     assert!(
         matches!(s.health, Part::Absent(_))
             && matches!(s.cron, Part::Absent(_))
@@ -159,7 +160,7 @@ pub(super) fn snapshot() -> Snapshot {
     Snapshot {
         server: ("mcp_host".into(), "1.65.2".into()),
         at: NOW - 12,
-        sampled_every_s: MAX_SAMPLING_INTERVAL_S,
+        sampled_every_s: FALLBACK_INTERVAL_S,
         health: Part::Ready(parse_health(&health_answer()).unwrap()),
         vpn: Part::Absent("this host lists no net.egress".into()),
         cron: Part::Ready(parse_cron(&cron_answer()).unwrap()),
@@ -242,6 +243,10 @@ fn a_clean_host_is_five_lines_and_absences_are_stated_not_alarmed() {
         }],
         oldest_age: Some("13 min ago".into()),
         oldest_age_s: Some(780),
+        cadence: Cadence {
+            secs: Some(900),
+            words: Some("every 15 min".into()),
+        },
     });
     s.cron = Part::Ready(vec![]);
     s.containers = Part::Absent("no Docker on this host".into());
@@ -407,6 +412,10 @@ fn an_empty_section_says_so_and_never_claims_all_is_well() {
         checks: Vec::new(),
         oldest_age: Some("with no timestamp".into()),
         oldest_age_s: None,
+        cadence: Cadence {
+            secs: Some(900),
+            words: Some("every 15 min".into()),
+        },
     });
     s.cron = Part::Ready(Vec::new());
     s.containers = Part::Ready(Vec::new());

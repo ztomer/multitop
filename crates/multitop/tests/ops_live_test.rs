@@ -71,7 +71,7 @@ async fn frame(server: &Server, cols: usize) -> Option<Vec<String>> {
     let snapshot = gather(
         &mut session,
         multitop::tasks::ops_poll::now_epoch(),
-        multitop::ops::MAX_SAMPLING_INTERVAL_S,
+        multitop::ops::Previous::default(),
     )
     .await;
     let state = OpsState::Ready(Box::new(snapshot));

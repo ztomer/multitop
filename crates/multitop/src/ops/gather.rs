@@ -24,15 +24,17 @@ use crate::mcp::client::Client;
 
 /// Ask a connected server for every section at `now` (epoch seconds).
 ///
-/// `sampled_every_s` is this client's own sampling rate, and it travels with
-/// the answer: a client that samples slower than half the publication
-/// interval says so where the verdict is shown (DECISIONS D15).
-pub async fn gather<R, W>(c: &mut Client<R, W>, now: i64, sampled_every_s: i64) -> Snapshot
+/// `prev` is what this client knew before the gather: when the last
+/// answer was taken, and at what rate. The rate this answer carries is
+/// DERIVED from the cadence the server published with the verdict
+/// (servers ROADMAP E53) - a client that samples slower than half the
+/// publication rate says so where the verdict is shown (DECISIONS D15).
+pub async fn gather<R, W>(c: &mut Client<R, W>, now: i64, prev: super::rate::Previous) -> Snapshot
 where
     R: AsyncRead + Unpin,
     W: AsyncWrite + Unpin,
 {
-    parse_snapshot(&gather_raw(c, now, sampled_every_s).await)
+    parse_snapshot(&gather_raw(c, now, prev).await)
 }
 
 /// Ask a connected server for every section, and keep the ANSWERS.
@@ -44,7 +46,7 @@ where
 pub async fn gather_raw<R, W>(
     c: &mut Client<R, W>,
     now: i64,
-    sampled_every_s: i64,
+    prev: super::rate::Previous,
 ) -> cache::RawSnapshot
 where
     R: AsyncRead + Unpin,
@@ -93,9 +95,20 @@ where
     } else {
         cache::Raw::Absent(c.absent_reason("alerts.since", "this host lists no alerts.since"))
     };
+    // The rate the answer carries is DERIVED, from the cadence the server
+    // published with the verdict (servers ROADMAP E53). A server that
+    // could not read its own cadence leaves the client with the rate it
+    // was keeping - and the gap since the last answer, when the client
+    // missed its schedule, is the truth about the rate it kept.
+    let rule_every_s = cadence_of(&health)
+        .map(super::rate::rate_for)
+        .or(prev.rate_s)
+        .unwrap_or(super::rate::FALLBACK_INTERVAL_S);
+    let sampled_every_s = super::rate::carried_rate(rule_every_s, prev.at, now);
     cache::RawSnapshot {
         server: c.server.clone(),
         at: now,
+        rule_every_s,
         sampled_every_s,
         health,
         health_list,
@@ -107,6 +120,15 @@ where
         facts,
         alerts,
     }
+}
+
+/// The cadence the server published with the verdict, in seconds.
+///
+/// The server's own number, read from the answer it gave. `None` when the
+/// server could not read its own cadence - and when the verdict itself
+/// could not be read, because then there is nothing to read it from.
+fn cadence_of(health: &cache::Raw) -> Option<i64> {
+    health.value()?.get("cadence_s").and_then(Value::as_i64)
 }
 
 /// The shape the view draws, from the server's own words.

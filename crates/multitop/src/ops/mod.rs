@@ -46,6 +46,7 @@ pub mod gather;
 pub mod model;
 pub mod model_health;
 pub mod pass;
+pub mod rate;
 pub mod render;
 pub mod status;
 
@@ -53,6 +54,7 @@ pub use answers::*;
 pub use gather::*;
 pub use model::*;
 pub use model_health::*;
+pub use rate::*;
 pub use status::*;
 
 use std::time::Duration;
@@ -61,41 +63,20 @@ use std::time::Duration;
 pub const HEALTH_URI: &str = "health://latest";
 /// The tool that says which checks this machine's periodic suite runs.
 pub const HEALTH_LIST: &str = "health.list";
-/// The estate's suite cadence, in minutes: the suite runs every 15 (servers
-/// ROADMAP E12; `media_server` v1.99.11's `*/15` cron, deployed).
-pub const SUITE_INTERVAL_MINUTES: i64 = 15;
-/// How old a published verdict may be before the client calls it STALE: the
-/// suite's interval plus a grace for a run that is still going.
+/// The estate's publication cadence, in minutes, as this client LAST KNEW
+/// it.
 ///
-/// A verdict read between two of the estate's own runs is at most the
-/// interval old. Past that, the estate's cron did not fire, and the
-/// verdict is not a current answer about the machine - which is the whole
-/// reason the age is published.
-pub const HEALTH_STALE_AFTER_S: i64 = (SUITE_INTERVAL_MINUTES + 5) * 60;
-/// The longest a client may go between reads before its verdict can be two
-/// publications behind: half the publication interval, in seconds.
-///
-/// DECISIONS D15 (owner, 2026-10-20): a client that samples at the rate
-/// the estate publishes can ALIAS - its read can land just before a
-/// publication and then wait a whole cycle, so its verdict is two
-/// publications behind the truth. A client that reads slower than this
-/// says so in its answer rather than in silence.
-pub const MAX_SAMPLING_INTERVAL_S: i64 = (SUITE_INTERVAL_MINUTES * 60) / 2;
-
-/// The warning the health section carries when this client samples the
-/// published verdict too slowly.
-///
-/// The age on the line cannot say it: a verdict that is two publications
-/// behind looks exactly like one that is fresh.
-#[must_use]
-pub fn sampling_warning(interval_s: i64) -> Option<String> {
-    (interval_s > MAX_SAMPLING_INTERVAL_S).then(|| {
-        format!(
-            "sampled every {} min: the verdict can be two publications behind",
-            interval_s / 60
-        )
-    })
-}
+/// A FALLBACK, not the rule (servers ROADMAP E53): the server publishes
+/// its cadence with the verdict (`health://latest`, beside the age), and
+/// the client's rate is DERIVED from what it published. This number is
+/// used only where there is nothing published to derive from - a host
+/// this client has never read, whose server could not read its own
+/// cadence.
+pub const FALLBACK_CADENCE_MINUTES: i64 = 15;
+/// How old a published verdict may be before the client calls it STALE,
+/// when the server published no cadence to measure it against: the
+/// fallback cadence plus a grace for a run that is still going.
+pub const HEALTH_STALE_AFTER_S: i64 = (FALLBACK_CADENCE_MINUTES + 5) * 60;
 /// The tool that answers about a host's ZFS pools: their state, their vdev
 /// tree, and what ZFS says to do about them.
 pub const ZFS_TOOL: &str = "zfs.health";
@@ -314,3 +295,7 @@ mod status_tests;
 #[cfg(test)]
 #[path = "health_tests.rs"]
 mod health_tests;
+
+#[cfg(test)]
+#[path = "rate_tests.rs"]
+mod rate_tests;

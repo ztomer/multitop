@@ -70,7 +70,15 @@ pub struct RawSnapshot {
     pub server: (String, String),
     /// When it was asked, epoch seconds.
     pub at: i64,
-    /// How often this client samples the published verdict, in seconds.
+    /// The rate this client KEEPS: the cadence the server published,
+    /// halved (servers ROADMAP E53). The rule, and the rate the next
+    /// gather is due at.
+    pub rule_every_s: i64,
+    /// The rate this answer was actually taken at: the rule, raised to the
+    /// gap since the last answer when the client missed its schedule.
+    ///
+    /// The truth, and what the answer says: a client that slept through a
+    /// cycle says so, rather than carrying a rate it did not keep.
     pub sampled_every_s: i64,
     pub health: Raw,
     pub health_list: Raw,
@@ -81,6 +89,43 @@ pub struct RawSnapshot {
     pub disk: Raw,
     pub facts: Raw,
     pub alerts: Raw,
+}
+
+impl RawSnapshot {
+    /// The cadence the server published with the verdict, in seconds.
+    ///
+    /// The server's own number, read from the answer it gave (servers
+    /// ROADMAP E53): the client's rate is derived from it, so a server
+    /// that publishes faster than its clients read is visible here.
+    #[must_use]
+    pub fn cadence_s(&self) -> Option<i64> {
+        self.health
+            .value()?
+            .get("cadence_s")
+            .and_then(Value::as_i64)
+    }
+
+    /// The rate this client samples this host at, from what this answer
+    /// says: half the cadence the server published, or the rate this
+    /// client was keeping.
+    ///
+    /// The RULE, not the gap a missed cycle raised it to: a missed cycle
+    /// is not a new rate, and a client that missed one must not keep
+    /// sampling at half the rate for ever.
+    #[must_use]
+    pub fn interval(&self) -> Duration {
+        super::rate::interval_for(self.cadence_s(), Some(self.rule_every_s))
+    }
+
+    /// What this client knew before the next gather: when this answer was
+    /// taken, and the rate this client was keeping.
+    #[must_use]
+    pub const fn previous(&self) -> super::rate::Previous {
+        super::rate::Previous {
+            at: Some(self.at),
+            rate_s: Some(self.rule_every_s),
+        }
+    }
 }
 
 /// The host's key in the cache: `user@host:port`, the same shape the state
@@ -223,17 +268,6 @@ pub fn is_fresh(raw: &RawSnapshot, now: i64, every: Duration) -> bool {
 /// serves (DECISIONS D15: a client must read at least twice as often as the
 /// estate publishes).
 pub const DUE_SLACK_S: i64 = 90;
-
-/// The rate an answer carries.
-///
-/// The poll's own interval - the rule's number - UNLESS the client missed
-/// its schedule, in which case the gap since the last answer is the truth,
-/// and the truth is what the answer says. A client that slept through a
-/// cycle says so, rather than carrying a rate it did not keep.
-#[must_use]
-pub fn sampled_every_s(configured: i64, previous_at: Option<i64>, now: i64) -> i64 {
-    previous_at.map_or(configured, |at| configured.max(now.saturating_sub(at)))
-}
 
 /// Whether a host is DUE: it has no answer, or its answer is older than the
 /// poll's interval.

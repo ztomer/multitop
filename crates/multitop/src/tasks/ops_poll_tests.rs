@@ -42,6 +42,7 @@ fn answer(at: i64) -> RawSnapshot {
     RawSnapshot {
         server: ("mcp_host".into(), "1.0.0".into()),
         at,
+        rule_every_s: 450,
         sampled_every_s: 450,
         health: Raw::Absent("this host lists no health checks".into()),
         health_list: Raw::Absent("this host lists no health checks".into()),
@@ -57,6 +58,17 @@ fn answer(at: i64) -> RawSnapshot {
 
 /// The key the tests file their answers under.
 const KEY: &str = "ztomer@192.168.0.33:22";
+
+/// The clock the poll reads: it ADVANCES, because the poll's interval is
+/// derived from what the server published, and an answer that never ages
+/// would stay fresh for ever and the poll would never ask again.
+static CLOCK: std::sync::atomic::AtomicI64 = std::sync::atomic::AtomicI64::new(NOW);
+
+/// A reading of the clock: a thousand seconds after the last one, so an
+/// answer is stale by the time the poll looks again.
+fn tick() -> i64 {
+    CLOCK.fetch_add(1_000, Ordering::SeqCst)
+}
 
 #[tokio::test]
 async fn a_broken_session_says_why_under_the_last_answer_then_reconnects() {
@@ -94,7 +106,7 @@ async fn a_broken_session_says_why_under_the_last_answer_then_reconnects() {
         connect,
         Duration::from_millis(5),
         Duration::from_millis(5),
-        || NOW,
+        tick,
     ));
     let mut states = Vec::new();
     for _ in 0..3 {

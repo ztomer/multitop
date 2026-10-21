@@ -33,6 +33,48 @@ pub struct Check {
     pub age: Option<String>,
 }
 
+/// The machine's PUBLICATION CADENCE: how often the estate publishes its
+/// verdicts.
+///
+/// servers ROADMAP E53: the cadence travels WITH the verdict, so a client
+/// derives its own reading rate from what it reads instead of carrying a
+/// number of its own - and a server that publishes faster than its
+/// clients read is a fact the client can see.
+///
+/// The server publishes it in two shapes: the seconds (`cadence_s`), which
+/// is what a rate is derived from, and its own words (`cadence`, "every
+/// 15 min"), which is what a reader is shown. The seconds are `None` when
+/// the server could not read its own cadence, and then the words are
+/// "unknown" - a gap in the reading, never a guess.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Cadence {
+    /// The cadence in seconds; `None` when the server could not read its
+    /// own cadence.
+    pub secs: Option<i64>,
+    /// The cadence in the server's own words ("every 15 min"), or its own
+    /// word for not knowing ("unknown").
+    pub words: Option<String>,
+}
+
+impl Cadence {
+    /// Whether the server published a cadence this client can use.
+    #[must_use]
+    pub const fn is_known(&self) -> bool {
+        self.secs.is_some()
+    }
+
+    /// The cadence in words: the SERVER's own when it published them, and
+    /// this client's reading of the number when it did not.
+    #[must_use]
+    pub fn say(&self) -> String {
+        match (&self.words, self.secs) {
+            (Some(w), _) => w.clone(),
+            (None, Some(s)) => super::rate::cadence_words(s),
+            (None, None) => "unknown".to_owned(),
+        }
+    }
+}
+
 /// The machine's PUBLISHED health verdict: every check's last result, and
 /// how old that verdict is.
 ///
@@ -49,20 +91,31 @@ pub struct Health {
     pub oldest_age: Option<String>,
     /// The same age in seconds: what the staleness judgment reads.
     pub oldest_age_s: Option<i64>,
+    /// The machine's PUBLICATION CADENCE, as the server published it.
+    pub cadence: Cadence,
 }
 
 impl Health {
-    /// Whether the verdict is too old to present as a current answer.
+    /// How old a verdict may be before this client calls it STALE: the
+    /// PUBLISHED cadence plus a grace for a suite that is still running,
+    /// or the fallback when the server published no cadence.
     ///
-    /// The estate's suite runs every 15 minutes and publishes what it
-    /// found, so a verdict read between two of the estate's runs is at most
-    /// that old. One interval plus a grace covers a suite that is still
-    /// running; past that the estate's own cron did not fire, and the
-    /// verdict is not a current answer about the machine.
+    /// The threshold follows the cadence because the age is measured
+    /// against it: a verdict read between two of the estate's runs is at
+    /// most one cadence old, and past a cadence plus a grace the estate's
+    /// own cron did not fire - so the verdict is not a current answer
+    /// about the machine.
+    #[must_use]
+    pub fn stale_after_s(&self) -> i64 {
+        self.cadence.secs.map_or(super::HEALTH_STALE_AFTER_S, |c| {
+            c.saturating_add(super::rate::STALE_GRACE_S)
+        })
+    }
+
+    /// Whether the verdict is too old to present as a current answer.
     #[must_use]
     pub fn is_stale(&self) -> bool {
-        self.oldest_age_s
-            .is_some_and(|s| s > super::HEALTH_STALE_AFTER_S)
+        self.oldest_age_s.is_some_and(|s| s > self.stale_after_s())
     }
 
     /// Keep only the checks the machine's periodic suite runs.

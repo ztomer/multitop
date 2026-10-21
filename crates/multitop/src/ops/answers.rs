@@ -8,8 +8,8 @@
 use serde_json::Value;
 
 use super::model::{
-    load_milli, Alert, Check, Container, Disk, Egress, Facts, Health, InstanceRow, Instances, Job,
-    Member, Memory, Mount, Pool, Suite, Tunnel,
+    load_milli, Alert, Cadence, Check, Container, Disk, Egress, Facts, Health, InstanceRow,
+    Instances, Job, Member, Memory, Mount, Pool, Suite, Tunnel,
 };
 use super::status::{DockerHealth, DockerState, Leak, ZfsState};
 
@@ -51,10 +51,15 @@ fn count(v: &Value, k: &str) -> u64 {
 }
 
 /// `health://latest`: `{checks: [{instance, check, ok, rc, ms, ts, age_s,
-/// age}], oldest_age_s, oldest_age}`.
+/// age}], oldest_age_s, oldest_age, cadence_s, cadence}`.
 ///
 /// The machine's PUBLISHED verdict: what the estate's own last suite run
-/// found, and how old that verdict is. Nothing is run to read it.
+/// found, how old that verdict is, and how often the estate publishes it.
+/// Nothing is run to read it.
+///
+/// The cadence travels with the verdict (servers ROADMAP E53): the client
+/// derives its own reading rate from what it reads, instead of carrying a
+/// number of its own that a moved crontab would make a lie.
 ///
 /// # Errors
 ///
@@ -74,6 +79,10 @@ pub fn parse_health(v: &Value) -> Result<Health, String> {
             .collect(),
         oldest_age: opt_text(v, "oldest_age"),
         oldest_age_s: v.get("oldest_age_s").and_then(Value::as_i64),
+        cadence: Cadence {
+            secs: v.get("cadence_s").and_then(Value::as_i64),
+            words: opt_text(v, "cadence"),
+        },
     })
 }
 

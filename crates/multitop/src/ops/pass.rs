@@ -71,8 +71,10 @@ impl Pass {
 
 /// One pass over `servers`: gather every host that is due, and keep it.
 ///
-/// `now` is the epoch second the pass starts at, and `every` is the poll's
-/// interval - the rule, not a number near it.
+/// `now` is the epoch second the pass starts at, and `fallback` is the
+/// rate for a host this client has never read: every other host is
+/// sampled at half the cadence the server PUBLISHED with its verdict
+/// (servers ROADMAP E53), and the due rule follows that rate.
 ///
 /// `open` opens a session for a host. The real opener is [`open_ssh`]; a
 /// test opens an in-memory server, the same way the poll's own test does.
@@ -80,7 +82,7 @@ pub async fn run<S, R, W, F, Fut>(
     servers: &[Server],
     cache: &Cache,
     now: i64,
-    every: Duration,
+    fallback: Duration,
     mut open: F,
 ) -> Pass
 where
@@ -94,6 +96,11 @@ where
     for server in servers {
         let key = cache::host_key(server);
         let kept = cache.read(&key);
+        // The rate this host is sampled at: half the cadence the server
+        // published, or the fallback for a host never read.
+        let every = kept
+            .as_ref()
+            .map_or(fallback, crate::ops::cache::RawSnapshot::interval);
         if !cache::due(kept.as_ref(), now, every) {
             pass.hosts.push(HostPass {
                 key,
@@ -105,7 +112,7 @@ where
             });
             continue;
         }
-        let outcome = gather_one(server, cache, now, every, &mut open).await;
+        let outcome = gather_one(server, cache, now, kept.as_ref(), &mut open).await;
         pass.hosts.push(outcome);
     }
     pass
@@ -130,8 +137,8 @@ pub async fn open_ssh(server: Server) -> Result<crate::mcp::spawn::Running, Stri
 }
 
 /// One pass over `servers`, over ssh.
-pub async fn run_real(servers: &[Server], cache: &Cache, now: i64, every: Duration) -> Pass {
-    run(servers, cache, now, every, |server: &Server| {
+pub async fn run_real(servers: &[Server], cache: &Cache, now: i64, fallback: Duration) -> Pass {
+    run(servers, cache, now, fallback, |server: &Server| {
         let server = server.clone();
         async move { open_ssh(server).await }
     })
@@ -143,7 +150,7 @@ async fn gather_one<S, R, W, F, Fut>(
     server: &Server,
     cache: &Cache,
     now: i64,
-    every: Duration,
+    kept: Option<&cache::RawSnapshot>,
     open: &mut F,
 ) -> HostPass
 where
@@ -169,14 +176,14 @@ where
             return outcome;
         }
     };
-    // The rate the answer carries: the poll's own, unless the client missed
-    // its schedule - then the gap since the last answer, which is the truth.
-    let rate = cache::sampled_every_s(
-        crate::tasks::ops_poll::interval_s(every),
-        cache.read(&key).map(|r| r.at),
-        now,
+    // The rate the answer carries is DERIVED from the cadence the server
+    // publishes with the verdict - and the gap since the last answer when
+    // this client missed its schedule, which is the truth.
+    let prev = kept.map_or_else(
+        crate::ops::rate::Previous::default,
+        crate::ops::cache::RawSnapshot::previous,
     );
-    let raw = crate::ops::gather_raw(&mut session, now, rate).await;
+    let raw = crate::ops::gather_raw(&mut session, now, prev).await;
     if let Some(why) = session.broken() {
         outcome.why = Some(why.to_string());
         return outcome;

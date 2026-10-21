@@ -19,7 +19,7 @@ use super::{count, Frame, Tone};
 ///
 /// `sampled_every_s` is the rate THIS answer was sampled at, and it is
 /// carried by the answer: a client that samples slower than half the
-/// publication interval says so here, where the verdict is shown, because
+/// PUBLISHED cadence says so here, where the verdict is shown, because
 /// the age on the line cannot say it - a verdict two publications behind
 /// looks exactly like one that is fresh (DECISIONS D15).
 ///
@@ -29,16 +29,27 @@ use super::{count, Frame, Tone};
 /// says nothing about what the verdict can be behind. Under the section it
 /// is said whole, and the section above it is not green.
 pub(super) fn health(f: &mut Frame<'_>, health: &Health, _now: i64, sampled_every_s: i64) {
-    // The client's own sampling: too slow, and the verdict can be two
-    // publications behind - which no age on the line can say.
-    let slow = super::super::sampling_warning(sampled_every_s);
+    // The client's own sampling: too slow for the cadence the server
+    // PUBLISHED, and the verdict can be two publications behind - which no
+    // age on the line can say.
+    let slow = super::super::sampling_warning(sampled_every_s, &health.cadence);
+    // A cadence the server could not read: the rate could not be read,
+    // and this client keeps the rate it had. That is a gap in the
+    // reading, not a fault - and it is said, not left in silence.
+    let unknown = if health.cadence.is_known() {
+        None
+    } else {
+        Some(super::super::cadence_unknown_note(sampled_every_s))
+    };
+    let mut caveats: Vec<&str> = slow.iter().map(String::as_str).collect();
+    caveats.extend(unknown.iter().map(String::as_str));
     if health.checks.is_empty() {
         f.line(
             Tone::Warn,
             "health",
             "no verdict published: nothing has run on this machine",
         );
-        if let Some(w) = &slow {
+        for w in caveats {
             f.item(w);
         }
         return;
@@ -61,7 +72,7 @@ pub(super) fn health(f: &mut Frame<'_>, health: &Health, _now: i64, sampled_ever
             "health",
             &detail,
         );
-        if let Some(w) = &slow {
+        for w in caveats {
             f.item(w);
         }
         return;
@@ -79,7 +90,7 @@ pub(super) fn health(f: &mut Frame<'_>, health: &Health, _now: i64, sampled_ever
             c.age.as_deref().unwrap_or("of unknown age")
         ));
     }
-    if let Some(w) = &slow {
+    for w in caveats {
         f.item(w);
     }
 }

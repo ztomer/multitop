@@ -13,7 +13,7 @@
 //! root) and a row that does not say which root it came from cannot be
 //! attributed to either.
 
-pub use super::model_health::{Check, Health, Suite};
+pub use super::model_health::{Cadence, Check, Health, Suite};
 use super::status::{DockerHealth, DockerState, Leak, Severity, Verdict, ZfsState};
 
 /// A gibibyte: the unit the estate's card counts disk in.

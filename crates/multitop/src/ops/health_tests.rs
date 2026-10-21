@@ -38,7 +38,8 @@ fn published() -> serde_json::Value {
         {"instance": "media_server", "check": "native:check_disk_space", "ok": true, "rc": 0, "ms": 128, "ts": NOW - 600, "age_s": 600, "age": "10 min ago"},
         {"instance": "media_server", "check": "native:check_vpn_leak", "ok": true, "rc": 0, "ms": 24003, "ts": NOW - 600, "age_s": 600, "age": "10 min ago"},
         {"instance": "media_server", "check": "native:check_image_drift_sweep", "ok": true, "rc": 0, "ms": 1991, "ts": NOW - 7200, "age_s": 7200, "age": "2 h ago"},
-    ], "oldest_age_s": 600, "oldest_age": "10 min ago"})
+    ], "oldest_age_s": 600, "oldest_age": "10 min ago",
+    "cadence_s": 900, "cadence": "every 15 min"})
 }
 
 /// The machine's suite: the two periodic checks are in it, the daily one
@@ -53,7 +54,7 @@ fn suite() -> serde_json::Value {
 
 /// The health section's line, without the escape sequences.
 fn health_line(h: &Health) -> String {
-    health_frame(h, MAX_SAMPLING_INTERVAL_S)
+    health_frame(h, FALLBACK_INTERVAL_S)
         .into_iter()
         .find(|l| l.contains("health"))
         .unwrap_or_default()
@@ -83,7 +84,7 @@ fn snapshot(h: &Health) -> Snapshot {
         at: NOW - 12,
         // This client's own sampling rate: the rule's own number, so an
         // answer that sampled at the rule says nothing about it.
-        sampled_every_s: MAX_SAMPLING_INTERVAL_S,
+        sampled_every_s: FALLBACK_INTERVAL_S,
         health: Part::Ready(h.clone()),
         vpn: Part::Absent("this host lists no net.egress".into()),
         cron: Part::Ready(Vec::new()),
@@ -139,6 +140,7 @@ fn a_machine_that_published_no_verdict_says_so_and_is_not_green() {
         checks: Vec::new(),
         oldest_age: Some("with no timestamp".into()),
         oldest_age_s: None,
+        cadence: Cadence::default(),
     };
     let line = health_line(&h);
     assert!(
@@ -186,7 +188,7 @@ async fn the_ops_view_never_runs_the_suite() {
     let mut client = Client::connect(rd, wr, std::time::Duration::from_secs(2))
         .await
         .unwrap();
-    let s = gather(&mut client, NOW, MAX_SAMPLING_INTERVAL_S).await;
+    let s = gather(&mut client, NOW, Previous::default()).await;
     let Part::Ready(h) = &s.health else {
         panic!("the health section did not read: {:?}", s.health);
     };
@@ -238,16 +240,25 @@ fn a_failing_check_names_its_own_age() {
     );
 }
 
-/// The threshold is the estate's own cadence, plus a grace: a verdict read
-/// between two of the estate's runs is at most the interval old.
+/// The threshold is the PUBLISHED cadence, plus a grace: a verdict read
+/// between two of the estate's runs is at most one cadence old.
 #[test]
-fn the_stale_threshold_is_the_estates_own_cadence() {
-    assert_eq!(SUITE_INTERVAL_MINUTES, 15);
-    assert_eq!(HEALTH_STALE_AFTER_S, 20 * 60);
+fn the_stale_threshold_is_the_published_cadence_plus_a_grace() {
     let mut h = verdict();
-    h.oldest_age_s = Some(HEALTH_STALE_AFTER_S);
+    assert_eq!(
+        h.cadence.secs,
+        Some(900),
+        "the cadence the server published"
+    );
+    assert_eq!(h.stale_after_s(), 900 + 300, "the cadence plus a grace");
+    assert_eq!(
+        HEALTH_STALE_AFTER_S,
+        20 * 60,
+        "the fallback, for a server that published none"
+    );
+    h.oldest_age_s = Some(h.stale_after_s());
     assert!(!h.is_stale(), "exactly at the threshold is not yet stale");
-    h.oldest_age_s = Some(HEALTH_STALE_AFTER_S + 1);
+    h.oldest_age_s = Some(h.stale_after_s() + 1);
     assert!(h.is_stale(), "past the threshold is stale");
 }
 
@@ -256,12 +267,22 @@ fn the_stale_threshold_is_the_estates_own_cadence() {
 /// publishes can ALIAS - its read can land just before a publication and
 /// then wait a whole cycle, so its verdict is two publications behind the
 /// truth.
+///
+/// **AND THE RATE IS DERIVED FROM WHAT THE SERVER PUBLISHED** (servers
+/// ROADMAP E53): the number this client used to carry - half of a
+/// fifteen-minute publication - is now only the fallback for a server
+/// that published no cadence at all.
 #[test]
-fn the_sampling_rule_is_twice_the_publication_rate() {
-    assert_eq!(SUITE_INTERVAL_MINUTES, 15, "the estate publishes every 15");
+fn the_sampling_rule_is_twice_the_published_rate() {
     assert_eq!(
-        MAX_SAMPLING_INTERVAL_S, 450,
-        "half the publication interval"
+        rate_for(900),
+        450,
+        "half of the cadence the server published"
+    );
+    assert_eq!(
+        FALLBACK_INTERVAL_S,
+        (FALLBACK_CADENCE_MINUTES * 60) / 2,
+        "the fallback is half of the cadence this client last knew"
     );
 }
 
@@ -278,11 +299,15 @@ fn the_ops_poll_samples_at_the_rules_own_rate() {
     let poll = crate::tasks::ops_poll::OPS_POLL;
     assert_eq!(
         poll.as_secs(),
-        MAX_SAMPLING_INTERVAL_S as u64,
-        "the poll's interval IS the rule, not a number near it"
+        FALLBACK_INTERVAL_S as u64,
+        "the poll's fallback IS the rule's fallback, not a number near it"
     );
+    // The rate a host is actually sampled at: half the cadence the server
+    // published with its verdict.
+    let published = interval_for(Some(900), None);
+    assert_eq!(published.as_secs(), 450, "every 15 min");
     assert_eq!(
-        SECS_A_DAY / poll.as_secs(),
+        SECS_A_DAY / published.as_secs(),
         192,
         "gathers a day at the rule's rate"
     );
@@ -316,7 +341,7 @@ fn an_answer_that_sampled_too_slowly_says_so_on_the_line() {
 /// must not cry wolf on every line of every card.
 #[test]
 fn an_answer_that_sampled_at_the_rule_says_nothing() {
-    let frame = health_frame(&verdict(), MAX_SAMPLING_INTERVAL_S);
+    let frame = health_frame(&verdict(), FALLBACK_INTERVAL_S);
     let said = frame.join("\n");
     assert!(
         !said.contains("two publications behind"),
@@ -339,14 +364,18 @@ fn an_answer_that_sampled_at_the_rule_says_nothing() {
 /// fresh.
 #[test]
 fn a_client_that_samples_too_slowly_says_so_in_its_answer() {
-    let warning = sampling_warning(15 * 60).expect("15 minutes is too slow");
+    let cadence = Cadence {
+        secs: Some(900),
+        words: Some("every 15 min".into()),
+    };
+    let warning = sampling_warning(15 * 60, &cadence).expect("15 minutes is too slow");
     assert!(warning.contains("15 min"), "{warning}");
     assert!(
         warning.contains("two publications behind"),
         "the warning does not say what it means: {warning}"
     );
     assert!(
-        sampling_warning(450).is_none(),
+        sampling_warning(450, &cadence).is_none(),
         "7.5 minutes is the rule, and says nothing"
     );
 }

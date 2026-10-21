@@ -73,7 +73,7 @@ async fn gather_from(
     let mut client = Client::connect(rd, wr, Duration::from_secs(2))
         .await
         .unwrap();
-    let snap = gather(&mut client, NOW, MAX_SAMPLING_INTERVAL_S).await;
+    let snap = gather(&mut client, NOW, Previous::default()).await;
     let seen = seen.lock().unwrap().clone();
     (snap, seen)
 }
@@ -240,7 +240,7 @@ async fn an_answer_that_cannot_be_read_says_so_and_hides_nothing() {
     let mut client = Client::connect(rd, wr, Duration::from_secs(2))
         .await
         .unwrap();
-    let snap = gather(&mut client, NOW, MAX_SAMPLING_INTERVAL_S).await;
+    let snap = gather(&mut client, NOW, Previous::default()).await;
     assert_eq!(
         snap.zfs,
         Part::Failed("zpool status failed (-32603)".into())
@@ -265,7 +265,7 @@ fn the_pool_names_are_searchable() {
     let s = Snapshot {
         server: ("mcp_host".into(), "1.65.2".into()),
         at: NOW,
-        sampled_every_s: MAX_SAMPLING_INTERVAL_S,
+        sampled_every_s: FALLBACK_INTERVAL_S,
         health: Part::Absent("none".into()),
         cron: Part::Absent("none".into()),
         containers: Part::Absent("none".into()),

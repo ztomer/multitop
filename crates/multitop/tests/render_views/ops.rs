@@ -32,6 +32,10 @@ pub fn ops(term: (u16, u16)) -> App {
         checks,
         oldest_age: Some("15 min ago".into()),
         oldest_age_s: Some(900),
+        cadence: multitop::ops::Cadence {
+            secs: Some(900),
+            words: Some("every 15 min".into()),
+        },
     };
     let job = |l: &str, rc| Job {
         label: l.into(),
@@ -52,7 +56,7 @@ pub fn ops(term: (u16, u16)) -> App {
     let troubled = Snapshot {
         server: ("mcp_host".into(), "1.65.2".into()),
         at,
-        sampled_every_s: multitop::ops::MAX_SAMPLING_INTERVAL_S,
+        sampled_every_s: multitop::ops::FALLBACK_INTERVAL_S,
         health: Part::Ready(health(vec![
             check("check_disk_space", true),
             check("check_vpn_leak", false),

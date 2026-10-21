@@ -30,16 +30,22 @@ use crate::mcp::client::Client;
 use crate::ops::cache::Cache;
 use crate::ops::{gather_raw, parse_snapshot, OpsState, Snapshot};
 
-/// How often a panel in the Ops view asks again.
+/// How often a panel in the Ops view asks again, when the server published
+/// no cadence to derive it from.
 ///
-/// **TWICE THE ESTATE'S PUBLICATION RATE, and the number IS the rule.**
-/// DECISIONS D15 (owner, 2026-10-20): the estate publishes its health
-/// verdict every 15 minutes, so a client that samples at the publication
-/// rate can ALIAS - its read lands just before a publication and then waits
-/// a whole cycle, and its verdict is two publications behind the truth.
-/// Half the publication interval (7.5 minutes) is the fastest a client may
-/// go and still never be two publications behind, so that is what this
-/// client does.
+/// **TWICE THE ESTATE'S PUBLICATION RATE, AND THE RATE IS DERIVED FROM
+/// WHAT THE SERVER PUBLISHED.** DECISIONS D15 (owner, 2026-10-20): the
+/// estate publishes its health verdict on a cadence, so a client that
+/// samples at the publication rate can ALIAS - its read lands just before
+/// a publication and then waits a whole cycle, and its verdict is two
+/// publications behind the truth. Half the publication interval is the
+/// fastest a client may go and still never be two publications behind.
+///
+/// The publication interval is not written here: the server publishes its
+/// cadence with the verdict (`health://latest`, beside the age) and the
+/// client derives its rate from it (servers ROADMAP E53). This constant
+/// is the FALLBACK - the rate for a host this client has never read,
+/// whose server could not read its own cadence.
 ///
 /// This was 30 s, and the 30 s rate is retired. It gathered 2,880 times a
 /// day - TEN times what the rule needs - and every gather moved the whole
@@ -47,10 +53,7 @@ use crate::ops::{gather_raw, parse_snapshot, OpsState, Snapshot};
 /// A verdict published every 15 minutes cannot be fresher than its
 /// publication, so ten reads a minute bought nothing and cost the estate
 /// the most it spends on anything.
-///
-/// The interval is DERIVED from the rule, not written next to it: two
-/// numbers that must agree cannot drift apart if one of them is the other.
-pub const OPS_POLL: Duration = Duration::from_secs(crate::ops::MAX_SAMPLING_INTERVAL_S as u64);
+pub const OPS_POLL: Duration = Duration::from_secs(crate::ops::rate::FALLBACK_INTERVAL_S as u64);
 /// How often the poll looks at the answer it already has.
 ///
 /// The answer the estate published is younger than the poll's interval when
@@ -115,10 +118,14 @@ impl Target {
 /// Then show it - the estate is not asked. If there is not, gather, keep the
 /// answer, and show that. Either way the panel is never blank and never
 /// shows an answer older than the rule allows without saying so.
+///
+/// `fallback` is the rate for a host this client has never read: every
+/// other host is sampled at half the cadence the server PUBLISHED with its
+/// verdict (servers ROADMAP E53).
 pub async fn poll<S, R, W, F, Fut>(
     to: Target,
     mut connect: F,
-    every: Duration,
+    fallback: Duration,
     check: Duration,
     now: fn() -> i64,
 ) where
@@ -134,9 +141,21 @@ pub async fn poll<S, R, W, F, Fut>(
     // once and not on every look.
     let mut shown: Option<i64> = None;
     loop {
-        if let Some(raw) = to.cache.fresh(&to.key, now(), every) {
+        // The client's own answer, read once: it carries the cadence the
+        // server published, and the rate this client was keeping.
+        let kept = to.cache.read(&to.key);
+        // The rate this host is sampled at: half the cadence the server
+        // PUBLISHED, or the fallback for a host this client has never
+        // read.
+        let every = kept
+            .as_ref()
+            .map_or(fallback, crate::ops::cache::RawSnapshot::interval);
+        if let Some(raw) = kept
+            .as_ref()
+            .filter(|r| crate::ops::cache::is_fresh(r, now(), every))
+        {
             if shown != Some(raw.at) {
-                let snap = Box::new(parse_snapshot(&raw));
+                let snap = Box::new(parse_snapshot(raw));
                 shown = Some(raw.at);
                 last = Some(snap.clone());
                 if !to.send(OpsState::Ready(snap)).await {
@@ -167,15 +186,15 @@ pub async fn poll<S, R, W, F, Fut>(
         let Some(s) = session.as_mut() else {
             continue;
         };
-        // The rate the answer carries: the poll's own, unless the client
-        // missed its schedule - then the gap since the last answer, which
-        // is the truth.
-        let rate = crate::ops::cache::sampled_every_s(
-            interval_s(every),
-            to.cache.read(&to.key).map(|r| r.at),
-            now(),
+        // The rate the answer carries is DERIVED, from the cadence the
+        // server published with the verdict - and raised to the gap since
+        // the last answer when this client missed its schedule, which is
+        // the truth.
+        let prev = kept.as_ref().map_or_else(
+            crate::ops::rate::Previous::default,
+            crate::ops::cache::RawSnapshot::previous,
         );
-        let raw = gather_raw(s, now(), rate).await;
+        let raw = gather_raw(s, now(), prev).await;
         let broken = s.broken().map(ToString::to_string);
         let state = if let Some(why) = broken {
             session = None;

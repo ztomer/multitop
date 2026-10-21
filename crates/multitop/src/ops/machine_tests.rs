@@ -114,8 +114,9 @@ fn snapshot() -> Snapshot {
     Snapshot {
         server: ("mcp-host".into(), "1.99.6".into()),
         at: NOW - 12,
-        sampled_every_s: MAX_SAMPLING_INTERVAL_S,
+        sampled_every_s: FALLBACK_INTERVAL_S,
         health: Part::Ready(Health {
+            cadence: Cadence::default(),
             checks: vec![Check {
                 name: "native:check_vpn_leak".into(),
                 instance: Some("media_server".into()),
@@ -425,7 +426,7 @@ async fn the_poll_asks_the_tunnel_the_capacity_and_the_facts() {
     let mut client = Client::connect(rd, wr, std::time::Duration::from_secs(2))
         .await
         .unwrap();
-    let s = gather(&mut client, NOW, MAX_SAMPLING_INTERVAL_S).await;
+    let s = gather(&mut client, NOW, Previous::default()).await;
     assert!(matches!(s.vpn, Part::Ready(ref v) if v.tunnels.len() == 1));
     assert!(matches!(s.disk, Part::Ready(ref d) if d.mounts.len() == 4));
     assert!(matches!(s.facts, Part::Ready(ref f) if f.ncpu == 4));
@@ -443,6 +444,6 @@ async fn the_poll_asks_the_tunnel_the_capacity_and_the_facts() {
     let mut client = Client::connect(rd, wr, std::time::Duration::from_secs(2))
         .await
         .unwrap();
-    let s = gather(&mut client, NOW, MAX_SAMPLING_INTERVAL_S).await;
+    let s = gather(&mut client, NOW, Previous::default()).await;
     assert!(matches!(s.vpn, Part::Absent(_)));
 }

@@ -17,6 +17,7 @@ use std::time::Duration;
 use serde_json::json;
 
 use super::cache::*;
+use super::rate::carried_rate;
 
 /// The poll's interval, in seconds: the rule.
 const EVERY: i64 = 450;
@@ -33,6 +34,7 @@ fn raw(at: i64) -> RawSnapshot {
     RawSnapshot {
         server: ("mcp_host".into(), "1.99.11".into()),
         at,
+        rule_every_s: EVERY,
         sampled_every_s: EVERY,
         health: Raw::Value(json!({"checks": [], "oldest_age": "10 min ago"})),
         health_list: Raw::Value(json!({"checks": []})),
@@ -169,17 +171,17 @@ fn a_gather_is_due_a_little_before_the_interval_is_up() {
 #[test]
 fn an_answer_carries_the_rate_the_client_actually_kept() {
     assert_eq!(
-        sampled_every_s(EVERY, None, 1_000),
+        carried_rate(EVERY, None, 1_000),
         EVERY,
         "the first answer carries the rule"
     );
     assert_eq!(
-        sampled_every_s(EVERY, Some(1_000), 1_420),
+        carried_rate(EVERY, Some(1_000), 1_420),
         EVERY,
         "a gather inside the rule carries the rule"
     );
     assert_eq!(
-        sampled_every_s(EVERY, Some(1_000), 1_600),
+        carried_rate(EVERY, Some(1_000), 1_600),
         600,
         "a missed cycle carries the truth"
     );
@@ -215,7 +217,7 @@ async fn the_answer_the_poll_kept_is_the_answer_the_view_draws() {
     let mut client = Client::connect(rd, wr, std::time::Duration::from_secs(2))
         .await
         .unwrap();
-    let raw = crate::ops::gather_raw(&mut client, NOW, EVERY).await;
+    let raw = crate::ops::gather_raw(&mut client, NOW, crate::ops::Previous::default()).await;
 
     let dir = tempfile::tempdir().unwrap();
     let cache = cache(&dir);
