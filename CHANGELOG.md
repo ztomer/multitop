@@ -7,6 +7,32 @@ This file starts at v0.47.0 — earlier history is in git (`git log`), and the
 per-defect record is `docs/detection-record.md`, which is the more useful
 document for anything before this point.
 
+## v0.60.0 — the Ops view samples at TWICE the estate's publication rate _(2026-10-20)_
+### Changed — the Ops view's health section (DECISIONS D15)
+- **The owner's ruling, 2026-10-20:** *"don't we need to double the data
+  polls at twice of routine's polls to keep with the sampling lemma?"*
+  Yes. The estate publishes its health verdict every 15 minutes, and a
+  client that samples at the PUBLICATION rate can ALIAS: its read can
+  land just before a publication and then wait a whole cycle, so its
+  verdict is two publications behind the truth.
+- **THE OPS POLL IS NOT CHANGED.** The owner has not ruled on this
+  client's interval, and E36 (the poll is not running) is not this
+  release's to reopen. The Ops poll already samples every 30 s — far
+  inside the rule — and the health section now carries the rule itself
+  (`ops::MAX_SAMPLING_INTERVAL_S`), so a client whose interval was ever
+  set too slow says so where the verdict is shown.
+- **A client that samples TOO SLOWLY says so, in its answer** — not in
+  silence. The age on the line cannot say it: a verdict that is two
+  publications behind looks exactly like one that is fresh.
+
+### Verified
+- `tools/gate.sh --full` 14/14 green; the Rust suite, the pytest suite and
+  the coverage gate as the gate of record ran them.
+- **The Ops view still never runs the suite** — the same test as before.
+- **Each new behaviour was proven RED first**: the sampling rule and the
+  warning it carries each fail with an assertion when the behaviour is
+  taken away.
+
 ## v0.59.0 — the Ops view's health verdict is the PUBLISHED one, and it is DATED _(2026-10-20)_
 
 ### Changed — the Ops view's health section (servers ROADMAP E12, the client half)
