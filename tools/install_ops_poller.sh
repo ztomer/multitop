@@ -41,12 +41,13 @@ support="$HOME/Library/Application Support/multitop"
 runner="$support/ops-poll-agent.sh"
 log_dir="$HOME/Library/Logs"
 log="$log_dir/multitop-ops-poll.log"
-# The scheduler's tick, a little under the poll's interval: launchd's timer
-# wheel added about 30 s to a 450 s `StartInterval` on this Mac (measured
-# 2026-10-21), which would put the client at 8 minutes a gather - the rate
-# the routines client has, and one step outside the rule's 7.5. At 420 s
-# the gathers land every 7 to 7.5 minutes, inside it.
-interval=420
+# The scheduler's tick, under the poll's interval: launchd's timer wheel has
+# a granularity of its own (measured on this Mac on 2026-10-21: a 420 s
+# `StartInterval` fired 425 to 470 s after the last run), so a tick set AT
+# the interval would put the client at 7.5 to 8 minutes a gather - the rate
+# the routines client has, and a step outside the rule. At 390 s the
+# gathers land every 6.5 to 7.5 minutes: inside the rule, every time.
+interval=390
 domain="gui/$(id -u)"
 
 uninstall() {

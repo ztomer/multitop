@@ -211,16 +211,18 @@ pub fn is_fresh(raw: &RawSnapshot, now: i64, every: Duration) -> bool {
 ///
 /// The scheduler that runs the pass ticks on its own clock, and launchd's
 /// timer wheel has a granularity of its own (measured on this Mac on
-/// 2026-10-21: a 450 s `StartInterval` fired every 480 s). A tick that
-/// lands a second early must not SKIP the gather: the pass would then wait
-/// a whole extra cycle, and the client's read rate would halve without
-/// anything saying so.
+/// 2026-10-21: a 420 s `StartInterval` fired 425 to 470 s after the last
+/// run). A tick that lands a second early must not SKIP the gather: the
+/// pass would then wait a whole extra cycle, and the client's read rate
+/// would halve without anything saying so. The slack is a minute and a
+/// half, which is more than the wheel's own spread - so every tick of the
+/// scheduler's own clock finds a gather DUE.
 ///
 /// The slack is only ever taken OFF the interval - the client reads MORE
 /// often than the rule asks, never less - so it cannot weaken the rule it
 /// serves (DECISIONS D15: a client must read at least twice as often as the
 /// estate publishes).
-pub const DUE_SLACK_S: i64 = 60;
+pub const DUE_SLACK_S: i64 = 90;
 
 /// The rate an answer carries.
 ///
