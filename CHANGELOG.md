@@ -7,6 +7,87 @@ This file starts at v0.47.0 — earlier history is in git (`git log`), and the
 per-defect record is `docs/detection-record.md`, which is the more useful
 document for anything before this point.
 
+## v0.66.0 — the agent's tick is read from the cadence the estate publishes _(2026-10-21)_
+
+### Changed — the installed agent paces ITSELF, and the launchd job carries no interval (servers ROADMAP E53)
+- **THE TICK WAS A NUMBER THIS REPO CARRIED, AND LAUNCHD FIXES IT WHEN
+  THE JOB IS LOADED.** The installed agent
+  (`com.ztomer.multitop.ops-poll`) ran on a `StartInterval 390` written by
+  `tools/install_ops_poller.sh` — a number in this repo, and an interval
+  launchd cannot change while a job is loaded. So the tick could not follow
+  the estate: had the publication moved from every 15 minutes to every 5,
+  the agent would still have read every 6.5 minutes — slower than the
+  publication, so its verdict could be two publications behind — and the
+  client's own warning would have fired on every tick, correctly, with
+  nothing anyone could do about it but reinstall the agent.
+- **THE AGENT NOW READS THE CADENCE AND WAITS THE RATE IT IMPLIES.**
+  `multitop --ops-agent` is the poll in a loop: one pass, then the tick.
+  The tick is the **shortest cadence any host published, halved** (the
+  rule, DECISIONS D15), less a five-second margin so the tick's own jitter
+  can never land a second past the rule — and the cadence is read from what
+  the estate published with its verdict (`health://latest`), through the
+  answers this client already keeps. A publication that moves is followed a
+  cycle later, with no reinstall and nothing for the operator to do.
+- **THE INSTALLED JOB CARRIES NO INTERVAL AT ALL.** The launchd job the
+  template writes keeps the agent **ALIVE** (`RunAtLoad` + `KeepAlive`) and
+  nothing else: there is no rate in this repo for the estate's cadence to
+  move under. `--interval` is **REFUSED** by the template — a rate handed
+  to it is the defect the tick was raised about — and the only number in the
+  job is the restart throttle for a failed agent, which says nothing about
+  how often the agent reads. Installing over a job that carried one says
+  what is being dropped: *"the job being replaced carried an interval of
+  390s - dropped: the agent paces itself by the published cadence"*.
+- **THE OTHER WAY ROUND WAS NOT CHOSEN, AND WHY.** The tick could have been
+  re-installed when the cadence moved: the agent rewrites its own plist and
+  re-bootstraps it. That was not chosen because `bootout` kills the job
+  that is running it — the agent would have to be killed from inside its
+  own pass — and because a failed swap leaves the estate with **no agent at
+  all**, which is a worse failure than a tick that is one cycle behind. The
+  other way round is now impossible to get wrong: there is no interval to
+  install, and no way to ask for one.
+- **A CADENCE THE AGENT COULD NOT READ IS SAID, AND THE RATE IS KEPT.** A
+  host that published no cadence keeps the rate this client was keeping for
+  it, and the log says so in the client's own words (*"the cadence could not
+  be read: this client keeps its rate"*); a host this client has never read
+  keeps the client's fallback rate, and the log says that too. Neither is
+  called a published rate, because neither was published — and the tick's
+  own line names the cadence it followed, the host it read it from, and how
+  old that reading is.
+- **THE AGENT PICKS UP A REPLACED BINARY.** The agent is a long-lived
+  process — that is what lets it pace itself — so an upgraded binary would
+  otherwise leave it running the old one, and the old one keeps the old
+  rule. It hands the process over to the binary that is installed (`exec`),
+  so the estate is read by the binary on disk and the launchd job keeps its
+  identity.
+
+### Measured (2026-10-21, on the live estate)
+- **BEFORE — the tick was the launchd interval this repo carried.**
+  Measured on this machine from the `at` each kept answer carries (the
+  epoch second the PASS STARTED — the moment the client itself measures
+  its sampling rate against): **396 s**, against a `StartInterval` of 390.
+  The same tick read from the cache's write times: **392 s, 393 s, 395 s,
+  395 s, 395 s** — the write lands when the gather lands, and the gather
+  takes a different number of seconds each cycle.
+- **AFTER — the tick is the rate the published cadence implies: 445 s**
+  (the rule, 450 s, less the five-second margin), measured the same way
+  from the `at` the kept answers carry: **446 s**, **446 s** (the tick is
+  445 s, and the second is the sleep's own overshoot).
+- **THE CADENCE IT FOLLOWS, AND WHERE IT READ IT FROM** — the agent's own
+  log line, every cycle:
+  `tick every 7.4 min (445 s) · the shortest cadence any host published:
+  every 15 min (900 s), read from health://latest on 192.168.0.33, 5 s ago`
+  — the `900 s` is the estate's own published cadence (`cadence_s` in
+  `health://latest`), not a number this repo carries, and the client keeps
+  it at `rule_every_s: 450` — so its own warning does not fire.
+- **THE FALLBACK, MEASURED** — the local host publishes no cadence (it has
+  no health suite), so the agent's log carries, every cycle:
+  `127.0.0.1 · the cadence could not be read: this client keeps its rate
+  (every 7.5 min)` — the rate it was keeping, said in words, and not passed
+  off as a published rate.
+- **THE HANDOVER, MEASURED** — the agent noticed the installed binary had
+  been replaced under it and said so: `the installed binary was replaced:
+  this agent is now the new one`.
+
 ## v0.65.0 — a timed-out call reads as UNKNOWN, and the estate's other readings stand _(2026-10-21)_
 
 ### Fixed — the poll's timed-out call is a GAP in the reading, not a fault of the estate (servers ROADMAP E74)
