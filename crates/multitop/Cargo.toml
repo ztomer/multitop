@@ -66,6 +66,10 @@ harness = false
 
 [dev-dependencies]
 tempfile = "3.27.0"
+# The agent's loop test needs a clock it can move: `tokio::time::pause`, so
+# the test can prove the agent waits its tick without waiting for it. A
+# dev-dependency feature, so it reaches no shipped binary.
+tokio = { version = "1", features = ["test-util"] }
 toml = { version = "1", default-features = false, features = ["parse", "serde", "display"] }
 # One definition of the emptiness assertions, shared with the other two crates'
 # tests. A dev-dependency, so it reaches `#[cfg(test)]` sites in `src/` too and

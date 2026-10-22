@@ -227,6 +227,28 @@ where
     outcome
 }
 
+/// What the pass says about one host, in the operator's words.
+///
+/// A host that was gathered is "gathered" - and when a section's answer
+/// did not arrive, the GAP is named beside it: the reading is not
+/// complete, and the log says which fact is missing (servers ROADMAP
+/// E74). A host the pass could not reach at all is "failed", with the
+/// reason.
+#[must_use]
+pub fn said(h: &HostPass) -> String {
+    let state = if h.gathered {
+        "gathered"
+    } else if h.fresh {
+        "already fresh"
+    } else {
+        return format!("failed: {}", h.why.as_deref().unwrap_or("no reason given"));
+    };
+    if h.unknown.is_empty() {
+        return state.to_string();
+    }
+    format!("{state} · {}", h.unknown.join(" · "))
+}
+
 /// The gaps in a reading: the sections whose answer did not arrive, in
 /// the operator's words.
 ///

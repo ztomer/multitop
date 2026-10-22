@@ -27,7 +27,14 @@ again. **The rate is READ, not carried, since 2026-10-21** (servers ROADMAP
 E53): the server publishes its publication cadence with the verdict, and the
 client derives its rate from what it read, so a server that publishes faster
 than its clients read is a warning the client prints rather than a silent
-aliasing. **The Ops frame can be PRINTED since 2026-10-21** (servers ROADMAP
+aliasing. **The installed agent's TICK is read too, since 2026-10-21** (servers
+ROADMAP E53): launchd fixes an interval when the job is loaded, so the agent's
+tick used to be a number this repo carried — and a publication that moved left
+the agent reading too slowly, with the client's own warning firing on every
+tick and nothing anyone could do about it but reinstall. The agent now paces
+itself (`multitop --ops-agent`): it reads the published cadence every cycle
+and waits the rate that cadence implies, and the installed launchd job carries
+no interval at all. **The Ops frame can be PRINTED since 2026-10-21** (servers ROADMAP
 O90): `multitop --ops-frame <host>` draws the frame the Ops view draws, from
 the client's own answers, so the other client's parity check can compare the
 two renderings without reading a terminal. **The TOOL CATALOGUE is KEPT

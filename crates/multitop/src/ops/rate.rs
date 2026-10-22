@@ -48,11 +48,11 @@ pub const STALE_GRACE_S: i64 = 300;
 pub const FALLBACK_INTERVAL_S: i64 = 450;
 
 /// A minute, in seconds: the unit a rate and a cadence are read in.
-const SECS_A_MINUTE: i64 = 60;
+pub(crate) const SECS_A_MINUTE: i64 = 60;
 /// An hour, in seconds.
-const SECS_AN_HOUR: i64 = 3_600;
+pub(crate) const SECS_AN_HOUR: i64 = 3_600;
 /// A day, in seconds.
-const SECS_A_DAY: i64 = 86_400;
+pub(crate) const SECS_A_DAY: i64 = 86_400;
 
 /// What this client knew before a gather: when the last answer was taken,
 /// and at what rate.

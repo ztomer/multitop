@@ -27,6 +27,11 @@ OPTIONS:
                            due, keep the answer, and exit. The poll is a job, not
                            a screen (servers ROADMAP E36); run it from a
                            scheduler, at the poll's own interval
+        --ops-agent            The Ops AGENT: the poll in a loop, paced by the
+                           cadence the estate publishes with its verdict
+                           (servers ROADMAP E53). The tick is read, never
+                           carried: the launchd job that runs this installs no
+                           interval of its own
         --ops-frame <HOST>     Print the Ops frame for one host, uncoloured: the
                            lines the Ops view draws, from this client's own
                            answers. The parity check reads it (servers ROADMAP
@@ -48,6 +53,22 @@ const SERVE_TOKEN_ON_ARGV: &str = "--serve-token is gone: a token on the command
 is readable by every local user (ps). Put it in a file only you can read (chmod 600) and \
 pass --serve-token-file <PATH>, or let --serve create one beside the config file.";
 
+/// Which Ops mode the command line asked for.
+///
+/// The poll and the agent are the same work at two different lengths: one
+/// pass, and exit; or a pass, then a wait, for ever (servers ROADMAP E53).
+/// One field, so the two cannot both be asked for.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum OpsMode {
+    /// Neither: the dashboard.
+    #[default]
+    Dashboard,
+    /// One pass of the Ops poll, and exit.
+    Pass,
+    /// The Ops agent: the poll in a loop, paced by the published cadence.
+    Agent,
+}
+
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct CliOptions {
     pub config_path: Option<PathBuf>,
@@ -56,8 +77,8 @@ pub struct CliOptions {
     pub remote_hosts: Vec<String>,
     pub serve_addr: Option<String>,
     pub serve_token_file: Option<PathBuf>,
-    /// One pass of the Ops poll, and exit.
-    pub ops_poll: bool,
+    /// Which Ops mode was asked for.
+    pub ops: OpsMode,
     /// The Ops frame for one host, printed, and exit.
     pub ops_frame: Option<String>,
 }
@@ -128,7 +149,8 @@ fn parse_cli<I: IntoIterator<Item = String>>(argv: I) -> Startup {
                 Some(p) => opts.serve_token_file = Some(PathBuf::from(p)),
                 None => return Startup::Fail("--serve-token-file requires a path".into()),
             },
-            "--ops-poll" => opts.ops_poll = true,
+            "--ops-poll" => opts.ops = OpsMode::Pass,
+            "--ops-agent" => opts.ops = OpsMode::Agent,
             "--ops-frame" => match iter.next() {
                 Some(host) => opts.ops_frame = Some(host),
                 None => return Startup::Fail("--ops-frame requires a host".into()),
@@ -287,8 +309,13 @@ fn main() -> ExitCode {
     if let Some(host) = opts.ops_frame.clone() {
         return multitop::headless::ops_frame_pass(&servers, &config_path, &host);
     }
-    if opts.ops_poll {
-        return multitop::headless::ops_poll_pass(&servers, &config_path);
+    // --ops-poll: one pass, and exit. --ops-agent: the poll in a loop,
+    // paced by the cadence the estate publishes (servers ROADMAP E53). It
+    // runs until it is stopped.
+    match opts.ops {
+        OpsMode::Pass => return multitop::headless::ops_poll_pass(&servers, &config_path),
+        OpsMode::Agent => return multitop::headless::ops_agent_run(&servers, &config_path),
+        OpsMode::Dashboard => {}
     }
 
     // --serve: headless HTTP companion reusing the MTOP pipeline.
@@ -380,6 +407,25 @@ mod tests {
             return Err("expected Run".into());
         };
         assert!(opts2.local_only);
+        Ok(())
+    }
+
+    #[test]
+    fn the_ops_flags_choose_their_mode() -> Result<(), String> {
+        let Startup::Run(dashboard) = cli(&[]) else {
+            return Err("expected Run".into());
+        };
+        assert_eq!(dashboard.ops, OpsMode::Dashboard);
+
+        let Startup::Run(pass) = cli(&["--ops-poll"]) else {
+            return Err("expected Run".into());
+        };
+        assert_eq!(pass.ops, OpsMode::Pass);
+
+        let Startup::Run(agent) = cli(&["--ops-agent"]) else {
+            return Err("expected Run".into());
+        };
+        assert_eq!(agent.ops, OpsMode::Agent);
         Ok(())
     }
 

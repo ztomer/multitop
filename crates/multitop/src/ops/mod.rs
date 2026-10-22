@@ -57,6 +57,7 @@ pub mod pass;
 pub mod rate;
 pub mod render;
 pub mod status;
+pub mod tick;
 
 pub use answers::*;
 pub use gather::*;
@@ -368,3 +369,7 @@ mod catalogue_tests;
 #[cfg(test)]
 #[path = "unknown_tests.rs"]
 mod unknown_tests;
+
+#[cfg(test)]
+#[path = "tick_tests.rs"]
+mod tick_tests;

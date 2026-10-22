@@ -52,9 +52,11 @@ cp config.example.toml ~/.config/multitop/config.toml
 # Or install to Homebrew's bindir and run from anywhere:
 ./install.sh
 
-# Run the Ops poll as a job, and install the launchd agent that runs it
-# every 7.5 minutes (twice the estate's publication rate):
+# Run the Ops poll as a job, and install the launchd agent that runs it.
+# The agent paces ITSELF by the cadence the estate publishes, so the
+# installed job carries no interval at all:
 multitop --ops-poll        # one pass: gather what is due, keep the answer
+multitop --ops-agent       # the agent: pass, wait the published cadence, again
 ./tools/install_ops_poller.sh
 
 # Print the Ops frame for one host, uncoloured: the lines the Ops view
@@ -101,15 +103,17 @@ Additional views accessible via keys:
   context names (Colima included); health and alerts show as absent, with the
   reason. **The poll is a job, not a screen:** `multitop --ops-poll` gathers
   the hosts whose answer is due and keeps it beside the config, and
-  `tools/install_ops_poller.sh` runs that pass from launchd every 7.5
-  minutes -- twice the estate's publication rate, so a verdict is never two
-  publications behind. The view shows what the poll found, and asks the
-  estate itself only when the answer is older than that. **The rate is
-  read, not carried:** the server publishes its publication cadence with
-  the verdict, and this client samples at half of it, so a server that
-  publishes faster than its clients read is a warning the client prints
-  rather than a silent aliasing. A cadence the server could not read is
-  said, and the rate this client had is kept
+  `tools/install_ops_poller.sh` installs the agent that runs that pass from
+  launchd -- and the agent paces ITSELF: it reads the cadence the estate
+  publishes with its verdict and waits the rate that cadence implies, so
+  the installed job carries no interval at all and a publication that moved
+  is followed a cycle later rather than after a reinstall. The view shows
+  what the poll found, and asks the estate itself only when the answer is
+  older than that. The rate is read, not carried: the server publishes its
+  publication cadence with the verdict, and this client samples at half of
+  it, so a server that publishes faster than its clients read is a warning
+  the client prints rather than a silent aliasing. A cadence the server
+  could not read is said, and the rate this client had is kept
 - **`multitop --ops-frame <HOST>`** — the Ops frame for one host, printed
   and uncoloured: the same lines the Ops view draws, from this client's
   own answers, so the other client can compare the two renderings

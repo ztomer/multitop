@@ -143,7 +143,7 @@ pub fn ops_poll_pass(servers: &[config::Server], config_path: &Path) -> ExitCode
         )
         .await;
         for h in &pass.hosts {
-            println!("{} · {}", h.host, said(h));
+            println!("{} · {}", h.host, crate::ops::pass::said(h));
         }
         pass.complete()
     });
@@ -154,25 +154,31 @@ pub fn ops_poll_pass(servers: &[config::Server], config_path: &Path) -> ExitCode
     }
 }
 
-/// What the pass says about one host, in the operator's words.
+/// `--ops-agent`: THE AGENT - the Ops poll in a loop, paced by the cadence
+/// the estate publishes.
 ///
-/// A host that was gathered is "gathered" - and when a section's answer
-/// did not arrive, the GAP is named beside it: the reading is not
-/// complete, and the log says which fact is missing (servers ROADMAP
-/// E74). A host the pass could not reach at all is "failed", with the
-/// reason.
-fn said(h: &crate::ops::pass::HostPass) -> String {
-    let state = if h.gathered {
-        "gathered"
-    } else if h.fresh {
-        "already fresh"
-    } else {
-        return format!("failed: {}", h.why.as_deref().unwrap_or("no reason given"));
+/// The agent is the poll with a scheduler of its own: it runs one pass, then
+/// waits the tick the published cadence implies, and passes again (servers
+/// ROADMAP E53). The tick is READ, not carried - the install template
+/// installs no interval at all, so there is no rate in this repo for the
+/// estate's cadence to move under.
+///
+/// It runs until it is stopped, so the exit code is the outcome of the
+/// runtime it could not build, and nothing else.
+#[must_use]
+pub fn ops_agent_run(servers: &[config::Server], config_path: &Path) -> ExitCode {
+    let cache = crate::ops::cache::Cache::beside(config_path);
+    let runtime = match tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()
+    {
+        Ok(r) => r,
+        Err(e) => {
+            eprintln!("[Error] Could not start async runtime: {e}");
+            return ExitCode::FAILURE;
+        }
     };
-    if h.unknown.is_empty() {
-        return state.to_string();
-    }
-    format!("{state} · {}", h.unknown.join(" · "))
+    runtime.block_on(async { crate::tasks::ops_agent::run_real(servers, &cache).await })
 }
 
 #[cfg(test)]

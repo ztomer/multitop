@@ -2,6 +2,7 @@
 
 mod exec_runner;
 mod kill;
+pub mod ops_agent;
 pub mod ops_poll;
 mod painted;
 mod spawn;

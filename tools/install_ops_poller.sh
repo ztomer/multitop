@@ -1,11 +1,10 @@
 #!/usr/bin/env bash
 # Install (or remove) the launchd agent that runs the Ops poll.
 #
-#   tools/install_ops_poller.sh [--interval SECONDS] [--uninstall]
+#   tools/install_ops_poller.sh [--uninstall]
 #
-# WHAT THIS AGENT IS: the Ops poll. Every interval it runs `multitop
-# --ops-poll`, which gathers the hosts whose answer is due and keeps it.
-# That is all it does.
+# WHAT THIS AGENT IS: the Ops poll. It gathers the hosts whose answer is
+# due and keeps what it found. That is all it does.
 #
 # WHY IT EXISTS (servers ROADMAP E36): the Ops poll was bound to the Ops
 # VIEW - it ran while a human was looking at the panel and never otherwise
@@ -20,9 +19,20 @@
 # the config, so the Ops view shows what the pass found instead of asking
 # the estate a second time.
 #
-# THE INTERVAL IS THE RULE (DECISIONS D15): the estate publishes its
-# verdict every 15 minutes, so a client reads at least every 7.5 minutes.
-# The default here is that number; the pass decides for itself what is due.
+# THE TICK IS NOT CARRIED HERE (servers ROADMAP E53). launchd fixes an
+# interval when the job is loaded, so a number in this file was a rate the
+# estate's publication could move under: had the estate moved from every 15
+# minutes to every 5, this agent would still have read every 6.5 minutes -
+# slower than the publication, so its verdict could be two publications
+# behind, and the client's own warning would have fired on every tick with
+# nothing anyone could do about it but reinstall.
+#
+# So the agent paces ITSELF: it reads the cadence the estate publishes with
+# its verdict and waits the rate that cadence implies (DECISIONS D15). The
+# job this template installs therefore carries NO rate at all - it keeps the
+# agent ALIVE, and that is all it does. There is no way to hand this script
+# a rate either: `--interval` is refused, because a rate in this repo is
+# the defect the tick was raised about.
 set -euo pipefail
 
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -41,13 +51,13 @@ support="$HOME/Library/Application Support/multitop"
 runner="$support/ops-poll-agent.sh"
 log_dir="$HOME/Library/Logs"
 log="$log_dir/multitop-ops-poll.log"
-# The scheduler's tick, under the poll's interval: launchd's timer wheel has
-# a granularity of its own (measured on this Mac on 2026-10-21: a 420 s
-# `StartInterval` fired 425 to 470 s after the last run), so a tick set AT
-# the interval would put the client at 7.5 to 8 minutes a gather - the rate
-# the routines client has, and a step outside the rule. At 390 s the
-# gathers land every 6.5 to 7.5 minutes: inside the rule, every time.
-interval=390
+# The minimum gap between two restarts of a FAILED agent.
+#
+# This is a LIVELINESS bound and not a rate: it says how long launchd waits
+# before it tries the agent again, and nothing about how often the agent
+# reads the estate. The tick - the rate the agent keeps - is the cadence
+# the estate publishes, read by the agent itself (servers ROADMAP E53).
+throttle=300
 domain="gui/$(id -u)"
 
 uninstall() {
@@ -59,9 +69,11 @@ uninstall() {
 
 while [ $# -gt 0 ]; do
     case "$1" in
-        --interval) interval="$2"; shift 2 ;;
         --uninstall) uninstall ;;
-        *) die "usage: $0 [--interval SECONDS] [--uninstall]" ;;
+        --interval)
+            die "--interval is gone: the tick is the cadence the estate publishes, read by the agent itself (servers ROADMAP E53). This script installs no rate."
+            ;;
+        *) die "usage: $0 [--uninstall]" ;;
     esac
 done
 
@@ -94,9 +106,24 @@ if [ ! -x "\$bin" ]; then
     echo "the Ops poll is disabled: \$bin is missing. Run ./install.sh." >&2
     exit 4
 fi
-exec "\$bin" --ops-poll
+
+# The AGENT, not one pass: it paces itself by the cadence the estate
+# publishes with its verdict (servers ROADMAP E53). "exec" keeps the agent
+# the job's own process, so launchd's signals reach it and its exit code is
+# the job's exit code.
+exec "\$bin" --ops-agent
 EOF
 chmod +x "$runner"
+
+# The job this one replaces may have carried an interval - a rate the estate's
+# cadence could move under. Say what is being dropped, so an operator who
+# remembers that number knows where it went.
+if [ -f "$plist" ]; then
+    old="$(plutil -extract StartInterval raw "$plist" 2>/dev/null || true)"
+    if [ -n "$old" ]; then
+        info "the job being replaced carried an interval of ${old}s - dropped: the agent paces itself by the published cadence"
+    fi
+fi
 
 cat > "$plist" <<EOF
 <?xml version="1.0" encoding="UTF-8"?>
@@ -109,10 +136,15 @@ cat > "$plist" <<EOF
     <array>
         <string>$runner</string>
     </array>
-    <key>StartInterval</key>
-    <integer>$interval</integer>
     <key>RunAtLoad</key>
     <true/>
+    <key>KeepAlive</key>
+    <dict>
+        <key>SuccessfulExit</key>
+        <false/>
+    </dict>
+    <key>ThrottleInterval</key>
+    <integer>$throttle</integer>
     <key>StandardOutPath</key>
     <string>$log</string>
     <key>StandardErrorPath</key>
@@ -129,6 +161,7 @@ EOF
 launchctl bootout "$domain/$label" 2>/dev/null || true
 launchctl bootstrap "$domain" "$plist"
 
-ok "$label installed - looks every ${interval}s"
+ok "$label installed - it keeps the agent alive, and the agent paces itself"
 info "log: $log"
-info "prove it by hand:  $bin --ops-poll"
+info "prove one pass by hand:  $bin --ops-poll"
+info "prove the agent by hand:  $bin --ops-agent"
