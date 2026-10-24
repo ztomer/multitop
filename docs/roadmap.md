@@ -70,7 +70,7 @@ call that missed it named, the host is gathered with the rest of its
 reading kept, and the pass still says the gap instead of passing for
 clear. The 20-second budget is the estate's and was not raised. **A2.5,
 the read-only screens over `/api/hosts` and `/api/health` through
-`PinnedTls`, closed on 2026-10-24.** The next open work is A3 (push). The releases:
+`PinnedTls`, closed on 2026-10-24 in `72efd5f`.** The next open work is A3 (push). The releases:
 v0.56.0 carried A2.4 and the installer's replace-by-rename fix (`2413764`),
 v0.57.0 carried the Ops view's ZFS section and the Android wrapper's move to
 Gradle 9.8.2 — the release table is at the end.
@@ -218,8 +218,7 @@ In the order it blocks:
      and nothing stored); `PairingScreenTest`, one per state. Not proven on a
      device: no phone or emulator is attached here, so the live camera path
      and the Keystore key are exercised only by building, not by a test.
-   * **A2.5 done 2026-10-24 -- the read-only screens** (commit in `git log
-     --grep A2.5`). The paired screen carries the hosts panel
+   * **A2.5 done 2026-10-24 -- the read-only screens** (`72efd5f`). The paired screen carries the hosts panel
      (`ui/HostsPanel.kt`, `ui/HostsController.kt`): the server's own count
      from `/api/health`, then one line per host from `/api/hosts`, each with
      its own glyph and words (`✓ health N/100`, `⚠ breaching`, `· not read
