@@ -225,7 +225,9 @@ In the order it blocks:
      and nothing stored); `PairingScreenTest`, one per state. Not proven on a
      device: no phone or emulator is attached here, so the live camera path
      and the Keystore key are exercised only by building, not by a test.
-   * **A2.5 done 2026-10-24 -- the read-only screens** (`72efd5f`). The paired screen carries the hosts panel
+   * **A2.5 done 2026-10-24 -- the read-only screens** (`72efd5f`; the
+     end-to-end test watches `127.0.0.1` since `efbfce4`, because a CI build
+     embeds no agents and `--serve` refuses a remote host without them). The paired screen carries the hosts panel
      (`ui/HostsPanel.kt`, `ui/HostsController.kt`): the server's own count
      from `/api/health`, then one line per host from `/api/hosts`, each with
      its own glyph and words (`✓ health N/100`, `⚠ breaching`, `· not read
