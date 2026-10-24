@@ -1,0 +1,44 @@
+//! The triage row, at the top of the card (servers ROADMAP O92): the
+//! machine's one verdict, drawn in the server's words.
+//!
+//! One row per item, each naming its stack, so the reader sees WHICH stack
+//! is unhappy rather than counting ticks; under it the owner's fix verbatim,
+//! or the plain fact that the owner states none, and the witnesses. Then
+//! the quiet line of each stack with nothing to say: what was read there,
+//! so an instance nobody read never passes for one that is fine.
+
+use super::super::triage::Triage;
+use super::{Frame, Tone};
+
+const LABEL: &str = "triage";
+
+pub(super) fn triage(f: &mut Frame<'_>, t: &Triage) {
+    if t.items.is_empty() {
+        if t.needs_attention {
+            f.line(
+                Tone::Warn,
+                LABEL,
+                "the server says something needs your hand, and names nothing",
+            );
+        } else {
+            f.line(Tone::Good, LABEL, "nothing needs your hand");
+        }
+    }
+    for item in &t.items {
+        f.line(
+            Tone::Bad,
+            LABEL,
+            &format!("{}: {}", item.instance, item.what),
+        );
+        match &item.fix {
+            Some(fix) => f.item(&format!("fix: {fix}")),
+            None => f.item("fix: none stated by the owner"),
+        }
+        for w in &item.witnesses {
+            f.item(w);
+        }
+    }
+    for q in &t.quiet {
+        f.line(Tone::Quiet, LABEL, q);
+    }
+}

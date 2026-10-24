@@ -170,6 +170,7 @@ pub(super) fn snapshot() -> Snapshot {
         disk: Part::Absent("this host lists no disk.usage".into()),
         facts: Part::Absent("this host lists no host.facts".into()),
         alerts: Part::Ready(parse_alerts(&alerts_answer()).unwrap()),
+        triage: Part::Absent("this host lists no machine.triage".into()),
     }
 }
 
@@ -212,6 +213,7 @@ fn a_troubled_host_names_each_thing_in_trouble_under_its_section() {
     let want = [
         "mcp_host 1.65.2 · asked 12s ago",
         "tool list: from the server (window 1h)",
+        "· triage     this host lists no machine.triage",
         "· no cpu or memory: this host lists no host.facts",
         "✗ health     1 of 2 failing · 15 min ago",
         "    check_vpn_leak  rc 1, 15 min ago",
@@ -264,6 +266,7 @@ fn a_clean_host_is_five_lines_and_absences_are_stated_not_alarmed() {
     assert_eq!(
         &f[3..],
         [
+            "· triage     this host lists no machine.triage",
             "· no cpu or memory: this host lists no host.facts",
             "✓ health     1 check ok · 13 min ago",
             "· vpn        this host lists no net.egress",
@@ -329,7 +332,7 @@ fn every_state_says_what_it_is() {
     };
     let f = plain(&render("h", &stale, 80, 40, NOW, &pal()));
     assert_eq!(f[2], "  the last answer, 12s old:");
-    assert_eq!(f[4], "✗ health     1 of 2 failing · 15 min ago");
+    assert_eq!(f[5], "✗ health     1 of 2 failing · 15 min ago");
 }
 
 #[test]
@@ -344,7 +347,7 @@ fn the_frame_fits_the_pane() {
     );
     assert_eq!(f.len(), 6);
     let p = plain(&f);
-    assert_eq!(p[5], "  +13 more");
+    assert_eq!(p[5], "  +14 more");
     assert!(p[1..].iter().all(|l| l.chars().count() <= 30), "{p:?}");
 }
 

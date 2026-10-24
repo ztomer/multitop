@@ -70,7 +70,14 @@ call that missed it named, the host is gathered with the rest of its
 reading kept, and the pass still says the gap instead of passing for
 clear. The 20-second budget is the estate's and was not raised. **A2.5,
 the read-only screens over `/api/hosts` and `/api/health` through
-`PinnedTls`, closed on 2026-10-24 in `72efd5f`.** The next open work is A3 (push). The releases:
+`PinnedTls`, closed on 2026-10-24 in `72efd5f`.** The next open work is A3 (push). **The Ops view draws the machine's VERDICT since 2026-10-24** (servers
+ROADMAP O92, this repo's client half): `machine.triage` is asked with the
+other sections and drawn at the top of the card - one `✗` row per item,
+naming its stack, the owner's fix verbatim or `fix: none stated by the
+owner`, the witnesses under it, then each stack's quiet line (`·`, what was
+read there), so a stack nobody read never passes for one that is fine
+(`ops/triage.rs`, `ops/render/triage.rs`, `ops/triage_tests.rs`; proven
+live on all three machines with `--ops-frame`). The releases:
 v0.56.0 carried A2.4 and the installer's replace-by-rename fix (`2413764`),
 v0.57.0 carried the Ops view's ZFS section and the Android wrapper's move to
 Gradle 9.8.2 — the release table is at the end.

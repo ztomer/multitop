@@ -68,6 +68,7 @@ fn snapshot() -> Snapshot {
         disk: Part::Ready(super::model::Disk { mounts: Vec::new() }),
         facts: Part::Ready(undeclared()),
         alerts: Part::Ready(Vec::new()),
+        triage: Part::Absent("this host lists no machine.triage".into()),
     }
 }
 

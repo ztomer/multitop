@@ -15,6 +15,13 @@ document for anything before this point.
   TLS and nothing else; each line carries its state in a glyph and words.
   Proven end to end against a real `multitop --serve` the test starts.
 
+### Added — the Ops view draws the machine's verdict (servers ROADMAP O92)
+- `machine.triage` is the first row of every Ops card: what needs the
+  owner's hand, one row per item naming its stack, with the owner's own fix
+  quoted (or the plain fact that there is none) and the sources' words
+  under it; then each stack's quiet line, saying what was read there.
+  A cache kept by an earlier version does not parse and is asked again.
+
 ### Fixed — a host nobody had read was counted healthy
 - `/api/hosts` gave a host with no reading `"health": 100`, and `/api/health`
   counted it in `healthy`: a server that had read nothing said every host was

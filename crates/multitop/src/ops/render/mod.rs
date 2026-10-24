@@ -17,6 +17,7 @@
 
 pub mod health;
 pub mod sections;
+mod triage;
 
 use multitop_agent::fmt::center_header;
 use multitop_agent::palette_view::PaletteView;

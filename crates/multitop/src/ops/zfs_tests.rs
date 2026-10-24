@@ -275,6 +275,7 @@ fn the_pool_names_are_searchable() {
         disk: Part::Absent("none".into()),
         facts: Part::Absent("none".into()),
         alerts: Part::Absent("none".into()),
+        triage: Part::Absent("this host lists no machine.triage".into()),
     };
     let terms = s.terms();
     assert!(terms.contains(&"pool0"), "{terms:?}");

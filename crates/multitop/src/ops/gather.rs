@@ -16,7 +16,8 @@ use tokio::io::{AsyncRead, AsyncWrite};
 use super::cache;
 use super::model::Health;
 use super::{
-    parse_alerts, parse_containers, parse_cron, parse_disk, parse_egress, parse_facts, parse_zfs,
+    parse_alerts, parse_containers, parse_cron, parse_disk, parse_egress, parse_facts,
+    parse_triage, parse_zfs, TRIAGE_TOOL,
 };
 use super::{
     parse_health, parse_suite, Part, Snapshot, ALERT_WINDOW_S, DISK_TOOL, EGRESS_TIMEOUT,
@@ -101,6 +102,11 @@ where
     } else {
         cache::Raw::Absent(c.absent_reason("alerts.since", "this host lists no alerts.since"))
     };
+    let triage = if c.has_tool(TRIAGE_TOOL) {
+        ask(c, TRIAGE_TOOL, json!({}), c.timeout()).await
+    } else {
+        cache::Raw::Absent(c.absent_reason(TRIAGE_TOOL, "this host lists no machine.triage"))
+    };
     // The rate the answer carries is DERIVED, from the cadence the server
     // published with the verdict (servers ROADMAP E53). A server that
     // could not read its own cadence leaves the client with the rate it
@@ -126,6 +132,7 @@ where
         disk,
         facts,
         alerts,
+        triage,
     }
 }
 
@@ -161,6 +168,7 @@ pub fn parse_snapshot(raw: &cache::RawSnapshot) -> Snapshot {
         disk: parse_part(&raw.disk, parse_disk),
         facts: parse_part(&raw.facts, parse_facts),
         alerts: parse_part(&raw.alerts, parse_alerts),
+        triage: parse_part(&raw.triage, parse_triage),
     }
 }
 

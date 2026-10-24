@@ -81,6 +81,8 @@ pub fn ops(term: (u16, u16)) -> App {
             ts: at - 60,
             subject: "[media_server] backup FAILED (rc=1)".into(),
         }]),
+
+        triage: Part::Absent("this host lists no machine.triage".into()),
     };
     let mut clean = troubled.clone();
     clean.health = Part::Ready(health(vec![check("check_disk_space", true)]));

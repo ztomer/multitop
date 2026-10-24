@@ -23,6 +23,11 @@ const TIGHT_PERCENT: u64 = 90;
 
 /// Every section, in the order they are drawn.
 pub(super) fn sections(f: &mut Frame<'_>, s: &Snapshot, now: i64) {
+    if !not_ready(f, "triage", &s.triage) {
+        if let Part::Ready(t) = &s.triage {
+            super::triage::triage(f, t);
+        }
+    }
     machine(f, s);
     if !not_ready(f, "health", &s.health) {
         if let Part::Ready(h) = &s.health {

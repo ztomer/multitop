@@ -54,6 +54,7 @@ fn answer(at: i64) -> RawSnapshot {
         disk: Raw::Absent("this host lists no disk.usage".into()),
         facts: Raw::Absent("this host lists no host.facts".into()),
         alerts: Raw::Absent("this host lists no alerts.since".into()),
+        triage: Raw::Absent("this host lists no machine.triage".into()),
     }
 }
 

@@ -103,6 +103,9 @@ pub struct RawSnapshot {
     pub disk: Raw,
     pub facts: Raw,
     pub alerts: Raw,
+    /// `machine.triage`. A cache kept before this field existed does not
+    /// parse, and is asked again rather than drawn without its verdict.
+    pub triage: Raw,
 }
 
 impl RawSnapshot {

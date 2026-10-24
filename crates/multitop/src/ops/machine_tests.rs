@@ -136,6 +136,7 @@ fn snapshot() -> Snapshot {
         disk: Part::Ready(parse_disk(&disk_answer()).unwrap()),
         facts: Part::Ready(parse_facts(&facts_answer()).unwrap()),
         alerts: Part::Ready(vec![]),
+        triage: Part::Absent("this host lists no machine.triage".into()),
     }
 }
 

@@ -94,6 +94,7 @@ fn snapshot(h: &Health) -> Snapshot {
         disk: Part::Absent("this host lists no disk.usage".into()),
         facts: Part::Absent("this host lists no host.facts".into()),
         alerts: Part::Ready(Vec::new()),
+        triage: Part::Absent("this host lists no machine.triage".into()),
     }
 }
 

@@ -58,6 +58,7 @@ pub mod rate;
 pub mod render;
 pub mod status;
 pub mod tick;
+pub mod triage;
 
 pub use answers::*;
 pub use gather::*;
@@ -65,6 +66,7 @@ pub use model::*;
 pub use model_health::*;
 pub use rate::*;
 pub use status::*;
+pub use triage::{parse_triage, Triage, TriageItem, TRIAGE_TOOL};
 
 /// The tool list, and where this client got it: the state the panel says.
 pub use crate::mcp::catalogue::Catalogue;
@@ -208,6 +210,8 @@ pub struct Snapshot {
     /// The machine's identity and capacity.
     pub facts: Part<Facts>,
     pub alerts: Part<Vec<Alert>>,
+    /// The machine's one verdict (`machine.triage`, servers ROADMAP O92).
+    pub triage: Part<Triage>,
 }
 
 /// What a panel in the Ops view shows.
@@ -243,6 +247,7 @@ impl Snapshot {
         gap("disk", &self.disk, &mut out);
         gap("facts", &self.facts, &mut out);
         gap("alerts", &self.alerts, &mut out);
+        gap("triage", &self.triage, &mut out);
         out
     }
 
@@ -292,6 +297,13 @@ impl Snapshot {
         }
         if let Part::Ready(a) = &self.alerts {
             t.extend(a.iter().map(|a| a.subject.as_str()));
+        }
+        if let Part::Ready(tr) = &self.triage {
+            t.extend(
+                tr.items
+                    .iter()
+                    .flat_map(|i| [i.instance.as_str(), i.what.as_str()]),
+            );
         }
         // A gap in the reading is searchable too: `/no answer` finds the
         // host whose docker call missed its deadline.
@@ -361,6 +373,10 @@ mod rate_tests;
 #[cfg(test)]
 #[path = "wording_tests.rs"]
 mod wording_tests;
+
+#[cfg(test)]
+#[path = "triage_tests.rs"]
+mod triage_tests;
 
 #[cfg(test)]
 #[path = "catalogue_tests.rs"]

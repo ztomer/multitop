@@ -30,7 +30,7 @@ fn cache(dir: &tempfile::TempDir) -> Cache {
 }
 
 /// An answer, as a gather would have left it.
-fn raw(at: i64) -> RawSnapshot {
+pub(super) fn raw(at: i64) -> RawSnapshot {
     RawSnapshot {
         server: ("mcp_host".into(), "1.99.11".into()),
         at,
@@ -46,6 +46,7 @@ fn raw(at: i64) -> RawSnapshot {
         disk: Raw::Absent("this host lists no disk.usage".into()),
         facts: Raw::Absent("this host lists no host.facts".into()),
         alerts: Raw::Value(json!({"events": []})),
+        triage: Raw::Absent("this host lists no machine.triage".into()),
     }
 }
 
