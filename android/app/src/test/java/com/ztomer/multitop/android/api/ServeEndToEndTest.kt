@@ -30,9 +30,11 @@ import java.util.concurrent.TimeUnit
  * Absent, this FAILS with how to fix it rather than skipping: a skipped
  * end-to-end test is the gate that passes without having looked.
  *
- * The one host the server watches is `e2e.invalid` (RFC 6761: never resolves),
- * so its reading is deterministic -- not read yet, then unreachable -- and the
- * test reaches nothing outside this machine.
+ * The one host the server watches is this machine (`127.0.0.1`, which the
+ * server reads in-process): a remote host would need the cross-compiled agents
+ * a CI build does not embed, and `--serve` rightly refuses to start without
+ * them. So the test reaches nothing outside this machine, and it sees a real
+ * reading arrive -- not read yet, then read.
  */
 class ServeEndToEndTest {
     @TempDir
@@ -88,22 +90,27 @@ class ServeEndToEndTest {
 
     @Test
     fun `the paired client reads health and hosts over pinned TLS`() {
-        val first = ServerApi(pairing()).overview()
-        val read = first as? Fetch.Read ?: fail("expected a read, got $first; server log:\n${log.readText()}")
-        assertEquals(1, read.overview.health.total)
-        assertEquals(0, read.overview.health.healthy, "an unread host is never counted healthy")
-        val row = read.overview.hosts.single()
+        var last: Overview? = null
+        waitFor("a reading of this machine to arrive") {
+            val fetched = ServerApi(pairing()).overview()
+            val read = fetched as? Fetch.Read ?: fail("expected a read, got $fetched; server log:\n${log.readText()}")
+            val o = read.overview
+            last = o
+            // On EVERY read, before the reading arrives and after: the count is
+            // the server's own and adds up, and an unread host has no score.
+            assertEquals(1, o.health.total)
+            assertEquals(o.health.total, o.health.healthy + o.health.breaching + o.health.unread)
+            val row = o.hosts.single()
+            if (!row.hasReading) assertNull(row.health, "a host not read yet has no health")
+            row.hasReading
+        }
+        val o = last ?: fail("no read was made")
+        val row = o.hosts.single()
         assertEquals(HOST, row.host)
         assertEquals(NAME, row.label)
-        assertNull(row.health)
-        // The collector's attempt fails (the name never resolves) and the server says so.
-        waitFor("the server to report $HOST unreachable") {
-            (ServerApi(pairing()).overview() as? Fetch.Read)
-                ?.overview
-                ?.hosts
-                ?.single()
-                ?.reachable == false
-        }
+        assertTrue(row.reachable)
+        assertTrue(row.health in 0..MAX_HEALTH, "health ${row.health}")
+        assertEquals(0, o.health.unread)
     }
 
     @Test
@@ -144,7 +151,8 @@ class ServeEndToEndTest {
     }
 
     private companion object {
-        const val HOST = "e2e.invalid"
+        const val HOST = "127.0.0.1"
+        const val MAX_HEALTH = 100
         const val NAME = "e2e-host"
         const val TOKEN_HEX = 64
         const val WAIT_S = 30L

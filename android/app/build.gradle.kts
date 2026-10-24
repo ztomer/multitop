@@ -69,6 +69,13 @@ android {
             // Robolectric on JDK 24+: it sets a FileDescriptor's raw fd through
             // jdk.internal.access, and loads its native runtime with System.load.
             it.jvmArgs("--add-exports=java.base/jdk.internal.access=ALL-UNNAMED", "--enable-native-access=ALL-UNNAMED")
+            // A failure prints its message and cause on the console: CI keeps
+            // nothing else, and a bare "AssertionFailedError at line 139" hid
+            // why the end-to-end test's server exited there (2026-10-24).
+            it.testLogging {
+                events("failed")
+                exceptionFormat = org.gradle.api.tasks.testing.logging.TestExceptionFormat.FULL
+            }
         }
     }
 }
