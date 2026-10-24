@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # The Android companion's gate (android/, docs/roadmap.md A2): ktlint, Android
 # lint and the Kotlin compiler with warnings as errors, the JVM unit tests, and
-# a debug APK, and the line-coverage floor (Kover, tools/android_coverage_floor.txt:
+# a debug APK, the end-to-end test against a real `multitop --serve` (built here),
+# and the line-coverage floor (Kover, tools/android_coverage_floor.txt:
 # one whole number, read by the Gradle build and recorded in docs/roadmap.md A2.2) --
 # then two checks Gradle cannot make itself:
 #
@@ -52,6 +53,22 @@ fi
     die "the SDK licences at $sdk are not accepted -- run: sdkmanager --licenses"
 command -v java >/dev/null 2>&1 || die "no JDK on PATH -- install one (macOS: brew install --cask temurin)"
 export ANDROID_HOME="$sdk"
+
+# The end-to-end test (ServeEndToEndTest, ROADMAP A2.5) drives the REAL
+# `multitop --serve` over pinned TLS, so the gate builds it and names it. The
+# path comes from cargo itself: the build dir is per machine, never target/.
+command -v cargo >/dev/null 2>&1 || die "no cargo on PATH -- the Android end-to-end test needs multitop built (rustup.rs)"
+MULTITOP_BIN="$(cargo build -p multitop --message-format=json-render-diagnostics </dev/null |
+    python3 -c '
+import json, sys
+for line in sys.stdin:
+    m = json.loads(line)
+    if m.get("reason") == "compiler-artifact" and m["target"]["name"] == "multitop" and m.get("executable"):
+        print(m["executable"])
+')" || die "cargo build -p multitop failed -- the Android end-to-end test drives it"
+[ -x "$MULTITOP_BIN" ] || die "cargo built no multitop executable (got '$MULTITOP_BIN')"
+export MULTITOP_BIN
+ok "multitop built for the end-to-end test"
 
 log="$(mktemp "${TMPDIR:-/tmp}/multitop-android.XXXXXX")"
 trap 'rm -f "$log"' EXIT

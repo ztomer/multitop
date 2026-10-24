@@ -122,6 +122,9 @@ dependencies {
     implementation("com.google.zxing:core:3.5.4")
 
     testImplementation("org.junit.jupiter:junit-jupiter:6.1.3")
+    // org.json is the platform's on a phone; android.jar's copy is stubs on the
+    // JVM, so the unit tests read JSON with the real library of the same API.
+    testImplementation("org.json:json:20260814")
     testRuntimeOnly("org.junit.platform:junit-platform-launcher:6.1.3")
     // The Compose UI tests run on the JVM under Robolectric, whose runner is
     // JUnit 4's; the vintage engine runs them on the same JUnit Platform.

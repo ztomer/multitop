@@ -242,6 +242,12 @@ jobs:
           distribution: temurin
           java-version: '27'
       - uses: android-actions/setup-android@v4
+      # The gate builds `multitop` for the end-to-end test (ServeEndToEndTest,
+      # ROADMAP A2.5), so this job needs the toolchain and the system libraries
+      # every cargo job needs.
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - uses: ./.github/actions/system-deps
       # The same command the pre-push hook runs (GOH_CI_STEPS), so the merge
       # gate cannot be weaker than the local one.
       - name: Android gate

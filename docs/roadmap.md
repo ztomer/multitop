@@ -68,10 +68,9 @@ own request's id, and the client matches the id, so it can never be taken
 for the next one), the section that missed it reads **UNKNOWN** with the
 call that missed it named, the host is gathered with the rest of its
 reading kept, and the pass still says the gap instead of passing for
-clear. The 20-second budget is the estate's and was not raised. The next
-open work is
-**A2.5**, the read-only screens over
-`/api/hosts` and `/api/health` through `PinnedTls`; then A3. The releases:
+clear. The 20-second budget is the estate's and was not raised. **A2.5,
+the read-only screens over `/api/hosts` and `/api/health` through
+`PinnedTls`, closed on 2026-10-24.** The next open work is A3 (push). The releases:
 v0.56.0 carried A2.4 and the installer's replace-by-rename fix (`2413764`),
 v0.57.0 carried the Ops view's ZFS section and the Android wrapper's move to
 Gradle 9.8.2 — the release table is at the end.
@@ -163,9 +162,10 @@ In the order it blocks:
    characters of payload: a dense but ordinary QR code.
 
    Remaining, in order:
-   * **A2.2 done 2026-10-18 -- a Kotlin coverage floor of 74%** (line coverage;
+   * **A2.2 done 2026-10-18 -- a Kotlin coverage floor of 80%** (line coverage;
      71% when it landed, measured 71.58%, rounded down; raised to 74% by A2.4,
-     measured 238 of 318 lines, 74.84%, rounded down). Kover 0.9.11 (JetBrains, released
+     measured 238 of 318 lines, 74.84%, rounded down; raised to 80% by A2.5,
+     measured 80.75%, rounded down). Kover 0.9.11 (JetBrains, released
      2026-09-29) rather than JaCoCo: it is built for Kotlin and Android and
      enforces a floor itself (`koverVerify`), where AGP's JaCoCo path produces a
      report and leaves the verification task to be hand-built. Scope: the main
@@ -218,11 +218,27 @@ In the order it blocks:
      and nothing stored); `PairingScreenTest`, one per state. Not proven on a
      device: no phone or emulator is attached here, so the live camera path
      and the Keystore key are exercised only by building, not by a test.
-   * **A2.5 -- the read-only screens (the next item)** over `/api/hosts` and
-     `/api/health` through `PinnedTls` (its `verifier` is the HTTPS hostname
-     verifier: the LAN address may change, the pin may not). Proof: the
-     end-to-end test against a `--serve` started by the test, over the pinned
-     TLS.
+   * **A2.5 done 2026-10-24 -- the read-only screens** (commit in `git log
+     --grep A2.5`). The paired screen carries the hosts panel
+     (`ui/HostsPanel.kt`, `ui/HostsController.kt`): the server's own count
+     from `/api/health`, then one line per host from `/api/hosts`, each with
+     its own glyph and words (`✓ health N/100`, `⚠ breaching`, `· not read
+     yet`, `✗ unreachable`), a failed read in words with the last overview
+     kept and labelled as the last; last-wins refresh. The client
+     (`api/ServerApi.kt`) is `HttpsURLConnection` over `PinnedTls` only, and the
+     JSON is read strictly (`api/Overview.kt`: a missing field is refused by
+     name, never defaulted). **One server defect it found:** a host with no
+     reading was `"health": 100` and counted in `healthy`, so a server that
+     had read nothing said every host was well; `health` is now absent until a
+     reading, `/api/health` carries `unread`, and `/api/hosts` carries the
+     config's `name` and a per-host `breaching`
+     (`a_host_with_no_reading_is_never_counted_healthy`). Proof:
+     `ServeEndToEndTest` starts the real `multitop --serve` on `0.0.0.0` (so it
+     speaks TLS), pairs through `PairingPayload`, reads both endpoints, refuses
+     a client pinned to another certificate and a wrong token; it went red
+     against a binary built before `breaching` existed. `tools/android_gate.sh`
+     builds `multitop` and sets `MULTITOP_BIN`; absent, the test fails rather
+     than skips. Not proven on a device (none attached).
 
    Measured 2026-10-17: Android SDK at `~/Library/Android/sdk`, Gradle 9.8.1,
    Temurin JDK 27; no device attached; `ANDROID_HOME` unset (the gate defaults

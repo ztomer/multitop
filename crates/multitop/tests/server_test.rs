@@ -226,3 +226,46 @@ async fn test_api_snapshot_and_history() {
     let resp_mtop = app_mtop.oneshot(req_mtop).await.unwrap();
     assert_eq!(resp_mtop.status(), StatusCode::OK);
 }
+
+/// GET `uri` with the right token and parse the JSON body.
+async fn get_json(state: AppState, uri: &str) -> serde_json::Value {
+    let req = Request::builder()
+        .uri(uri)
+        .header("authorization", "Bearer unread-tok")
+        .body(Body::empty())
+        .unwrap();
+    let resp = router(state).oneshot(req).await.unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+    let bytes = resp.into_body().collect().await.unwrap().to_bytes();
+    serde_json::from_slice(&bytes).unwrap()
+}
+
+/// A host the server has not read yet is NOT healthy (Android A2.5, the phone's
+/// first reader of these two endpoints). Before this, `/api/hosts` gave it
+/// `"health": 100` -- a perfect score for nothing measured -- and `/api/health`
+/// counted it in `healthy`, so a server that had read nothing at all said every
+/// host was well. Unread is its own count, and its health is absent.
+#[tokio::test]
+async fn a_host_with_no_reading_is_never_counted_healthy() {
+    let (mut state, _) = test_state("unread-tok");
+    let mut unread = state.servers[0].clone();
+    unread.host = "unread-host".into();
+    unread.name = Some("beelink".into());
+    state.servers.push(unread);
+
+    let hosts = get_json(state.clone(), "/api/hosts").await;
+    assert_eq!(hosts[0]["host"], "test-host");
+    assert!(hosts[0]["health"].is_u64(), "{hosts}");
+    assert_eq!(hosts[0]["breaching"], false, "{hosts}");
+    assert_eq!(hosts[1]["host"], "unread-host");
+    assert_eq!(hosts[1]["name"], "beelink");
+    assert_eq!(hosts[1]["has_snapshot"], false);
+    assert!(hosts[1]["health"].is_null(), "{hosts}");
+    assert_eq!(hosts[1]["breaching"], false, "{hosts}");
+
+    let health = get_json(state, "/api/health").await;
+    assert_eq!(health["total"], 2, "{health}");
+    assert_eq!(health["healthy"], 1, "{health}");
+    assert_eq!(health["breaching"], 0, "{health}");
+    assert_eq!(health["unread"], 1, "{health}");
+}

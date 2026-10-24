@@ -7,6 +7,20 @@ This file starts at v0.47.0 — earlier history is in git (`git log`), and the
 per-defect record is `docs/detection-record.md`, which is the more useful
 document for anything before this point.
 
+## Unreleased
+
+### Added — the phone reads the server (ROADMAP A2.5)
+- The paired screen of the Android companion shows the server's own count
+  (`/api/health`) and one line per host (`/api/hosts`), read over the pinned
+  TLS and nothing else; each line carries its state in a glyph and words.
+  Proven end to end against a real `multitop --serve` the test starts.
+
+### Fixed — a host nobody had read was counted healthy
+- `/api/hosts` gave a host with no reading `"health": 100`, and `/api/health`
+  counted it in `healthy`: a server that had read nothing said every host was
+  well. `health` is now absent until there is a reading, `/api/health` adds
+  `unread`, and `/api/hosts` adds the host's `name` and `breaching`.
+
 ## v0.66.0 — the agent's tick is read from the cadence the estate publishes _(2026-10-21)_
 
 ### Changed — the installed agent paces ITSELF, and the launchd job carries no interval (servers ROADMAP E53)

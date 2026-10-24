@@ -6,6 +6,8 @@
         android:name="android.hardware.camera.any"
         android:required="false" />
     <uses-permission android:name="android.permission.CAMERA" />
+    <!-- The paired server's read-only API, over pinned TLS on the LAN. -->
+    <uses-permission android:name="android.permission.INTERNET" />
 
     <!--
       allowBackup is off and the extraction rules exclude everything: the

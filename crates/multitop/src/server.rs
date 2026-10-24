@@ -107,10 +107,17 @@ async fn require_token(State(state): State<AppState>, req: Request, next: Next) 
 #[derive(Serialize)]
 struct HostInfo {
     host: String,
+    /// The machine's name from the config (`name = "beelink"`), when it has one.
+    name: Option<String>,
     port: u16,
     user: String,
     has_snapshot: bool,
-    health: u8,
+    /// 0-100, and ABSENT until the host has been read: a score for nothing
+    /// measured would read as a perfect one.
+    health: Option<u8>,
+    /// Past a configured alert threshold, as `/api/health` counts it; `false`
+    /// until the host has been read (`has_snapshot` says which).
+    breaching: bool,
     reachable: bool,
 }
 
@@ -150,13 +157,15 @@ async fn api_hosts(State(state): State<AppState>) -> impl IntoResponse {
                     .find(|(k, _)| k.contains(&s.host))
                     .map(|(_, v)| v)
             });
-            let health = snap.map_or(100, |sn| health::health(sn, &state.config));
+            let health = snap.map(|sn| health::health(sn, &state.config));
             HostInfo {
                 host: s.host.clone(),
+                name: s.name.clone(),
                 port: s.port,
                 user: s.user.clone(),
                 has_snapshot: snap.is_some(),
                 health,
+                breaching: snap.is_some_and(|sn| health::is_breaching(sn, &state.config)),
                 reachable: snap.is_some() || !live.errors.contains_key(&s.host),
             }
         })
@@ -165,13 +174,14 @@ async fn api_hosts(State(state): State<AppState>) -> impl IntoResponse {
 }
 
 async fn api_health(State(state): State<AppState>) -> impl IntoResponse {
-    let (total, breaching) = {
+    let (total, breaching, unread) = {
         let snapshots = {
             let live = state.live.read().await;
             live.snapshots.clone()
         };
         let mut total = 0;
         let mut breaching = 0;
+        let mut unread = 0;
         for s in &state.servers {
             let snap = snapshots.get(&s.host).or_else(|| {
                 snapshots
@@ -180,20 +190,22 @@ async fn api_health(State(state): State<AppState>) -> impl IntoResponse {
                     .map(|(_, v)| v)
             });
             total += 1;
-            if let Some(sn) = snap {
-                if health::is_breaching(sn, &state.config) {
-                    breaching += 1;
-                }
+            match snap {
+                Some(sn) if health::is_breaching(sn, &state.config) => breaching += 1,
+                Some(_) => {}
+                // Not read yet: neither healthy nor breaching, and said so.
+                None => unread += 1,
             }
         }
-        (total, breaching)
+        (total, breaching, unread)
     };
     (
         StatusCode::OK,
         Json(serde_json::json!({
             "total": total,
             "breaching": breaching,
-            "healthy": total - breaching,
+            "healthy": total - breaching - unread,
+            "unread": unread,
         })),
     )
         .into_response()

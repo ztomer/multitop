@@ -35,7 +35,8 @@ class PairingActions(
 )
 
 /**
- * The one screen, one layout per [PairingState]. Every state's headline leads
+ * The one screen, one layout per [PairingState]; [paired] is what a paired
+ * server shows (the hosts panel), [content] the scanner. Every state's headline leads
  * with its own glyph AND says the state in words (· not paired, → pairing,
  * ✓ paired, ✗ failed), so no state rests on colour; the error colour is used
  * only for the failure, the one state that is a fault.
@@ -44,6 +45,7 @@ class PairingActions(
 fun PairingScreen(
     state: PairingState,
     actions: PairingActions,
+    paired: @Composable (Pairing) -> Unit = {},
     content: @Composable () -> Unit,
 ) {
     Scaffold { insets ->
@@ -63,7 +65,7 @@ fun PairingScreen(
             when (state) {
                 PairingState.NotPaired -> NotPaired(actions)
                 PairingState.InProgress -> InProgress(actions, content)
-                is PairingState.Paired -> Paired(state.pairing, actions)
+                is PairingState.Paired -> Paired(state.pairing, actions, paired)
                 is PairingState.Failed -> Failed(state.reason, actions)
             }
         }
@@ -110,6 +112,7 @@ private fun InProgress(
 private fun Paired(
     pairing: Pairing,
     actions: PairingActions,
+    paired: @Composable (Pairing) -> Unit,
 ) {
     Headline(Copy.paired(pairing))
     Body(Copy.FINGERPRINT_DETAIL)
@@ -118,7 +121,7 @@ private fun Paired(
         style = MaterialTheme.typography.bodyLarge,
         fontFamily = FontFamily.Monospace,
     )
-    Body(Copy.PAIRED_DETAIL)
+    paired(pairing)
     OutlinedButton(onClick = actions.unpair) { Text(Copy.UNPAIR) }
 }
 
@@ -147,7 +150,6 @@ object Copy {
     const val PAIR_PASTED = "Pair"
     const val CANCEL = "Cancel"
     const val FINGERPRINT_DETAIL = "Certificate fingerprint -- compare it with the sha256= line multitop --serve printed:"
-    const val PAIRED_DETAIL = "Host data is not read yet in this build: the live screens come next."
     const val UNPAIR = "Unpair"
     const val TRY_AGAIN = "Try again"
     const val BACK = "Back"
