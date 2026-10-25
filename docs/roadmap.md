@@ -77,7 +77,11 @@ naming its stack, the owner's fix verbatim or `fix: none stated by the
 owner`, the witnesses under it, then each stack's quiet line (`·`, what was
 read there), so a stack nobody read never passes for one that is fine
 (`ops/triage.rs`, `ops/render/triage.rs`, `ops/triage_tests.rs`; proven
-live on all three machines with `--ops-frame`). The releases:
+live on all three machines with `--ops-frame`). **R3.14 (2026-10-24):** media_server 1.99.25 made the quiet line two
+clauses (`N suite checks ok (oldest X); M other scheduled check(s) ok (oldest Y)`),
+which a 100-column card clipped mid-word; each `; ` clause now gets its own
+row, verbatim, and the fixture holds the live 1.99.25 answer from `.90`
+(`a_quiet_machine_says_so_and_says_what_was_read_on_each_stack`). The releases:
 v0.56.0 carried A2.4 and the installer's replace-by-rename fix (`2413764`),
 v0.57.0 carried the Ops view's ZFS section and the Android wrapper's move to
 Gradle 9.8.2 — the release table is at the end.

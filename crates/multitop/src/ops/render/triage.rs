@@ -6,6 +6,7 @@
 //! or the plain fact that the owner states none, and the witnesses. Then
 //! the quiet line of each stack with nothing to say: what was read there,
 //! so an instance nobody read never passes for one that is fine.
+//! Each "; " clause of a quiet line gets its own row, never clipped.
 
 use super::super::triage::Triage;
 use super::{Frame, Tone};
@@ -38,7 +39,15 @@ pub(super) fn triage(f: &mut Frame<'_>, t: &Triage) {
             f.item(w);
         }
     }
+    // Since media_server 1.99.25 a quiet line carries clauses joined by
+    // "; " ("N suite checks ok (...); M other scheduled check(s) ok (...)"),
+    // longer than a card row: each clause after the first goes on its own
+    // continuation row, verbatim, so no clause is clipped away.
     for q in &t.quiet {
-        f.line(Tone::Quiet, LABEL, q);
+        let mut clauses = q.split("; ");
+        f.line(Tone::Quiet, LABEL, clauses.next().unwrap_or_default());
+        for c in clauses {
+            f.item(c);
+        }
     }
 }

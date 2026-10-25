@@ -9,11 +9,12 @@ use super::*;
 
 const NOW: i64 = 1_790_170_000;
 
-/// What `.90` answered on 2026-10-24: two stacks, nothing to say.
+/// What `.90` answered on 2026-10-24 (`media_server` 1.99.25): two stacks,
+/// nothing to say.
 fn storage_quiet() -> Value {
     json!({"machine":"storage","needs_attention":false,"items":[],
-        "quiet":["instance storage-server: 9 checks ok (oldest 9 h ago)",
-                 "instance solver: 8 checks ok (oldest 9 h ago)"]})
+        "quiet":["instance storage-server: 8 suite checks ok (oldest 3 min ago); 1 other scheduled check ok (oldest 17 h ago)",
+                 "instance solver: 7 suite checks ok (oldest 3 min ago); 1 other scheduled check ok (oldest 17 h ago)"]})
 }
 
 /// The design's example: the SUSPENDED pool, with ZFS's own fix, and a
@@ -48,11 +49,13 @@ fn a_quiet_machine_says_so_and_says_what_was_read_on_each_stack() {
     let f = frame(Part::Ready(parse_triage(&storage_quiet()).unwrap()));
     // At the top of the card: right under the server's own lines.
     assert_eq!(
-        &f[3..6],
+        &f[3..8],
         [
             "✓ triage     nothing needs your hand",
-            "· triage     instance storage-server: 9 checks ok (oldest 9 h ago)",
-            "· triage     instance solver: 8 checks ok (oldest 9 h ago)",
+            "· triage     instance storage-server: 8 suite checks ok (oldest 3 min ago)",
+            "    1 other scheduled check ok (oldest 17 h ago)",
+            "· triage     instance solver: 7 suite checks ok (oldest 3 min ago)",
+            "    1 other scheduled check ok (oldest 17 h ago)",
         ]
     );
 }
