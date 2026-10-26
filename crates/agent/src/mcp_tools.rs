@@ -35,6 +35,19 @@ pub trait System {
     fn now(&self) -> i64;
 }
 
+/// What a tool does to the machine.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Effect {
+    /// Reads; changes nothing.
+    Read,
+    /// Changes state that is easily restored.
+    Write,
+    /// Overwrites or removes state. Never listed or called: this server
+    /// has no opt-in for one, so a destructive tool added to the table
+    /// stays unreachable until one is built (and its test goes red first).
+    Destructive,
+}
+
 /// A tool this server can list.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Tool {
@@ -51,10 +64,10 @@ impl Tool {
         }
     }
 
-    /// Its `tools/list` entry.
+    /// What the tool says it does: the description `tools/list` carries.
     #[must_use]
-    pub fn describe(self) -> Value {
-        let description = match self {
+    pub const fn description(self) -> &'static str {
+        match self {
             Self::Cron => {
                 "The user's launchd agents as a cron table: label, PID while running, \
                  the last exit status (negative is the signal that ended it)."
@@ -63,13 +76,63 @@ impl Tool {
                 "Every container on the configured Docker daemon (the docker context's, \
                  so Colima is found): name, state, status, health, compose project, image."
             }
-        };
-        json!({
-            "name": self.name(),
-            "description": description,
-            "inputSchema": { "type": "object", "properties": {}, "additionalProperties": false },
-            "annotations": { "readOnlyHint": true },
-        })
+        }
+    }
+
+    /// What it does to the machine, stated beside the tool and nowhere
+    /// else: the MCP layer derives the annotations from this, and a
+    /// [`Effect::Destructive`] tool is never listed or called.
+    #[must_use]
+    pub const fn effect(self) -> Effect {
+        match self {
+            Self::Cron | Self::Containers => Effect::Read,
+        }
+    }
+
+    /// The shape of every successful answer (`outputSchema`); `required`
+    /// names only the fields every success carries.
+    #[must_use]
+    pub fn output_schema(self) -> Value {
+        match self {
+            Self::Cron => json!({
+                "type": "object",
+                "properties": {
+                    "source": { "type": "string", "description": "always \"launchd\"" },
+                    "jobs": { "type": "array", "items": {
+                        "type": "object",
+                        "properties": {
+                            "label": { "type": "string" },
+                            "pid": { "type": ["integer", "null"] },
+                            "last_rc": { "type": ["integer", "null"] },
+                            "running_since": { "type": ["integer", "null"] },
+                            "last_start": { "type": ["integer", "null"] },
+                            "alert_since": { "type": ["integer", "null"] },
+                        },
+                        "required": ["label"],
+                    } },
+                },
+                "required": ["source", "jobs"],
+            }),
+            Self::Containers => json!({
+                "type": "object",
+                "properties": {
+                    "endpoint": { "type": "string" },
+                    "containers": { "type": "array", "items": {
+                        "type": "object",
+                        "properties": {
+                            "name": { "type": "string" },
+                            "state": { "type": "string" },
+                            "status": { "type": "string" },
+                            "health": { "type": ["string", "null"] },
+                            "compose_project": { "type": ["string", "null"] },
+                            "image": { "type": "string" },
+                        },
+                        "required": ["name", "state"],
+                    } },
+                },
+                "required": ["endpoint", "containers"],
+            }),
+        }
     }
 
     /// Run it.
@@ -99,7 +162,11 @@ impl Tool {
     }
 }
 
+/// Every tool in the table, listed or not.
+pub const ALL: [Tool; 2] = [Tool::Cron, Tool::Containers];
+
 /// What this host can answer, decided once per request from the machine.
+/// A destructive tool is never among them.
 #[must_use]
 pub fn listed(system: &dyn System) -> Vec<Tool> {
     let mut tools = Vec::new();
@@ -109,6 +176,7 @@ pub fn listed(system: &dyn System) -> Vec<Tool> {
     if system.docker().is_some() {
         tools.push(Tool::Containers);
     }
+    tools.retain(|t| t.effect() != Effect::Destructive);
     tools
 }
 

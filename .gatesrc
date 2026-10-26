@@ -104,3 +104,9 @@ export CARGO_INCREMENTAL=0
 # the steps below do not name (the exemptions above carry their reasons) -- a
 # local gate weaker than CI is a gate that lets you push red.
 GOH_CI_STEPS='"$GOH_DIR/gates/structural.sh" --full:tools/checkers.sh:"$GOH_DIR/gates/rust_gate.sh":python3 "$GOH_DIR/lib/advisory_db.py" run --fetch -- cargo audit --deny warnings --deny unmaintained --deny unsound --deny yanked:cargo test --workspace --all-features --doc:cargo build -p multitop && MULTITOP_LIVE=1 python3 -m pytest tests/ -q:python3 tools/ratchet_check.py --self-test && python3 tools/ratchet_check.py:tools/fuzz_check.sh:bash tools/android_gate.sh:bash "$GOH_DIR/gates/python.sh" "$GOH_DIR/checks/check_ci_local_parity.py":python3 tools/bench_check.py --self-test && python3 tools/bench_check.py:bash tools/coverage_check.sh:python3 tools/installed_freshness.py:tools/lint_linux.sh'
+
+# The agent's MCP server (`multitop-agent mcp`), judged on the wire by goh's
+# check_mcp_wire.py (queue MCP.MON). HOME is the gate's scratch directory, so
+# it reads none of the owner's launch agents or docker contexts; it needs no
+# host and no network.
+GOH_MCP_SERVERS='HOME="$GOH_MCP_SCRATCH" cargo run --quiet --locked -p multitop-agent --bin multitop-agent -- mcp'

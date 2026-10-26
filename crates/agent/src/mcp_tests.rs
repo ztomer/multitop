@@ -1,7 +1,8 @@
-//! The server, over a fake machine: what it lists, what it answers, and the
-//! protocol both kinds of client speak.
+//! The server's decisions, over a fake machine: what it lists, what it
+//! answers, and why the rest is absent. The protocol itself is rmcp's, and
+//! its wire is pinned against the real binary in `tests/mcp_stdio.rs`.
 
-use std::cell::RefCell;
+use std::sync::Mutex;
 
 use serde_json::{json, Value};
 
@@ -13,7 +14,7 @@ struct Fake {
     labels: Vec<String>,
     docker: Option<DockerEndpoint>,
     containers: Result<Value, String>,
-    asked_ages: RefCell<Vec<u32>>,
+    asked_ages: Mutex<Vec<u32>>,
 }
 
 impl Fake {
@@ -23,7 +24,7 @@ impl Fake {
             labels: vec!["com.me.nightly".into(), "com.me.watch".into()],
             docker: Some(DockerEndpoint::Unix("/h/.colima/default/docker.sock".into())),
             containers: Ok(json!({ "containers": [{ "name": "web", "state": "running" }] })),
-            asked_ages: RefCell::new(Vec::new()),
+            asked_ages: Mutex::new(Vec::new()),
         }
     }
 }
@@ -36,7 +37,7 @@ impl mcp_tools::System for Fake {
         self.labels.clone()
     }
     fn ages(&self, pids: &[u32]) -> String {
-        self.asked_ages.borrow_mut().extend_from_slice(pids);
+        self.asked_ages.lock().unwrap().extend_from_slice(pids);
         pids.iter().map(|p| p.to_string() + " 01:00\n").collect()
     }
     fn docker(&self) -> Option<DockerEndpoint> {
@@ -50,42 +51,22 @@ impl mcp_tools::System for Fake {
     }
 }
 
-fn meta() -> Value {
-    json!({ "io.modelcontextprotocol/protocolVersion": "2026-07-28",
-            "io.modelcontextprotocol/clientCapabilities": {} })
+fn server(system: Fake) -> Server<Fake> {
+    Server::new(system)
 }
 
-fn ask(system: &Fake, method: &str, mut params: Value) -> Value {
-    params["_meta"] = meta();
-    let line = json!({ "jsonrpc": "2.0", "id": 1, "method": method, "params": params });
-    handle(&line.to_string(), system).expect("a request is answered")
+fn names(s: &Server<Fake>) -> Vec<String> {
+    s.tools().iter().map(|t| t.name.to_string()).collect()
 }
 
-fn names(list: &Value) -> Vec<String> {
-    list["result"]["tools"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .map(|t| t["name"].as_str().unwrap().to_string())
-        .collect()
+fn text(r: &CallToolResult) -> String {
+    let v = serde_json::to_value(r).unwrap();
+    v["content"][0]["text"].as_str().unwrap().to_string()
 }
 
 #[test]
-fn discover_offers_2026_and_says_why_each_unlisted_section_is_absent() {
-    let d = ask(&Fake::mac(), "server/discover", json!({}));
-    let r = &d["result"];
-    assert!(
-        r["supportedVersions"]
-            .as_array()
-            .unwrap()
-            .contains(&json!("2026-07-28")),
-        "{d}"
-    );
-    assert_eq!(
-        r["_meta"]["io.modelcontextprotocol/serverInfo"]["name"],
-        "multitop-agent"
-    );
-    let absent = &r["_meta"][META_ABSENT];
+fn discover_says_why_each_unlisted_section_is_absent() {
+    let absent = server(Fake::mac()).absent();
     assert!(
         absent["health.run"].as_str().unwrap().contains("health"),
         "{absent}"
@@ -106,19 +87,18 @@ fn discover_offers_2026_and_says_why_each_unlisted_section_is_absent() {
 
 #[test]
 fn a_host_lists_only_what_it_can_answer() {
-    let mac = Fake::mac();
     assert_eq!(
-        names(&ask(&mac, "tools/list", json!({}))),
+        names(&server(Fake::mac())),
         ["cron.status", "docker.containers"]
     );
 
-    let bare = Fake {
+    let bare = server(Fake {
         launchd: None,
         docker: None,
         ..Fake::mac()
-    };
-    multitop_testassert::assert_empty!(names(&ask(&bare, "tools/list", json!({}))));
-    let absent = &ask(&bare, "server/discover", json!({}))["result"]["_meta"][META_ABSENT];
+    });
+    multitop_testassert::assert_empty!(names(&bare));
+    let absent = bare.absent();
     assert!(
         absent["docker.containers"]
             .as_str()
@@ -131,20 +111,63 @@ fn a_host_lists_only_what_it_can_answer() {
         "{absent}"
     );
     // A tool the listing withheld is refused, not answered with a guess.
-    let r = ask(&bare, "tools/call", json!({ "name": "docker.containers" }));
-    assert_eq!(r["result"]["isError"], true, "{r}");
+    let r = bare.call("docker.containers");
+    assert_eq!(r.is_error, Some(true), "{r:?}");
+}
+
+#[test]
+fn every_tool_states_both_hints_and_the_shape_of_its_answer() {
+    for t in server(Fake::mac()).tools() {
+        let a = t.annotations.as_ref().unwrap();
+        assert_eq!(a.read_only_hint, Some(true), "{}", t.name);
+        assert_eq!(a.destructive_hint, Some(false), "{}", t.name);
+        assert_eq!(a.open_world_hint, Some(false), "{}", t.name);
+        let schema = t.output_schema.as_ref().unwrap();
+        assert_eq!(schema["type"], "object", "{}", t.name);
+    }
+}
+
+#[test]
+fn a_destructive_tool_is_never_listed() {
+    // The table holds none today; this pins that the listing filter is the
+    // effect, so one added to the table stays unlisted until an opt-in
+    // exists for it.
+    for t in mcp_tools::ALL {
+        let listed = mcp_tools::listed(&Fake::mac()).contains(&t);
+        assert!(
+            !(listed && t.effect() == mcp_tools::Effect::Destructive),
+            "{t:?}"
+        );
+    }
+}
+
+#[test]
+fn each_success_carries_every_field_its_schema_requires() {
+    let s = server(Fake::mac());
+    for t in mcp_tools::ALL {
+        let mut fake = Fake::mac();
+        if t == mcp_tools::Tool::Containers {
+            fake.containers = Ok(json!({ "endpoint": "unix:///x", "containers": [] }));
+        }
+        let r = server(fake).call(t.name());
+        let out = r.structured_content.unwrap();
+        for field in t.output_schema()["required"].as_array().unwrap() {
+            assert!(
+                out.get(field.as_str().unwrap()).is_some(),
+                "{t:?}: {field} in {out}"
+            );
+        }
+    }
+    drop(s);
 }
 
 #[test]
 fn cron_status_is_the_users_agents_with_ages_asked_only_for_them() {
-    let mac = Fake::mac();
-    let r = ask(
-        &mac,
-        "tools/call",
-        json!({ "name": "cron.status", "arguments": {} }),
-    );
-    assert_eq!(r["result"]["isError"], false, "{r}");
-    let jobs = r["result"]["structuredContent"]["jobs"].as_array().unwrap();
+    let s = server(Fake::mac());
+    let r = s.call("cron.status");
+    assert_eq!(r.is_error, Some(false), "{r:?}");
+    let out = r.structured_content.clone().unwrap();
+    let jobs = out["jobs"].as_array().unwrap();
     assert_eq!(
         jobs.len(),
         2,
@@ -153,81 +176,22 @@ fn cron_status_is_the_users_agents_with_ages_asked_only_for_them() {
     assert_eq!(jobs[0]["label"], "com.me.nightly");
     assert_eq!(jobs[0]["last_rc"], 78);
     assert_eq!(jobs[1]["running_since"], 1_000 - 60);
-    assert_eq!(*mac.asked_ages.borrow(), [42]);
+    assert_eq!(*s.system.asked_ages.lock().unwrap(), [42]);
     // The text content carries the same answer for a client without
     // structured content.
-    let text: Value =
-        serde_json::from_str(r["result"]["content"][0]["text"].as_str().unwrap()).unwrap();
-    assert_eq!(text, r["result"]["structuredContent"]);
+    let as_text: Value = serde_json::from_str(&text(&r)).unwrap();
+    assert_eq!(as_text, out);
 }
 
 #[test]
 fn a_daemon_that_fails_is_a_tool_error_with_its_reason() {
-    let down = Fake {
+    let down = server(Fake {
         containers: Err("docker at unix:///x: Connection refused".into()),
         ..Fake::mac()
-    };
-    let r = ask(&down, "tools/call", json!({ "name": "docker.containers" }));
-    assert_eq!(r["result"]["isError"], true);
-    assert!(
-        r["result"]["content"][0]["text"]
-            .as_str()
-            .unwrap()
-            .contains("refused"),
-        "{r}"
-    );
-}
-
-#[test]
-fn the_protocol_holds_for_both_kinds_of_client() {
-    let mac = Fake::mac();
-    // 2026-07-28: an unknown version is -32022; the handshake does not exist.
-    let mut p = json!({});
-    p["_meta"] = json!({ "io.modelcontextprotocol/protocolVersion": "2099-01-01" });
-    let line = json!({ "jsonrpc": "2.0", "id": 7, "method": "tools/list", "params": p });
-    assert_eq!(
-        handle(&line.to_string(), &mac).unwrap()["error"]["code"],
-        -32022
-    );
-    assert_eq!(ask(&mac, "initialize", json!({}))["error"]["code"], -32601);
-
-    // A handshake client (Claude Code's) gets its version back if it has a
-    // handshake, else the newest that does, and then lists tools.
-    let init = json!({ "jsonrpc": "2.0", "id": 1, "method": "initialize",
-                       "params": { "protocolVersion": "2025-06-18" } });
-    let r = handle(&init.to_string(), &mac).unwrap();
-    assert_eq!(r["result"]["protocolVersion"], "2025-06-18");
-    assert_eq!(r["result"]["serverInfo"]["name"], "multitop-agent");
-    let init = json!({ "jsonrpc": "2.0", "id": 1, "method": "initialize",
-                       "params": { "protocolVersion": "2026-07-28" } });
-    assert_eq!(
-        handle(&init.to_string(), &mac).unwrap()["result"]["protocolVersion"],
-        "2025-11-25"
-    );
-
-    // A notification earns no reply; a bad line earns -32700.
-    let note = json!({ "jsonrpc": "2.0", "method": "notifications/initialized" });
-    assert!(handle(&note.to_string(), &mac).is_none());
-    assert_eq!(handle("{not json", &mac).unwrap()["error"]["code"], -32700);
-}
-
-#[test]
-fn serve_answers_line_by_line_until_eof() {
-    let mac = Fake::mac();
-    let input = format!(
-        "{}\n\n{}\n",
-        json!({ "jsonrpc": "2.0", "id": 1, "method": "server/discover", "params": { "_meta": meta() } }),
-        json!({ "jsonrpc": "2.0", "id": 2, "method": "tools/list", "params": { "_meta": meta() } }),
-    );
-    let mut out = Vec::new();
-    serve(&mut input.as_bytes(), &mut out, &mac).unwrap();
-    let replies: Vec<Value> = String::from_utf8(out)
-        .unwrap()
-        .lines()
-        .map(|l| serde_json::from_str(l).unwrap())
-        .collect();
-    assert_eq!(replies.len(), 2);
-    assert_eq!(replies[1]["id"], 2);
+    });
+    let r = down.call("docker.containers");
+    assert_eq!(r.is_error, Some(true));
+    assert!(text(&r).contains("refused"), "{r:?}");
 }
 
 #[test]
