@@ -68,6 +68,12 @@ jobs:
           persist-credentials: false
           repository: ztomer/gates_of_heck
           path: .gates_of_heck
+      # goh's tool floors (python3, shellcheck), met the ONE way goh provides: its
+      # goh-floors action reads them from goh's own floor table (gates/required_tools.tsv),
+      # so a floor raised there is met here with no edit. GitHub's runners ship python
+      # 3.12 and shellcheck 0.9, below goh's floors (goh G7, 2026-10-26).
+      - name: Meet goh's tool floors
+        uses: ./.gates_of_heck/.github/actions/goh-floors
       - name: House structural gates
         env:
           GOH_DIR: ${{ github.workspace }}/.gates_of_heck
@@ -145,6 +151,12 @@ jobs:
           persist-credentials: false
           repository: ztomer/gates_of_heck
           path: .gates_of_heck
+      # goh's tool floors (python3, shellcheck), met the ONE way goh provides: its
+      # goh-floors action reads them from goh's own floor table (gates/required_tools.tsv),
+      # so a floor raised there is met here with no edit. GitHub's runners ship python
+      # 3.12 and shellcheck 0.9, below goh's floors (goh G7, 2026-10-26).
+      - name: Meet goh's tool floors
+        uses: ./.gates_of_heck/.github/actions/goh-floors
 
       - name: Line-count ratchet (tools/loc_baseline.txt)
         env:
@@ -198,6 +210,12 @@ jobs:
           persist-credentials: false
           repository: ztomer/gates_of_heck
           path: .gates_of_heck
+      # goh's tool floors (python3, shellcheck), met the ONE way goh provides: its
+      # goh-floors action reads them from goh's own floor table (gates/required_tools.tsv),
+      # so a floor raised there is met here with no edit. GitHub's runners ship python
+      # 3.12 and shellcheck 0.9, below goh's floors (goh G7, 2026-10-26).
+      - name: Meet goh's tool floors
+        uses: ./.gates_of_heck/.github/actions/goh-floors
 
       - name: Install cargo-llvm-cov
         run: cargo install cargo-llvm-cov
@@ -234,6 +252,12 @@ jobs:
           persist-credentials: false
           repository: ztomer/gates_of_heck
           path: .gates_of_heck
+      # goh's tool floors (python3, shellcheck), met the ONE way goh provides: its
+      # goh-floors action reads them from goh's own floor table (gates/required_tools.tsv),
+      # so a floor raised there is met here with no edit. GitHub's runners ship python
+      # 3.12 and shellcheck 0.9, below goh's floors (goh G7, 2026-10-26).
+      - name: Meet goh's tool floors
+        uses: ./.gates_of_heck/.github/actions/goh-floors
       # The JDK the build host runs (Temurin 27). AGP fetches the compile SDK
       # it names (android-37.2) itself once the licences are accepted, which
       # setup-android does.
