@@ -300,3 +300,74 @@ async fn a_fresh_answer_is_shown_without_asking_the_estate() {
         "the estate was asked for an answer the client already had"
     );
 }
+
+/// A host whose `mcp_host` is the build BEFORE the checkout's newest
+/// deploy: the session's server says 1.0.0, and `host.facts` reads the
+/// checkout at 1.0.1. It never hangs up.
+fn deployed_host() -> impl Fn(&str, &serde_json::Value) -> Reply + Send + 'static {
+    |method, params| match method {
+        "server/discover" => Reply::Result(discover(&[PROTOCOL_VERSION])),
+        "tools/list" => Reply::Result(tools(&["host.facts"])),
+        "tools/call" if params["name"] == "host.facts" => Reply::Result(json!({
+            "structuredContent": {"ncpu": 4,
+                "repo": {"head": "23dfae4e2eaa", "version": "1.0.1"}}
+        })),
+        _ => Reply::Error(-32601, "no"),
+    }
+}
+
+/// **A SESSION OLDER THAN THE HOST'S DEPLOY IS NOT KEPT** (MON.STALE). The
+/// poll keeps one session open across polls, and a deploy replaces the
+/// binary on disk without stopping the process the session started - so a
+/// session that is kept answers from the old build for as long as it
+/// lives. The gather that sees the deploy drops it, and the next gather
+/// reaches the deployed build.
+#[tokio::test]
+async fn a_session_that_predates_the_deploy_is_reopened() {
+    let (tx, mut rx) = mpsc::channel(8);
+    let dims = Arc::new(watch::channel((80, 24)).1);
+    let dir = tempfile::tempdir().unwrap();
+    let to = Target {
+        panel: 0,
+        gen: 0,
+        tx,
+        dims,
+        cache: cache(&dir),
+        key: KEY.into(),
+    };
+    let opened = Arc::new(AtomicUsize::new(0));
+    let count = Arc::clone(&opened);
+    let connect = move || {
+        count.fetch_add(1, Ordering::SeqCst);
+        async {
+            let (r, w, _) = serve(deployed_host());
+            Client::connect(r, w, Duration::from_secs(2))
+                .await
+                .map(Box::new)
+                .map_err(|e| e.to_string())
+        }
+    };
+    let task = tokio::spawn(poll(
+        to,
+        connect,
+        Duration::from_millis(5),
+        Duration::from_millis(5),
+        tick,
+    ));
+    for _ in 0..2 {
+        let Some(Msg::Ops { state, .. }) = rx.recv().await else {
+            panic!("no answer")
+        };
+        let OpsState::Ready(snap) = *state else {
+            panic!("{state:?}")
+        };
+        assert!(snap.predates_deploy().is_some(), "{snap:?}");
+    }
+    task.abort();
+    // A kept session would be opened once; the third open may already
+    // have happened by the time the task is stopped.
+    assert!(
+        opened.load(Ordering::SeqCst) >= 2,
+        "each gather that saw the deploy dropped its session"
+    );
+}

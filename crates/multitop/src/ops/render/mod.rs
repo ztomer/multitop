@@ -218,6 +218,19 @@ fn not_ready<T>(f: &mut Frame<'_>, label: &str, part: &Part<T>) -> bool {
     }
 }
 
+/// The reading's build predates the host's newest deploy (MON.STALE): said
+/// with the glyph AND the word, and the deploy named - never the colour
+/// alone, and never left to the age, which a deploy does not move.
+fn stale(f: &mut Frame<'_>, s: &super::Snapshot) {
+    if let Some(repo) = s.predates_deploy() {
+        f.line(
+            Tone::Warn,
+            "stale",
+            &super::deploy::stale_words(&s.server, repo),
+        );
+    }
+}
+
 /// The frame for `host` in `state`, `cols` wide and at most `rows` tall,
 /// at `now` (epoch seconds).
 #[must_use]
@@ -244,6 +257,7 @@ pub fn render(
             f.line(Tone::Warn, "mcp", why);
             if let Some(s) = last {
                 f.note(&format!("  the last answer, {} old:", age(s.at, now)));
+                stale(&mut f, s);
                 sections::sections(&mut f, s, now);
             }
         }
@@ -255,6 +269,7 @@ pub fn render(
                 age(s.at, now)
             ));
             f.note(&catalogue_note(&s.catalogue));
+            stale(&mut f, s);
             sections::sections(&mut f, s, now);
         }
     }

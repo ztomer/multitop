@@ -50,6 +50,7 @@
 
 pub mod answers;
 pub mod cache;
+pub mod deploy;
 pub mod gather;
 pub mod model;
 pub mod model_health;
@@ -61,6 +62,7 @@ pub mod tick;
 pub mod triage;
 
 pub use answers::*;
+pub use deploy::{parse_repo, Repo};
 pub use gather::*;
 pub use model::*;
 pub use model_health::*;
@@ -231,6 +233,18 @@ pub enum OpsState {
 }
 
 impl Snapshot {
+    /// The deploy the build that answered predates, when the host says so:
+    /// the checkout `host.facts` read is at a version the answering
+    /// `mcp_host` is not (MON.STALE). `None` when the host reports no
+    /// checkout - nothing is claimed either way.
+    #[must_use]
+    pub fn predates_deploy(&self) -> Option<&Repo> {
+        let Part::Ready(f) = &self.facts else {
+            return None;
+        };
+        deploy::deploy_after(&self.server.1, f.repo.as_ref())
+    }
+
     /// The sections whose answer did not arrive, with the reason.
     ///
     /// A gap in the reading, NAMED: the operator has to be able to see
@@ -357,6 +371,10 @@ mod zfs_tests;
 #[cfg(test)]
 #[path = "machine_tests.rs"]
 mod machine_tests;
+
+#[cfg(test)]
+#[path = "deploy_tests.rs"]
+mod deploy_tests;
 
 #[cfg(test)]
 #[path = "status_tests.rs"]

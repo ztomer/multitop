@@ -221,6 +221,13 @@ pub async fn poll<S, R, W, F, Fut>(
                 crate::diag::report(&format!("the Ops answer was not kept: {why}"));
             }
             let snap = Box::new(parse_snapshot(&raw));
+            // The process this session started is the build BEFORE the
+            // host's deploy (MON.STALE): a kept session would answer from
+            // it for as long as it lives. The answer is shown marked stale,
+            // and the next gather opens a session to the deployed build.
+            if snap.predates_deploy().is_some() {
+                session = None;
+            }
             shown = Some(raw.at);
             last = Some(snap.clone());
             OpsState::Ready(snap)

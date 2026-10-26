@@ -324,6 +324,7 @@ pub fn parse_facts(v: &Value) -> Result<Facts, String> {
             .unwrap_or_default(),
         mem: memory,
         instances,
+        repo: super::deploy::parse_repo(v),
     })
 }
 

@@ -427,6 +427,8 @@ pub struct Facts {
     pub mem: Memory,
     /// The machine's instances, when the server publishes the declaration.
     pub instances: Option<Instances>,
+    /// The primary instance's checkout: what the host was deployed to.
+    pub repo: Option<super::deploy::Repo>,
 }
 
 /// A disk amount in the words the estate's card counts in: gigabytes, and

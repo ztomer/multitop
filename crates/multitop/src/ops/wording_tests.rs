@@ -43,6 +43,7 @@ fn undeclared() -> Facts {
                 ),
             }],
         }),
+        repo: None,
     }
 }
 
