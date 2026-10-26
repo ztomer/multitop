@@ -7,6 +7,25 @@ This file starts at v0.47.0 — earlier history is in git (`git log`), and the
 per-defect record is `docs/detection-record.md`, which is the more useful
 document for anything before this point.
 
+## v0.67.1 — a reading by the build before the host's deploy says so _(2026-10-26)_
+
+### Fixed — the Ops view names the deploy its answer predates (queue MON.STALE)
+- The Ops poll keeps one session per host open, and a deploy replaces
+  `mcp_host` on disk without stopping the process that session started: the
+  panel went on saying `mcp-host 1.103.0` from a host deployed to 1.103.1,
+  and the printed age could not say so.
+- `host.facts`'s `repo` block (the checkout's `VERSION` and `head`, read on
+  every call) is parsed now. When the answering `serverInfo` version is not
+  the checkout's, the frame draws `⚠ stale` with the deploy named by version
+  and commit, under a live answer and under the last answer of a failed
+  session alike.
+- The poll drops a session that predates the deploy, so the next gather
+  reaches the deployed build.
+- Not covered: a cached reading taken before a deploy, with no gather since,
+  cannot know of the deploy (no host reports a deploy time, and the frame
+  asks the estate for nothing); it is at most one poll interval old, and
+  its age is printed.
+
 ## v0.67.0 — the agent's MCP server and the Ops view's client are rmcp _(2026-10-26)_
 
 ### Changed — MCP is the official SDK on both ends (owner ruling OW.60, queue MCP.MON)
