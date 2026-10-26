@@ -17,6 +17,10 @@ keyring = { version = "4", default-features = true }
 ratatui = { version = "0.30", default-features = false, features = ["crossterm"] }
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "process", "io-util", "sync", "time", "signal"] }
 tokio-stream = { version = "0.1.19", default-features = false }
+# The Ops view's MCP client (src/mcp/client.rs) is rmcp, the official Rust SDK
+# (owner ruling OW.60, queue MCP.MON): the 2026-07-28 stateless lifecycle,
+# framing and id matching are upstream's.
+rmcp = { version = "3.7", default-features = false, features = ["client", "transport-async-rw"] }
 libc = "0.2"
 toml = { version = "1", default-features = false, features = ["parse", "serde", "display"] }
 # Writes back without reformatting. `toml` reconstructs a file from its parsed

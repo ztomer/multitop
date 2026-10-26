@@ -322,3 +322,21 @@ fn a_line_that_is_not_json_does_not_end_the_session() {
     let r = s.ask_stateless(2, "tools/list", json!({})).unwrap();
     assert!(r["result"]["tools"].is_array(), "{r}");
 }
+
+/// The rollout: a multitop older than 0.67.0 sends its stateless `_meta`
+/// with the version and its capabilities but no `clientInfo`. Its requests
+/// must still be answered, or an older client loses the local host's card.
+#[test]
+fn an_older_multitops_requests_without_client_info_are_answered() {
+    let mut s = Server::start().unwrap();
+    let meta = json!({
+        "io.modelcontextprotocol/protocolVersion": NEWEST,
+        "io.modelcontextprotocol/clientCapabilities": {},
+    });
+    let d = s
+        .ask(1, "server/discover", json!({ "_meta": meta }))
+        .unwrap();
+    assert!(d["result"]["supportedVersions"].is_array(), "{d}");
+    let list = s.ask(2, "tools/list", json!({ "_meta": meta })).unwrap();
+    assert!(list["result"]["tools"].is_array(), "{list}");
+}

@@ -1,8 +1,13 @@
-//! A stateless MCP client (protocol 2026-07-28) for a host's `mcp_host`.
+//! A stateless MCP client (protocol 2026-07-28) for a host's `mcp_host`,
+//! on rmcp, the official Rust SDK (owner ruling OW.60, queue MCP.MON).
 //!
-//! One JSON-RPC request per line on the server's stdin, one reply per line
-//! on its stdout, no handshake: `server/discover` first, and every request
-//! after it names the version in its `_meta`. A server that does not offer
+//! The protocol is rmcp's: one JSON-RPC message per line on the server's
+//! stdin and stdout, no handshake (`server/discover` first, every request
+//! after it naming the version in its `_meta`), and the id matching that
+//! keeps a late answer from being taken for the next one. What stays here
+//! is this client's own reading of the estate: the absent map and the
+//! catalogue digest in discover's `_meta`, the kept tool list, and the
+//! deadline per answer. A server that does not offer
 //! 2026-07-28 is refused with the versions it does offer, rather than
 //! spoken to in a dialect this client was never tested against. Each
 //! request has a deadline; a server that goes quiet is a stated timeout,
@@ -17,10 +22,19 @@
 //! session is still good: the estate's other readings are read (servers
 //! ROADMAP E74). Only a closed pipe ends the session.
 
+use std::future::Future;
+use std::marker::PhantomData;
 use std::time::Duration;
 
-use serde_json::{json, Value};
-use tokio::io::{AsyncBufReadExt, AsyncRead, AsyncWrite, AsyncWriteExt, BufReader, Lines};
+use rmcp::model::{
+    CallToolRequest, CallToolRequestParams, ClientCapabilities, ClientConfig, ClientRequest,
+    Implementation, ListToolsRequest, PaginatedRequestParams, ProtocolVersion, ReadResourceRequest,
+    ReadResourceRequestParams, ServerResult,
+};
+use rmcp::service::{ClientLifecycleMode, ClientServiceExt, RunningService};
+use rmcp::{RoleClient, ServiceError};
+use serde_json::Value;
+use tokio::io::{AsyncRead, AsyncWrite};
 
 use super::catalogue;
 pub use super::error::Error;
@@ -42,9 +56,10 @@ struct Listing {
 
 /// One session with one server.
 pub struct Client<R, W> {
-    lines: Lines<BufReader<R>>,
-    writer: W,
-    next_id: u64,
+    service: RunningService<RoleClient, ClientConfig>,
+    /// The pipe halves this session was opened over; they now belong to
+    /// rmcp's transport task.
+    io: PhantomData<fn() -> (R, W)>,
     timeout: Duration,
     /// `serverInfo.name` and `.version`, from `server/discover`.
     pub server: (String, String),
@@ -80,7 +95,11 @@ pub struct Client<R, W> {
     broken: Option<Error>,
 }
 
-impl<R: AsyncRead + Unpin, W: AsyncWrite + Unpin> Client<R, W> {
+impl<R, W> Client<R, W>
+where
+    R: AsyncRead + Unpin + Send + 'static,
+    W: AsyncWrite + Unpin + Send + 'static,
+{
     /// Discover the server and list its tools; every request, these two
     /// included, has `timeout` to answer.
     ///
@@ -130,9 +149,8 @@ impl<R: AsyncRead + Unpin, W: AsyncWrite + Unpin> Client<R, W> {
         store: &catalogue::Store,
     ) -> Result<Self, Error> {
         let mut c = Self {
-            lines: BufReader::new(reader).lines(),
-            writer,
-            next_id: 0,
+            service: open(reader, writer, timeout).await?,
+            io: PhantomData,
             timeout,
             server: (String::new(), String::new()),
             tools: Vec::new(),
@@ -140,20 +158,14 @@ impl<R: AsyncRead + Unpin, W: AsyncWrite + Unpin> Client<R, W> {
             catalogue: catalogue::Catalogue::Listed { ttl_s: 0 },
             broken: None,
         };
-        let d = c.request("server/discover", json!({})).await?;
-        let offered: Vec<String> = d
-            .get("supportedVersions")
-            .and_then(Value::as_array)
-            .map(|v| {
-                v.iter()
-                    .filter_map(Value::as_str)
-                    .map(str::to_string)
-                    .collect()
-            })
+        // The discover answer, as the server sent it: rmcp keeps its
+        // `_meta` beside the version it selected.
+        let d = c
+            .service
+            .peer()
+            .peer_info()
+            .and_then(|i| serde_json::to_value(&*i).ok())
             .unwrap_or_default();
-        if !offered.iter().any(|v| v == PROTOCOL_VERSION) {
-            return Err(Error::Unsupported(offered));
-        }
         let info = |k: &str| {
             d.pointer(&format!("/_meta/io.modelcontextprotocol~1serverInfo/{k}"))
                 .and_then(Value::as_str)
@@ -233,6 +245,10 @@ impl<R: AsyncRead + Unpin, W: AsyncWrite + Unpin> Client<R, W> {
 
     /// `tools/list`, every page of it, and the window the server gave.
     ///
+    /// Asked as raw requests rather than through rmcp's `list_all_tools`:
+    /// that one answers from rmcp's own response cache, and the list is
+    /// kept HERE, against the server's digest (servers ROADMAP E72).
+    ///
     /// The pages are followed and the tools are accumulated: a list that
     /// kept only the first page would lose every tool on the second, and a
     /// tool that is not in the list has no section in the panel.
@@ -241,16 +257,22 @@ impl<R: AsyncRead + Unpin, W: AsyncWrite + Unpin> Client<R, W> {
         let mut tools: Vec<String> = Vec::new();
         let mut ttl_ms = 0;
         loop {
-            let params = cursor.map_or_else(|| json!({}), |c| json!({ "cursor": c }));
-            let page = self.request("tools/list", params).await?;
+            let mut params = PaginatedRequestParams::default();
+            params.cursor = cursor;
+            let request = ClientRequest::ListToolsRequest(ListToolsRequest::with_param(params));
+            let page = self.request(request, self.timeout, "tools/list").await?;
             if ttl_ms == 0 {
                 ttl_ms = page.get("ttlMs").and_then(Value::as_u64).unwrap_or(0);
             }
+            // An answer rmcp could not read as a tool list is NOT an empty
+            // list: a host whose list is unreadable would otherwise draw as a
+            // host with nothing to show.
+            let listed = page.get("tools").and_then(Value::as_array).ok_or_else(|| {
+                Error::Protocol("tools/list: the answer is not a tool list".to_string())
+            })?;
             tools.extend(
-                page.get("tools")
-                    .and_then(Value::as_array)
-                    .into_iter()
-                    .flatten()
+                listed
+                    .iter()
                     .filter_map(|t| t.get("name").and_then(Value::as_str))
                     .map(str::to_string),
             );
@@ -264,7 +286,9 @@ impl<R: AsyncRead + Unpin, W: AsyncWrite + Unpin> Client<R, W> {
         }
         Ok(Listing { tools, ttl_ms })
     }
+}
 
+impl<R, W> Client<R, W> {
     /// Why this session can no longer be used, once it cannot.
     #[must_use]
     pub const fn broken(&self) -> Option<&Error> {
@@ -326,14 +350,12 @@ impl<R: AsyncRead + Unpin, W: AsyncWrite + Unpin> Client<R, W> {
         args: Value,
         timeout: Duration,
     ) -> Result<Value, Error> {
-        let r = self
-            .request_named(
-                "tools/call",
-                json!({ "name": tool, "arguments": args }),
-                timeout,
-                tool,
-            )
-            .await?;
+        let mut params = CallToolRequestParams::new(tool.to_string());
+        if let Value::Object(arguments) = args {
+            params = params.with_arguments(arguments);
+        }
+        let request = ClientRequest::CallToolRequest(CallToolRequest::new(params));
+        let r = self.request(request, timeout, tool).await?;
         if r.get("isError").and_then(Value::as_bool) == Some(true) {
             let text = r
                 .pointer("/content/0/text")
@@ -354,9 +376,10 @@ impl<R: AsyncRead + Unpin, W: AsyncWrite + Unpin> Client<R, W> {
     /// As [`Client::request`]; a content that is not JSON is a protocol
     /// error.
     pub async fn read(&mut self, uri: &str) -> Result<Value, Error> {
-        let r = self
-            .request_named("resources/read", json!({ "uri": uri }), self.timeout, uri)
-            .await?;
+        let request = ClientRequest::ReadResourceRequest(ReadResourceRequest::new(
+            ReadResourceRequestParams::new(uri),
+        ));
+        let r = self.request(request, self.timeout, uri).await?;
         let text = r
             .pointer("/contents/0/text")
             .and_then(Value::as_str)
@@ -364,36 +387,8 @@ impl<R: AsyncRead + Unpin, W: AsyncWrite + Unpin> Client<R, W> {
         serde_json::from_str(text).map_err(|e| Error::Protocol(format!("{uri}: {e}")))
     }
 
-    /// One request, stateless: its `_meta` names the version and this
-    /// client's (empty) capabilities. Notifications and replies to other
-    /// ids are skipped.
-    ///
-    /// # Errors
-    ///
-    /// [`Error::Closed`], [`Error::Timeout`], [`Error::Rpc`] or
-    /// [`Error::Protocol`].
-    pub async fn request(&mut self, method: &str, params: Value) -> Result<Value, Error> {
-        let timeout = self.timeout;
-        self.request_within(method, params, timeout).await
-    }
-
-    /// One request with a deadline of its own.
-    ///
-    /// # Errors
-    ///
-    /// [`Error::Closed`], [`Error::Timeout`], [`Error::Rpc`] or
-    /// [`Error::Protocol`].
-    pub async fn request_within(
-        &mut self,
-        method: &str,
-        params: Value,
-        timeout: Duration,
-    ) -> Result<Value, Error> {
-        self.request_named(method, params, timeout, method).await
-    }
-
     /// One request with a deadline of its own, and a NAME for what was
-    /// asked.
+    /// asked; its answer as the JSON the server sent.
     ///
     /// The name is what the operator reads when the deadline is missed:
     /// `docker.containers: no answer in 20s`, not `tools/call: no answer
@@ -403,92 +398,77 @@ impl<R: AsyncRead + Unpin, W: AsyncWrite + Unpin> Client<R, W> {
     ///
     /// **A MISSED DEADLINE IS A GAP IN ONE ANSWER, NOT THE END OF THE
     /// SESSION.** The session ends when the pipe closes - the estate's
-    /// session is gone - and not when one answer is late: a late answer
-    /// carries the id of the request it answers, and this client matches
-    /// that id, so a late answer is read and discarded rather than taken
-    /// for the next answer. The estate's other readings are therefore
-    /// still read, which is the whole of E74: a timed-out call must not
-    /// blind them.
-    async fn request_named(
+    /// session is gone - and not when one answer is late: rmcp matches each
+    /// answer to its request's id, so a late answer is discarded rather than
+    /// taken for the next one, and the estate's other readings are still
+    /// read, which is the whole of E74.
+    ///
+    /// Every request carries the 2026-07-28 `_meta` (the version, this
+    /// client's empty capabilities and its identity): rmcp adds it to each
+    /// request once discover has selected the version.
+    ///
+    /// # Errors
+    ///
+    /// [`Error::Closed`], [`Error::Timeout`], [`Error::Rpc`] or
+    /// [`Error::Protocol`].
+    async fn request(
         &mut self,
-        method: &str,
-        params: Value,
+        request: ClientRequest,
         timeout: Duration,
         what: &str,
     ) -> Result<Value, Error> {
         if let Some(e) = &self.broken {
             return Err(e.clone());
         }
-        let out = self.exchange(method, params, timeout, what).await;
+        let out = within(timeout, what, self.service.peer().send_request(request)).await;
         if let Err(e @ Error::Closed(_)) = &out {
             self.broken = Some(e.clone());
         }
         out
     }
+}
 
-    async fn exchange(
-        &mut self,
-        method: &str,
-        mut params: Value,
-        timeout: Duration,
-        what: &str,
-    ) -> Result<Value, Error> {
-        self.next_id += 1;
-        let id = self.next_id;
-        params["_meta"] = json!({
-            META_PROTOCOL_VERSION: PROTOCOL_VERSION,
-            META_CLIENT_CAPABILITIES: {},
-        });
-        let mut line =
-            json!({ "jsonrpc": "2.0", "id": id, "method": method, "params": params }).to_string();
-        line.push('\n');
-        self.writer
-            .write_all(line.as_bytes())
-            .await
-            .map_err(|e| Error::Closed(e.to_string()))?;
-        self.writer
-            .flush()
-            .await
-            .map_err(|e| Error::Closed(e.to_string()))?;
-        let after = timeout;
-        let reply = tokio::time::timeout(after, self.reply(id))
-            .await
-            .map_err(|_| Error::Timeout {
-                what: what.to_string(),
-                after,
-            })??;
-        if let Some(e) = reply.get("error") {
-            return Err(Error::Rpc {
-                code: e.get("code").and_then(Value::as_i64).unwrap_or_default(),
-                message: e
-                    .get("message")
-                    .and_then(Value::as_str)
-                    .unwrap_or("error without a message")
-                    .to_string(),
-            });
-        }
-        reply
-            .get("result")
-            .cloned()
-            .ok_or_else(|| Error::Protocol(format!("{method}: neither result nor error")))
-    }
+/// `fut`'s answer as JSON, or why there is none, within `timeout`.
+async fn within(
+    timeout: Duration,
+    what: &str,
+    fut: impl Future<Output = Result<ServerResult, ServiceError>>,
+) -> Result<Value, Error> {
+    let answer = tokio::time::timeout(timeout, fut)
+        .await
+        .map_err(|_| Error::Timeout {
+            what: what.to_string(),
+            after: timeout,
+        })?
+        .map_err(|e| Error::of_service(e, what))?;
+    serde_json::to_value(answer).map_err(|e| Error::Protocol(format!("{what}: {e}")))
+}
 
-    async fn reply(&mut self, id: u64) -> Result<Value, Error> {
-        loop {
-            let line = self
-                .lines
-                .next_line()
-                .await
-                .map_err(|e| Error::Closed(e.to_string()))?
-                .ok_or_else(|| Error::Closed("end of output".to_string()))?;
-            if line.trim().is_empty() {
-                continue;
-            }
-            let v: Value = serde_json::from_str(&line)
-                .map_err(|e| Error::Protocol(format!("not JSON: {e}")))?;
-            if v.get("id").and_then(Value::as_u64) == Some(id) {
-                return Ok(v);
-            }
-        }
-    }
+/// Open the session: `server/discover` at 2026-07-28 and nothing older,
+/// within `timeout`.
+async fn open<R, W>(
+    reader: R,
+    writer: W,
+    timeout: Duration,
+) -> Result<RunningService<RoleClient, ClientConfig>, Error>
+where
+    R: AsyncRead + Unpin + Send + 'static,
+    W: AsyncWrite + Unpin + Send + 'static,
+{
+    let mut info = ClientConfig::default();
+    info.capabilities = ClientCapabilities::default();
+    info.client_info = Implementation::new("multitop", env!("CARGO_PKG_VERSION"));
+    let lifecycle = ClientLifecycleMode::Discover {
+        preferred_versions: vec![ProtocolVersion::V_2026_07_28],
+    };
+    tokio::time::timeout(
+        timeout,
+        info.serve_with_lifecycle((reader, writer), lifecycle),
+    )
+    .await
+    .map_err(|_| Error::Timeout {
+        what: "server/discover".to_string(),
+        after: timeout,
+    })?
+    .map_err(Error::of_opening)
 }

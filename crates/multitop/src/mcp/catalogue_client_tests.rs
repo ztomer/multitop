@@ -281,8 +281,11 @@ async fn a_server_that_names_no_version_keeps_nothing() {
     let store = store(&dir);
     let (r, w, _) = serve(|method, _| match method {
         "server/discover" => Reply::Result(serde_json::json!({
+            "resultType": "complete",
             "supportedVersions": [PROTOCOL_VERSION],
             "capabilities": {},
+            "ttlMs": 0,
+            "cacheScope": "private",
         })),
         "tools/list" => Reply::Result(tools_cached(&TOOLS, TTL_MS)),
         _ => Reply::Error(-32601, "no"),
@@ -294,8 +297,11 @@ async fn a_server_that_names_no_version_keeps_nothing() {
     );
     let (r, w, seen) = serve(|method, _| match method {
         "server/discover" => Reply::Result(serde_json::json!({
+            "resultType": "complete",
             "supportedVersions": [PROTOCOL_VERSION],
             "capabilities": {},
+            "ttlMs": 0,
+            "cacheScope": "private",
         })),
         "tools/list" => Reply::Result(tools_cached(&TOOLS, TTL_MS)),
         _ => Reply::Error(-32601, "no"),

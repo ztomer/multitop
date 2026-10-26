@@ -14,6 +14,9 @@
 use std::fmt;
 use std::time::Duration;
 
+use rmcp::service::ClientInitializeError;
+use rmcp::ServiceError;
+
 use super::client::PROTOCOL_VERSION;
 
 /// Why a request did not produce an answer.
@@ -36,6 +39,42 @@ pub enum Error {
     Unsupported(Vec<String>),
     /// A reply this client cannot read.
     Protocol(String),
+}
+
+impl Error {
+    /// What rmcp's failure of one request MEANS here; `what` is the call.
+    pub(super) fn of_service(e: ServiceError, what: &str) -> Self {
+        match e {
+            ServiceError::McpError(e) => Self::Rpc {
+                code: i64::from(e.code.0),
+                message: e.message.into_owned(),
+            },
+            ServiceError::TransportClosed | ServiceError::TransportSend(_) => {
+                Self::Closed("end of output".to_string())
+            }
+            ServiceError::Timeout { timeout } => Self::Timeout {
+                what: what.to_string(),
+                after: timeout,
+            },
+            other => Self::Protocol(format!("{what}: {other}")),
+        }
+    }
+
+    /// What a failure to open the session MEANS here.
+    pub(super) fn of_opening(e: ClientInitializeError) -> Self {
+        match e {
+            ClientInitializeError::NoCompatibleProtocolVersion {
+                server_supported, ..
+            } => Self::Unsupported(server_supported.iter().map(ToString::to_string).collect()),
+            ClientInitializeError::JsonRpcError(e) => Self::Rpc {
+                code: i64::from(e.code.0),
+                message: e.message.into_owned(),
+            },
+            ClientInitializeError::ConnectionClosed(why) => Self::Closed(why),
+            ClientInitializeError::TransportError { error, .. } => Self::Closed(error.to_string()),
+            other => Self::Protocol(format!("server/discover: {other}")),
+        }
+    }
 }
 
 impl Error {

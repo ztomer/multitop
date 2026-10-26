@@ -40,11 +40,18 @@ pub enum Reply {
 pub type Seen = Arc<Mutex<Vec<Value>>>;
 
 /// A `server/discover` answer offering `versions`, naming `mcp_host 1.0.0`.
+///
+/// Every field 2026-07-28 requires of it (`resultType`, `ttlMs`,
+/// `cacheScope`), as the estate's servers send them: rmcp reads the answer
+/// through the spec's type, and one without them is not a discover answer.
 #[must_use]
 pub fn discover(versions: &[&str]) -> Value {
     json!({
+        "resultType": "complete",
         "supportedVersions": versions,
         "capabilities": {},
+        "ttlMs": 0,
+        "cacheScope": "private",
         "_meta": {"io.modelcontextprotocol/serverInfo": {"name": "mcp_host", "version": "1.0.0"}},
     })
 }
@@ -110,10 +117,16 @@ pub fn discover_digest_as(versions: &[&str], name: &str, version: &str, digest: 
     d
 }
 
+/// One listed tool: its name and the `inputSchema` the spec requires of
+/// every tool (a list entry without one is not a tool to rmcp).
+fn tool(name: &str) -> Value {
+    json!({ "name": name, "inputSchema": { "type": "object" } })
+}
+
 /// A `tools/list` page naming `tools`.
 #[must_use]
 pub fn tools(names: &[&str]) -> Value {
-    json!({ "tools": names.iter().map(|n| json!({"name": n})).collect::<Vec<_>>() })
+    json!({ "tools": names.iter().map(|n| tool(n)).collect::<Vec<_>>() })
 }
 
 /// A `tools/list` page naming `tools`, and the window the server gave.
@@ -124,7 +137,7 @@ pub fn tools(names: &[&str]) -> Value {
 #[must_use]
 pub fn tools_cached(names: &[&str], ttl_ms: u64) -> Value {
     json!({
-        "tools": names.iter().map(|n| json!({"name": n})).collect::<Vec<_>>(),
+        "tools": names.iter().map(|n| tool(n)).collect::<Vec<_>>(),
         "ttlMs": ttl_ms,
     })
 }
