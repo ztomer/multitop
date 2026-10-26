@@ -80,7 +80,8 @@ def reachable(target):
     try:
         return (
             subprocess.run(
-                SSH_BASE + [target, "true"], capture_output=True, timeout=20, stdin=subprocess.DEVNULL
+                SSH_BASE + [target, "true"], capture_output=True, timeout=20, stdin=subprocess.DEVNULL,
+                check=False,
             ).returncode
             == 0
         )
@@ -91,7 +92,8 @@ def reachable(target):
 def control_path_for(target):
     """Ask ssh itself where the socket for this target would live."""
     out = subprocess.run(
-        SSH_BASE + ["-G", target], capture_output=True, text=True, timeout=20, stdin=subprocess.DEVNULL
+        SSH_BASE + ["-G", target], capture_output=True, text=True, timeout=20, stdin=subprocess.DEVNULL,
+        check=True,
     ).stdout
     for line in out.splitlines():
         if line.startswith("controlpath "):
@@ -136,11 +138,12 @@ class LiveExecChannel(unittest.TestCase):
                 capture_output=True,
                 timeout=180,
                 stdin=subprocess.DEVNULL,
+                check=False,
             )
             if up.returncode != 0:
                 unreachable_hosts.append(f"{target} (upload: {up.stderr.decode().strip()})")
                 continue
-            subprocess.run(SSH_BASE + [target, f"chmod 755 {REMOTE_AGENT}"], timeout=30, stdin=subprocess.DEVNULL)
+            subprocess.run(SSH_BASE + [target, f"chmod 755 {REMOTE_AGENT}"], timeout=30, stdin=subprocess.DEVNULL, check=True)
             cls.prepared.append((target, arch))
         if not cls.prepared:
             parts = []
@@ -153,7 +156,7 @@ class LiveExecChannel(unittest.TestCase):
     @classmethod
     def tearDownClass(cls):
         for target, _ in cls.prepared:
-            subprocess.run(SSH_BASE + [target, f"rm -f {REMOTE_AGENT}"], timeout=30, stdin=subprocess.DEVNULL)
+            subprocess.run(SSH_BASE + [target, f"rm -f {REMOTE_AGENT}"], timeout=30, stdin=subprocess.DEVNULL, check=False)
         cls.clear_sockets()
 
     @classmethod
@@ -173,12 +176,14 @@ class LiveExecChannel(unittest.TestCase):
             input=exec_wire.request(command, cols=cols, rows=rows),
             capture_output=True,
             timeout=120,
+            check=False,
         )
         return exec_wire.decode(proc.stdout)
 
     def oracle(self, target):
         proc = subprocess.run(
-            SSH_BASE + [target, ORACLE_CMD], capture_output=True, timeout=120, stdin=subprocess.DEVNULL
+            SSH_BASE + [target, ORACLE_CMD], capture_output=True, timeout=120, stdin=subprocess.DEVNULL,
+            check=True,
         )
         return proc.stdout.decode()
 

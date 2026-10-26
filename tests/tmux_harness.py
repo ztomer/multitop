@@ -293,7 +293,8 @@ class TmuxSession:
         that was working perfectly well.
         """
         return subprocess.run(
-            ["/bin/ps", *args], capture_output=True, text=True, timeout=10, stdin=subprocess.DEVNULL
+            ["/bin/ps", *args], capture_output=True, text=True, timeout=10, stdin=subprocess.DEVNULL,
+            check=False,
         ).stdout
 
     @classmethod
@@ -320,6 +321,7 @@ class TmuxSession:
             text=True,
             timeout=30,
             stdin=subprocess.DEVNULL,
+            check=False,
         )
         if check and result.returncode != 0:
             raise AssertionError(f"tmux {args}: {result.stderr.strip()}")

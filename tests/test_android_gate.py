@@ -28,7 +28,7 @@ def _goh() -> str:
 def _run(*args: str, **env: str) -> subprocess.CompletedProcess:
     full = {**os.environ, "GOH_DIR": _goh(), "NO_COLOR": "1", **env}
     return subprocess.run(["bash", str(GATE), *args], cwd=ROOT, env=full,
-                          capture_output=True, text=True, stdin=subprocess.DEVNULL, timeout=60)
+                          capture_output=True, text=True, stdin=subprocess.DEVNULL, timeout=60, check=False)
 
 
 @pytest.mark.parametrize("os_name,arch", [("Darwin", "arm64"), ("Linux", "x86_64"), ("Linux", "aarch64")])

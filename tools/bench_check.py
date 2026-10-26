@@ -123,6 +123,7 @@ def bench_binary() -> Path:
         text=True,
         errors="replace",
         stdin=subprocess.DEVNULL,
+        check=False,
     )
     if proc.returncode != 0:
         sys.stderr.write(proc.stderr[-2000:])
@@ -147,6 +148,7 @@ def count(exe: Path, which: str, iters: int) -> int:
         text=True,
         errors="replace",
         stdin=subprocess.DEVNULL,
+        check=False,
     )
     if proc.returncode != 0:
         sys.stderr.write(proc.stdout[-1000:] + proc.stderr[-2000:])

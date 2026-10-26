@@ -58,7 +58,12 @@ def main() -> int:
         input=request() + "\n",
         capture_output=True,
         text=True,
+        check=False,
     )
+    if out.returncode != 0:
+        # ssh or the agent failed: say so rather than parse whatever it printed (goh G17b).
+        print(out.stdout, out.stderr)
+        return 1
     try:
         print(json.dumps(parse(out.stdout), indent=2))
     except ValueError:

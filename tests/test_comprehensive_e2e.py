@@ -243,6 +243,7 @@ class ComprehensiveE2E(unittest.TestCase):
                     text=True,
                     timeout=5,
                     stdin=subprocess.DEVNULL,
+                    check=True,
                 )
                 self.assertIn("unauthorized", r.stdout.lower())
                 # With token should be 200
@@ -252,6 +253,7 @@ class ComprehensiveE2E(unittest.TestCase):
                     text=True,
                     timeout=5,
                     stdin=subprocess.DEVNULL,
+                    check=True,
                 )
                 self.assertIn("127.0.0.1", r2.stdout)
                 data = json.loads(r2.stdout)
@@ -263,6 +265,7 @@ class ComprehensiveE2E(unittest.TestCase):
                     text=True,
                     timeout=5,
                     stdin=subprocess.DEVNULL,
+                    check=True,
                 )
                 self.assertIn("total", r3.stdout)
                 # Index
@@ -272,6 +275,7 @@ class ComprehensiveE2E(unittest.TestCase):
                     text=True,
                     timeout=5,
                     stdin=subprocess.DEVNULL,
+                    check=True,
                 )
                 self.assertIn("multitop --serve", r4.stdout)
             finally:

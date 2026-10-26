@@ -108,6 +108,11 @@ jobs:
            python3 tools/check_unsafe_scope.py --self-test
            python3 tools/check_unsafe_scope.py
 
+      # Every subprocess.run says what a failing child does (goh G17b). ONE rule, named
+      # here: pyproject.toml's wider selection is not a gate yet (346 findings).
+      - name: Ruff (PLW1510)
+        run: pipx run ruff==0.17.2 check --select PLW1510 .
+
       - name: Formatting
         run: cargo fmt --all -- --check
 

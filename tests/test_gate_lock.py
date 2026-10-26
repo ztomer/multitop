@@ -37,6 +37,7 @@ def _lock(cwd: Path, action: str) -> subprocess.CompletedProcess:
         text=True,
         timeout=30,
         stdin=subprocess.DEVNULL,
+        check=False,
     )
 
 

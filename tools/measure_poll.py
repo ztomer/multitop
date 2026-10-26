@@ -86,7 +86,12 @@ def run_pass(binary: str) -> tuple[list[dict], str]:
             capture_output=True,
             text=True,
             stdin=subprocess.DEVNULL,
+            check=False,
         )
+        if done.returncode != 0:
+            # A failed pass is not a measurement: reporting its (empty or partial) log as one
+            # read as "this poll costs nothing" (goh G17b).
+            raise SystemExit(f"measure-poll: --ops-poll exited {done.returncode}\n{done.stdout}{done.stderr}")
         records = []
         if os.path.exists(log):
             with open(log, encoding="utf-8") as handle:

@@ -86,6 +86,7 @@ def gatesrc_steps() -> str:
     proc = subprocess.run(
         ["bash", "-c", f"set -euo pipefail; source '{GATESRC}'; printf '%s' \"$GOH_CI_STEPS\""],
         capture_output=True, text=True, stdin=subprocess.DEVNULL,
+        check=False,
     )
     if proc.returncode != 0:
         return ""

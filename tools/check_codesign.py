@@ -112,6 +112,7 @@ def identifier_for(binary: Path) -> str | None:
             capture_output=True,
             text=True,
             timeout=10, stdin=subprocess.DEVNULL,
+            check=False,
         )
     except FileNotFoundError:
         return None
@@ -202,6 +203,7 @@ def main() -> int:
                     ["codesign", "-s", "-", "--identifier", EXPECTED_ID, str(binary)],
                     capture_output=True,
                     timeout=10, stdin=subprocess.DEVNULL,
+                    check=False,
                 )
             except FileNotFoundError:
                 break
