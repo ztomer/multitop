@@ -1532,7 +1532,7 @@ dependencies = [
 
 [[package]]
 name = "multitop"
-version = "0.66.0"
+version = "0.67.0"
 dependencies = [
  "axum",
  "base64",
@@ -1547,6 +1547,7 @@ dependencies = [
  "ratatui",
  "rcgen",
  "regex",
+ "rmcp",
  "rustls",
  "secrecy",
  "serde",
@@ -1565,7 +1566,7 @@ dependencies = [
 
 [[package]]
 name = "multitop-agent"
-version = "0.66.0"
+version = "0.67.0"
 dependencies = [
  "libc",
  "mach2",
@@ -2196,6 +2197,7 @@ dependencies = [
  "serde_json",
  "thiserror",
  "tokio",
+ "tokio-stream",
  "tokio-util",
  "tracing",
  "uuid",

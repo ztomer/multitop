@@ -7,7 +7,26 @@ This file starts at v0.47.0 — earlier history is in git (`git log`), and the
 per-defect record is `docs/detection-record.md`, which is the more useful
 document for anything before this point.
 
-## Unreleased
+## v0.67.0 — the agent's MCP server and the Ops view's client are rmcp _(2026-10-26)_
+
+### Changed — MCP is the official SDK on both ends (owner ruling OW.60, queue MCP.MON)
+- `multitop-agent mcp` is rmcp 3.7 instead of a hand-rolled JSON-RPC loop:
+  2026-07-28 statelessly through `server/discover`, the older versions
+  through `initialize`. The wire was pinned against the real binary first
+  (`crates/agent/tests/mcp_stdio.rs`, green on 0.66.0 and on this release).
+- Every tool states readOnlyHint, destructiveHint, idempotentHint and
+  openWorldHint, and declares an `outputSchema`; a destructive tool is never
+  listed or called. goh's MCP wire gate now judges the server on every push.
+- The Ops view's client opens each session with rmcp's Discover lifecycle
+  and sends every request through it; the kept tool list, the absent
+  reasons and the catalogue digest are read exactly as before. Proven
+  against `mcp_host` 1.99.25 on all three hosts and against the 0.66.0
+  agent; an older multitop is answered by the new agent too.
+- Upstream's deltas: a line that is not JSON is dropped (was -32700); a
+  stateless request without the 2026-07-28 `_meta` is -32602.
+- The musl agents grow (x86_64 774K to 1.6M, aarch64 700K to 1.4M): rmcp
+  and its runtime, uploaded once per build per host.
+
 
 ### Added — the phone reads the server (ROADMAP A2.5)
 - The paired screen of the Android companion shows the server's own count
