@@ -253,3 +253,92 @@ async fn sys_updater_table_redraw_and_shrink_leaves_no_ghost_rows() {
         log.join("\n")
     );
 }
+
+#[tokio::test]
+async fn docker_compose_completed_lines_not_blanked_by_skipped_line_rewinds() {
+    let _g = isolate().await;
+    // Simulates Docker Compose pull where container c1 completes early,
+    // and subsequent ticks step over container c1 with \n without redrawing it.
+    let script = concat!(
+        r#"printf '\033[?25l\033[0G\033[2K[+] pull 0/2\r\n\033[2K Image c1 Pulling 0.1s\r\n\033[2K Image c2 Pulling 0.1s\r\n\033[?25h'; "#,
+        "sleep 0.05; ",
+        // Frame 2: c1 completes to "Pulled"
+        r#"printf '\033[?25l\033[3A\033[0G\r\n\033[2K Image c1 Pulled 0.2s\r\n\033[2K Image c2 Pulling 0.2s\r\n\033[?25h'; "#,
+        "sleep 0.05; ",
+        // Frame 3: c1 is now complete/unchanged, so Docker Compose skips it with \n
+        r#"printf '\033[?25l\033[3A\033[0G\r\n\n\033[2K Image c2 Pulling 0.3s\r\n\033[?25h'; "#,
+        "sleep 0.05; ",
+        // Frame 4: c1 still unchanged, c2 completes
+        r#"printf '\033[?25l\033[3A\033[0G\r\n\n\033[2K Image c2 Pulled 0.4s\r\n\033[?25h'; "#,
+        "exit 0"
+    );
+
+    let (tx, mut rx) = mpsc::channel::<Msg>(512);
+    let handle = spawn_upgrade(0, 1, local_server(script), None, (80, 24), tx);
+
+    let mut app = app_mid_upgrade();
+    app.panels[0].upgrade_gen = 1;
+    let collect = async {
+        while let Some(msg) = rx.recv().await {
+            let done = matches!(msg, Msg::AuxDone { .. });
+            app.apply(msg);
+            if done {
+                break;
+            }
+        }
+    };
+    tokio::time::timeout(Duration::from_secs(60), collect)
+        .await
+        .expect("the run must finish");
+    handle.abort();
+
+    let log: Vec<String> = app.panels[0].last_upgrade.iter().cloned().collect();
+    assert!(
+        log.iter().any(|l| l.contains("Image c1 Pulled 0.2s")),
+        "completed container c1 was blanked out or disappeared:\n{}",
+        log.join("\n")
+    );
+    assert!(
+        log.iter().any(|l| l.contains("Image c2 Pulled 0.4s")),
+        "completed container c2 missing from log:\n{}",
+        log.join("\n")
+    );
+    assert!(
+        !log.iter().any(String::is_empty),
+        "log contains unexpected blank lines where completed container was wiped:\n{log:?}"
+    );
+}
+
+const SYS_UPDATER_STREAM: &[u8] = include_bytes!("fixtures/sys-updater-local.bytes");
+
+#[tokio::test]
+async fn sys_updater_stream_does_not_duplicate_local_updates_title() {
+    let _g = isolate().await;
+    let mut p = Painter::new();
+    let mut app = app_mid_upgrade();
+    let gen = 1;
+    app.panels[0].upgrade_gen = gen;
+
+    for chunk in SYS_UPDATER_STREAM.chunks(512) {
+        for painted in p.feed_bytes(chunk) {
+            app.apply(multitop::tasks::painted_msg(
+                0,
+                gen,
+                painted,
+                std::convert::identity,
+            ));
+        }
+    }
+    for painted in p.finish() {
+        app.apply(multitop::tasks::painted_msg(
+            0,
+            gen,
+            painted,
+            std::convert::identity,
+        ));
+    }
+
+    let log: Vec<String> = app.panels[0].last_upgrade.iter().cloned().collect();
+    let title_count = log.iter().filter(|l| l.contains("Local Updates")).count();
+    assert_eq!(title_count, 1, "title duplicated! count: {title_count}");
+}

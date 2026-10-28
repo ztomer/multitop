@@ -116,11 +116,9 @@ impl Reading {
                     }
                     _ => {}
                 },
-                Token::Csi(_)
-                | Token::Control(_)
-                | Token::Esc { .. }
-                | Token::Osc(_)
-                | Token::Opaque => {
+                Token::Csi(csi) if csi.intermediates == b"?" => {}
+                Token::Osc(_) => {}
+                Token::Csi(_) | Token::Control(_) | Token::Esc { .. } | Token::Opaque => {
                     if !pinned {
                         r.touch();
                     }

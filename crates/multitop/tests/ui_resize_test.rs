@@ -362,3 +362,70 @@ fn a_status_line_is_not_eaten_by_the_banner() {
         "the status the panel was given never reached the screen:\n{screen}"
     );
 }
+
+#[test]
+fn upgrade_pane_lines_survive_resize() {
+    let _keychain = isolate_keychain();
+    let servers = sample_servers(4);
+    let mut app = multitop::app::App::new(servers);
+    app.panels[0].mode = Mode::Upgrade;
+    app.panels[0].upgrade_state = multitop::panel::UpgradeState::STARTED;
+
+    // Simulate lines that have arrived so far:
+    // Some completed / non-updating lines
+    app.panels[0]
+        .last_upgrade
+        .push("Upgrading system...".to_string());
+    app.panels[0]
+        .last_upgrade
+        .push("[+] Running 3/3".to_string());
+    app.panels[0]
+        .last_upgrade
+        .push(" ✓ Container caddy-1 Pulled".to_string());
+    app.panels[0]
+        .last_upgrade
+        .push(" ✓ Container portainer-1 Pulled".to_string());
+    // An updating line
+    app.panels[0]
+        .last_upgrade
+        .push(" ⠋ Container db-1 Pulling 0.1s".to_string());
+
+    let mut term = Terminal::new(TestBackend::new(100, 30)).unwrap();
+    term.draw(|f| draw(f, &mut app)).unwrap();
+    let screen = term.backend().buffer().clone();
+
+    // Check at initial size (100, 30)
+    let text: String = (0..30)
+        .map(|y| {
+            (0..100)
+                .map(|x| screen[(x, y)].symbol().to_string())
+                .collect::<String>()
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+
+    assert!(text.contains("✓ Container caddy-1 Pulled"));
+    assert!(text.contains("✓ Container portainer-1 Pulled"));
+    assert!(text.contains("⠋ Container db-1 Pulling 0.1s"));
+
+    // Now resize to various dimensions and check lines survive
+    for (w, h) in [(140, 50), (120, 24), (200, 60)] {
+        term.backend_mut().resize(w, h);
+        term.draw(|f| draw(f, &mut app)).unwrap();
+        let buf = term.backend().buffer().clone();
+        let text: String = (0..h)
+            .map(|y| {
+                (0..w)
+                    .map(|x| buf[(x, y)].symbol().to_string())
+                    .collect::<String>()
+            })
+            .collect::<Vec<_>>()
+            .join("\n");
+        assert!(text.contains("✓ Container caddy-1 Pulled"), "at {w}x{h}");
+        assert!(
+            text.contains("✓ Container portainer-1 Pulled"),
+            "at {w}x{h}"
+        );
+        assert!(text.contains("⠋ Container db-1 Pulling 0.1s"), "at {w}x{h}");
+    }
+}

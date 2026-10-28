@@ -1,0 +1,397 @@
+y
+No sudo ticket — steps needing root may wait out of sight. Continue anyway? [y/N] ⚠ continuing without a sudo ticket (disabled by config ([sudo] prompt = false)) — steps needing root may wait out of sight
+                                 Local Updates
+╭──────────┬────────┬─────────────────────────────────────────────────────────╮
+│ Task     │ Status │ Result                                                  │
+├──────────┼────────┼─────────────────────────────────────────────────────────┤
+│ brew     │ → 0:00 │                                                         │
+│ topgrade │ → 0:00 │                                                         │
+│ system   │ → 0:00 │                                                         │
+│ git      │ → 0:00 │                                                         │
+│ shaders  │ → 0:00 │                                                         │
+│ bypass   │ → 0:00 │                                                         │
+│ ubol     │ → 0:00 │                                                         │
+╰──────────┴────────┴─────────────────────────────────────────────────────────╯
+Status: 0/7 complete (0%) · 7 running · 0:00 elapsed
+[13A[J                                 Local Updates
+╭──────────┬────────┬─────────────────────────────────────────────────────────╮
+│ Task     │ Status │ Result                                                  │
+├──────────┼────────┼─────────────────────────────────────────────────────────┤
+│ brew     │ ✓      │                                                         │
+│ topgrade │ ✓      │                                                         │
+│ system   │ ✓      │ disabled by config ([system] enabled = false)           │
+│ git      │ ✓      │ 0 repos                                                 │
+│ shaders  │ ✓      │ 14 repos                                                │
+│ bypass   │ → 0:00 │                                                         │
+│ ubol     │ ✗      │ GitHub API failed (To get started with GitHub CLI, ple… │
+╰──────────┴────────┴─────────────────────────────────────────────────────────╯
+Status: 6/7 complete (85%) · 1 running · 0:00 elapsed
+[13A[J                                 Local Updates
+╭──────────┬────────┬─────────────────────────────────────────────────────────╮
+│ Task     │ Status │ Result                                                  │
+├──────────┼────────┼─────────────────────────────────────────────────────────┤
+│ brew     │ ✓      │                                                         │
+│ topgrade │ ✓      │                                                         │
+│ system   │ ✓      │ disabled by config ([system] enabled = false)           │
+│ git      │ ✓      │ 0 repos                                                 │
+│ shaders  │ ✓      │ 14 repos                                                │
+│ bypass   │ → 0:00 │                                                         │
+│ ubol     │ ✗      │ GitHub API failed (To get started with GitHub CLI, ple… │
+╰──────────┴────────┴─────────────────────────────────────────────────────────╯
+Status: 6/7 complete (85%) · 1 running · 0:00 elapsed
+[13A[J                                 Local Updates
+╭──────────┬────────┬─────────────────────────────────────────────────────────╮
+│ Task     │ Status │ Result                                                  │
+├──────────┼────────┼─────────────────────────────────────────────────────────┤
+│ brew     │ ✓      │                                                         │
+│ topgrade │ ✓      │                                                         │
+│ system   │ ✓      │ disabled by config ([system] enabled = false)           │
+│ git      │ ✓      │ 0 repos                                                 │
+│ shaders  │ ✓      │ 14 repos                                                │
+│ bypass   │ → 0:00 │                                                         │
+│ ubol     │ ✗      │ GitHub API failed (To get started with GitHub CLI, ple… │
+╰──────────┴────────┴─────────────────────────────────────────────────────────╯
+Status: 6/7 complete (85%) · 1 running · 0:00 elapsed
+[13A[J                                 Local Updates
+╭──────────┬────────┬─────────────────────────────────────────────────────────╮
+│ Task     │ Status │ Result                                                  │
+├──────────┼────────┼─────────────────────────────────────────────────────────┤
+│ brew     │ ✓      │                                                         │
+│ topgrade │ ✓      │                                                         │
+│ system   │ ✓      │ disabled by config ([system] enabled = false)           │
+│ git      │ ✓      │ 0 repos                                                 │
+│ shaders  │ ✓      │ 14 repos                                                │
+│ bypass   │ → 0:01 │                                                         │
+│ ubol     │ ✗      │ GitHub API failed (To get started with GitHub CLI, ple… │
+╰──────────┴────────┴─────────────────────────────────────────────────────────╯
+Status: 6/7 complete (85%) · 1 running · 0:01 elapsed
+[13A[J                                 Local Updates
+╭──────────┬────────┬─────────────────────────────────────────────────────────╮
+│ Task     │ Status │ Result                                                  │
+├──────────┼────────┼─────────────────────────────────────────────────────────┤
+│ brew     │ ✓      │                                                         │
+│ topgrade │ ✓      │                                                         │
+│ system   │ ✓      │ disabled by config ([system] enabled = false)           │
+│ git      │ ✓      │ 0 repos                                                 │
+│ shaders  │ ✓      │ 14 repos                                                │
+│ bypass   │ → 0:01 │                                                         │
+│ ubol     │ ✗      │ GitHub API failed (To get started with GitHub CLI, ple… │
+╰──────────┴────────┴─────────────────────────────────────────────────────────╯
+Status: 6/7 complete (85%) · 1 running · 0:01 elapsed
+[13A[J                                 Local Updates
+╭──────────┬────────┬─────────────────────────────────────────────────────────╮
+│ Task     │ Status │ Result                                                  │
+├──────────┼────────┼─────────────────────────────────────────────────────────┤
+│ brew     │ ✓      │                                                         │
+│ topgrade │ ✓      │                                                         │
+│ system   │ ✓      │ disabled by config ([system] enabled = false)           │
+│ git      │ ✓      │ 0 repos                                                 │
+│ shaders  │ ✓      │ 14 repos                                                │
+│ bypass   │ → 0:01 │                                                         │
+│ ubol     │ ✗      │ GitHub API failed (To get started with GitHub CLI, ple… │
+╰──────────┴────────┴─────────────────────────────────────────────────────────╯
+Status: 6/7 complete (85%) · 1 running · 0:01 elapsed
+[13A[J                                 Local Updates
+╭──────────┬────────┬─────────────────────────────────────────────────────────╮
+│ Task     │ Status │ Result                                                  │
+├──────────┼────────┼─────────────────────────────────────────────────────────┤
+│ brew     │ ✓      │                                                         │
+│ topgrade │ ✓      │                                                         │
+│ system   │ ✓      │ disabled by config ([system] enabled = false)           │
+│ git      │ ✓      │ 0 repos                                                 │
+│ shaders  │ ✓      │ 14 repos                                                │
+│ bypass   │ → 0:01 │                                                         │
+│ ubol     │ ✗      │ GitHub API failed (To get started with GitHub CLI, ple… │
+╰──────────┴────────┴─────────────────────────────────────────────────────────╯
+Status: 6/7 complete (85%) · 1 running · 0:01 elapsed
+[13A[J                                 Local Updates
+╭──────────┬────────┬─────────────────────────────────────────────────────────╮
+│ Task     │ Status │ Result                                                  │
+├──────────┼────────┼─────────────────────────────────────────────────────────┤
+│ brew     │ ✓      │                                                         │
+│ topgrade │ ✓      │                                                         │
+│ system   │ ✓      │ disabled by config ([system] enabled = false)           │
+│ git      │ ✓      │ 0 repos                                                 │
+│ shaders  │ ✓      │ 14 repos                                                │
+│ bypass   │ → 0:02 │                                                         │
+│ ubol     │ ✗      │ GitHub API failed (To get started with GitHub CLI, ple… │
+╰──────────┴────────┴─────────────────────────────────────────────────────────╯
+Status: 6/7 complete (85%) · 1 running · 0:02 elapsed
+[13A[J                                 Local Updates
+╭──────────┬────────┬─────────────────────────────────────────────────────────╮
+│ Task     │ Status │ Result                                                  │
+├──────────┼────────┼─────────────────────────────────────────────────────────┤
+│ brew     │ ✓      │                                                         │
+│ topgrade │ ✓      │                                                         │
+│ system   │ ✓      │ disabled by config ([system] enabled = false)           │
+│ git      │ ✓      │ 0 repos                                                 │
+│ shaders  │ ✓      │ 14 repos                                                │
+│ bypass   │ → 0:02 │                                                         │
+│ ubol     │ ✗      │ GitHub API failed (To get started with GitHub CLI, ple… │
+╰──────────┴────────┴─────────────────────────────────────────────────────────╯
+Status: 6/7 complete (85%) · 1 running · 0:02 elapsed
+[13A[J                                 Local Updates
+╭──────────┬────────┬─────────────────────────────────────────────────────────╮
+│ Task     │ Status │ Result                                                  │
+├──────────┼────────┼─────────────────────────────────────────────────────────┤
+│ brew     │ ✓      │                                                         │
+│ topgrade │ ✓      │                                                         │
+│ system   │ ✓      │ disabled by config ([system] enabled = false)           │
+│ git      │ ✓      │ 0 repos                                                 │
+│ shaders  │ ✓      │ 14 repos                                                │
+│ bypass   │ → 0:02 │                                                         │
+│ ubol     │ ✗      │ GitHub API failed (To get started with GitHub CLI, ple… │
+╰──────────┴────────┴─────────────────────────────────────────────────────────╯
+Status: 6/7 complete (85%) · 1 running · 0:02 elapsed
+[13A[J                                 Local Updates
+╭──────────┬────────┬─────────────────────────────────────────────────────────╮
+│ Task     │ Status │ Result                                                  │
+├──────────┼────────┼─────────────────────────────────────────────────────────┤
+│ brew     │ ✓      │                                                         │
+│ topgrade │ ✓      │                                                         │
+│ system   │ ✓      │ disabled by config ([system] enabled = false)           │
+│ git      │ ✓      │ 0 repos                                                 │
+│ shaders  │ ✓      │ 14 repos                                                │
+│ bypass   │ → 0:02 │                                                         │
+│ ubol     │ ✗      │ GitHub API failed (To get started with GitHub CLI, ple… │
+╰──────────┴────────┴─────────────────────────────────────────────────────────╯
+Status: 6/7 complete (85%) · 1 running · 0:02 elapsed
+[13A[J                                 Local Updates
+╭──────────┬────────┬─────────────────────────────────────────────────────────╮
+│ Task     │ Status │ Result                                                  │
+├──────────┼────────┼─────────────────────────────────────────────────────────┤
+│ brew     │ ✓      │                                                         │
+│ topgrade │ ✓      │                                                         │
+│ system   │ ✓      │ disabled by config ([system] enabled = false)           │
+│ git      │ ✓      │ 0 repos                                                 │
+│ shaders  │ ✓      │ 14 repos                                                │
+│ bypass   │ → 0:03 │                                                         │
+│ ubol     │ ✗      │ GitHub API failed (To get started with GitHub CLI, ple… │
+╰──────────┴────────┴─────────────────────────────────────────────────────────╯
+Status: 6/7 complete (85%) · 1 running · 0:03 elapsed
+[13A[J                                 Local Updates
+╭──────────┬────────┬─────────────────────────────────────────────────────────╮
+│ Task     │ Status │ Result                                                  │
+├──────────┼────────┼─────────────────────────────────────────────────────────┤
+│ brew     │ ✓      │                                                         │
+│ topgrade │ ✓      │                                                         │
+│ system   │ ✓      │ disabled by config ([system] enabled = false)           │
+│ git      │ ✓      │ 0 repos                                                 │
+│ shaders  │ ✓      │ 14 repos                                                │
+│ bypass   │ → 0:03 │                                                         │
+│ ubol     │ ✗      │ GitHub API failed (To get started with GitHub CLI, ple… │
+╰──────────┴────────┴─────────────────────────────────────────────────────────╯
+Status: 6/7 complete (85%) · 1 running · 0:03 elapsed
+[13A[J                                 Local Updates
+╭──────────┬────────┬─────────────────────────────────────────────────────────╮
+│ Task     │ Status │ Result                                                  │
+├──────────┼────────┼─────────────────────────────────────────────────────────┤
+│ brew     │ ✓      │                                                         │
+│ topgrade │ ✓      │                                                         │
+│ system   │ ✓      │ disabled by config ([system] enabled = false)           │
+│ git      │ ✓      │ 0 repos                                                 │
+│ shaders  │ ✓      │ 14 repos                                                │
+│ bypass   │ → 0:03 │                                                         │
+│ ubol     │ ✗      │ GitHub API failed (To get started with GitHub CLI, ple… │
+╰──────────┴────────┴─────────────────────────────────────────────────────────╯
+Status: 6/7 complete (85%) · 1 running · 0:03 elapsed
+[13A[J                                 Local Updates
+╭──────────┬────────┬─────────────────────────────────────────────────────────╮
+│ Task     │ Status │ Result                                                  │
+├──────────┼────────┼─────────────────────────────────────────────────────────┤
+│ brew     │ ✓      │                                                         │
+│ topgrade │ ✓      │                                                         │
+│ system   │ ✓      │ disabled by config ([system] enabled = false)           │
+│ git      │ ✓      │ 0 repos                                                 │
+│ shaders  │ ✓      │ 14 repos                                                │
+│ bypass   │ → 0:03 │                                                         │
+│ ubol     │ ✗      │ GitHub API failed (To get started with GitHub CLI, ple… │
+╰──────────┴────────┴─────────────────────────────────────────────────────────╯
+Status: 6/7 complete (85%) · 1 running · 0:03 elapsed
+[13A[J                                 Local Updates
+╭──────────┬────────┬─────────────────────────────────────────────────────────╮
+│ Task     │ Status │ Result                                                  │
+├──────────┼────────┼─────────────────────────────────────────────────────────┤
+│ brew     │ ✓      │                                                         │
+│ topgrade │ ✓      │                                                         │
+│ system   │ ✓      │ disabled by config ([system] enabled = false)           │
+│ git      │ ✓      │ 0 repos                                                 │
+│ shaders  │ ✓      │ 14 repos                                                │
+│ bypass   │ → 0:04 │                                                         │
+│ ubol     │ ✗      │ GitHub API failed (To get started with GitHub CLI, ple… │
+╰──────────┴────────┴─────────────────────────────────────────────────────────╯
+Status: 6/7 complete (85%) · 1 running · 0:04 elapsed
+[13A[J                                 Local Updates
+╭──────────┬────────┬─────────────────────────────────────────────────────────╮
+│ Task     │ Status │ Result                                                  │
+├──────────┼────────┼─────────────────────────────────────────────────────────┤
+│ brew     │ ✓      │                                                         │
+│ topgrade │ ✓      │                                                         │
+│ system   │ ✓      │ disabled by config ([system] enabled = false)           │
+│ git      │ ✓      │ 0 repos                                                 │
+│ shaders  │ ✓      │ 14 repos                                                │
+│ bypass   │ → 0:04 │                                                         │
+│ ubol     │ ✗      │ GitHub API failed (To get started with GitHub CLI, ple… │
+╰──────────┴────────┴─────────────────────────────────────────────────────────╯
+Status: 6/7 complete (85%) · 1 running · 0:04 elapsed
+[13A[J                                 Local Updates
+╭──────────┬────────┬─────────────────────────────────────────────────────────╮
+│ Task     │ Status │ Result                                                  │
+├──────────┼────────┼─────────────────────────────────────────────────────────┤
+│ brew     │ ✓      │                                                         │
+│ topgrade │ ✓      │                                                         │
+│ system   │ ✓      │ disabled by config ([system] enabled = false)           │
+│ git      │ ✓      │ 0 repos                                                 │
+│ shaders  │ ✓      │ 14 repos                                                │
+│ bypass   │ → 0:04 │                                                         │
+│ ubol     │ ✗      │ GitHub API failed (To get started with GitHub CLI, ple… │
+╰──────────┴────────┴─────────────────────────────────────────────────────────╯
+Status: 6/7 complete (85%) · 1 running · 0:04 elapsed
+[13A[J                                 Local Updates
+╭──────────┬────────┬─────────────────────────────────────────────────────────╮
+│ Task     │ Status │ Result                                                  │
+├──────────┼────────┼─────────────────────────────────────────────────────────┤
+│ brew     │ ✓      │                                                         │
+│ topgrade │ ✓      │                                                         │
+│ system   │ ✓      │ disabled by config ([system] enabled = false)           │
+│ git      │ ✓      │ 0 repos                                                 │
+│ shaders  │ ✓      │ 14 repos                                                │
+│ bypass   │ → 0:04 │                                                         │
+│ ubol     │ ✗      │ GitHub API failed (To get started with GitHub CLI, ple… │
+╰──────────┴────────┴─────────────────────────────────────────────────────────╯
+Status: 6/7 complete (85%) · 1 running · 0:04 elapsed
+[13A[J                                 Local Updates
+╭──────────┬────────┬─────────────────────────────────────────────────────────╮
+│ Task     │ Status │ Result                                                  │
+├──────────┼────────┼─────────────────────────────────────────────────────────┤
+│ brew     │ ✓      │                                                         │
+│ topgrade │ ✓      │                                                         │
+│ system   │ ✓      │ disabled by config ([system] enabled = false)           │
+│ git      │ ✓      │ 0 repos                                                 │
+│ shaders  │ ✓      │ 14 repos                                                │
+│ bypass   │ → 0:05 │                                                         │
+│ ubol     │ ✗      │ GitHub API failed (To get started with GitHub CLI, ple… │
+╰──────────┴────────┴─────────────────────────────────────────────────────────╯
+Status: 6/7 complete (85%) · 1 running · 0:05 elapsed
+[13A[J                                 Local Updates
+╭──────────┬────────┬─────────────────────────────────────────────────────────╮
+│ Task     │ Status │ Result                                                  │
+├──────────┼────────┼─────────────────────────────────────────────────────────┤
+│ brew     │ ✓      │                                                         │
+│ topgrade │ ✓      │                                                         │
+│ system   │ ✓      │ disabled by config ([system] enabled = false)           │
+│ git      │ ✓      │ 0 repos                                                 │
+│ shaders  │ ✓      │ 14 repos                                                │
+│ bypass   │ → 0:05 │                                                         │
+│ ubol     │ ✗      │ GitHub API failed (To get started with GitHub CLI, ple… │
+╰──────────┴────────┴─────────────────────────────────────────────────────────╯
+Status: 6/7 complete (85%) · 1 running · 0:05 elapsed
+[13A[J                                 Local Updates
+╭──────────┬────────┬─────────────────────────────────────────────────────────╮
+│ Task     │ Status │ Result                                                  │
+├──────────┼────────┼─────────────────────────────────────────────────────────┤
+│ brew     │ ✓      │                                                         │
+│ topgrade │ ✓      │                                                         │
+│ system   │ ✓      │ disabled by config ([system] enabled = false)           │
+│ git      │ ✓      │ 0 repos                                                 │
+│ shaders  │ ✓      │ 14 repos                                                │
+│ bypass   │ → 0:05 │                                                         │
+│ ubol     │ ✗      │ GitHub API failed (To get started with GitHub CLI, ple… │
+╰──────────┴────────┴─────────────────────────────────────────────────────────╯
+Status: 6/7 complete (85%) · 1 running · 0:05 elapsed
+[13A[J                                 Local Updates
+╭──────────┬────────┬─────────────────────────────────────────────────────────╮
+│ Task     │ Status │ Result                                                  │
+├──────────┼────────┼─────────────────────────────────────────────────────────┤
+│ brew     │ ✓      │                                                         │
+│ topgrade │ ✓      │                                                         │
+│ system   │ ✓      │ disabled by config ([system] enabled = false)           │
+│ git      │ ✓      │ 0 repos                                                 │
+│ shaders  │ ✓      │ 14 repos                                                │
+│ bypass   │ → 0:05 │                                                         │
+│ ubol     │ ✗      │ GitHub API failed (To get started with GitHub CLI, ple… │
+╰──────────┴────────┴─────────────────────────────────────────────────────────╯
+Status: 6/7 complete (85%) · 1 running · 0:05 elapsed
+[13A[J                                 Local Updates
+╭──────────┬────────┬─────────────────────────────────────────────────────────╮
+│ Task     │ Status │ Result                                                  │
+├──────────┼────────┼─────────────────────────────────────────────────────────┤
+│ brew     │ ✓      │                                                         │
+│ topgrade │ ✓      │                                                         │
+│ system   │ ✓      │ disabled by config ([system] enabled = false)           │
+│ git      │ ✓      │ 0 repos                                                 │
+│ shaders  │ ✓      │ 14 repos                                                │
+│ bypass   │ → 0:06 │                                                         │
+│ ubol     │ ✗      │ GitHub API failed (To get started with GitHub CLI, ple… │
+╰──────────┴────────┴─────────────────────────────────────────────────────────╯
+Status: 6/7 complete (85%) · 1 running · 0:06 elapsed
+[13A[J                                 Local Updates
+╭──────────┬────────┬─────────────────────────────────────────────────────────╮
+│ Task     │ Status │ Result                                                  │
+├──────────┼────────┼─────────────────────────────────────────────────────────┤
+│ brew     │ ✓      │                                                         │
+│ topgrade │ ✓      │                                                         │
+│ system   │ ✓      │ disabled by config ([system] enabled = false)           │
+│ git      │ ✓      │ 0 repos                                                 │
+│ shaders  │ ✓      │ 14 repos                                                │
+│ bypass   │ ✗      │ bypass source unreachable — update skipped              │
+│ ubol     │ ✗      │ GitHub API failed (To get started with GitHub CLI, ple… │
+╰──────────┴────────┴─────────────────────────────────────────────────────────╯
+Status: 7/7 tasks complete · 0:06 elapsed
+[13A[J                                             Local Updates
+╭──────────┬────────┬──────────────────────────────────────────────────────────────────────────────────╮
+│ Task     │ Status │ Result                                                                           │
+├──────────┼────────┼──────────────────────────────────────────────────────────────────────────────────┤
+│ brew     │ ✓      │ Upgrading 0 packages                                                             │
+│ topgrade │ ✓      │ 3 steps, all OK                                                                  │
+│ system   │ ✓      │ disabled by config ([system] enabled = false)                                    │
+│ git      │ ✓      │ 0 repos                                                                          │
+│ shaders  │ ✓      │ 14 repos                                                                         │
+│ bypass   │ ✗      │ bypass source unreachable — update skipped                                       │
+│ ubol     │ ✗      │ GitHub API failed (To get started with GitHub CLI, please run:  gh auth login) — │
+╰──────────┴────────┴──────────────────────────────────────────────────────────────────────────────────╯
+
+Config Backup
+─────────────
+                                  Config Backup — 2026-10-28
+╭──────────────────────────────────────────────────────────────────┬────────┬─────────────────╮
+│ Path                                                             │ Status │ Detail          │
+├──────────────────────────────────────────────────────────────────┼────────┼─────────────────┤
+│ .config                                                          │ ✓      │ current         │
+│ .claude/CLAUDE.md                                                │ ✓      │ current         │
+│ .claude/RTK.md                                                   │ ✓      │ current         │
+│ .claude/settings.json                                            │ ✓      │ current         │
+│ .claude/settings.local.json                                      │ ✓      │ current         │
+│ .claude/hooks                                                    │ ✓      │ current         │
+│ .claude/skills                                                   │ ✓      │ current         │
+│ .claude/scheduled-tasks                                          │ ✓      │ current         │
+│ .claude/projects/-/memory                                        │ ✓      │ current         │
+│ .claude/projects/-Users-ztomer-Projects/memory                   │ ✓      │ current         │
+│ .claude/projects/-Users-ztomer-Projects-Finance/memory           │ ✓      │ current         │
+│ .claude/projects/-Users-ztomer-Projects-Finance-zinc/memory      │ ✓      │ current         │
+│ .claude/projects/-Users-ztomer-Projects-Taxes/memory             │ ✓      │ current         │
+│ .claude/projects/-Users-ztomer-Projects-ZoneTilerWM/memory       │ ✓      │ current         │
+│ .claude/projects/-Users-ztomer-Projects-ZoneWM/memory            │ ✓      │ current         │
+│ .claude/projects/-Users-ztomer-Projects-anarlog/memory           │ ✓      │ current         │
+│ .claude/projects/-Users-ztomer-Projects-divoom-control/memory    │ ✓      │ current         │
+│ .claude/projects/-Users-ztomer-Projects-games/memory             │ ✓      │ current         │
+│ .claude/projects/-Users-ztomer-Projects-games-CadGoose2/memory   │ ✓      │ current         │
+│ .claude/projects/-Users-ztomer-Projects-games-ZeroThunder/memory │ ✓      │ current         │
+│ .claude/projects/-Users-ztomer-Projects-games-necrohand/memory   │ ✓      │ current         │
+│ .claude/projects/-Users-ztomer-Projects-gates-of-heck/memory     │ ✓      │ current         │
+│ .claude/projects/-Users-ztomer-Projects-hisense-vidaa/memory     │ ✓      │ current         │
+│ .claude/projects/-Users-ztomer-Projects-koffee-big/memory        │ ✓      │ current         │
+│ .claude/projects/-Users-ztomer-Projects-meetspace/memory         │ ✓      │ current         │
+│ .claude/projects/-Users-ztomer-Projects-monitor/memory           │ ✓      │ current         │
+│ .claude/projects/-Users-ztomer-Projects-old-phones/memory        │ ✓      │ current         │
+│ .claude/projects/-Users-ztomer-Projects-routines/memory          │ ✓      │ current         │
+│ .claude/projects/-Users-ztomer-Projects-salary/memory            │ ✓      │ current         │
+│ .claude/projects/-Users-ztomer-Projects-scripts/memory           │ ✓      │ current         │
+│ .claude/projects/-Users-ztomer-Projects-servers/memory           │ ✓      │ current         │
+│ .claude/projects/-Users-ztomer-Projects-sys-upgrader/memory      │ ✓      │ current         │
+│ .claude/projects/-Users-ztomer-Projects-ztools/memory            │ ✓      │ current         │
+│ .claude/projects/-Users-ztomer-drive-Finances-2025/memory        │ ✓      │ current         │
+│ .claude/projects/-Users-ztomer-projects-CadGoose/memory          │ ✓      │ current         │
+│ Total                                                            │        │ 0 files (165KB) │
+╰──────────────────────────────────────────────────────────────────┴────────┴─────────────────╯
+✓ All local updates complete

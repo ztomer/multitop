@@ -212,6 +212,22 @@ fn real_docker_compose_pull_agrees_with_a_terminal() {
     agree("docker_compose_real", DOCKER_COMPOSE_REAL);
 }
 
+const DOCKER_COMPOSE_SKIPPED_LINE: &[u8] = b"\x1b[?25l\x1b[0G\x1b[2K[+] pull 0/2\r\n\
+\x1b[2K Image c1 Pulling 0.1s\r\n\
+\x1b[2K Image c2 Pulling 0.1s\r\n\
+\x1b[?25h\x1b[?25l\x1b[3A\x1b[0G\r\n\
+\x1b[2K Image c1 Pulled 0.2s\r\n\
+\x1b[2K Image c2 Pulling 0.2s\r\n\
+\x1b[?25h\x1b[?25l\x1b[3A\x1b[0G\r\n\
+\n\
+\x1b[2K Image c2 Pulling 0.3s\r\n\
+\x1b[?25h";
+
+#[test]
+fn docker_compose_skipped_line_agrees_with_a_terminal() {
+    agree("docker_compose_skipped", DOCKER_COMPOSE_SKIPPED_LINE);
+}
+
 #[test]
 fn a_rich_live_display_agrees_with_a_terminal() {
     agree("rich", RICH);

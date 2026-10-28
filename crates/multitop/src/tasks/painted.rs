@@ -202,7 +202,6 @@ impl Painter {
         if !terminated && !multitop_agent::escape::is_complete(&self.raw) {
             return;
         }
-        let was_open = self.open;
         let reading = Reading::of(&self.raw, self.bracket);
 
         let status = match reading.status {
@@ -248,15 +247,9 @@ impl Painter {
         let touched = reading.states.iter().rposition(|s| s.touched);
         let text = touched.map_or_else(String::new, |i| reading.states[i].text.clone());
 
-        // A paint that starts on an open (unterminated) line addresses rows
-        // from the content row the cursor is already sitting on -- one row
-        // below the append point -- so it lands one row further back than
-        // the same movement from a fresh row.
-        let back = if line_up > 0 {
-            line_up.saturating_add(usize::from(was_open))
-        } else {
-            usize::from(was_open)
-        };
+        // A paint addresses row `line_up` above the append point (`0` appends;
+        // `1` is the newest line already in the log).
+        let back = line_up;
 
         // Rows a rewind erased on its way up are reported with the write that
         // follows it, not as a paint of their own: until text arrives the
@@ -266,24 +259,31 @@ impl Painter {
         // ends a (blank) row, exactly as a terminal shows it; otherwise there
         // is no row to paint -- not yet, or not at all if the output ended.
         let status_only = end != End::Newline && touched.is_none();
+        // An untouched line while rewound (line_up > 0): the tool moved down
+        // with a bare newline across an existing row without touching or erasing
+        // it (e.g. Docker Compose skipping completed/unchanged container rows).
+        // On a terminal this only advances the cursor down; it does not clear or
+        // overwrite the existing row.
+        let untouched_rewind = touched.is_none() && line_up > 0;
 
         if terminated {
-            self.up = line_up.saturating_sub(usize::from(!was_open));
+            self.up = line_up.saturating_sub(1);
             self.open = false;
             self.bracket = reading.bracket;
             self.raw.clear();
-        } else if movement_only || status_only {
+        } else if movement_only || status_only || untouched_rewind {
             // Recorded nowhere: raw is kept and the next paint recomputes
             // from the whole, so counting it here would count it twice.
         } else {
-            // The movement base resets to the append point. The open row the
-            // cursor sits on is carried by `was_open` from here on; leaving
-            // the old base in place counts it twice on the next rewind.
-            self.up = 0;
+            // An open line is still being built. On a terminal the cursor sits
+            // on this row (at least 1 row above the append point once emitted).
+            // Recording line_up.max(1) preserves its position so that subsequent
+            // chunks of this line, or rewinds from it, compute from the correct row.
+            self.up = line_up.max(1);
             self.open = true;
         }
 
-        if movement_only || status_only {
+        if movement_only || status_only || untouched_rewind {
             return;
         }
         out.push(Painted::Line(Paint {
