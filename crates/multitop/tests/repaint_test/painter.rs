@@ -142,7 +142,7 @@ fn erasing_downward_is_reported_so_the_stale_rows_can_be_blanked() {
     one(&mut p, "three");
     let paint = one(&mut p, "\u{1b}[3A\u{1b}[Jshorter");
     assert_eq!(paint.back, 3);
-    assert_eq!(paint.erase_below, 1);
+    assert_eq!(paint.erase_below, 3);
 }
 
 #[test]

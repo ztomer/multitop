@@ -182,7 +182,7 @@ impl Reading {
             }
             'K' => state.here_cleared = true,
             'J' if first == 0 => {
-                state.erase = state.erase.max(1);
+                state.erase = state.erase.max(state.up.max(1));
                 // Erase-below takes the pinned row with it: it is below the
                 // cursor whenever the cursor is in the log. apt's last write
                 // is exactly this, clearing its own bar.

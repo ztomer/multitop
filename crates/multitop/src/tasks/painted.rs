@@ -237,17 +237,16 @@ impl Painter {
             .iter()
             .fold(0usize, |n, s| n.saturating_add(s.down));
         let erased = reading.states.iter().map(|s| s.erase).max().unwrap_or(0);
+        let line_up = self.up.saturating_add(moved_up).saturating_sub(moved_down);
         let erase_below = reading
             .states
             .iter()
             .map(|s| s.cleared_below)
             .max()
             .unwrap_or(0)
-            .max(erased);
+            .max(if erased > 0 { line_up.max(erased) } else { 0 });
         let touched = reading.states.iter().rposition(|s| s.touched);
         let text = touched.map_or_else(String::new, |i| reading.states[i].text.clone());
-
-        let line_up = self.up.saturating_add(moved_up).saturating_sub(moved_down);
 
         // A paint that starts on an open (unterminated) line addresses rows
         // from the content row the cursor is already sitting on -- one row
@@ -262,7 +261,7 @@ impl Painter {
         // Rows a rewind erased on its way up are reported with the write that
         // follows it, not as a paint of their own: until text arrives the
         // rewind is still only movement, and raw is kept for the re-read.
-        let movement_only = text.is_empty() && erased == 0 && (moved_up > 0 || moved_down > 0);
+        let movement_only = text.is_empty() && (moved_up > 0 || moved_down > 0 || erased > 0);
         // Only the status was drawn: the log row is as it was. A newline still
         // ends a (blank) row, exactly as a terminal shows it; otherwise there
         // is no row to paint -- not yet, or not at all if the output ended.

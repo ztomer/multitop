@@ -13,6 +13,7 @@
 #![cfg(test)]
 
 mod applying;
+mod chunk_split;
 #[path = "../common/mod.rs"]
 mod common;
 mod oracle;

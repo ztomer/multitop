@@ -43,6 +43,13 @@ const DOCKER: &[u8] = b"a Pulling\r\nb Pulling\r\n\
 \x1b[2A\x1b[2Ka Pull complete\r\n\x1b[2Kb Pull complete\r\n\
 done\r\n";
 
+/// `docker compose v2` rewinding with ESC[NA ESC[J.
+const DOCKER_ED: &[u8] = b"c1 Pulling\r\nc2 Pulling\r\n\
+\x1b[2A\x1b[Jc1 Downloading 10%\r\nc2 Waiting\r\n\
+\x1b[2A\x1b[Jc1 Downloading 80%\r\nc2 Downloading 5%\r\n\
+\x1b[2A\x1b[Jc1 Pull complete\r\nc2 Pull complete\r\n\
+done\r\n";
+
 /// A Rich live display: drawn, then rewound from its own last line and drawn
 /// again -- twice at the same height, then shorter, then taller than the rows
 /// above it, so it erases a line it did not draw.
@@ -179,6 +186,11 @@ fn apt_installing_agrees_with_a_terminal() {
 #[test]
 fn a_docker_layer_block_agrees_with_a_terminal() {
     agree("docker", DOCKER);
+}
+
+#[test]
+fn docker_compose_v2_erase_display_agrees_with_a_terminal() {
+    agree("docker_ed", DOCKER_ED);
 }
 
 #[test]
