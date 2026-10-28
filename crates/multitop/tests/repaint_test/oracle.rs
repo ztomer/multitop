@@ -50,6 +50,20 @@ const DOCKER_ED: &[u8] = b"c1 Pulling\r\nc2 Pulling\r\n\
 \x1b[2A\x1b[Jc1 Pull complete\r\nc2 Pull complete\r\n\
 done\r\n";
 
+const DOCKER_COMPOSE_REAL: &[u8] = b"\x1b[?25l\x1b[0G\x1b[2K[+] pull 0/2\r\n\
+\x1b[2K Image c1 Pulling 0.1s\r\n\
+\x1b[2K Image c2 Pulling 0.1s\r\n\
+\x1b[?25h\x1b[?25l\x1b[3A\x1b[0G\r\n\
+\x1b[2K Image c1 Pulling 0.2s\r\n\
+\x1b[2K Image c2 Pulling 0.2s\r\n\
+\x1b[?25h\x1b[?25l\x1b[3A\x1b[0G\r\n\
+\x1b[2K Image c1 Pulling 0.3s\r\n\
+\x1b[2K Image c2 Pulling 0.3s\r\n\
+\x1b[?25h\x1b[?25l\x1b[3A\x1b[0G\x1b[2K[+] pull 2/2\r\n\
+\x1b[2K Image c1 Pulled 0.4s\r\n\
+\x1b[2K Image c2 Pulled 0.4s\r\n\
+\x1b[?25h";
+
 /// A Rich live display: drawn, then rewound from its own last line and drawn
 /// again -- twice at the same height, then shorter, then taller than the rows
 /// above it, so it erases a line it did not draw.
@@ -191,6 +205,11 @@ fn a_docker_layer_block_agrees_with_a_terminal() {
 #[test]
 fn docker_compose_v2_erase_display_agrees_with_a_terminal() {
     agree("docker_ed", DOCKER_ED);
+}
+
+#[test]
+fn real_docker_compose_pull_agrees_with_a_terminal() {
+    agree("docker_compose_real", DOCKER_COMPOSE_REAL);
 }
 
 #[test]

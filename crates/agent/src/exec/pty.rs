@@ -8,9 +8,11 @@
 //!
 //! So: stdin and stdout are the pty, and the pty is the controlling terminal,
 //! which is what makes `isatty(1)` true, keeps colour and `\r` progress
-//! displays, and lets `sudo` open `/dev/tty` to prompt. stderr is a pipe, which
-//! costs nothing -- no tool decides its output style from `isatty(2)` -- and
-//! keeps the failure reason separable all the way to the panel.
+//! displays, and lets `sudo` open `/dev/tty` to prompt. stderr is a second pty,
+//! which makes `isatty(2)` true and carries window dimensions for tools like
+//! Docker Compose, Docker CLI, `BuildKit`, git and curl that inspect stderr to decide
+//! whether to render interactive progress animations -- while keeping stderr
+//! separable all the way to the panel.
 
 use std::ffi::CString;
 use std::io;
@@ -117,11 +119,20 @@ pub fn spawn(argv: &[CString], cols: u16, rows: u16) -> io::Result<Child> {
         return Err(named("openpty", &io::Error::last_os_error()));
     }
 
-    let mut errfds: [libc::c_int; 2] = [-1, -1];
-    // SAFETY: `pipe` writes exactly two ints into an array of two.
-    if unsafe { libc::pipe(errfds.as_mut_ptr()) } != 0 {
-        let e = named("pipe", &io::Error::last_os_error());
-        // SAFETY: both were opened above and are live.
+    let mut err_master: libc::c_int = -1;
+    let mut err_slave: libc::c_int = -1;
+    let mut ws_err = ws;
+    let rc_err = unsafe {
+        libc::openpty(
+            &raw mut err_master,
+            &raw mut err_slave,
+            std::ptr::null_mut(),
+            std::ptr::null_mut(),
+            &raw mut ws_err,
+        )
+    };
+    if rc_err != 0 {
+        let e = named("openpty (stderr)", &io::Error::last_os_error());
         unsafe {
             libc::close(master);
             libc::close(slave);
@@ -147,8 +158,8 @@ pub fn spawn(argv: &[CString], cols: u16, rows: u16) -> io::Result<Child> {
         unsafe {
             libc::close(master);
             libc::close(slave);
-            libc::close(errfds[0]);
-            libc::close(errfds[1]);
+            libc::close(err_master);
+            libc::close(err_slave);
         }
         return Err(e);
     }
@@ -159,19 +170,22 @@ pub fn spawn(argv: &[CString], cols: u16, rows: u16) -> io::Result<Child> {
         // would run this process's destructors on a copy of the parent's heap.
         unsafe {
             libc::close(master);
-            libc::close(errfds[0]);
+            libc::close(err_master);
             // New session, slave becomes the controlling terminal, and 0/1/2
             // are duped from it. This is what `isatty(1)` answers, and what
             // `sudo` finds when it opens `/dev/tty`.
             if libc::login_tty(slave) != 0 {
                 libc::_exit(127);
             }
-            // Then take stderr back off the pty and onto its own pipe.
-            if libc::dup2(errfds[1], 2) < 0 {
+            // Then take stderr off the primary pty and onto its own pty slave.
+            // This is what `isatty(2)` answers, allowing tools like Docker Compose,
+            // Docker CLI, `BuildKit`, git, and curl to detect an interactive terminal
+            // for their progress displays while keeping stderr separable.
+            if libc::dup2(err_slave, 2) < 0 {
                 libc::_exit(127);
             }
-            if errfds[1] > 2 {
-                libc::close(errfds[1]);
+            if err_slave > 2 {
+                libc::close(err_slave);
             }
             // `execv`, not `execvp`: argv[0] is an absolute path, so there is
             // no PATH search and therefore no allocation between here and the
@@ -185,11 +199,11 @@ pub fn spawn(argv: &[CString], cols: u16, rows: u16) -> io::Result<Child> {
     // SAFETY: the parent keeps only the ends it reads and writes.
     unsafe {
         libc::close(slave);
-        libc::close(errfds[1]);
+        libc::close(err_slave);
     }
     Ok(Child {
         master,
-        errpipe: errfds[0],
+        errpipe: err_master,
         pid,
     })
 }

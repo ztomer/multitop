@@ -268,18 +268,7 @@ impl Painter {
         let status_only = end != End::Newline && touched.is_none();
 
         if terminated {
-            // The cursor moves past a row only when something was written on
-            // it. A line of pure movement leaves the cursor where it put it.
-            if movement_only {
-                self.up = line_up;
-            } else {
-                // Resuming an open line does not advance past a row: the
-                // `\n` only ends the content row the cursor was already on.
-                // The open row itself stays carried by `was_open`, not by
-                // `up`, so the next paint's movement counts from the append
-                // point instead of double-counting it.
-                self.up = line_up.saturating_sub(usize::from(!was_open));
-            }
+            self.up = line_up.saturating_sub(usize::from(!was_open));
             self.open = false;
             self.bracket = reading.bracket;
             self.raw.clear();

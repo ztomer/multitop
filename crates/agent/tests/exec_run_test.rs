@@ -175,6 +175,17 @@ fn the_child_gets_a_real_terminal() {
     );
 }
 
+#[test]
+fn stderr_gets_a_real_terminal() {
+    let r = exec("test -t 2 && echo STDERR_TTY_YES >&2 || echo STDERR_TTY_NO >&2")
+        .expect("the command ran");
+    assert!(
+        r.text(Stream::Stderr).contains("STDERR_TTY_YES"),
+        "stderr was not a tty: {:?}",
+        r.text(Stream::Stderr)
+    );
+}
+
 /// A pty with a plausible size is what stops `apt` wrapping to 80 columns
 /// inside a 200-column panel.
 #[test]

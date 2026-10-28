@@ -101,7 +101,7 @@ fn a_bare_cursor_up_carries_to_the_next_line_that_has_text() {
     let mut p = Painter::new();
     one(&mut p, "one");
     one(&mut p, "two");
-    multitop_testassert::assert_empty!(line(&mut p, "\u{1b}[2A"), "movement alone draws nothing");
+    multitop_testassert::assert_empty!(feed(&mut p, b"\x1b[2A"), "movement alone draws nothing");
     assert_eq!(
         one(&mut p, "over one").back,
         2,
