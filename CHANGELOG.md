@@ -7,6 +7,20 @@ This file starts at v0.47.0 — earlier history is in git (`git log`), and the
 per-defect record is `docs/detection-record.md`, which is the more useful
 document for anything before this point.
 
+## v0.67.4 — fix live repaint title duplication and open line chunk splitting _(2026-10-28)_
+
+### Fixed — local updates title duplication and open line cursor tracking (queue REPAINT.LOCAL)
+- Live interactive status tables in `sys_updater local` and Docker Compose that
+  streamed output across chunk boundaries duplicated the section title and table
+  lines. When a line was split across chunks, open line handling reset `self.up = 0`
+  mid-rewind, causing subsequent lines to be treated as appends rather than in-place
+  rewrites. Fixed by preserving cursor vertical position via `self.up = line_up.max(1)`
+  across open lines and unifying `back = line_up`.
+- Multi-row rewinds stepping across unchanged lines in Docker Compose without
+  clearing or writing them now correctly preserve existing lines on the terminal.
+- Added automated regression tests with live `sys_updater local` captured stream
+  fixture verifying that title lines are never duplicated under chunk splitting.
+
 ## v0.67.3 — docker compose and stderr tty progress update in place _(2026-10-28)_
 
 ### Fixed — docker compose and stderr progress updates render in place (queue REPAINT.DOCKER)
