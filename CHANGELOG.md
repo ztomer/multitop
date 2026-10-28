@@ -7,6 +7,22 @@ This file starts at v0.47.0 — earlier history is in git (`git log`), and the
 per-defect record is `docs/detection-record.md`, which is the more useful
 document for anything before this point.
 
+## v0.67.2 — live repaint rewinds with erase in display do not duplicate or leak stale rows _(2026-10-28)_
+
+### Fixed — docker compose and sys_updater block rewinds stay in place (queue REPAINT.ED)
+- Tools using ANSI block rewinds (`docker compose pull`, `docker compose up -d`,
+  `sys_updater` / `update-local`) output `\x1b[NA\x1b[J` to jump up N rows and
+  erase down to the end of the screen.
+- Bare rewinds arriving in their own I/O chunk without text were previously
+  misclassified as content lines because `movement_only` checked `erased == 0`.
+  This painted a blank line, opened the row, and shifted content lines 1 row
+  too high, duplicating a line on every tick.
+- `\x1b[J` previously hardcoded `state.erase = 1`, so shrunken blocks left
+  stale trailing rows unblanked. `erase_below` now covers the full span down
+  to the bottom of the screen (`line_up.max(erased)`).
+- Tested against chunk splits, shrunken progress tables, multi-tick e2e runs,
+  and vt100 terminal emulation agreement.
+
 ## v0.67.1 — a reading by the build before the host's deploy says so _(2026-10-26)_
 
 ### Fixed — the Ops view names the deploy its answer predates (queue MON.STALE)
