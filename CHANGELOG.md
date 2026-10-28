@@ -7,6 +7,23 @@ This file starts at v0.47.0 — earlier history is in git (`git log`), and the
 per-defect record is `docs/detection-record.md`, which is the more useful
 document for anything before this point.
 
+## v0.67.3 — docker compose and stderr tty progress update in place _(2026-10-28)_
+
+### Fixed — docker compose and stderr progress updates render in place (queue REPAINT.DOCKER)
+- Docker Compose writes interactive progress exclusively to `stderr` and queries
+  `isatty(2)`. The agent's child execution previously connected stderr to an
+  anonymous pipe, causing Docker Compose to revert to `--progress=plain` line-by-line
+  output. Allocated a dedicated PTY master/slave pair for stderr with pane window
+  dimensions (`ws`) and exported `COMPOSE_PROGRESS=tty BUILDKIT_PROGRESS=tty`.
+- Multi-line rewinds (`\x1b[3A\x1b[0G\r\n`) jump up to the header line and step
+  down with `\r\n` to redraw container lines. The stream painter previously had
+  an exception for movement-only frames that ignored the downward step of `\n`,
+  leaving `self.up` 1 line too high and overwriting header lines. Unified line
+  termination handling so `\n` descent is always accounted for.
+- Added automated tests for stderr TTY detection in the agent runner, painter
+  cursor movement across lines, and real Docker Compose pull sequence agreement
+  against the `vt100` oracle.
+
 ## v0.67.2 — live repaint rewinds with erase in display do not duplicate or leak stale rows _(2026-10-28)_
 
 ### Fixed — docker compose and sys_updater block rewinds stay in place (queue REPAINT.ED)
