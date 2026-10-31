@@ -24,11 +24,15 @@ cleanup() {
     fi
 }
 trap cleanup EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
 
 if ! "$DOCKER" info >/dev/null 2>&1; then
     info "starting container runtime ($COLIMA start)"
-    "$COLIMA" start
+    # Marked BEFORE the start: a start that fails half-way still leaves a VM
+    # this script owns, and the trap's stop is harmless when nothing came up.
     started_colima=1
+    "$COLIMA" start
 fi
 
 info "clippy on linux/arm64 (rust:1-bookworm + libdbus-1-dev libtss2-dev)"
