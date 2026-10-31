@@ -110,3 +110,7 @@ GOH_CI_STEPS='"$GOH_DIR/gates/structural.sh" --full:tools/checkers.sh:python3 "$
 # it reads none of the owner's launch agents or docker contexts; it needs no
 # host and no network.
 GOH_MCP_SERVERS='HOME="$GOH_MCP_SCRATCH" cargo run --quiet --locked -p multitop-agent --bin multitop-agent -- mcp'
+
+# A commit that ADDS a test names, in a `Red-run:` trailer, the mutation that
+# turned that test red (goh red-run, BACKLOG 4.11; owner OW.8, 2026-10-31).
+GOH_RED_RUN=1
