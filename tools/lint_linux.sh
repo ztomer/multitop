@@ -12,11 +12,29 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 GOH="${GOH_DIR:-$HOME/Projects/gates_of_heck}"
 # shellcheck source=/Users/ztomer/Projects/gates_of_heck/tui/lib.sh
 . "$GOH/tui/lib.sh"
-docker info >/dev/null 2>&1 || die "no container runtime answering (colima start)"
+
+DOCKER="${DOCKER:-docker}"
+COLIMA="${COLIMA:-colima}"
+
+started_colima=0
+cleanup() {
+    if [ "$started_colima" -eq 1 ]; then
+        info "stopping container runtime ($COLIMA stop)"
+        "$COLIMA" stop || true
+    fi
+}
+trap cleanup EXIT
+
+if ! "$DOCKER" info >/dev/null 2>&1; then
+    info "starting container runtime ($COLIMA start)"
+    "$COLIMA" start
+    started_colima=1
+fi
+
 info "clippy on linux/arm64 (rust:1-bookworm + libdbus-1-dev libtss2-dev)"
 # The host's ~/.cargo/config.toml (sccache wrapper, shared target dir) must
 # not leak in: the source is copied and its .cargo/config.toml dropped.
-docker run --rm --platform linux/arm64 -v "$ROOT":/src:ro \
+"$DOCKER" run --rm --platform linux/arm64 -v "$ROOT":/src:ro \
   -e CARGO_TARGET_DIR=/tmp/target -e RUSTC_WRAPPER= -w /tmp rust:1-bookworm bash -c '
     set -e
     apt-get update -qq >/dev/null && apt-get install -y -qq libdbus-1-dev libtss2-dev pkg-config >/dev/null 2>&1
