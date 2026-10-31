@@ -95,9 +95,7 @@ HELP_ENTRY = re.compile(r'\(\s*"([^"]+)"\s*,')
 HELP_RANGE = re.compile(r"^([0-9])-([0-9])$")
 
 
-def help_table_offenders(
-    root: Path, keys: set[str]
-) -> list[tuple[Path, int, str, str]]:
+def help_table_offenders(root: Path, keys: set[str]) -> list[tuple[Path, int, str, str]]:
     """Every key the help overlay names must be bound.
 
     The prose patterns above cannot see the `("q", "...")` table the help
@@ -132,9 +130,7 @@ def self_test() -> int:
     with tempfile.TemporaryDirectory() as tmp:
         root = Path(tmp)
         (root / "run.rs").write_text("match key { KeyCode::Char('e' | 'E') => open(), }", encoding="utf-8")
-        (root / "modals.rs").write_text(
-            'const HELP_ROWS: &[(&str, &str)] = &[("e", "edit")];', encoding="utf-8"
-        )
+        (root / "modals.rs").write_text('const HELP_ROWS: &[(&str, &str)] = &[("e", "edit")];', encoding="utf-8")
         (root / "bad.rs").write_text('let s = "press q to save";', encoding="utf-8")
         hits = offenders(root)
         if not any(h[2] == "q" for h in hits):
@@ -147,18 +143,14 @@ def self_test() -> int:
             return 1
 
         # Ranges bind their middles, not just their endpoints.
-        (root / "run.rs").write_text(
-            "match key { KeyCode::Char(c @ '1'..='9') => sel(c), }", encoding="utf-8"
-        )
+        (root / "run.rs").write_text("match key { KeyCode::Char(c @ '1'..='9') => sel(c), }", encoding="utf-8")
         if "5" not in bound_keys(root):
             print("self-test FAILED: a range-bound key reads as unbound")
             return 1
 
         # The help table is read as a table: an entry naming a dead key fails,
         # and a moved table fails loud instead of stopping silently.
-        (root / "run.rs").write_text(
-            "match key { KeyCode::Char('q') => quit(), }", encoding="utf-8"
-        )
+        (root / "run.rs").write_text("match key { KeyCode::Char('q') => quit(), }", encoding="utf-8")
         (root / "bad.rs").write_text("let ok = 1;", encoding="utf-8")
         (root / "modals.rs").write_text(
             'const HELP_ROWS: &[(&str, &str)] = &[("q", "quit"), ("1-9", "select")];',

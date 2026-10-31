@@ -43,11 +43,11 @@ def decode(data):
     """Split a reply stream into frames, strictly."""
     frames, pos = [], 0
     while pos + 8 <= len(data):
-        if data[pos:pos + 4] != MAGIC:
-            raise Desync(f"no magic at byte {pos}: {data[pos:pos + 16]!r}")
-        ver, mode = data[pos+4], data[pos+5]
-        length = struct.unpack("<H", data[pos + 6:pos + 8])[0]
-        body = data[pos + 8:pos + 8 + length]
+        if data[pos : pos + 4] != MAGIC:
+            raise Desync(f"no magic at byte {pos}: {data[pos : pos + 16]!r}")
+        _ver, mode = data[pos + 4], data[pos + 5]
+        length = struct.unpack("<H", data[pos + 6 : pos + 8])[0]
+        body = data[pos + 8 : pos + 8 + length]
         if len(body) < length:
             raise Desync(f"frame at {pos} claims {length} bytes, {len(body)} present")
         if mode == MODE_HELLO:
@@ -90,7 +90,7 @@ def _frame(body):
 
 def _take_str(rest):
     length = struct.unpack("<H", rest[:2])[0]
-    return rest[2:2 + length], rest[2 + length:]
+    return rest[2 : 2 + length], rest[2 + length :]
 
 
 def output(frames, stream="stdout"):

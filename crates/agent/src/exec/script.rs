@@ -31,11 +31,18 @@ pub fn wrap(command: &str, with_password: bool) -> String {
     // Without it the `echo` would be the last command in the shell and its
     // success would become the run's -- every upgrade reported as having
     // worked, whatever it did.
+    // `exec 3>&2 2>/dev/null` parks the stderr pty on fd 3 while the interactive
+    // shell boots and sources rc files (`bash -i` otherwise runs `tcgetpgrp(2)`
+    // on the second pty, which has no session attached, and writes two job-control
+    // warnings; `exit` writes `exit` when fd 2 is a tty). `exec 2>&3 3>&-`
+    // restores the stderr pty only across `eval`, so child commands still see
+    // `isatty(2) == 1`.
     let bracket = format!(
-        "export PAGER=cat COMPOSE_PROGRESS=tty BUILDKIT_PROGRESS=tty; echo {STARTED_SENTINEL}; eval {inner}; __mt_rc=$?; echo {DONE_SENTINEL}; exit $__mt_rc"
+        "export PAGER=cat COMPOSE_PROGRESS=tty BUILDKIT_PROGRESS=tty; echo {STARTED_SENTINEL}; exec 2>&3 3>&-; eval {inner}; __mt_rc=$?; exec 2>/dev/null; echo {DONE_SENTINEL}; exit $__mt_rc"
     );
     let body = format!(
-        "if command -v zsh >/dev/null 2>&1; then \
+        "exec 3>&2 2>/dev/null; \
+         if command -v zsh >/dev/null 2>&1 && {{ [ -f ~/.zshrc ] || [ -f ~/.zprofile ] || [ -f ~/.zshenv ]; }}; then \
            zsh -l -i -c 'setopt expand_aliases 2>/dev/null; source ~/.zshrc 2>/dev/null; source ~/.zprofile 2>/dev/null; {bracket}'; \
          elif command -v bash >/dev/null 2>&1; then \
            bash -i -c 'shopt -s expand_aliases 2>/dev/null; source ~/.bashrc 2>/dev/null; source ~/.bash_profile 2>/dev/null; {bracket}'; \

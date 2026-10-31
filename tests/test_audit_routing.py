@@ -41,6 +41,4 @@ def test_no_bare_audit_invocation_remains():
     assert hits, "the audit step went missing from GOH_CI_STEPS"
     for m in hits:
         before = line[max(0, m.start() - 40) : m.start()]
-        assert "run --fetch -- " in before, (
-            f"bare cargo audit at offset {m.start()}: {before!r}"
-        )
+        assert "run --fetch -- " in before, f"bare cargo audit at offset {m.start()}: {before!r}"

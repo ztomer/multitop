@@ -53,11 +53,7 @@ def _run(tmp_path: Path, *args: str) -> subprocess.CompletedProcess:
     fake.write_text("#!/bin/sh\nexit 0\n")
     fake.chmod(0o755)
     launcher = bindir / "launchctl"
-    launcher.write_text(
-        "#!/bin/sh\n"
-        f"printf '%s\\n' \"$*\" >> '{tmp_path / 'launchctl.log'}'\n"
-        "exit 0\n"
-    )
+    launcher.write_text(f"#!/bin/sh\nprintf '%s\\n' \"$*\" >> '{tmp_path / 'launchctl.log'}'\nexit 0\n")
     launcher.chmod(0o755)
     env = dict(os.environ)
     env["HOME"] = str(home)

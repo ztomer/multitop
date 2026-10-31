@@ -60,8 +60,8 @@ import sys
 import tempfile
 from pathlib import Path
 
-sys.path.insert(0, str(__import__('pathlib').Path(__file__).resolve().parent))
-from _scope import scope_is_empty  # noqa: E402
+sys.path.insert(0, str(__import__("pathlib").Path(__file__).resolve().parent))
+from _scope import scope_is_empty
 
 REPO = Path(__file__).resolve().parent.parent
 
@@ -178,9 +178,7 @@ def scan(text: str) -> list[tuple[int, str, str, str]]:
 def offenders(root: Path) -> list[tuple[Path, int, str, str, str]]:
     out = []
     for path in rust_files():
-        for line_no, rule, value, source in scan(
-            path.read_text(encoding="utf-8", errors="replace")
-        ):
+        for line_no, rule, value, source in scan(path.read_text(encoding="utf-8", errors="replace")):
             out.append((path.relative_to(root), line_no, rule, value, source))
     return out
 
@@ -242,8 +240,7 @@ def self_test() -> int:
         # is broken.
         if {"threshold", "array", "window"} - rules:
             print(
-                "magic-numbers self-test: dirty source was NOT flagged "
-                f"(saw {sorted(rules)})",
+                f"magic-numbers self-test: dirty source was NOT flagged (saw {sorted(rules)})",
                 file=sys.stderr,
             )
             return 1

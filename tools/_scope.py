@@ -9,6 +9,7 @@ scope that moved out from under the gate.
     if scope_is_empty("magic-numbers", len(files), "Rust files"):
         return 1
 """
+
 from __future__ import annotations
 
 import sys

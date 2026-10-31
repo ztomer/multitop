@@ -11,6 +11,7 @@ the 24 h alert window.
 
 Usage: measure_gather.py <host-label> <ssh-target> <mcp-command...>
 """
+
 import json
 import subprocess
 import sys

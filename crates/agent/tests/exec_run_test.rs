@@ -340,6 +340,36 @@ fn the_login_shells_own_startup_noise_is_not_in_the_log() {
         "a\r\nb\r\n",
         "something other than the command's own output reached the log"
     );
+    assert_eq!(
+        r.text(Stream::Stderr),
+        "",
+        "the login shell wrote startup or exit noise to stderr"
+    );
+
+    // Also exercise the bash -i branch (taken on Linux hosts without zsh or
+    // without zsh dotfiles, such as CI's ubuntu-latest runner): with stderr on
+    // its own pty slave, bash -i must not emit job-control ioctl errors on
+    // startup or `exit` on teardown into the operator's stderr stream.
+    let bash_wrapped = multitop_agent::exec::script::wrap("printf 'a\\nb\\n'", false).replacen(
+        "if command -v zsh >/dev/null 2>&1",
+        "if false",
+        1,
+    );
+    let r_bash = exec(&format!(
+        "/bin/sh -c {}",
+        multitop_agent::exec::script::sh_quote(&bash_wrapped)
+    ))
+    .expect("the bash-wrapped command ran");
+    assert_eq!(
+        r_bash.text(Stream::Stdout),
+        "a\r\nb\r\n",
+        "bash wrapper altered stdout"
+    );
+    assert_eq!(
+        r_bash.text(Stream::Stderr),
+        "",
+        "bash -i wrote job-control or exit noise to stderr"
+    );
 }
 
 /// But the suppression must never eat an explanation. A shell that fails before

@@ -35,8 +35,8 @@ import re
 import sys
 from pathlib import Path
 
-sys.path.insert(0, str(__import__('pathlib').Path(__file__).resolve().parent))
-from _scope import scope_is_empty  # noqa: E402
+sys.path.insert(0, str(__import__("pathlib").Path(__file__).resolve().parent))
+from _scope import scope_is_empty
 
 REPO = Path(__file__).resolve().parent.parent
 BASELINE = REPO / "tools" / "test_only_baseline.txt"
@@ -46,9 +46,29 @@ PUB_FN_RE = re.compile(r"^\s*pub(?:\s*\([^)]*\))?\s+(?:const\s+|async\s+|unsafe\
 # Names that are called by the language or a derive rather than by our code, so
 # "no call site" says nothing about whether they are reachable.
 IMPLICIT = {
-    "new", "default", "drop", "fmt", "clone", "eq", "ne", "hash", "cmp",
-    "partial_cmp", "from", "into", "try_from", "try_into", "as_ref", "as_mut",
-    "deref", "deref_mut", "next", "poll", "serialize", "deserialize", "main",
+    "new",
+    "default",
+    "drop",
+    "fmt",
+    "clone",
+    "eq",
+    "ne",
+    "hash",
+    "cmp",
+    "partial_cmp",
+    "from",
+    "into",
+    "try_from",
+    "try_into",
+    "as_ref",
+    "as_mut",
+    "deref",
+    "deref_mut",
+    "next",
+    "poll",
+    "serialize",
+    "deserialize",
+    "main",
 }
 
 
@@ -101,7 +121,7 @@ def find_note(lines: list[str], idx: int) -> str:
     back = idx - 1
     while back >= 0:
         stripped = lines[back].strip()
-        if not (stripped.startswith("//") or stripped.startswith("#[") or stripped.startswith("#!")):
+        if not (stripped.startswith(("//", "#[", "#!"))):
             break
         found = ALLOW_RE.search(lines[back])
         if found:
@@ -133,7 +153,7 @@ def count_production_uses(name: str, sources: list[tuple[Path, str]]) -> int:
     """Uses of `name` in production code, excluding its own declaration."""
     call = re.compile(rf"(?<!\w){re.escape(name)}\s*(?:\(|::|,|\)|\]|\}}|;|$)")
     total = 0
-    for path, text in sources:
+    for _path, text in sources:
         for line in text.splitlines():
             if PUB_FN_RE.match(line) and PUB_FN_RE.match(line).group(1) == name:
                 continue
@@ -159,17 +179,18 @@ def run_check() -> int:
     # under tests/ are deliberately excluded: being called only from there is
     # exactly the condition being hunted.
     production = [(p, strip_test_regions(p.read_text(encoding="utf-8", errors="replace"))) for p in src]
-    test_sources = [
-        (p, p.read_text(encoding="utf-8", errors="replace")) for p in tests + in_src_tests
-    ]
+    test_sources = [(p, p.read_text(encoding="utf-8", errors="replace")) for p in tests + in_src_tests]
     test_sources += [
-        (p, "\n".join(
-            orig_line if orig_line != prod_line else ""
-            for orig_line, prod_line in zip(
-                p.read_text(encoding="utf-8", errors="replace").splitlines(),
-                strip_test_regions(p.read_text(encoding="utf-8", errors="replace")).splitlines(),
-            )
-        ))
+        (
+            p,
+            "\n".join(
+                orig_line if orig_line != prod_line else ""
+                for orig_line, prod_line in zip(
+                    p.read_text(encoding="utf-8", errors="replace").splitlines(),
+                    strip_test_regions(p.read_text(encoding="utf-8", errors="replace")).splitlines(),
+                )
+            ),
+        )
         for p in src
     ]
 
@@ -204,10 +225,7 @@ def run_check() -> int:
 
     if not new and not fixed:
         if baseline:
-            print(
-                f"test-only-code: clean ({len(decls)} public fns checked, "
-                f"{len(baseline)} known cases outstanding)"
-            )
+            print(f"test-only-code: clean ({len(decls)} public fns checked, {len(baseline)} known cases outstanding)")
         else:
             print(f"test-only-code: clean ({len(decls)} public fns checked)")
         return 0
@@ -261,9 +279,7 @@ def self_test() -> int:
                 decls[m.group(1)] = find_note(lines, idx)
         got = 0
         prod = [(Path("x.rs"), text)]
-        only_tests = "\n".join(
-            o if o != p else "" for o, p in zip(source.splitlines(), text.splitlines())
-        )
+        only_tests = "\n".join(o if o != p else "" for o, p in zip(source.splitlines(), text.splitlines()))
         for name, note in decls.items():
             if count_production_uses(name, prod) > 0 or note:
                 continue

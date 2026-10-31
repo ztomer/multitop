@@ -24,8 +24,8 @@ import re
 import sys
 from pathlib import Path
 
-sys.path.insert(0, str(__import__('pathlib').Path(__file__).resolve().parent))
-from _scope import scope_is_empty  # noqa: E402
+sys.path.insert(0, str(__import__("pathlib").Path(__file__).resolve().parent))
+from _scope import scope_is_empty
 
 ROOT = Path(__file__).resolve().parent.parent
 
@@ -65,9 +65,7 @@ DIVERTS = re.compile(
 # Any fn, so a test that calls a local `setup()` helper which diverts counts as
 # diverting. Without this the check reports every test whose diversion is one
 # call away, which is most of them, and a gate that cries wolf gets switched off.
-ANY_FN = re.compile(
-    r"(?m)^(?:pub )?(?:async )?fn (?P<name>[A-Za-z_0-9]+)\s*\("
-)
+ANY_FN = re.compile(r"(?m)^(?:pub )?(?:async )?fn (?P<name>[A-Za-z_0-9]+)\s*\(")
 
 TEST_FN = re.compile(
     r"(?m)^#\[(?:tokio::)?test\][^\n]*\n(?:#\[[^\n]*\]\n)*"
@@ -170,7 +168,7 @@ def helpers_matching(text: str, pattern) -> set[str]:
     for m in ANY_FN.finditer(text):
         start = m.end()
         end = text.find("\n}\n", start)
-        body = text[start: end if end != -1 else len(text)]
+        body = text[start : end if end != -1 else len(text)]
         if pattern.search(body):
             names.add(m.group("name"))
     return names
@@ -214,12 +212,8 @@ def sweep(root: Path, directory: str, reaches, diverts) -> list[tuple[Path, str]
     reacher_helpers: dict[str, set[str]] = {}
     for path, text in texts.items():
         key = target_key(path)
-        diverter_helpers.setdefault(key, set()).update(
-            helpers_matching(text, diverts)
-        )
-        reacher_helpers.setdefault(key, set()).update(
-            helpers_matching(text, reaches)
-        )
+        diverter_helpers.setdefault(key, set()).update(helpers_matching(text, diverts))
+        reacher_helpers.setdefault(key, set()).update(helpers_matching(text, reaches))
 
     for path, text in texts.items():
         if not reaches.search(text):
@@ -233,9 +227,7 @@ def sweep(root: Path, directory: str, reaches, diverts) -> list[tuple[Path, str]
             # every pure unit test beside it an offender, which is exactly the
             # crying-wolf a gate does not survive. `repaint_test.rs` lit up
             # twelve times over `Painter` tests that touch nothing at all.
-            reaches_here = reaches.search(body) or (
-                calls_reacher and calls_reacher.search(body)
-            )
+            reaches_here = reaches.search(body) or (calls_reacher and calls_reacher.search(body))
             if not reaches_here:
                 continue
             if diverts.search(body):
@@ -266,17 +258,12 @@ def self_test() -> int:
         d.mkdir(parents=True)
 
         (d / "clean.rs").write_text(
-            "#[test]\nfn a() {\n    password_store::enable_mock_store();\n"
-            "    passwords::open(&mut x, 0, false);\n}\n"
+            "#[test]\nfn a() {\n    password_store::enable_mock_store();\n    passwords::open(&mut x, 0, false);\n}\n"
         )
         (d / "unrelated.rs").write_text("#[test]\nfn b() {\n    assert_eq!(1, 1);\n}\n")
-        (d / "leaky.rs").write_text(
-            "#[test]\nfn c() {\n    passwords::open(&mut x, 0, false);\n}\n"
-        )
+        (d / "leaky.rs").write_text("#[test]\nfn c() {\n    passwords::open(&mut x, 0, false);\n}\n")
         # Reaches the store only through App, naming nothing itself.
-        (d / "indirect.rs").write_text(
-            "#[test]\nfn dd() {\n    let a = App::new(vec![]);\n}\n"
-        )
+        (d / "indirect.rs").write_text("#[test]\nfn dd() {\n    let a = App::new(vec![]);\n}\n")
         # The regression this check exists for: a helper the file defines and
         # one of its tests forgets to call.
         (d / "partial.rs").write_text(
@@ -310,10 +297,7 @@ def self_test() -> int:
         # main.rs is diverted; one that forgets is still an offender.
         s = d / "split"
         s.mkdir()
-        (s / "main.rs").write_text(
-            "mod m;\n"
-            "fn setup() {\n    password_store::enable_mock_store();\n}\n"
-        )
+        (s / "main.rs").write_text("mod m;\nfn setup() {\n    password_store::enable_mock_store();\n}\n")
         (s / "m.rs").write_text(
             "use super::*;\n"
             "#[test]\nfn via_main_helper() {\n    let _g = setup();\n"
@@ -322,8 +306,7 @@ def self_test() -> int:
         )
         # ...and a helper from ANOTHER target protects nobody outside it.
         (d / "other_target.rs").write_text(
-            "#[test]\nfn cannot_borrow_anothers_helper() {\n    let _g = setup();\n"
-            "    let a = App::new(vec![]);\n}\n"
+            "#[test]\nfn cannot_borrow_anothers_helper() {\n    let _g = setup();\n    let a = App::new(vec![]);\n}\n"
         )
 
         # The src sweep, which this check shipped without: a unit test inside

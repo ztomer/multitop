@@ -14,7 +14,7 @@ import sys
 import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from tmux_harness import built_from, newest_source_time, stale_reason  # noqa: E402
+from tmux_harness import built_from, newest_source_time, stale_reason
 
 
 def make_tree(root, newest_src=1000000000):

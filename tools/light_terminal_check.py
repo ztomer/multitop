@@ -52,7 +52,6 @@ import re
 import shutil
 import subprocess
 import sys
-import tempfile
 import time
 from pathlib import Path
 
@@ -118,22 +117,38 @@ def capture(binary: Path, colorfgbg: str | None, session: str) -> str | None:
     env = "" if colorfgbg is None else f'COLORFGBG="{colorfgbg}" '
     subprocess.run(
         [
-            "tmux", "new-session", "-d", "-s", session,
-            "-x", str(SIZE[0]), "-y", str(SIZE[1]),
-            "sh", "-c", f"{env}{binary} --local; printf '\\nEXITED rc=%s\\n' \"$?\"; sleep 300",
+            "tmux",
+            "new-session",
+            "-d",
+            "-s",
+            session,
+            "-x",
+            str(SIZE[0]),
+            "-y",
+            str(SIZE[1]),
+            "sh",
+            "-c",
+            f"{env}{binary} --local; printf '\\nEXITED rc=%s\\n' \"$?\"; sleep 300",
         ],
         check=True,
         capture_output=True,
-        timeout=30, stdin=subprocess.DEVNULL,
+        timeout=30,
+        stdin=subprocess.DEVNULL,
     )
     try:
         time.sleep(SETTLE_SECONDS)
         out = subprocess.run(
             ["tmux", "capture-pane", "-p", "-e", "-t", session],
-            capture_output=True, text=True, timeout=30, check=True, stdin=subprocess.DEVNULL,
+            capture_output=True,
+            text=True,
+            timeout=30,
+            check=True,
+            stdin=subprocess.DEVNULL,
         ).stdout
     finally:
-        subprocess.run(["tmux", "kill-session", "-t", session], capture_output=True, stdin=subprocess.DEVNULL, check=False)
+        subprocess.run(
+            ["tmux", "kill-session", "-t", session], capture_output=True, stdin=subprocess.DEVNULL, check=False
+        )
     return out
 
 
@@ -179,11 +194,11 @@ def cells(panes: str, default_fg, default_bg):
                     fg = None
                 elif p == 49:
                     bg = None
-                elif p in (38, 48) and params[i + 1:i + 2] == [2] and i + 4 < len(params):
-                    rgb = tuple(params[i + 2:i + 5])
+                elif p in (38, 48) and params[i + 1 : i + 2] == [2] and i + 4 < len(params):
+                    rgb = tuple(params[i + 2 : i + 5])
                     fg, bg = (rgb, bg) if p == 38 else (fg, rgb)
                     i += 4
-                elif p in (38, 48) and params[i + 1:i + 2] == [5]:
+                elif p in (38, 48) and params[i + 1 : i + 2] == [5]:
                     named = f"ESC[{p};5;{params[i + 2] if i + 2 < len(params) else '?'}m"
                     fg, bg = (named, bg) if p == 38 else (fg, named)
                     i += 2
@@ -197,21 +212,21 @@ def cells(panes: str, default_fg, default_bg):
 def measure(panes: str, default_fg, default_bg) -> collections.Counter:
     """How many glyphs drew each (fg, bg, floor) pairing."""
     return collections.Counter(
-        (fg, bg, MIN_CONTRAST if bold else MIN_MUTED_CONTRAST)
-        for fg, bg, bold in cells(panes, default_fg, default_bg)
+        (fg, bg, MIN_CONTRAST if bold else MIN_MUTED_CONTRAST) for fg, bg, bold in cells(panes, default_fg, default_bg)
     )
 
 
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument(
-        "--binary", type=Path, default=REPO / "target" / "release" / "multitop",
+        "--binary",
+        type=Path,
+        default=REPO / "target" / "release" / "multitop",
         help="the built binary to run (default: target/release/multitop)",
     )
     args = parser.parse_args()
     if not args.binary.is_file():
-        print(f"light-terminal-check: {args.binary} does not exist -- build it "
-              f"first (./build.sh)")
+        print(f"light-terminal-check: {args.binary} does not exist -- build it first (./build.sh)")
         return 1
 
     seen: dict[str, set] = {}
@@ -223,15 +238,13 @@ def main() -> int:
             return 1
         if READY not in ESCAPE.sub("", panes):
             failures.append(
-                f"{arm}: the app never drew a frame (no {READY!r} in the pane) -- "
-                f"it did not start, or it exited"
+                f"{arm}: the app never drew a frame (no {READY!r} in the pane) -- it did not start, or it exited"
             )
             print("    " + " | ".join(panes.strip().splitlines()[:4]))
             continue
         used = measure(panes, foreground, background)
         seen[arm] = {(fg, bg) for fg, bg, _ in used}
-        print(f"  {arm:<6} ({description}) — {len(used)} ink/surface pairings, "
-              f"{sum(used.values())} glyphs:")
+        print(f"  {arm:<6} ({description}) — {len(used)} ink/surface pairings, {sum(used.values())} glyphs:")
         for (fg, bg, floor), count in used.most_common():
             if isinstance(fg, str) or isinstance(bg, str):
                 print(f"      {fg!s:<18} on {bg!s:<18} terminal-decided   <-- x{count}")
@@ -244,10 +257,7 @@ def main() -> int:
             mark = f"   <-- under {floor}" if ratio < floor else ""
             print(f"      rgb{fg!s:<16} on rgb{bg!s:<16} {ratio:>6.2f}:1{mark}")
             if ratio < floor:
-                failures.append(
-                    f"{arm}: {count} glyph(s) rgb{fg} on rgb{bg} at {ratio:.2f}:1, "
-                    f"under {floor}"
-                )
+                failures.append(f"{arm}: {count} glyph(s) rgb{fg} on rgb{bg} at {ratio:.2f}:1, under {floor}")
 
     # The negative control. Two identical arms would mean the background is
     # being ignored, which passes every per-colour assertion above.
@@ -263,9 +273,11 @@ def main() -> int:
             print(f"  ✗ {line}")
         return 1
     print()
-    print(f"  ✓ every rendered glyph clears its floor ({MIN_CONTRAST}:1 bold, "
-          f"{MIN_MUTED_CONTRAST}:1 otherwise) against its own cell's background on "
-          f"both arms, none is terminal-decided, and the two palettes differ")
+    print(
+        f"  ✓ every rendered glyph clears its floor ({MIN_CONTRAST}:1 bold, "
+        f"{MIN_MUTED_CONTRAST}:1 otherwise) against its own cell's background on "
+        f"both arms, none is terminal-decided, and the two palettes differ"
+    )
     return 0
 
 

@@ -16,7 +16,7 @@ import sys
 import unittest
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from tmux_harness import (  # noqa: E402
+from tmux_harness import (
     TmuxSession,
     find_binary,
     session_dir,
@@ -69,9 +69,7 @@ class TmuxE2E(unittest.TestCase):
     def setUpClass(cls):
         binary = find_binary()
         if binary is None:
-            cls.skip_reason = (
-                "no multitop binary in this build tree (cargo build, or set MULTITOP_BIN)"
-            )
+            cls.skip_reason = "no multitop binary in this build tree (cargo build, or set MULTITOP_BIN)"
             return
         # A stale binary is a failure, not a skip. Skipping would let a suite go
         # green while testing nothing; this layer's whole value is that it drives
@@ -155,8 +153,7 @@ class TmuxE2E(unittest.TestCase):
         # has done nothing at all. An earlier version of this file was green for
         # exactly that reason, against a panel reading `NIL` with an empty log.
         self.session.wait_for_diag(
-            lambda s: s["panels"][0]["state"] == "STARTED"
-            or s["panels"][0]["ring"] > 0,
+            lambda s: s["panels"][0]["state"] == "STARTED" or s["panels"][0]["ring"] > 0,
             timeout=30,
             what="the run to actually start",
         )
@@ -202,8 +199,7 @@ class TmuxE2E(unittest.TestCase):
         self.assertLessEqual(
             ring,
             5,
-            f"the log holds {ring} lines for four lines of output -- "
-            "something is being logged more than once",
+            f"the log holds {ring} lines for four lines of output -- something is being logged more than once",
         )
 
     def test_05_the_output_is_on_screen_and_the_bar_collapsed(self):
@@ -211,9 +207,7 @@ class TmuxE2E(unittest.TestCase):
         screen = self.session.wait_for_screen("mock done")
         self.assertIn("Interactive prompt [Y/n]", screen)
         self.assertIn("30%", screen, "the progress display lost its last state")
-        self.assertNotIn(
-            "10%", screen, "an overwritten progress state was kept as its own line"
-        )
+        self.assertNotIn("10%", screen, "an overwritten progress state was kept as its own line")
 
     # ------------------------------------------------------------------- views
 
@@ -297,17 +291,13 @@ class TmuxE2E(unittest.TestCase):
         passing only when the run happened to have finished first.
         """
         state = self.session.diag()
-        self.assertFalse(
-            state["in_flight"], "this test assumes nothing is running; it is not"
-        )
+        self.assertFalse(state["in_flight"], "this test assumes nothing is running; it is not")
         self.session.send("q")
         # The pane outlives the app deliberately, so "it quit" is a marker in
         # the pane rather than a vanished tmux server. Waiting for the server to
         # disappear would also have been satisfied by the server *crashing*,
         # which is not what this asserts.
-        screen = self.session.wait_for(
-            self.session.exited, what="the app to exit"
-        )
+        screen = self.session.wait_for(self.session.exited, what="the app to exit")
         self.assertIn(
             f"{self.session.EXIT_MARKER} rc=0",
             screen,

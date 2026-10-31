@@ -66,9 +66,7 @@ RATCHET = "check_" + "baseline_ratchet.py"
 
 
 def goh() -> pathlib.Path:
-    return pathlib.Path(
-        os.environ.get("GOH_DIR") or (pathlib.Path.home() / "Projects" / "gates_of_heck")
-    )
+    return pathlib.Path(os.environ.get("GOH_DIR") or (pathlib.Path.home() / "Projects" / "gates_of_heck"))
 
 
 def current_command() -> str:
@@ -98,7 +96,11 @@ def self_test() -> int:
     exactly as a clean tree does.
     """
     out = subprocess.run(
-        ["sh", "-c", current_command()], cwd=REPO, capture_output=True, text=True, stdin=subprocess.DEVNULL,
+        ["sh", "-c", current_command()],
+        cwd=REPO,
+        capture_output=True,
+        text=True,
+        stdin=subprocess.DEVNULL,
         check=False,
     )
     if out.returncode != 0:
@@ -146,7 +148,8 @@ def main() -> int:
             "--current-from-command",
             current_command(),
         ],
-        cwd=REPO, stdin=subprocess.DEVNULL,
+        cwd=REPO,
+        stdin=subprocess.DEVNULL,
         check=False,
     ).returncode
     return rc or ceiling_check()
@@ -166,8 +169,7 @@ def ceiling_check() -> int:
     checker = goh() / "checks" / ("check_" + "exclusion_has_ceiling.py")
     if not checker.is_file():
         print(
-            f"ratchet: cannot find {checker}\n"
-            "  A gate that cannot run is not a gate that passed.",
+            f"ratchet: cannot find {checker}\n  A gate that cannot run is not a gate that passed.",
             file=sys.stderr,
         )
         return 1
@@ -177,9 +179,18 @@ def ceiling_check() -> int:
         if m:
             exclude = m.group(1)
     return subprocess.run(
-        [sys.executable, str(checker), "--max", str(LOC_LIMIT),
-         "--baseline", str(BASELINE.relative_to(REPO)), "--line-exclude", exclude],
-        cwd=REPO, stdin=subprocess.DEVNULL,
+        [
+            sys.executable,
+            str(checker),
+            "--max",
+            str(LOC_LIMIT),
+            "--baseline",
+            str(BASELINE.relative_to(REPO)),
+            "--line-exclude",
+            exclude,
+        ],
+        cwd=REPO,
+        stdin=subprocess.DEVNULL,
         check=False,
     ).returncode
 

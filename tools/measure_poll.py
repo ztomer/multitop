@@ -24,13 +24,13 @@ Usage:
 The kept lists live in the cache directory's own `catalogue/` directory
 (servers ROADMAP E61); the answers live beside it, one file per host.
 """
+
 import argparse
 import json
 import os
 import pathlib
 import shutil
 import subprocess
-import sys
 import tempfile
 
 HERE = pathlib.Path(__file__).resolve().parent
@@ -122,9 +122,7 @@ def report(records: list[dict], label: str, every: int) -> None:
             name = record.get("tool") or record.get("method") or "?"
             held[name] = held.get(name, 0) + record["bytes"]
             continue
-        held = per_session.setdefault(
-            session, {"argv": record["argv"], "received": 0, "sent": 0}
-        )
+        held = per_session.setdefault(session, {"argv": record["argv"], "received": 0, "sent": 0})
         held["received"] = max(held["received"], record["received"])
         held["sent"] = max(held["sent"], record["sent"])
     per_host: dict[str, int] = {}
@@ -152,9 +150,7 @@ def report(records: list[dict], label: str, every: int) -> None:
     print(f"({a_day} passes a day, one every {every}s)")
     print("\nwhat each answer cost, a gather:")
     for host in sorted(per_host_answers):
-        for name, size in sorted(
-            per_host_answers[host].items(), key=lambda kv: -kv[1]
-        ):
+        for name, size in sorted(per_host_answers[host].items(), key=lambda kv: -kv[1]):
             print(f"  {host:<28}{name:<20}{size:>10,}")
     return total
 
@@ -170,9 +166,7 @@ def totals(records: list[dict]) -> dict:
             name = record.get("tool") or record.get("method") or "?"
             held[name] = held.get(name, 0) + record["bytes"]
             continue
-        held = per_session.setdefault(
-            session, {"argv": record["argv"], "received": 0, "sent": 0}
-        )
+        held = per_session.setdefault(session, {"argv": record["argv"], "received": 0, "sent": 0})
         held["received"] = max(held["received"], record["received"])
         held["sent"] = max(held["sent"], record["sent"])
     per_host: dict[str, int] = {}

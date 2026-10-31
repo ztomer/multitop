@@ -114,7 +114,7 @@ class TmuxSession:
         # taking the newest file in a shared temp directory -- two of these
         # running at once would otherwise read each other's.
         try:
-            self.pid = self.wait_for(lambda: self._pane_pid(), what="the multitop process to appear")
+            self.pid = self.wait_for(self._pane_pid, what="the multitop process to appear")
         except Timeout as exc:
             # Say what the app printed on its way out. Without this the failure
             # is a bare `ProcessLookupError` twelve tests later, which names the
@@ -293,7 +293,11 @@ class TmuxSession:
         that was working perfectly well.
         """
         return subprocess.run(
-            ["/bin/ps", *args], capture_output=True, text=True, timeout=10, stdin=subprocess.DEVNULL,
+            ["/bin/ps", *args],
+            capture_output=True,
+            text=True,
+            timeout=10,
+            stdin=subprocess.DEVNULL,
             check=False,
         ).stdout
 

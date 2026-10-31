@@ -35,8 +35,8 @@ import sys
 import tempfile
 from pathlib import Path
 
-sys.path.insert(0, str(__import__('pathlib').Path(__file__).resolve().parent))
-from _scope import scope_is_empty  # noqa: E402
+sys.path.insert(0, str(__import__("pathlib").Path(__file__).resolve().parent))
+from _scope import scope_is_empty
 
 SRC = Path("crates/multitop/src")
 

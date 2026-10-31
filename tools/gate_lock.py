@@ -50,7 +50,8 @@ def git_dir() -> str:
         ["git", "rev-parse", "--absolute-git-dir"],
         capture_output=True,
         text=True,
-        check=False, stdin=subprocess.DEVNULL,
+        check=False,
+        stdin=subprocess.DEVNULL,
     )
     if r.returncode != 0 or not r.stdout.strip():
         print("gate_lock: not in a git repo", file=sys.stderr)

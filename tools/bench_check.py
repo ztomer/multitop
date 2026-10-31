@@ -54,7 +54,7 @@ UNITS = {"decode": "packet", "render": "frame"}
 # thousand keeps the slower (render) pair near a second on a quiet machine.
 ITERS = 5_000
 
-INSTRUCTIONS = re.compile(r"^\s*(\d+)\s+instructions retired\s*$", re.M)
+INSTRUCTIONS = re.compile(r"^\s*(\d+)\s+instructions retired\s*$", re.MULTILINE)
 
 
 def instructions(time_output: str) -> int | None:

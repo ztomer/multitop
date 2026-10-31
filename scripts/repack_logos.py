@@ -3,9 +3,9 @@
 and repack crates/multitop/data/logos.bin.zst.
 """
 
-import subprocess
 import struct
-import sys
+import subprocess
+
 import zstd
 
 
@@ -79,7 +79,7 @@ def main():
 
     pos = 8
     entries = []
-    for idx in range(count):
+    for _idx in range(count):
         entry_size = struct.unpack_from("<H", raw, pos)[0]
         entry_end = pos + 2 + entry_size
         pos += 2

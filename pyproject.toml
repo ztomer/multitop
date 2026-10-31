@@ -2,9 +2,9 @@
 line-length = 120
 
 [tool.ruff.lint]
-# NOT yet a gate as a whole (346 findings, 2026-10-26). What IS gated: PLW1510 (every
-# subprocess.run says what a failing child does, goh G17b), run by name as
-# `ruff check --select PLW1510 .` in GOH_CI_STEPS and in ci.yml.
+# Gated whole via goh's gates/ruff_ratchet.py (G17c): what the rule set still reports is held to
+# a per-rule count in ruff_ratchet.json that can only fall (a rule over its count, a rule with
+# findings and no count, or a count above the truth is red). PLW1510 (G17b) is at 0.
 select = ["E", "W", "F", "I", "UP", "B", "SIM", "DTZ", "S", "C4", "PIE", "ISC", "RUF", "PL", "FURB", "TRY", "BLE", "EXE"]
 
 [tool.ruff.lint.per-file-ignores]

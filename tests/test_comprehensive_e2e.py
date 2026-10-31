@@ -6,14 +6,14 @@ All waits are on conditions, not sleeps.
 """
 
 import os
-import sys
-import time
-import tempfile
 import subprocess
+import sys
+import tempfile
+import time
 import unittest
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from tmux_harness import TmuxSession, find_binary, session_dir
+from tmux_harness import TmuxSession, find_binary
 
 
 def tmux_available():
@@ -208,9 +208,8 @@ class ComprehensiveE2E(unittest.TestCase):
     def test_server_mode_via_http(self):
         # Server mode is tested via the Rust unit tests, but we also test the binary directly
         # Start a server on a random port and curl it
-        import socket
-        import subprocess
         import json
+        import socket
         import tempfile
 
         # Find a free port

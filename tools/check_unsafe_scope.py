@@ -29,7 +29,7 @@ import tempfile
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from _scope import scope_is_empty  # noqa: E402
+from _scope import scope_is_empty
 
 CRATES = Path("crates")
 

@@ -34,9 +34,7 @@ def test_release_delegates_the_tap_bump_to_tap_bump_sh():
 def test_release_supports_dry_run_and_forwards_it():
     text = RELEASE.read_text()
     assert "--dry-run" in text, "release.sh must accept --dry-run"
-    assert 'TAP_BUMP_ARGS' in text, (
-        "the tap bump arguments must be built up before the call so --dry-run is forwarded"
-    )
+    assert "TAP_BUMP_ARGS" in text, "the tap bump arguments must be built up before the call so --dry-run is forwarded"
 
 
 def test_the_redundant_formula_transform_gone():
@@ -44,9 +42,7 @@ def test_the_redundant_formula_transform_gone():
         "tools/bump_formula.py duplicated the house tap_rewrite.py -- one "
         "mechanism for the bump, or we ship 0.47.3 again"
     )
-    assert not (REPO / "tests" / "test_bump_formula.py").is_file(), (
-        "the transform's test cannot outlive the transform"
-    )
+    assert not (REPO / "tests" / "test_bump_formula.py").is_file(), "the transform's test cannot outlive the transform"
 
 
 def test_the_two_agent_resources_move_by_their_own_artifacts():
@@ -55,6 +51,4 @@ def test_the_two_agent_resources_move_by_their_own_artifacts():
         "multitop-agent-x86_64=",
         "multitop-agent-aarch64=",
     ):
-        assert name in text, (
-            f"the --resource flag must name {name} so its digest follows ITS artifact"
-        )
+        assert name in text, f"the --resource flag must name {name} so its digest follows ITS artifact"

@@ -44,10 +44,10 @@ def findings(log: str) -> list[str]:
 
 def problems(log: str, held: list[tuple[str, str]]) -> list[str]:
     found = findings(log)
-    out = [f"new deprecation (fix it, or hold it with a reason): {f}"
-           for f in found if not any(k in f for k, _ in held)]
-    out += [f"stale entry, no longer printed -- delete it: {k}"
-            for k, _ in held if not any(k in f for f in found)]
+    out = [
+        f"new deprecation (fix it, or hold it with a reason): {f}" for f in found if not any(k in f for k, _ in held)
+    ]
+    out += [f"stale entry, no longer printed -- delete it: {k}" for k, _ in held if not any(k in f for f in found)]
     return out
 
 

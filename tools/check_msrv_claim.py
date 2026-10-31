@@ -35,11 +35,11 @@ import tempfile
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from _scope import scope_is_empty  # noqa: E402
+from _scope import scope_is_empty
 
 VERSION = r"(\d+\.\d+(?:\.\d+)?)"
-MANIFEST_CLAIM = re.compile(r'^\s*rust-version\s*=\s*"' + VERSION + r'"', re.M)
-PACKAGE = re.compile(r"^\[package\]", re.M)
+MANIFEST_CLAIM = re.compile(r'^\s*rust-version\s*=\s*"' + VERSION + r'"', re.MULTILINE)
+PACKAGE = re.compile(r"^\[package\]", re.MULTILINE)
 PROSE_CLAIMS = (
     re.compile(r"\bRust\s+" + VERSION + r"\s*(?:\+|or (?:newer|later|above)\b)"),
     re.compile(r"\bMSRV\b[^0-9\n]{0,12}" + VERSION),
@@ -79,7 +79,7 @@ def exercised(root: Path) -> str:
 def builds_on(version: str, builds: str) -> bool:
     v = re.escape(version)
     return any(
-        re.search(p, builds, re.M)
+        re.search(p, builds, re.MULTILINE)
         for p in (
             rf"rust-toolchain@{v}(?![\d.])",
             rf"\btoolchain:\s*[\"']?{v}(?![\d.])",
@@ -166,7 +166,8 @@ def tracked(pattern: str) -> list[str]:
         ["git", "ls-files", "-z", "--", pattern],
         capture_output=True,
         text=True,
-        check=True, stdin=subprocess.DEVNULL,
+        check=True,
+        stdin=subprocess.DEVNULL,
     ).stdout
     return [p for p in out.split("\0") if p]
 

@@ -75,8 +75,7 @@ ALLOWED = {
     "crates/agent/src/color.rs": "the palette -- this is where a colour is DEFINED",
     "crates/agent/src/surface.rs": "writes escapes: it is the parser and the "
     "adaptation, and an escape is what it produces",
-    "crates/agent/src/palette_view.rs": "writes escapes: it builds the adapted "
-    "escapes the render path reads",
+    "crates/agent/src/palette_view.rs": "writes escapes: it builds the adapted escapes the render path reads",
 }
 
 #: Files allowed to name a terminal colour, each with the reason.
@@ -100,8 +99,7 @@ NAMED = re.compile(
 FIXED = re.compile(r"color::ANSI\b|THEMES\[\d+\]")
 FIXED_SCOPE = "crates/multitop/src/"
 FIXED_ALLOWED = {
-    "crates/multitop/src/palette_store.rs": "builds the default palette and "
-    "publishes the current one",
+    "crates/multitop/src/palette_store.rs": "builds the default palette and publishes the current one",
 }
 
 #: The floor on files read. Not a tuning knob: the render crates are the app, and
@@ -117,9 +115,7 @@ LITERAL = re.compile(r"\\x1b\[38;2;\d+;\d+;\d+m|38;2;\d+;\d+;\d+m")
 #: `44`, `36;1`) or a 256-colour one (`38;5;N`). The escape form of `NAMED`.
 #: The refit header and rule were `ESC[36;1m` and `ESC[90m`, and three sudo
 #: tips `ESC[33m`, and the 24-bit pattern above passed all of them.
-SGR_NAMED = re.compile(
-    r"\\x1b\[(?:\d+;)*(?:3[0-7]|9[0-7]|4[0-7]|10[0-7]|[34]8;5;\d+)(?:;\d+)*m"
-)
+SGR_NAMED = re.compile(r"\\x1b\[(?:\d+;)*(?:3[0-7]|9[0-7]|4[0-7]|10[0-7]|[34]8;5;\d+)(?:;\d+)*m")
 
 
 def scanned(root: Path) -> int:
@@ -154,14 +150,15 @@ def offenders(root: Path):
             if "_tests" in path.name or path.name.endswith("_test.rs"):
                 continue
             for lineno, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
-                if LITERAL.search(line):
-                    hits.append((rel, lineno, line.strip()[:100]))
-                elif rel not in NAMED_ALLOWED and (
-                    NAMED.search(line.split("//", 1)[0]) or SGR_NAMED.search(line)
+                if (
+                    LITERAL.search(line)
+                    or (rel not in NAMED_ALLOWED and (NAMED.search(line.split("//", 1)[0]) or SGR_NAMED.search(line)))
+                    or (
+                        rel.startswith(FIXED_SCOPE)
+                        and rel not in FIXED_ALLOWED
+                        and FIXED.search(line.split("//", 1)[0])
+                    )
                 ):
-                    hits.append((rel, lineno, line.strip()[:100]))
-                elif (rel.startswith(FIXED_SCOPE) and rel not in FIXED_ALLOWED
-                      and FIXED.search(line.split("//", 1)[0])):
                     hits.append((rel, lineno, line.strip()[:100]))
     return hits
 
@@ -173,44 +170,34 @@ def self_test() -> int:
         src.mkdir(parents=True)
         (root / "crates" / "agent" / "src").mkdir(parents=True)
 
-        (src / "draw.rs").write_text(
-            'let a = format!("\\x1b[38;2;255;85;85m{}", bold);\n', encoding="utf-8"
-        )
+        (src / "draw.rs").write_text('let a = format!("\\x1b[38;2;255;85;85m{}", bold);\n', encoding="utf-8")
         if not offenders(root):
             print("self-test FAILED: a hard-coded 24-bit colour was not detected")
             return 1
 
         # What must NOT be flagged: the palette itself, a test, and terminal
         # state escapes that are not colours.
-        (root / "crates" / "agent" / "src" / "color.rs").write_text(
-            'red: "\\x1b[38;2;255;85;85m",\n', encoding="utf-8"
-        )
-        (src / "draw_tests.rs").write_text(
-            'assert_eq!(x, "\\x1b[38;2;255;85;85m");\n', encoding="utf-8"
-        )
-        (src / "draw.rs").write_text(
-            'let reset = "\\x1b[0m";\nlet default = "\\x1b[39m";\n', encoding="utf-8"
-        )
+        (root / "crates" / "agent" / "src" / "color.rs").write_text('red: "\\x1b[38;2;255;85;85m",\n', encoding="utf-8")
+        (src / "draw_tests.rs").write_text('assert_eq!(x, "\\x1b[38;2;255;85;85m");\n', encoding="utf-8")
+        (src / "draw.rs").write_text('let reset = "\\x1b[0m";\nlet default = "\\x1b[39m";\n', encoding="utf-8")
         if offenders(root):
-            print(
-                "self-test FAILED: the palette, a test module, or a non-colour "
-                "escape was reported"
-            )
+            print("self-test FAILED: the palette, a test module, or a non-colour escape was reported")
             return 1
 
         # The escape the palette API hands back, spelled in the docs of a call
         # site, must not be a hit either -- it is `meter_high()`, not a literal.
         (src / "draw.rs").write_text(
-            '// was: ESC[38;2;255;85;85m, now theme.meter_high()\n'
-            'let a = format!("{}{}", theme.meter_high(), bold);\n',
+            '// was: ESC[38;2;255;85;85m, now theme.meter_high()\nlet a = format!("{}{}", theme.meter_high(), bold);\n',
             encoding="utf-8",
         )
         hits = offenders(root)
         # The comment IS a literal, and flagging it is correct: a comment that
         # records the old value is how the value comes back.
         if not hits:
-            print("self-test FAILED: a literal quoted in a comment was not "
-                  "flagged -- that comment is how the literal returns")
+            print(
+                "self-test FAILED: a literal quoted in a comment was not "
+                "flagged -- that comment is how the literal returns"
+            )
             return 1
 
     # Named colours: flagged in the chrome, allowed in the SGR mapper, and not
@@ -220,13 +207,15 @@ def self_test() -> int:
         src = root / "crates" / "multitop" / "src"
         src.mkdir(parents=True)
         (root / "crates" / "agent" / "src").mkdir(parents=True)
-        for case in ('format!(" \\x1b[90m{}\\x1b[0m", rule)',
-                     'format!("\\x1b[36;1m{title}\\x1b[0m")',
-                     '"\\x1b[33m\\u{2192} Tip\\x1b[0m"',
-                     '"\\x1b[38;5;208mtext"',
-                     "let label = Style::default().fg(Color::DarkGray);",
-                     "Span::styled(k, Style::default().fg(ratatui::style::Color::White))",
-                     "let c = Color::Indexed(8);"):
+        for case in (
+            'format!(" \\x1b[90m{}\\x1b[0m", rule)',
+            'format!("\\x1b[36;1m{title}\\x1b[0m")',
+            '"\\x1b[33m\\u{2192} Tip\\x1b[0m"',
+            '"\\x1b[38;5;208mtext"',
+            "let label = Style::default().fg(Color::DarkGray);",
+            "Span::styled(k, Style::default().fg(ratatui::style::Color::White))",
+            "let c = Color::Indexed(8);",
+        ):
             (src / "keybar.rs").write_text(case + "\n", encoding="utf-8")
             if not offenders(root):
                 print(f"self-test FAILED: a named colour was not detected: {case}")
@@ -248,8 +237,7 @@ def self_test() -> int:
         src = root / "crates" / "multitop" / "src"
         src.mkdir(parents=True)
         (root / "crates" / "agent" / "src").mkdir(parents=True)
-        for case in ("let pal = &multitop_agent::color::ANSI;",
-                     "let theme = &multitop_agent::color::THEMES[0];"):
+        for case in ("let pal = &multitop_agent::color::ANSI;", "let theme = &multitop_agent::color::THEMES[0];"):
             (src / "panel.rs").write_text(case + "\n", encoding="utf-8")
             if not offenders(root):
                 print(f"self-test FAILED: a fixed palette was not detected: {case}")
@@ -259,9 +247,7 @@ def self_test() -> int:
             encoding="utf-8",
         )
         (src / "palette_store.rs").write_text("&THEMES[0],\n", encoding="utf-8")
-        (root / "crates" / "agent" / "src" / "lib.rs").write_text(
-            "&color::ANSI\n", encoding="utf-8"
-        )
+        (root / "crates" / "agent" / "src" / "lib.rs").write_text("&color::ANSI\n", encoding="utf-8")
         if offenders(root):
             print("self-test FAILED: the store, a comment, or the agent was reported")
             return 1
@@ -292,8 +278,7 @@ def main() -> int:
 
     present = [c for c in CRATES if (REPO / c).is_dir()]
     if not present:
-        print("no-hard-coded-colour: none of the rendering crates were found -- "
-              "run from the repository root")
+        print("no-hard-coded-colour: none of the rendering crates were found -- run from the repository root")
         return 1
 
     # A gate whose subject population is empty reports compliance over nothing.
@@ -323,8 +308,7 @@ def main() -> int:
             f"in ALLOWED."
         )
         return 1
-    print(f"no-hard-coded-colour: ok ({len(present)} crates, {count} files read, "
-          f"{len(ALLOWED)} allowed)")
+    print(f"no-hard-coded-colour: ok ({len(present)} crates, {count} files read, {len(ALLOWED)} allowed)")
     return 0
 
 

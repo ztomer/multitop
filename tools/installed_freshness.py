@@ -77,7 +77,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parent.parent
@@ -168,7 +168,7 @@ def as_installed(built: Path, scratch: Path) -> Path:
 
 
 def when(path: Path) -> str:
-    stamp = datetime.fromtimestamp(path.stat().st_mtime, tz=timezone.utc)
+    stamp = datetime.fromtimestamp(path.stat().st_mtime, tz=UTC)
     return stamp.strftime("%Y-%m-%d %H:%M:%SZ")
 
 

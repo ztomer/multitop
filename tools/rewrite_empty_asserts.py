@@ -30,10 +30,8 @@ import re
 import sys
 from pathlib import Path
 
-sys.path.insert(
-    0, os.path.join(os.path.expanduser("~"), "Projects", "gates_of_heck", "checks")
-)
-import check_no_empty_assert as C  # noqa: E402
+sys.path.insert(0, os.path.join(os.path.expanduser("~"), "Projects", "gates_of_heck", "checks"))
+import check_no_empty_assert as C
 
 REPO = Path(__file__).resolve().parent.parent
 MACRO_PATH = "multitop_testassert"
@@ -131,9 +129,9 @@ def split_args(body: str) -> list[str]:
     return [a.strip() for a in args]
 
 
-IS_EMPTY = re.compile(r"^(?P<value>.+)\.is_empty\s*\(\s*\)$", re.S)
-LEN_CMP = re.compile(r"^(?P<value>.+)\.len\s*\(\s*\)\s*(?P<op>==|!=|<|>)\s*0$", re.S)
-LEN_EQ = re.compile(r"^0\s*(?P<op>==|!=)\s*(?P<value>.+)\.len\s*\(\s*\)$", re.S)
+IS_EMPTY = re.compile(r"^(?P<value>.+)\.is_empty\s*\(\s*\)$", re.DOTALL)
+LEN_CMP = re.compile(r"^(?P<value>.+)\.len\s*\(\s*\)\s*(?P<op>==|!=|<|>)\s*0$", re.DOTALL)
+LEN_EQ = re.compile(r"^0\s*(?P<op>==|!=)\s*(?P<value>.+)\.len\s*\(\s*\)$", re.DOTALL)
 
 
 def rewrite(condition: str, message: str | None) -> str | None:
@@ -168,9 +166,7 @@ def rewrite(condition: str, message: str | None) -> str | None:
 
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
-    ap.add_argument(
-        "--apply", action="store_true", help="write the rewrites (default: print only)"
-    )
+    ap.add_argument("--apply", action="store_true", help="write the rewrites (default: print only)")
     args = ap.parse_args()
 
     root = C.repo_root()

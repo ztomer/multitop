@@ -11,6 +11,7 @@ the probe is here, and its own tests are with it.
 
 Usage: probe_discover.py <ssh-target> <mcp-command...>
 """
+
 import json
 import subprocess
 import sys

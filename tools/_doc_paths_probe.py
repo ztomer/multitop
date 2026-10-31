@@ -21,7 +21,7 @@ import tempfile
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-import check_doc_paths as target  # noqa: E402
+import check_doc_paths as target
 
 
 def self_test() -> int:

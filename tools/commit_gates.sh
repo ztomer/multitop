@@ -22,6 +22,7 @@ set -euo pipefail
 
 cd "$(git rev-parse --show-toplevel)"
 GOH="${GOH_DIR:-${GOH:-$HOME/Projects/gates_of_heck}}"
+export GOH_DIR="$GOH"
 # shellcheck source=/Users/ztomer/Projects/gates_of_heck/tui/lib.sh
 . "$GOH/tui/lib.sh"
 [ -f "$GOH/gates/_git_env.sh" ] || die "no gates/_git_env.sh in $GOH -- update gates_of_heck"
@@ -236,6 +237,20 @@ if ! cargo fmt --all -- --check >"$log" 2>&1; then
     die "formatting is dirty — run: cargo fmt --all"
 fi
 ok "formatting clean"
+
+info "checking Python formatting (ruff format --check)"
+if ! proven_step 'ruff format --check .'; then
+    cat "$log" >&2
+    die "Python formatting is dirty — run: ruff format ."
+fi
+ok "Python formatting clean"
+
+info "checking the Python lint ratchet (ruff_ratchet.py)"
+if ! proven_step 'python3 "$GOH_DIR/gates/ruff_ratchet.py"'; then
+    cat "$log" >&2
+    die "a ruff rule rose above its count in ruff_ratchet.json (or fell without --lower)"
+fi
+ok "Python lint ratchet"
 
 info "running clippy (all targets, all features, -D warnings)"
 if ! cargo clippy --workspace --all-targets --all-features -- -D warnings >"$log" 2>&1; then

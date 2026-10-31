@@ -45,6 +45,8 @@ COMMIT_GATES = REPO / "tools" / "commit_gates.sh"
 HOOK = REPO / ".githooks" / "pre-commit"
 GATE_SH = REPO / "tools" / "gate.sh"
 COMMIT = "commit gate (tools/commit_gates.sh)"
+
+
 # ci.yml is renamed ci.yml.disabled when GitHub Actions is unavailable (no
 # credits on this account). The parity requirement does not go away when the
 # workflow stops running -- it is how the local gate keeps its shape, and it is
@@ -57,9 +59,7 @@ def _workflow() -> Path:
         candidate = workflows / name
         if candidate.is_file():
             return candidate
-    raise SystemExit(
-        f"check_gate_parity: no ci.yml or ci.yml.disabled under {workflows}"
-    )
+    raise SystemExit(f"check_gate_parity: no ci.yml or ci.yml.disabled under {workflows}")
 
 
 WORKFLOW = _workflow()
@@ -83,9 +83,12 @@ def gatesrc_steps() -> str:
     """The evaluated GOH_CI_STEPS: sourced the way local_ci.sh sources it, so
     quoting and `$GOH_DIR` read as the runner sees them, not as file text."""
     import subprocess
+
     proc = subprocess.run(
         ["bash", "-c", f"set -euo pipefail; source '{GATESRC}'; printf '%s' \"$GOH_CI_STEPS\""],
-        capture_output=True, text=True, stdin=subprocess.DEVNULL,
+        capture_output=True,
+        text=True,
+        stdin=subprocess.DEVNULL,
         check=False,
     )
     if proc.returncode != 0:
@@ -100,6 +103,7 @@ def steps_run_every_checker(steps: str, existing: set[str]) -> set[str]:
     if "tools/checkers.sh" in steps:
         return set(existing)
     return named_in(steps, CHECKER)
+
 
 # The end-to-end suites are matched as a *directory*, not as a list of files.
 #
@@ -120,6 +124,8 @@ PYTEST_DIR = re.compile(r"pytest[^\n]*[\"' ]tests/")
 # drift -- what matters is that each of the three compiles the fuzz crate
 # somehow.
 RATCHET_RUN = re.compile(r"ratchet_check\.py")
+RUFF_RATCHET_RUN = re.compile(r"ruff_ratchet\.py")
+RUFF_FMT_RUN = re.compile(r"ruff[^\n]*\bformat\s+--check\b")
 # A *command*, not a path. The first version of this also accepted the bare
 # string `fuzz_targets`, which the CI workflow contains in the glob it loops
 # over -- so deleting the build command left the rule satisfied by the loop that
@@ -130,9 +136,9 @@ RATCHET_RUN = re.compile(r"ratchet_check\.py")
 # local-ci where the words are separate quoted strings. Matching only the shell
 # form reported local-ci as not running a gate it has always run.
 FUZZ_RUN = re.compile(
-    r"cargo\s+(?:\+\S+\s+)?fuzz\s+build"          # shell: full sanitizer build
-    r"|cargo\s+check[^\n]*fuzz/Cargo\.toml"          # shell: cheap compile check
-    r"|tools/fuzz_check\.sh"                         # the gate script (both layers)
+    r"cargo\s+(?:\+\S+\s+)?fuzz\s+build"  # shell: full sanitizer build
+    r"|cargo\s+check[^\n]*fuzz/Cargo\.toml"  # shell: cheap compile check
+    r"|tools/fuzz_check\.sh"  # the gate script (both layers)
 )
 
 
@@ -150,15 +156,21 @@ ANDROID_RUN = re.compile(r"(?:^|[\s;&|(:])(?:bash\s+)?tools/android_gate\.sh(?:\
 def android_mismatches(has_android: bool, places: dict[str, str]) -> list[str]:
     if not has_android:
         return []
-    return [f"{name} does not run the Android gate (tools/android_gate.sh)"
-            for name, text in sorted(places.items()) if not ANDROID_RUN.search(_live(text))]
+    return [
+        f"{name} does not run the Android gate (tools/android_gate.sh)"
+        for name, text in sorted(places.items())
+        if not ANDROID_RUN.search(_live(text))
+    ]
 
 
 def android_problems() -> list[str]:
-    return android_mismatches(ANDROID_DIR.is_dir(), {
-        "CI workflow": WORKFLOW.read_text(encoding="utf-8"),
-        ".gatesrc GOH_CI_STEPS": gatesrc_steps(),
-    })
+    return android_mismatches(
+        ANDROID_DIR.is_dir(),
+        {
+            "CI workflow": WORKFLOW.read_text(encoding="utf-8"),
+            ".gatesrc GOH_CI_STEPS": gatesrc_steps(),
+        },
+    )
 
 
 # The hook runs the steps GOH_CI_STEPS also runs through gates_of_heck's
@@ -223,12 +235,11 @@ def wiring_mismatches(hook_text: str, gate_text: str) -> list[str]:
 
 
 def wiring_problems() -> list[str]:
-    return wiring_mismatches(HOOK.read_text(encoding="utf-8"),
-                             GATE_SH.read_text(encoding="utf-8"))
+    return wiring_mismatches(HOOK.read_text(encoding="utf-8"), GATE_SH.read_text(encoding="utf-8"))
 
 
 def named_in(text: str, pattern: re.Pattern[str]) -> set[str]:
-    return {m for m in pattern.findall(text)} - EXEMPT
+    return set(pattern.findall(text)) - EXEMPT
 
 
 def gates() -> dict[str, set[str]]:
@@ -266,10 +277,14 @@ def always_run_problems() -> list[str]:
         ("CI workflow", WORKFLOW),
         (".gatesrc GOH_CI_STEPS", None),
     )
-    for label, pattern in (("the line-count ratchet", RATCHET_RUN),
-                           ("the fuzz targets", FUZZ_RUN)):
+    for label, pattern in (
+        ("the line-count ratchet", RATCHET_RUN),
+        ("the fuzz targets", FUZZ_RUN),
+        ("the ruff lint ratchet (ruff_ratchet.py)", RUFF_RATCHET_RUN),
+        ("ruff format --check", RUFF_FMT_RUN),
+    ):
         for name, path in places:
-            text = gatesrc_steps() if path is None else path.read_text(encoding="utf-8")
+            text = _live(gatesrc_steps() if path is None else path.read_text(encoding="utf-8"))
             if not pattern.search(text):
                 problems.append(f"{name} does not run {label}")
     return problems
@@ -335,19 +350,16 @@ def self_test() -> int:
         f = Path(tmp) / "hook"
         # A name with a digit in it, deliberately: the first version of this
         # pattern could not match one.
-        f.write_text(
-            "python3 tools/check_no_emoji.py --self-test\n"
-            "python3 tools/check_row0_owner.py\n"
-        )
+        f.write_text("python3 tools/check_no_emoji.py --self-test\npython3 tools/check_row0_owner.py\n")
         if named_in(f.read_text(), CHECKER) != {"check_no_emoji.py", "check_row0_owner.py"}:
             print("gate-parity self-test: the hook parser stopped finding checkers", file=sys.stderr)
             return 1
 
     # And that the pytest requirement detects both ways.
-    if not runs_pytest('python3 -m pytest tests/ -q'):
+    if not runs_pytest("python3 -m pytest tests/ -q"):
         print("gate-parity self-test: a real pytest invocation was NOT recognised", file=sys.stderr)
         return 1
-    if not runs_pytest('cargo build -p multitop && python3 -m pytest tests/ -q'):
+    if not runs_pytest("cargo build -p multitop && python3 -m pytest tests/ -q"):
         print("gate-parity self-test: the step-list form was NOT recognised", file=sys.stderr)
         return 1
     if runs_pytest("cargo test --workspace"):
@@ -355,7 +367,7 @@ def self_test() -> int:
         return 1
 
     # And that a proven step respelled against GOH_CI_STEPS is caught, both ways.
-    steps = 'tools/checkers.sh:bash tools/coverage_check.sh'
+    steps = "tools/checkers.sh:bash tools/coverage_check.sh"
     if proven_mismatches("if ! proven_step 'bash tools/coverage_check.sh'; then\n", steps):
         print("gate-parity self-test: a matching proven step was reported", file=sys.stderr)
         return 1
@@ -374,35 +386,49 @@ def self_test() -> int:
         return 1
     # goh 0.27.0's stock hook decides nothing: it hands off to the house commit gate, which
     # runs tools/gate.sh --staged. Both spellings reach the list.
-    house_hook = ('commit_gate="$GOH/gates/commit_gate.sh"\n'
-                  'exec bash "$commit_gate" "$@"\n')
+    house_hook = 'commit_gate="$GOH/gates/commit_gate.sh"\nexec bash "$commit_gate" "$@"\n'
     if wiring_mismatches(house_hook, wired):
-        print("gate-parity self-test: the house commit-gate hook was reported broken",
-              file=sys.stderr)
+        print("gate-parity self-test: the house commit-gate hook was reported broken", file=sys.stderr)
         return 1
-    if not wiring_mismatches('# gates/commit_gate.sh\nexit 0\n', wired):
-        print("gate-parity self-test: a hook that only MENTIONS the commit gate was NOT reported",
-              file=sys.stderr)
+    if not wiring_mismatches("# gates/commit_gate.sh\nexit 0\n", wired):
+        print("gate-parity self-test: a hook that only MENTIONS the commit gate was NOT reported", file=sys.stderr)
         return 1
-    unwired = ('  --staged)\n    # bash tools/commit_gates.sh\n    ;;\n'
-               '  --full)\n    bash tools/commit_gates.sh\n    ;;\n')
+    unwired = (
+        "  --staged)\n    # bash tools/commit_gates.sh\n    ;;\n  --full)\n    bash tools/commit_gates.sh\n    ;;\n"
+    )
     if not wiring_mismatches(stock_hook, unwired):
-        print("gate-parity self-test: a --staged arm not running the list was NOT reported",
-              file=sys.stderr)
+        print("gate-parity self-test: a --staged arm not running the list was NOT reported", file=sys.stderr)
         return 1
 
     # And that the Android gate is required where it must run, both ways.
-    ran = {"CI workflow": "      - run: bash tools/android_gate.sh\n", ".gatesrc GOH_CI_STEPS": "a:bash tools/android_gate.sh:b"}
+    ran = {
+        "CI workflow": "      - run: bash tools/android_gate.sh\n",
+        ".gatesrc GOH_CI_STEPS": "a:bash tools/android_gate.sh:b",
+    }
     if android_mismatches(True, ran):
         print("gate-parity self-test: a run Android gate was reported missing", file=sys.stderr)
         return 1
     mentioned = {"CI workflow": "# tools/android_gate.sh is run elsewhere\n", ".gatesrc GOH_CI_STEPS": "a:b"}
     if len(android_mismatches(True, mentioned)) != 2:
-        print("gate-parity self-test: an Android gate only mentioned, or absent, was NOT reported",
-              file=sys.stderr)
+        print("gate-parity self-test: an Android gate only mentioned, or absent, was NOT reported", file=sys.stderr)
         return 1
     if android_mismatches(False, mentioned):
         print("gate-parity self-test: a repo without android/ was asked for its gate", file=sys.stderr)
+        return 1
+
+    # And that the ruff lint ratchet and ruff format --check patterns match live commands, not comments.
+    if not RUFF_RATCHET_RUN.search(_live('python3 "$GOH_DIR/gates/ruff_ratchet.py"\n')) or RUFF_RATCHET_RUN.search(
+        _live("# ruff_ratchet.py\n")
+    ):
+        print("gate-parity self-test: ruff_ratchet.py pattern did not distinguish live from comment", file=sys.stderr)
+        return 1
+    if not RUFF_FMT_RUN.search(_live("ruff format --check .\n")) or not RUFF_FMT_RUN.search(
+        _live("pipx run ruff==0.17.2 format --check .\n")
+    ):
+        print("gate-parity self-test: ruff format --check pattern missed a live invocation", file=sys.stderr)
+        return 1
+    if RUFF_FMT_RUN.search(_live("# ruff format --check .\nruff check .\n")):
+        print("gate-parity self-test: ruff format --check matched a comment or ruff check", file=sys.stderr)
         return 1
 
     print("gate-parity self-test: passed")
@@ -419,13 +445,16 @@ def main() -> int:
         return 1
 
     existing = on_disk()
-    problems = (differences(gates(), existing) + suite_problems() + always_run_problems()
-                + proven_problems() + wiring_problems() + android_problems())
+    problems = (
+        differences(gates(), existing)
+        + suite_problems()
+        + always_run_problems()
+        + proven_problems()
+        + wiring_problems()
+        + android_problems()
+    )
     if not problems:
-        print(
-            f"gate-parity: clean ({len(existing)} checkers and "
-            f"{len(suites_on_disk())} e2e suites, run everywhere)"
-        )
+        print(f"gate-parity: clean ({len(existing)} checkers and {len(suites_on_disk())} e2e suites, run everywhere)")
         return 0
 
     print("gate-parity: the three lists of gates disagree\n")

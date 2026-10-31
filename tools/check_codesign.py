@@ -29,8 +29,8 @@ import subprocess
 import sys
 from pathlib import Path
 
-sys.path.insert(0, str(__import__('pathlib').Path(__file__).resolve().parent))
-from _scope import scope_is_empty  # noqa: E402
+sys.path.insert(0, str(__import__("pathlib").Path(__file__).resolve().parent))
+from _scope import scope_is_empty
 
 REPO = Path(__file__).resolve().parent.parent
 EXPECTED_ID = "com.ztomer.multitop"
@@ -58,7 +58,11 @@ def find_binaries() -> list[Path]:
     try:
         meta = subprocess.run(
             ["cargo", "metadata", "--format-version", "1", "--no-deps"],
-            capture_output=True, text=True, check=True, cwd=REPO, stdin=subprocess.DEVNULL,
+            capture_output=True,
+            text=True,
+            check=True,
+            cwd=REPO,
+            stdin=subprocess.DEVNULL,
         )
         roots.append(Path(json.loads(meta.stdout)["target_directory"]))
     except (OSError, subprocess.CalledProcessError, KeyError, ValueError):
@@ -76,7 +80,11 @@ def cargo_build() -> bool:
     try:
         proc = subprocess.run(
             ["cargo", "build", "-p", "multitop"],
-            cwd=REPO, capture_output=True, text=True, check=False, stdin=subprocess.DEVNULL,
+            cwd=REPO,
+            capture_output=True,
+            text=True,
+            check=False,
+            stdin=subprocess.DEVNULL,
         )
     except OSError as exc:
         print(f"check_codesign: cannot run cargo: {exc}", file=sys.stderr)
@@ -111,7 +119,8 @@ def identifier_for(binary: Path) -> str | None:
             ["codesign", "-dv", str(binary)],
             capture_output=True,
             text=True,
-            timeout=10, stdin=subprocess.DEVNULL,
+            timeout=10,
+            stdin=subprocess.DEVNULL,
             check=False,
         )
     except FileNotFoundError:
@@ -151,10 +160,12 @@ def self_test() -> int:
     # into, and a failed build is a failure rather than an empty scope.
     calls: list[str] = []
     made: list[Path] = []
+
     def fake_build() -> bool:
         calls.append("build")
         made.append(Path("target/debug/multitop"))
         return True
+
     if built_binaries(fake_build, lambda: list(made)) != [Path("target/debug/multitop")]:
         print("self-test: the binary was looked for before it was built", file=sys.stderr)
         return 1
@@ -202,7 +213,8 @@ def main() -> int:
                 subprocess.run(
                     ["codesign", "-s", "-", "--identifier", EXPECTED_ID, str(binary)],
                     capture_output=True,
-                    timeout=10, stdin=subprocess.DEVNULL,
+                    timeout=10,
+                    stdin=subprocess.DEVNULL,
                     check=False,
                 )
             except FileNotFoundError:
@@ -217,8 +229,9 @@ def main() -> int:
             print("check_codesign: unstable signature\n")
             for p in still:
                 print(p)
-            print(f"  This binary will prompt for keychain access on every rebuild.")
-            print(f"  Fix: for f in {' '.join(str(b) for b in bins)}; do codesign -s - --identifier {EXPECTED_ID} \"$f\"; done")
+            print("  This binary will prompt for keychain access on every rebuild.")
+            joined = " ".join(str(b) for b in bins)
+            print(f'  Fix: for f in {joined}; do codesign -s - --identifier {EXPECTED_ID} "$f"; done')
             return 1
         print(f"check_codesign: clean (auto-fixed {len(problems)} binaries Identifier={EXPECTED_ID})")
         return 0

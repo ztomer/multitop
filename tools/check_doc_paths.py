@@ -55,26 +55,37 @@ DOCS = ("README.md", "DEVELOPMENT.md", "RELEASE.md", "docs/roadmap.md")
 #: mistaken for a missing file. `Formula/multitop.rb` lives in the tap and is
 #: named by RELEASE.md's manual fallback on purpose.
 SUFFIXES = (
-    "rs", "py", "sh", "bash", "zsh", "md", "toml", "lock", "zst",
-    "json", "yml", "yaml", "txt", "cfg",
+    "rs",
+    "py",
+    "sh",
+    "bash",
+    "zsh",
+    "md",
+    "toml",
+    "lock",
+    "zst",
+    "json",
+    "yml",
+    "yaml",
+    "txt",
+    "cfg",
 )
 
 #: Paths that are real but were never in this repository, each with the reason.
 #: Deleted paths do NOT belong here -- see `deleted_paths()`, which asks git.
 #: A new entry must say why; a stale entry is rot in a different file.
 ALLOW = {
-    "config.toml": "the reader's own file, not the repo's -- the repo ships "
-                   "config.example.toml, which IS checked",
+    "config.toml": "the reader's own file, not the repo's -- the repo ships config.example.toml, which IS checked",
     "LICENSE": "not present in this tree",
     "sh.rustup.rs": "a hostname -- rustup's installer. Undecidable from the "
-                    "shape, since `sh` and `rs` are both real extensions",
+    "shape, since `sh` and `rs` are both real extensions",
     "gates_of_heck/gates/local_ci.sh": "lives in the gates_of_heck repo, "
-                                       "reached via $GOH_DIR -- never in this "
-                                       "one, so no deletion history can help",
+    "reached via $GOH_DIR -- never in this "
+    "one, so no deletion history can help",
     "gates_of_heck/tui/lib.sh": "ditto -- the shared TUI library",
     "gates_of_heck/tools/release-kit/tap_bump.sh": "lives in the gates_of_heck "
-         "repo, reached via $GOH_DIR (G3, 2026-10-17: the release bump goes "
-         "through the tap's gate)",
+    "repo, reached via $GOH_DIR (G3, 2026-10-17: the release bump goes "
+    "through the tap's gate)",
 }
 
 #: `crates/agent/src/proto/mod.rs:31` -- the line number is not part of the path.
@@ -129,11 +140,7 @@ def resolves(root: Path, relative: Path) -> str | None:
     if (root / relative).exists():
         return str(relative)
     tail = relative.parts
-    matches = [
-        path
-        for path in root.rglob(relative.name)
-        if path.is_file() and path.parts[-len(tail):] == tail
-    ]
+    matches = [path for path in root.rglob(relative.name) if path.is_file() and path.parts[-len(tail) :] == tail]
     if len(matches) == 1:
         return str(matches[0].relative_to(root))
     return None
@@ -148,8 +155,7 @@ def candidate(token: str) -> str | None:
     # not this tree. `./x` IS this tree, and is the form RELEASE.md uses.
     if token.startswith(("~", "/", "../")) or token == "..":
         return None
-    if token.startswith("./"):
-        token = token[2:]
+    token = token.removeprefix("./")
     if "." not in token:
         return None
     if token.rsplit(".", 1)[-1] not in SUFFIXES:
@@ -188,7 +194,11 @@ def is_shallow(root: Path) -> bool | None:
     try:
         out = subprocess.run(
             ["git", "-C", str(root), "rev-parse", "--is-shallow-repository"],
-            capture_output=True, text=True, timeout=60, check=True, stdin=subprocess.DEVNULL,
+            capture_output=True,
+            text=True,
+            timeout=60,
+            check=True,
+            stdin=subprocess.DEVNULL,
         ).stdout.strip()
     except (OSError, subprocess.SubprocessError):
         return None
@@ -215,17 +225,20 @@ def deleted_paths(root: Path) -> set[str] | None:
     names: set[str] = set()
     queries = (
         # In history: the commit already landed.
-        ["git", "-C", str(root), "log", "--diff-filter=D",
-         "--name-only", "--pretty=format:"],
+        ["git", "-C", str(root), "log", "--diff-filter=D", "--name-only", "--pretty=format:"],
         # Staged: the commit is what is being made right now, and the pre-commit
         # hook is running as part of making it.
-        ["git", "-C", str(root), "diff", "--cached", "--diff-filter=D",
-         "--name-only"],
+        ["git", "-C", str(root), "diff", "--cached", "--diff-filter=D", "--name-only"],
     )
     for cmd in queries:
         try:
             out = subprocess.run(
-                cmd, capture_output=True, text=True, timeout=60, check=True, stdin=subprocess.DEVNULL,
+                cmd,
+                capture_output=True,
+                text=True,
+                timeout=60,
+                check=True,
+                stdin=subprocess.DEVNULL,
             ).stdout
         except (OSError, subprocess.SubprocessError):
             return None
@@ -353,10 +366,12 @@ def main() -> int:
 
     deleted = deleted_paths(REPO)
     if deleted is None:
-        print("doc-paths: cannot read this repository's deletion history "
-              "(`git log --diff-filter=D`). Without it the checker cannot tell "
-              "a doc recording a removal from a doc naming a file that never "
-              "existed, and reporting clean there would be a guess.")
+        print(
+            "doc-paths: cannot read this repository's deletion history "
+            "(`git log --diff-filter=D`). Without it the checker cannot tell "
+            "a doc recording a removal from a doc naming a file that never "
+            "existed, and reporting clean there would be a guess."
+        )
         return 1
 
     # A shallow clone CAN be asked the question and answers it wrongly: every
@@ -378,8 +393,7 @@ def main() -> int:
 
     present = [name for name in DOCS if (REPO / name).is_file()]
     if not present:
-        print("doc-paths: none of the instructing docs were found -- run from "
-              "the repository root")
+        print("doc-paths: none of the instructing docs were found -- run from the repository root")
         return 1
     if len(present) < len(DOCS):
         missing = sorted(set(DOCS) - set(present))
@@ -390,13 +404,14 @@ def main() -> int:
     for name, lineno, named in hits:
         print(f"  {name}:{lineno}: `{named}` does not exist")
     if hits:
-        print(f"doc-paths: {len(hits)} documented path(s) do not exist. A reader "
-              f"following these docs runs a command that cannot work. Fix the "
-              f"path, or delete the line -- a doc that no longer applies is "
-              f"worse than no doc, because it is trusted.")
+        print(
+            f"doc-paths: {len(hits)} documented path(s) do not exist. A reader "
+            f"following these docs runs a command that cannot work. Fix the "
+            f"path, or delete the line -- a doc that no longer applies is "
+            f"worse than no doc, because it is trusted."
+        )
         return 1
-    print(f"check_doc_paths: ok ({len(present)} docs, "
-          f"{len(ALLOW)} allowlisted path(s))")
+    print(f"check_doc_paths: ok ({len(present)} docs, {len(ALLOW)} allowlisted path(s))")
     return 0
 
 

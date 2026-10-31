@@ -46,19 +46,12 @@ def test_the_scan_has_a_subject() -> None:
 
 
 def test_every_nested_cargo_has_its_own_build_dir() -> None:
-    offenders = {
-        str(p.relative_to(ROOT)): lines
-        for p in _build_scripts()
-        if (lines := _unguarded(p.read_text()))
-    }
+    offenders = {str(p.relative_to(ROOT)): lines for p in _build_scripts() if (lines := _unguarded(p.read_text()))}
     assert not offenders, f"nested cargo sharing the outer build-dir lock: {offenders}"
 
 
 def test_the_check_sees_an_unguarded_spawn() -> None:
     bare = 'let s = std::process::Command::new("cargo").args(["build"]).status();'
-    guarded = (
-        'let s = std::process::Command::new("cargo").args(["build"])'
-        '.env("CARGO_BUILD_BUILD_DIR", d).status();'
-    )
+    guarded = 'let s = std::process::Command::new("cargo").args(["build"]).env("CARGO_BUILD_BUILD_DIR", d).status();'
     assert _unguarded(bare) == [1]
     assert _unguarded(guarded) == []

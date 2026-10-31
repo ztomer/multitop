@@ -26,7 +26,7 @@ import tempfile
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from _scope import scope_is_empty  # noqa: E402
+from _scope import scope_is_empty
 
 ROOT = Path("crates")
 OWNER = Path("crates/agent/src/escape.rs")
@@ -43,11 +43,7 @@ READ = re.compile(
 
 
 def scanned(root: Path) -> list[Path]:
-    return sorted(
-        p
-        for p in root.glob("*/src/**/*.rs")
-        if not p.name.endswith("_tests.rs")
-    )
+    return sorted(p for p in root.glob("*/src/**/*.rs") if not p.name.endswith("_tests.rs"))
 
 
 def offenders(root: Path, owner: Path) -> list[tuple[Path, int, str]]:
@@ -71,9 +67,9 @@ def self_test() -> int:
         "b'\\x1b' => state = Esc,",
         "'\\u{1b}' | '\\x07' => {}",
         "for part in s.split('\\x1b') {",
-        "let Some(rest) = s.strip_prefix(\"\\x1b[\") else { return };",
+        'let Some(rest) = s.strip_prefix("\\x1b[") else { return };',
         "let i = text.rfind('\\x1b')?;",
-        "if line.starts_with(\"\\u{1b}[\") {",
+        'if line.starts_with("\\u{1b}[") {',
         "let n = bytes.iter().position(|&b| b == 0x1B);",
     ]
     cases_clean = [
@@ -97,7 +93,9 @@ def self_test() -> int:
             if offenders(root, owner):
                 print(f"self-test FAILED: not a read, but reported: {case}")
                 return 1
-        (src / "x.rs").write_text("fn f() {}\n#[cfg(test)]\nmod t { fn g(c: char) -> bool { c == '\\x1b' } }", encoding="utf-8")
+        (src / "x.rs").write_text(
+            "fn f() {}\n#[cfg(test)]\nmod t { fn g(c: char) -> bool { c == '\\x1b' } }", encoding="utf-8"
+        )
         if offenders(root, owner):
             print("self-test FAILED: test code was reported")
             return 1
