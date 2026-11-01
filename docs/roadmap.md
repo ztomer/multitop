@@ -328,6 +328,11 @@ one injected `String` per name (+400), and a fresh packet buffer (+8.2 kB).
 The shipped v0.67.5 agent on `.158` (the Pi), probed from minute 1 to
 minute 51: VmRSS 2,220 kB and RssAnon 1,144 kB, flat from minute 8 on, where
 the previous agent stood at 5,880 kB after 18 minutes and was still climbing.
+v0.67.6 (with M2), an hour on each host, told a 200x100 panel: `.158` held
+VmRSS 1,236 -> 1,268 kB (RssAnon 220 -> 252 kB), the last step at minute 29
+and flat to minute 60 -- four page-sized steps as the row buffers met new
+high-water marks (155-162 processes); `.33` (~905 processes) held 1,736 kB
+(RssAnon 652 kB) from minute 4 to minute 60.
 
 ## M2 — sibling findings from M1 (opened 2026-11-01)
 
@@ -362,7 +367,9 @@ the previous agent stood at 5,880 kB after 18 minutes and was still climbing.
   each tick at the size it was last told (`stdin_watch`). An older agent
   discards the line; a newer agent never told keeps the old layout. The
   local agent's stdin became a pipe for it, and the watcher asks `fstat`
-  instead of `/proc/self/fd/0`, which a Mac lacks.
+  instead of `/proc/self/fd/0`, which a Mac lacks. Checked live on `.158` with the
+  shipped v0.67.6 agent: 88 rows untold, 2 after `size 40 8`, 155 after
+  `size 200 100`, and it exited at its stdin's EOF.
 
 ## Phase 3 — parked on a trigger: post-quantum KEM (size M when it fires)
 
