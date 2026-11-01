@@ -7,6 +7,31 @@ This file starts at v0.47.0 — earlier history is in git (`git log`), and the
 per-defect record is `docs/detection-record.md`, which is the more useful
 document for anything before this point.
 
+## v0.67.5 — the agent's memory stays flat while it runs _(2026-11-01)_
+
+### Fixed — the remote agent's resident memory grew for as long as it ran (roadmap M1)
+- The static musl agent grew to 12.5 MB of anonymous memory on a busy server
+  (~900 processes, 409 distinct names) and 5.9 MB on the Pi, against a 1.1 MB
+  working set. Nothing leaked in Rust's sense; musl's allocator kept what each
+  tick freed. Two per-tick patterns set it off: a fresh `String` per process,
+  three times a tick, and a fresh packet buffer per frame that doubled its way
+  to 16 KiB.
+- A warm tick now does no heap work in proportion to the host: process names
+  are held inline (`ProcName`, 32 bytes), `/proc` is walked with `readdir(3)`,
+  and the process table, the filter's name list and the packet are buffers the
+  loop keeps, which grow only past a new high-water mark. Measured on the same
+  server: 700 kB, flat for 14 minutes, where the previous agent passed 15 MB.
+- New gate `crates/agent/tests/rss_bound_test.rs`: a counting allocator around
+  the real tick at two process populations, red if one tick's allocations grow
+  with the host, and on Linux if resident memory grows over 600 ticks.
+
+### Fixed — the fuzz crate is its own workspace root
+- In a git worktree nested inside the main checkout, cargo resolved
+  `fuzz/Cargo.toml` to the main checkout's workspace and refused every build,
+  the commit gate's fuzz check included. `fuzz/Cargo.toml` now declares
+  `[workspace]`; `tests/test_standalone_manifest_root.py` proves it from inside
+  a parent workspace.
+
 ## v0.67.4 — fix live repaint title duplication and open line chunk splitting _(2026-10-28)_
 
 ### Fixed — local updates title duplication and open line cursor tracking (queue REPAINT.LOCAL)

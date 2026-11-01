@@ -313,7 +313,10 @@ is walked with `readdir(3)`; the monitor keeps its `Snapshot` and the loop its
 `FrameBuf`, so the table, the name list and the packet are buffers that grow
 only past a new high-water mark; the monitor frame is encoded from a borrow.
 Measured on `.33` in-process: tick + encode held RssAnon at 1,140 kB over 600
-ticks (before: 1,692 -> 10,312 kB).
+ticks (before: 1,692 -> 10,312 kB). The release binary, run there side by side
+with the previous one for 14 minutes: 700 kB anon, flat from minute 2, while
+the previous one passed 15,448 kB and was still climbing -- so the live agent's
+hold at 12.5 MB was a property of that host's state, not a ceiling.
 
 **The gate:** `crates/agent/tests/rss_bound_test.rs` runs the real tick at 200
 and 600 distinctly named, churning processes under a counting allocator, and
@@ -415,6 +418,7 @@ The tag is the record; the per-release detail is in `CHANGELOG.md`.
 
 | Release | What it carried | Commits |
 |---------|-----------------|---------|
+| v0.67.5 | M1 (the agent's memory stays flat: inline names, kept buffers, the allocation-bound gate) and the fuzz crate's own workspace root | `80f25fa`, `f6799e5` |
 | v0.56.0 | A2.4 (the Android pairing screen and its Keystore-sealed store, both QR polarities) and the installer's replace-by-rename fix (`install.sh` copies beside the target, signs the copy, and renames it over) | `e7da25a`, `2413764` |
 
 ## Sources consolidated (2026-10-12)
