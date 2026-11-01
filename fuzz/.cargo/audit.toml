@@ -1,0 +1,18 @@
+# cargo-audit configuration for the fuzz/ workspace (its own Cargo.lock), read by the push gate's
+# `cd fuzz && cargo audit` step. THE IGNORE LIST IS A RATCHET (Rust house rule 3): each entry names
+# what holds it and goes the moment it stops firing (goh checks/check_audit_ignores.py fails a
+# stale entry). fuzz depends on multitop, so it inherits the root workspace's holds; keep the two
+# lists in step with the root .cargo/audit.toml.
+[output]
+quiet = false
+deny = ["warnings", "unmaintained", "unsound", "yanked"]
+
+[advisories]
+# 2026-10-17: zvariant, zvariant_derive and zbus_names unmaintained (merged into zbus 6.0.0).
+# Reached here via multitop -> multitop-vault -> zbus 5, held on Linux by secret-service 5.2.0
+# (zbus ^5); see the root .cargo/audit.toml. They go when vault moves to zbus 6.
+ignore = [
+    "RUSTSEC-2026-0370", # zvariant unmaintained: held by secret-service 5.2.0 (zbus ^5)
+    "RUSTSEC-2026-0371", # zbus_names unmaintained: held by secret-service 5.2.0 (zbus ^5)
+    "RUSTSEC-2026-0372", # zvariant_derive unmaintained: held by secret-service 5.2.0 (zbus ^5)
+]
