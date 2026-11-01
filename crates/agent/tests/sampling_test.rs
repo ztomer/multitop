@@ -19,6 +19,13 @@ use multitop_agent::fetch;
 use multitop_agent::proc::{self, CpuTimes, ProcSampler, Usage};
 use multitop_agent::SortBy;
 
+/// The table `top_into` fills, as a fresh list for a test to hold.
+fn top_of(s: &mut ProcSampler, elapsed: f64, n: usize, sort: SortBy) -> Vec<proc::Proc> {
+    let mut rows = Vec::new();
+    s.top_into(elapsed, n, sort, &mut rows);
+    rows
+}
+
 // ------------------------------------------------------------------ uptime
 
 #[test]
@@ -263,17 +270,16 @@ fn cpu_memory_disk_and_net_all_answer_on_this_host() {
     let net = proc::get_net();
     let _ = net.rx.saturating_add(net.tx);
 
-    let _ = proc::get_core_temps();
+    let mut temps = std::collections::HashMap::new();
+    proc::fill_core_temps(&mut temps);
 }
 
 #[test]
 fn statvfs_answers_for_root_and_declines_for_nonsense() {
-    let (total, free) = proc::statvfs_bytes("/").expect("root filesystem must be stattable");
+    let (total, free) = proc::statvfs_bytes(c"/").expect("root filesystem must be stattable");
     assert!(total > 0);
     assert!(free <= total);
-    assert_eq!(proc::statvfs_bytes("/no/such/path/at/all"), None);
-    // An interior NUL cannot become a C string.
-    assert_eq!(proc::statvfs_bytes("/tmp\0/x"), None);
+    assert_eq!(proc::statvfs_bytes(c"/no/such/path/at/all"), None);
 }
 
 #[test]
@@ -305,13 +311,13 @@ fn the_primary_address_is_either_a_real_route_or_nothing() {
 fn the_sampler_ranks_this_hosts_processes() {
     let mut sampler = ProcSampler::new();
     sampler.prime();
-    let by_cpu = sampler.top(1.0, 5, SortBy::Cpu);
+    let by_cpu = top_of(&mut sampler, 1.0, 5, SortBy::Cpu);
     assert!(by_cpu.len() <= 5);
     for w in by_cpu.windows(2) {
         assert!(w[0].cpu >= w[1].cpu, "cpu order broken: {w:?}");
     }
 
-    let by_mem = sampler.top(1.0, 5, SortBy::Mem);
+    let by_mem = top_of(&mut sampler, 1.0, 5, SortBy::Mem);
     assert!(by_mem.len() <= 5);
     for w in by_mem.windows(2) {
         assert!(w[0].mem >= w[1].mem, "mem order broken: {w:?}");
@@ -319,7 +325,7 @@ fn the_sampler_ranks_this_hosts_processes() {
 
     // A zero window cannot produce a rate, so every process reads as idle
     // rather than as a division by zero.
-    for p in sampler.top(0.0, 5, SortBy::Cpu) {
+    for p in top_of(&mut sampler, 0.0, 5, SortBy::Cpu) {
         assert_eq!(
             (p.cpu).partial_cmp(&(0.0)),
             Some(std::cmp::Ordering::Equal),
@@ -331,8 +337,8 @@ fn the_sampler_ranks_this_hosts_processes() {
 
     // Asking for none is not an error, and asking for more than exist just
     // returns what exists.
-    multitop_testassert::assert_empty!(sampler.top(1.0, 0, SortBy::Cpu));
-    assert!(sampler.top(1.0, 100_000, SortBy::Mem).len() < 100_000);
+    multitop_testassert::assert_empty!(top_of(&mut sampler, 1.0, 0, SortBy::Cpu));
+    assert!(top_of(&mut sampler, 1.0, 100_000, SortBy::Mem).len() < 100_000);
 }
 
 #[test]
@@ -340,7 +346,7 @@ fn a_sampler_that_was_never_primed_still_reports() {
     // Without a baseline every rate is zero, which is the honest answer for a
     // first frame rather than a spike.
     let mut sampler = ProcSampler::new();
-    for p in sampler.top(2.0, 3, SortBy::Cpu) {
+    for p in top_of(&mut sampler, 2.0, 3, SortBy::Cpu) {
         assert_eq!(
             (p.cpu).partial_cmp(&(0.0)),
             Some(std::cmp::Ordering::Equal),

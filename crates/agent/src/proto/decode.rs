@@ -12,6 +12,7 @@ use super::{
 use crate::docker::Row as DockerRow;
 use crate::fetch::FetchSnapshot;
 use crate::proc::{Proc, Usage};
+use crate::proc_name::ProcName;
 use crate::proto::Payload;
 use crate::render::{Snapshot, TempUnit};
 
@@ -126,7 +127,7 @@ fn decode_snapshot(cur: &mut Cursor, version: u8) -> Option<Snapshot> {
         let pid = cur.read_u32()?;
         let cpu = f64::from(cur.read_f32()?);
         let mem = cur.read_u64()?;
-        let name = cur.read_str()?;
+        let name = ProcName::new(&cur.read_str()?);
         procs.push(Proc {
             pid,
             name,

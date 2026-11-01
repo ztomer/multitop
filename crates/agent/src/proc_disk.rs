@@ -9,12 +9,13 @@
 
 use crate::proc::Usage;
 
+/// `(total, available)` bytes of the filesystem holding `path`. A `CStr`, so
+/// asking costs no allocation: the root is asked every tick.
 #[must_use]
-pub fn statvfs_bytes(path: &str) -> Option<(u64, u64)> {
-    let c_path = std::ffi::CString::new(path).ok()?;
+pub fn statvfs_bytes(path: &std::ffi::CStr) -> Option<(u64, u64)> {
     unsafe {
         let mut st: libc::statvfs = std::mem::zeroed();
-        if libc::statvfs(c_path.as_ptr(), &raw mut st) != 0 {
+        if libc::statvfs(path.as_ptr(), &raw mut st) != 0 {
             return None;
         }
         let frsize = st.f_frsize as u64;
@@ -30,7 +31,7 @@ pub fn statvfs_bytes(path: &str) -> Option<(u64, u64)> {
 
 #[must_use]
 pub fn get_disk() -> Usage {
-    if let Some((total, free)) = statvfs_bytes("/") {
+    if let Some((total, free)) = statvfs_bytes(c"/") {
         Usage::new(total, total.saturating_sub(free))
     } else {
         Usage::default()

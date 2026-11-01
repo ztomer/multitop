@@ -118,20 +118,15 @@ pub fn fmt_proc_comm_path(pid: u32, out: &mut [u8; crate::consts::PROC_PATH_BUF]
     std::str::from_utf8(&out[..len]).unwrap_or("")
 }
 
+/// The name `/proc/<pid>/comm` gives, or `unknown` -- inline, no heap.
 #[must_use]
-pub fn read_comm(pid: u32) -> String {
+pub fn read_comm(pid: u32) -> ProcName {
     let mut path_buf = [0u8; crate::consts::PROC_PATH_BUF];
     let path = fmt_proc_comm_path(pid, &mut path_buf);
     let mut comm_buf = [0u8; crate::consts::PROC_COMM_BUF];
     let n = crate::proc::read_proc_bytes(path, &mut comm_buf);
-    if n > 0 {
-        std::str::from_utf8(&comm_buf[..n])
-            .unwrap_or("unknown")
-            .trim()
-            .to_string()
-    } else {
-        "unknown".to_string()
-    }
+    let name = std::str::from_utf8(&comm_buf[..n]).map_or("", str::trim);
+    ProcName::new(if name.is_empty() { "unknown" } else { name })
 }
 
 pub struct ProcSampler {

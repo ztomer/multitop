@@ -110,7 +110,7 @@ fn snapshot(host: &str, cpu: f64) -> multitop_agent::render::Snapshot {
         .iter()
         .map(|(pid, name, cpu, mem)| multitop_agent::proc::Proc {
             pid: *pid,
-            name: (*name).to_string(),
+            name: (*name).into(),
             cpu: *cpu,
             mem: *mem,
         })

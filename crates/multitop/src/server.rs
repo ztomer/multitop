@@ -238,7 +238,7 @@ async fn api_snapshot(
                         "disk": {"total": snap.disk.total, "used": snap.disk.used, "pct": snap.disk.pct},
                         "rx_rate": snap.rx_rate,
                         "tx_rate": snap.tx_rate,
-                        "procs": snap.procs.iter().map(|p| serde_json::json!({"pid": p.pid, "name": p.name, "cpu": p.cpu, "mem": p.mem})).collect::<Vec<_>>(),
+                        "procs": snap.procs.iter().map(|p| serde_json::json!({"pid": p.pid, "name": p.name.as_str(), "cpu": p.cpu, "mem": p.mem})).collect::<Vec<_>>(),
                     });
                     (Some(v), None)
                 },

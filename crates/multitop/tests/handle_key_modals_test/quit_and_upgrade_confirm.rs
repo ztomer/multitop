@@ -143,7 +143,7 @@ async fn x_arms_kill_confirmation_and_esc_stands_it_down() {
         host: "alpha".to_string(),
         procs: vec![multitop_agent::proc::Proc {
             pid: 1234,
-            name: "heavy-job".to_string(),
+            name: "heavy-job".into(),
             cpu: 95.0,
             mem: 1024 * 1024,
         }],
@@ -177,7 +177,7 @@ async fn o_and_r_arm_journal_and_renice_confirmations() {
         host: "alpha".to_string(),
         procs: vec![multitop_agent::proc::Proc {
             pid: 4321,
-            name: "worker".to_string(),
+            name: "worker".into(),
             cpu: 80.0,
             mem: 512,
         }],
@@ -217,7 +217,7 @@ async fn k_confirms_kill_and_starts_aux_task() {
         host: "alpha".to_string(),
         procs: vec![multitop_agent::proc::Proc {
             pid: 9999,
-            name: "stuck-proc".to_string(),
+            name: "stuck-proc".into(),
             cpu: 99.0,
             mem: 2048,
         }],

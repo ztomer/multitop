@@ -115,15 +115,33 @@ pub fn parse_proc_stat(data: &str) -> CpuStat {
 #[must_use]
 pub fn cpu_stat_from(path: &str) -> Option<CpuStat> {
     let mut stat = CpuStat::default();
-    if !for_each_line(path, |l| stat.add_line(l)) {
-        return None;
-    }
-    let stat = stat.finish();
-    (!stat.cores.is_empty() || stat.aggregate.total != 0).then_some(stat)
+    cpu_stat_into(path, &mut stat).then_some(stat)
 }
 
+/// `/proc/stat` into `out`, whose core list is a buffer kept between ticks;
+/// `false` for the three cases `cpu_stat_from` answers `None`.
+#[must_use]
+pub fn cpu_stat_into(path: &str, out: &mut CpuStat) -> bool {
+    out.aggregate = CpuTimes::default();
+    out.cores.clear();
+    if !for_each_line(path, |l| out.add_line(l)) {
+        return false;
+    }
+    out.cores.sort_unstable_by_key(|(i, _)| *i);
+    !out.cores.is_empty() || out.aggregate.total != 0
+}
+
+#[must_use]
 pub fn get_cpu_stat() -> CpuStat {
     cpu_stat_from("/proc/stat").unwrap_or_else(crate::sys::get_cpu_stat_macos)
+}
+
+/// This host's CPU times into `out`, with no heap work once its core list has
+/// grown to the core count.
+pub fn get_cpu_stat_into(out: &mut CpuStat) {
+    if !cpu_stat_into("/proc/stat", out) {
+        *out = crate::sys::get_cpu_stat_macos();
+    }
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
@@ -270,12 +288,14 @@ pub fn get_net() -> NetTotals {
 }
 
 pub use crate::proc_disk::{get_disk, statvfs_bytes};
-pub use crate::sys_temps::get_core_temps;
+pub use crate::sys_temps::fill_core_temps;
 
-#[derive(Clone, Debug, PartialEq)]
+/// One row of the process table. `Copy`: the name is inline (`ProcName`), so
+/// the rows a tick sends are refilled in place with no heap work (roadmap M2).
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Proc {
     pub pid: u32,
-    pub name: String,
+    pub name: ProcName,
     pub cpu: f64,
     pub mem: u64,
 }
@@ -299,8 +319,15 @@ impl ProcSampler {
         }
     }
 
-    /// Top `n` processes over the last `elapsed` seconds, sorted by `sort_by`.
-    pub fn top(&mut self, elapsed: f64, n: usize, sort_by: crate::SortBy) -> Vec<Proc> {
+    /// Top `n` processes over the last `elapsed` seconds, sorted by `sort_by`,
+    /// into `out` -- the caller's buffer, kept between ticks.
+    pub fn top_into(
+        &mut self,
+        elapsed: f64,
+        n: usize,
+        sort_by: crate::SortBy,
+        out: &mut Vec<Proc>,
+    ) {
         self.scan();
         let scanned = std::mem::take(&mut self.scanned);
         self.temp_procs.clear();
@@ -353,22 +380,18 @@ impl ProcSampler {
         }
 
         self.temp_procs.truncate(n);
-        let result: Vec<Proc> = self
-            .temp_procs
-            .iter()
-            .map(|&(i, cpu, mem)| Proc {
-                pid: scanned[i].pid,
-                name: if scanned[i].comm.is_empty() {
-                    crate::proc_sys::read_comm(scanned[i].pid)
-                } else {
-                    scanned[i].comm.to_string()
-                },
-                cpu,
-                mem,
-            })
-            .collect();
+        out.clear();
+        out.extend(self.temp_procs.iter().map(|&(i, cpu, mem)| Proc {
+            pid: scanned[i].pid,
+            name: if scanned[i].comm.is_empty() {
+                crate::proc_sys::read_comm(scanned[i].pid)
+            } else {
+                scanned[i].comm
+            },
+            cpu,
+            mem,
+        }));
         self.scanned = scanned;
-        result
     }
 
     /// Every distinct process name the last scan saw, for the filter to search.

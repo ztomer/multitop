@@ -189,7 +189,7 @@ mod views {
             procs: (0..15)
                 .map(|i| Proc {
                     pid: 2000 + i,
-                    name: format!("svc-{i}"),
+                    name: format!("svc-{i}").as_str().into(),
                     cpu: 5.0,
                     mem: 80_000_000,
                 })

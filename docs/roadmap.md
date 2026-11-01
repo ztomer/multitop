@@ -341,10 +341,17 @@ hours (recorded here once read).
   last.
 * **Done: the filter's name list carries 2,048 distinct names** (was 512; the
   Mac runs 778). Gate: 2,000 names through `fill_names` and the wire.
-* **A warm tick still makes ~140 small, fixed allocations** (the shipped rows'
-  names, cpufreq paths and readings, the sensor map). Flat, but not zero; a
-  zero-allocation tick would let the gate assert zero instead of "does not
-  scale".
+* **Done: a warm tick allocates nothing on Linux.** It made ~140 small,
+  fixed allocations (a `String` per shipped row name, the cpufreq paths and
+  readings, a fresh temperature map and core list, `/proc/cpuinfo` read whole
+  on hosts without cpufreq, a `CString` for `statvfs("/")`, and one `String`
+  in the layout just to count the digits of a core index). Row names are now
+  inline (`Proc.name: ProcName`), `top_into`/`get_cpu_stat_into`/
+  `fill_core_temps` fill buffers the monitor keeps, the clock is read through
+  stack buffers, and the digit count is counted. Measured on `.33`: 0
+  allocations per tick + emit. Gate: `rss_bound_test` asserts exactly zero on
+  Linux (CI's platform) -- red on a single 2-byte allocation; macOS keeps the
+  does-not-scale bound, its Mach/IOKit samplers still allocating a little.
 * **Done: the agent samples rows for the panel the client really has.** The
   stream's row count came from laying out a pretend 120x50 panel: 92 rows
   from a small host, 72 from a 128-core one, while a full-screen 200x100

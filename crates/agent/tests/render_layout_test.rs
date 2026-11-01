@@ -34,7 +34,7 @@ fn frame_height(snap: &Snapshot, cols: usize, lines: usize) -> usize {
 fn proc(pid: u32, name: &str, cpu: f64, mem: u64) -> Proc {
     Proc {
         pid,
-        name: name.to_string(),
+        name: name.into(),
         cpu,
         mem,
     }

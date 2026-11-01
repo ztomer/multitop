@@ -79,7 +79,7 @@ fn monitor(reported_host: &str, procs: &[&str]) -> Payload {
             .enumerate()
             .map(|(i, name)| Proc {
                 pid: u32::try_from(i).unwrap() + 1,
-                name: (*name).to_string(),
+                name: (*name).into(),
                 cpu: 1.0,
                 mem: 1024,
             })

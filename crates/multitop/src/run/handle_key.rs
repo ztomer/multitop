@@ -430,7 +430,7 @@ pub(super) fn process_keys(key: KeyEvent, app: &mut App) {
                         app.kill_confirm = Some(crate::app::ExecConfirm {
                             panel: app.selected_panel,
                             pid: top.pid,
-                            name: top.name.clone(),
+                            name: top.name.to_string(),
                             kind: crate::app::ExecKind::Kill,
                         });
                     }
@@ -453,7 +453,7 @@ pub(super) fn process_keys(key: KeyEvent, app: &mut App) {
                         app.kill_confirm = Some(crate::app::ExecConfirm {
                             panel: app.selected_panel,
                             pid: top.pid,
-                            name: top.name.clone(),
+                            name: top.name.to_string(),
                             kind: crate::app::ExecKind::Journal,
                         });
                     }
@@ -476,7 +476,7 @@ pub(super) fn process_keys(key: KeyEvent, app: &mut App) {
                         app.kill_confirm = Some(crate::app::ExecConfirm {
                             panel: app.selected_panel,
                             pid: top.pid,
-                            name: top.name.clone(),
+                            name: top.name.to_string(),
                             kind: crate::app::ExecKind::Renice,
                         });
                     }

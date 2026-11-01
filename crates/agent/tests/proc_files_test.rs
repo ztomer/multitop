@@ -315,12 +315,27 @@ fn a_pseudofile_with_invalid_utf8_is_read_lossily_rather_than_failing() {
 
 // ------------------------------------------------------------- the core clock
 
+/// A `/sys/devices/system/cpu` tree with one `scaling_cur_freq` per reading.
+fn cpufreq_tree(readings: &[&str]) -> tempfile::TempDir {
+    let root = tempfile::tempdir().expect("tempdir");
+    for (i, r) in readings.iter().enumerate() {
+        let dir = root.path().join(format!("cpu{i}/cpufreq"));
+        std::fs::create_dir_all(&dir).expect("mkdir");
+        std::fs::write(dir.join("scaling_cur_freq"), r).expect("write");
+    }
+    root
+}
+
+fn scaling(readings: &[&str]) -> Option<f64> {
+    let root = cpufreq_tree(readings);
+    multitop_agent::cpufreq::scaling_mhz_under(root.path().to_str().expect("utf-8"))
+}
+
 #[test]
 fn a_cpufreq_reading_is_averaged_across_the_cores_that_report_one() {
     // The mean, not core 0: on a big.LITTLE machine core 0 is an efficiency
     // core and reporting it as "the" clock understates the box by half.
-    let readings = vec!["1200000\n".to_string(), "3600000\n".to_string()];
-    let mhz = multitop_agent::cpufreq::parse_scaling_khz(&readings).expect("a clock");
+    let mhz = scaling(&["1200000\n", "3600000\n"]).expect("a clock");
     assert!((mhz - 2400.0).abs() < 0.01, "{mhz}");
 }
 
@@ -328,13 +343,8 @@ fn a_cpufreq_reading_is_averaged_across_the_cores_that_report_one() {
 fn a_cpufreq_file_that_says_nothing_usable_yields_no_clock() {
     // A zero is not a measurement of an idle core; it is the absence of one,
     // and drawing it as 0 MHz would be inventing a reading.
-    for readings in [
-        vec![],
-        vec![String::new()],
-        vec!["0\n".to_string()],
-        vec!["x\n".to_string()],
-    ] {
-        assert_eq!(multitop_agent::cpufreq::parse_scaling_khz(&readings), None);
+    for readings in [&[][..], &["0\n"], &["x\n"]] {
+        assert_eq!(scaling(readings), None, "{readings:?}");
     }
 }
 
@@ -348,7 +358,9 @@ processor\t: 1
 model name\t: AMD EPYC 7763
 cpu MHz\t\t: 2445.406
 ";
-    let mhz = multitop_agent::cpufreq::parse_cpuinfo_mhz(cpuinfo).expect("a clock");
+    let f = Fixture::new("cpuinfo", cpuinfo).expect("fixture written");
+    let mhz =
+        multitop_agent::cpufreq::cpuinfo_mhz_from(f.path().expect("utf-8 path")).expect("a clock");
     assert!((mhz - 2445.406).abs() < 0.01, "{mhz}");
 }
 
@@ -357,5 +369,9 @@ fn an_arm_cpuinfo_with_no_clock_field_yields_none() {
     // Many ARM kernels omit `cpu MHz` entirely. The panel says so rather than
     // showing a zero.
     let cpuinfo = "processor\t: 0\nBogoMIPS\t: 50.00\nFeatures\t: fp asimd\n";
-    assert_eq!(multitop_agent::cpufreq::parse_cpuinfo_mhz(cpuinfo), None);
+    let f = Fixture::new("cpuinfo-arm", cpuinfo).expect("fixture written");
+    assert_eq!(
+        multitop_agent::cpufreq::cpuinfo_mhz_from(f.path().expect("utf-8 path")),
+        None
+    );
 }

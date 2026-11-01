@@ -115,6 +115,9 @@ pub const IOKIT_NAME_BUF: usize = 128;
 pub const IOKIT_SENSOR_CAPACITY: usize = 256;
 /// One `hwmon` temperature reading, as text.
 pub const HWMON_READING_BUF: usize = 32;
+/// A `/sys` path a sampler builds per tick, on the stack: the longest is
+/// `/sys/devices/system/cpu/cpu31/cpufreq/scaling_cur_freq`, 54 bytes.
+pub const SYSFS_PATH_BUF: usize = 96;
 /// `hwmon` reports millidegrees; a value above this is millidegrees rather
 /// than degrees, and dividing is what makes the two agree.
 pub const HWMON_MILLIDEGREE_THRESHOLD: f64 = 1000.0;

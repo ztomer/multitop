@@ -21,7 +21,11 @@ impl CoreGrid {
         bar_len: usize,
         has_temps: bool,
     ) -> Self {
-        let idx_w = max_idx.to_string().len();
+        // Counted, not formatted: the layout runs every tick to size the
+        // table, and a tick does no heap work (roadmap M2).
+        let idx_w = max_idx
+            .checked_ilog10()
+            .map_or(1, |digits| usize::try_from(digits).map_or(1, |d| d + 1));
         let per_core = (bar_len / num_cores.max(1)).min(12);
         let show_bars = per_core >= crate::consts::MIN_READABLE_BAR_W;
         let temp_w = if has_temps { 5 } else { 0 };

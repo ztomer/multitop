@@ -37,7 +37,7 @@ fn sample_snapshot(server_id: u32) -> Snapshot {
         procs: (0..30)
             .map(|i| Proc {
                 pid: 1000 + i,
-                name: format!("worker-{i}"),
+                name: format!("worker-{i}").as_str().into(),
                 cpu: 12.5,
                 mem: 150_000_000,
             })

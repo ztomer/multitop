@@ -50,16 +50,15 @@ extern "C" {
 }
 
 #[cfg(target_os = "macos")]
-#[must_use]
-pub fn get_core_temps() -> HashMap<usize, f64> {
-    let mut temps = HashMap::new();
+pub fn fill_core_temps<S: std::hash::BuildHasher>(temps: &mut HashMap<usize, f64, S>) {
+    temps.clear();
     let mut die_temps: HashMap<usize, f64> = HashMap::new();
     let mut all_tdie = Vec::new();
 
     unsafe {
         let client = IOHIDEventSystemClientCreate(std::ptr::null());
         if client.is_null() {
-            return temps;
+            return;
         }
         let p_key = CFStringCreateWithCString(std::ptr::null(), c"Product".as_ptr(), 0x0800_0100);
         let services = IOHIDEventSystemClientCopyServices(client);
@@ -120,8 +119,6 @@ pub fn get_core_temps() -> HashMap<usize, f64> {
             temps.insert(i, t);
         }
     }
-
-    temps
 }
 
 #[cfg(target_os = "macos")]
@@ -148,7 +145,9 @@ fn macos_num_cpus() -> usize {
 
 /// Read temperatures for CPUs/cores from sysfs.
 #[cfg(not(target_os = "macos"))]
-pub fn get_core_temps() -> std::collections::HashMap<usize, f64> {
+pub fn fill_core_temps<S: std::hash::BuildHasher>(
+    temps: &mut std::collections::HashMap<usize, f64, S>,
+) {
     use std::path::PathBuf;
     use std::sync::Mutex;
 
@@ -197,13 +196,16 @@ pub fn get_core_temps() -> std::collections::HashMap<usize, f64> {
         *guard = Some(sensors);
     }
 
-    let mut temps = std::collections::HashMap::new();
+    // The caller's map, kept between ticks, and each reading on the stack:
+    // this runs every tick, and a tick does no heap work (roadmap M2).
+    temps.clear();
     if let Some(sensors) = guard.as_ref() {
-        let mut buf = String::with_capacity(crate::consts::HWMON_READING_BUF);
         for (idx, path) in sensors {
-            buf.clear();
-            if crate::proc::read_proc_into(path, &mut buf) {
-                if let Ok(val) = buf.trim().parse::<f64>() {
+            let mut buf = [0u8; crate::consts::HWMON_READING_BUF];
+            let n = crate::proc::read_proc_bytes(path, &mut buf);
+            let reading = std::str::from_utf8(&buf[..n]).map(str::trim);
+            if let Ok(reading) = reading {
+                if let Ok(val) = reading.parse::<f64>() {
                     let c = if val > crate::consts::HWMON_MILLIDEGREE_THRESHOLD {
                         val / crate::consts::HWMON_MILLIDEGREE_THRESHOLD
                     } else {
@@ -221,5 +223,4 @@ pub fn get_core_temps() -> std::collections::HashMap<usize, f64> {
     // holding a static Mutex across the return serialises every caller for no
     // reason (clippy::significant_drop_tightening).
     drop(guard);
-    temps
 }

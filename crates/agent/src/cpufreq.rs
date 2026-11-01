@@ -7,50 +7,84 @@
 //! of 0 MHz on screen is a measurement; this is the absence of one.
 
 use crate::conv::count;
-use crate::proc::read_proc;
+use crate::proc_read::{fmt_into, for_each_line, read_proc_bytes};
 
 /// The clock a `cpufreq` reading is in: kilohertz.
 const KHZ_PER_MHZ: f64 = 1000.0;
 
-/// Mean of the `scaling_cur_freq` readings handed in, in MHz.
+/// A mean that states nothing until it has a reading. Readings of zero or
+/// below are not readings: a clock of 0 MHz on screen is a measurement, and a
+/// zero in these files is the absence of one.
+#[derive(Default)]
+struct Mean {
+    sum: f64,
+    n: usize,
+}
+
+impl Mean {
+    fn add(&mut self, v: Option<f64>) {
+        if let Some(v) = v.filter(|v| *v > 0.0) {
+            self.sum += v;
+            self.n += 1;
+        }
+    }
+
+    fn get(&self) -> Option<f64> {
+        (self.n > 0).then(|| self.sum / count(self.n))
+    }
+}
+
+/// Mean of the `scaling_cur_freq` readings under `root` (`cpu0`, `cpu1`, ...
+/// up to the first core without one), in MHz -- read through stack buffers,
+/// with no heap work, because this runs every tick.
 ///
 /// The mean rather than core 0: on a big.LITTLE machine core 0 is an efficiency
 /// core and reporting it as "the" clock understates the box by a factor of two.
 #[must_use]
-pub fn parse_scaling_khz(readings: &[String]) -> Option<f64> {
-    let mhz: Vec<f64> = readings
-        .iter()
-        .filter_map(|r| r.trim().parse::<f64>().ok())
-        .filter(|khz| *khz > 0.0)
-        .map(|khz| khz / KHZ_PER_MHZ)
-        .collect();
-    if mhz.is_empty() {
-        return None;
+pub fn scaling_mhz_under(root: &str) -> Option<f64> {
+    let mut mean = Mean::default();
+    for cpu in 0..crate::consts::CPUFREQ_PROBE_CORES {
+        let mut path = [0u8; crate::consts::SYSFS_PATH_BUF];
+        let Some(path) = fmt_into(
+            &mut path,
+            format_args!("{root}/cpu{cpu}/cpufreq/scaling_cur_freq"),
+        ) else {
+            break;
+        };
+        let mut buf = [0u8; crate::consts::HWMON_READING_BUF];
+        let n = read_proc_bytes(path, &mut buf);
+        if n == 0 {
+            break;
+        }
+        mean.add(
+            std::str::from_utf8(&buf[..n])
+                .ok()
+                .and_then(|r| r.trim().parse::<f64>().ok())
+                .map(|khz| khz / KHZ_PER_MHZ),
+        );
     }
-    Some(mhz.iter().sum::<f64>() / count(mhz.len()))
+    mean.get()
 }
 
-/// Mean of the `cpu MHz` lines in `/proc/cpuinfo`.
+/// Mean of the `cpu MHz` lines in the `/proc/cpuinfo` at `path`.
 ///
 /// The fallback for a kernel built without `cpufreq`, and for a container that
 /// cannot see `/sys`. Some ARM kernels omit the field entirely, which is why
 /// this returns an `Option` rather than a zero -- a clock of 0 MHz on screen is
-/// a measurement, and this is the absence of one.
+/// a measurement, and this is the absence of one. Streamed a line at a time:
+/// the file is tens of kilobytes on a many-core host, and read every tick.
 #[must_use]
-pub fn parse_cpuinfo_mhz(content: &str) -> Option<f64> {
-    let values: Vec<f64> = content
-        .lines()
-        .filter_map(|l| {
-            let (key, value) = l.split_once(':')?;
-            key.trim().eq_ignore_ascii_case("cpu MHz").then_some(value)
-        })
-        .filter_map(|v| v.trim().parse::<f64>().ok())
-        .filter(|mhz| *mhz > 0.0)
-        .collect();
-    if values.is_empty() {
-        return None;
-    }
-    Some(values.iter().sum::<f64>() / count(values.len()))
+pub fn cpuinfo_mhz_from(path: &str) -> Option<f64> {
+    let mut mean = Mean::default();
+    for_each_line(path, |l| {
+        mean.add(l.split_once(':').and_then(|(key, value)| {
+            key.trim()
+                .eq_ignore_ascii_case("cpu MHz")
+                .then(|| value.trim().parse::<f64>().ok())
+                .flatten()
+        }));
+    });
+    mean.get()
 }
 
 /// What the cores are clocked at right now, in MHz.
@@ -62,14 +96,5 @@ pub fn parse_cpuinfo_mhz(content: &str) -> Option<f64> {
 /// inventing a number.
 #[must_use]
 pub fn get_cpu_mhz() -> Option<f64> {
-    let mut readings = Vec::new();
-    for cpu in 0..crate::consts::CPUFREQ_PROBE_CORES {
-        let path = format!("/sys/devices/system/cpu/cpu{cpu}/cpufreq/scaling_cur_freq");
-        let text = read_proc(&path);
-        if text.is_empty() {
-            break;
-        }
-        readings.push(text);
-    }
-    parse_scaling_khz(&readings).or_else(|| parse_cpuinfo_mhz(&read_proc("/proc/cpuinfo")))
+    scaling_mhz_under("/sys/devices/system/cpu").or_else(|| cpuinfo_mhz_from("/proc/cpuinfo"))
 }

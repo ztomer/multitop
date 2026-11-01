@@ -28,7 +28,7 @@ const fn usage(total: u64, used: u64, pct: f64) -> Usage {
 fn proc(pid: u32, name: &str, cpu: f64, mem: u64) -> Proc {
     Proc {
         pid,
-        name: name.to_string(),
+        name: name.into(),
         cpu,
         mem,
     }

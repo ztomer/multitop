@@ -7,6 +7,11 @@ use crate::render::{Chrome, Snapshot};
 
 pub struct Monitor {
     prev_cpu: CpuStat,
+    /// This tick's CPU times, swapped with `prev_cpu` at the end of the tick
+    /// so both core lists keep their capacity.
+    cpu: CpuStat,
+    /// Core temperatures, a map kept between ticks.
+    temps: std::collections::HashMap<usize, f64>,
     prev_net: NetTotals,
     sampler: ProcSampler,
     /// The frame, kept and refilled every tick rather than built afresh.
@@ -29,6 +34,8 @@ impl Monitor {
         sampler.prime();
         Self {
             prev_cpu: proc::get_cpu_stat(),
+            cpu: CpuStat::default(),
+            temps: std::collections::HashMap::new(),
             prev_net: proc::get_net(),
             sampler,
             snap: Snapshot {
@@ -52,10 +59,11 @@ impl Monitor {
         lines: usize,
         sort_by: crate::SortBy,
     ) -> &Snapshot {
-        let cpu = proc::get_cpu_stat();
+        proc::get_cpu_stat_into(&mut self.cpu);
         let net = proc::get_net();
 
-        let temps = proc::get_core_temps();
+        proc::fill_core_temps(&mut self.temps);
+        let (cpu, temps) = (&self.cpu, &self.temps);
         let prev_cpu = &self.prev_cpu;
         let snap = &mut self.snap;
         snap.cores.clear();
@@ -86,10 +94,11 @@ impl Monitor {
         // ask for exactly as many processes as it has room to draw.
         snap.procs.clear();
         let budget = Chrome::of(snap, cols, lines).proc_budget(lines);
-        snap.procs = self.sampler.top(interval, budget, sort_by);
+        self.sampler
+            .top_into(interval, budget, sort_by, &mut snap.procs);
         self.sampler.fill_names(&mut snap.proc_names);
 
-        self.prev_cpu = cpu;
+        std::mem::swap(&mut self.prev_cpu, &mut self.cpu);
         self.prev_net = net;
 
         #[cfg(all(target_os = "linux", target_env = "gnu"))]

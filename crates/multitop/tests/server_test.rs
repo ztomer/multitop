@@ -33,7 +33,7 @@ fn mock_snapshot(host: &str) -> Snapshot {
         tx_rate: 200.0,
         procs: vec![Proc {
             pid: 1,
-            name: "init".to_string(),
+            name: "init".into(),
             cpu: 0.5,
             mem: 50,
         }],

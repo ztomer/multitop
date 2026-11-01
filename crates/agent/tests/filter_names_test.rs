@@ -13,6 +13,13 @@
 use multitop_agent::proc::{self, ProcSampler};
 use multitop_agent::SortBy;
 
+/// The table `top_into` fills, as a fresh list for a test to hold.
+fn top_of(s: &mut ProcSampler, elapsed: f64, n: usize, sort: SortBy) -> Vec<proc::Proc> {
+    let mut rows = Vec::new();
+    s.top_into(elapsed, n, sort, &mut rows);
+    rows
+}
+
 #[test]
 fn the_name_list_covers_processes_the_table_had_no_room_for() {
     // The point of the list: the table is capped to what fits the pane, and the
@@ -20,7 +27,7 @@ fn the_name_list_covers_processes_the_table_had_no_room_for() {
     // three processes, so a three-row table proves the two lists differ.
     let mut sampler = ProcSampler::new();
     sampler.prime();
-    let table = sampler.top(1.0, 1, SortBy::Cpu);
+    let table = top_of(&mut sampler, 1.0, 1, SortBy::Cpu);
     let mut names = Vec::new();
     sampler.fill_names(&mut names);
 
@@ -84,10 +91,10 @@ fn the_name_list_is_rebuilt_each_scan_rather_than_accumulating() {
     let mut sampler = ProcSampler::new();
     sampler.prime();
     let mut names = Vec::new();
-    let _ = sampler.top(1.0, 3, SortBy::Cpu);
+    let _ = top_of(&mut sampler, 1.0, 3, SortBy::Cpu);
     sampler.fill_names(&mut names);
     let first = names.len();
-    let _ = sampler.top(1.0, 3, SortBy::Cpu);
+    let _ = top_of(&mut sampler, 1.0, 3, SortBy::Cpu);
     sampler.fill_names(&mut names);
     let second = names.len();
     // Processes come and go on a real host, so this is a band rather than an

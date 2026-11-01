@@ -79,6 +79,16 @@ pub fn for_each_line<P: AsRef<Path>>(path: P, mut line: impl FnMut(&str)) -> boo
     }
 }
 
+/// Format `args` into `buf`, for a path that must not cost a heap allocation;
+/// `None` when it does not fit.
+pub fn fmt_into<'a>(buf: &'a mut [u8], args: std::fmt::Arguments<'_>) -> Option<&'a str> {
+    use std::io::Write;
+    let mut cur = std::io::Cursor::new(&mut buf[..]);
+    cur.write_fmt(args).ok()?;
+    let n = usize::try_from(cur.position()).ok()?;
+    std::str::from_utf8(&buf[..n]).ok()
+}
+
 /// Read a file the kernel bounds into a caller-owned stack buffer, with zero
 /// heap allocation, filling it to the end of the file or of the buffer.
 ///
