@@ -29,9 +29,22 @@ if ! cargo +nightly fuzz --version >/dev/null 2>&1; then
     warn "cargo-fuzz on nightly is not installed -- the ASan build is SKIPPED (cargo install cargo-fuzz; rustup toolchain install nightly)"
     exit 0
 fi
+# The toolchain is a DATED nightly named in fuzz/nightly-pin (why, the upstream
+# issue, and how it retires itself are written there). Named at the call site,
+# never the default. A machine with nightly but not the pinned one gets the
+# install command, not a silent skip: that would be the ASan build gone quiet.
+nightly=""
+while IFS= read -r line; do
+    case "$line" in '#'* | '') continue ;; esac
+    nightly="$line"
+    break
+done < fuzz/nightly-pin
+[ -n "$nightly" ] || die "fuzz/nightly-pin names no toolchain"
+cargo +"$nightly" fuzz --version >/dev/null 2>&1 \
+    || die "the pinned fuzz nightly is not installed -- run: rustup toolchain install $nightly --profile minimal"
 for t in "${targets[@]}"; do
     name="$(basename "$t" .rs)"
-    info "cargo +nightly fuzz build $name"
-    cargo +nightly fuzz build "$name" >/dev/null 2>&1 || die "fuzz target $name does not build under ASan"
+    info "cargo +$nightly fuzz build $name"
+    cargo +"$nightly" fuzz build "$name" >/dev/null 2>&1 || die "fuzz target $name does not build under ASan ($nightly)"
 done
 ok "fuzz targets build under AddressSanitizer"

@@ -55,11 +55,19 @@ libc = "0.2"
 keyring = { version = "4", default-features = true }
 
 # Platform-specific
-#[cfg(target_os = "macos")]
+#
+# REAL target tables, not `#[cfg(...)]` lines. Those were here once, and in a
+# manifest `#` starts a comment: both "platform" sections were unconditional,
+# so every macOS build compiled zbus (D-Bus, Linux-only) and every Linux build
+# compiled security-framework. Nothing noticed until a nightly rustc refused to
+# compile zbus (E0391, "needs async drop") and the macOS fuzz build -- which
+# never calls a line of zbus -- went red with it. The sources were always gated
+# (`fprintd.rs`, `secure_enclave.rs`); now the dependency graph says the same.
+[target.'cfg(target_os = "macos")'.dependencies]
 security-framework = "3.7"
 security-framework-sys = "2.17"
 
-#[cfg(target_os = "linux")]
+[target.'cfg(target_os = "linux")'.dependencies]
 # 5, and one manifest line: every call this crate makes through zbus --
 # `Connection::system`, the four-argument `Proxy::new`, `call_method`,
 # `Message::body().deserialize()`, and the
@@ -78,6 +86,9 @@ security-framework-sys = "2.17"
 # fingerprint DAEMON cannot be exercised without hardware. CI's ubuntu
 # jobs are what check that this compiles for the platform that ships it.
 zbus = { version = "5", features = ["tokio"] }
+# Sealing the vault key to this machine's TPM. Linux only: there is no
+# tpm2-tss on macOS, which has the Secure Enclave instead.
+tss-esapi = "7.7"
 
 [dev-dependencies]
 tempfile = "3.10"
@@ -87,10 +98,6 @@ hex = "0.4"
 # is a dev-dependency rather than a `tests/` module -- see
 # crates/testassert/src/lib.rs.
 multitop-testassert = { path = "../testassert" }
-# Sealing the vault key to this machine's TPM. Linux only: there is no
-# tpm2-tss on macOS, which has the Secure Enclave instead.
-[target.'cfg(target_os = "linux")'.dependencies]
-tss-esapi = "7.7"
 
 # cargo-machete scans for the crate's IDENT, so a dependency reached only
 # through a STRING is invisible to it. `serde_bytes` is used exactly that way --

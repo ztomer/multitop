@@ -1,0 +1,14 @@
+# The nightly the ASan fuzz builds use, read by tools/fuzz_check.sh and by CI's
+# `fuzz` job -- one pin, one place. The ONE non-comment line is the toolchain.
+#
+# Why pinned: nightly-2026-11-01 (rustc f9ceb4a4d 2026-10-31) refuses to compile
+# zbus 5.19 with E0391 "cycle detected when computing when
+# `zvariant_utils::signature::child::Child` needs async drop" -- no
+# feature(async_drop) involved. Upstream: https://github.com/rust-lang/rust/issues/165263
+# Last good: nightly-2026-10-31 (rustc 92b5b8c87 2026-10-29). First bad: nightly-2026-11-01.
+# zbus is in the fuzz graph only on Linux (crates/vault: fprintd over D-Bus).
+#
+# Retire it: CI's `fuzz` job also checks the fuzz crate on UNPINNED nightly and
+# goes red the day that passes ("pin no longer needed") -- then delete this file's
+# pin back to plain `nightly` and remove the probe step.
+nightly-2026-10-31

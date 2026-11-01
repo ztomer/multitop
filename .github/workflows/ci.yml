@@ -301,14 +301,24 @@ jobs:
       # stable channel for the workspace because nightly ICEs on multitop-vault
       # under clippy; `cargo fuzz` is the one thing that genuinely needs nightly, and
       # it builds the fuzz crate rather than the workspace.
-      - uses: dtolnay/rust-toolchain@nightly
+      # A DATED nightly, from fuzz/nightly-pin (the reason and the upstream
+      # issue are written there) -- the same pin tools/fuzz_check.sh reads.
+      - name: Read the fuzz nightly pin
+        id: pin
+        run: echo "toolchain=$(grep -v -e '^#' -e '^$' fuzz/nightly-pin)" >> "$GITHUB_OUTPUT"
+
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ steps.pin.outputs.toolchain }}
 
       - uses: Swatinem/rust-cache@v2
 
       - uses: ./.github/actions/system-deps
 
       - name: Install cargo-fuzz
-        run: cargo install cargo-fuzz
+        env:
+          NIGHTLY: ${{ steps.pin.outputs.toolchain }}
+        run: cargo +"$NIGHTLY" install cargo-fuzz
 
       # Building, not running: a fuzz run has no natural end. This catches the
       # failure that actually happens -- a target that stopped compiling
@@ -316,7 +326,21 @@ jobs:
       # when the protocol gained a variant and nothing caught it until a
       # release, because this gate lived only in scripts/local-ci.py.
       - name: Build every fuzz target (sanitizer on)
+        env:
+          NIGHTLY: ${{ steps.pin.outputs.toolchain }}
         run: |
           for t in fuzz/fuzz_targets/*.rs; do
-            cargo +nightly fuzz build "$(basename "$t" .rs)"
+            cargo +"$NIGHTLY" fuzz build "$(basename "$t" .rs)"
           done
+
+      # The pin retires itself: the day UNPINNED nightly compiles the fuzz
+      # crate again (rust-lang/rust#165263 fixed), this step goes red and says
+      # so. Here, on Linux, because zbus is in the fuzz graph only on Linux.
+      - name: The nightly pin is still needed
+        run: |
+          rustup toolchain install nightly --profile minimal
+          if cargo +nightly check --manifest-path fuzz/Cargo.toml --locked --quiet; then
+            echo "::error::unpinned nightly builds the fuzz crate -- fuzz/nightly-pin is no longer needed; return it to plain nightly and delete this step"
+            exit 1
+          fi
+          echo "unpinned nightly still fails -- the pin in fuzz/nightly-pin stands"
