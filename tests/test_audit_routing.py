@@ -1,4 +1,4 @@
-"""monitor's own ``cargo audit`` step must run through goh's advisory-db wrapper.
+"""monitor's ``cargo audit`` runs through goh's advisory-db wrapper (rust_gate.sh, since GOH.EA2).
 
 A repo that runs ``cargo audit`` bare (default mode fetches) refreshes the
 SHARED ``~/.cargo/advisory-db``, rewriting it file by file, while any other
@@ -27,18 +27,16 @@ def _steps_line() -> str:
     raise AssertionError("no GOH_CI_STEPS line in .gatesrc")
 
 
-def test_the_audit_step_runs_through_gohs_advisory_db():
-    line = _steps_line()
-    assert 'advisory_db.py" run --fetch -- cargo audit' in line, (
-        "the cargo audit step must go through goh's advisory_db.py wrapper"
-    )
+def test_the_audit_is_the_house_rust_gates():
+    """Since goh GOH.EA2 the house rust gate audits EVERY tracked Cargo.lock (the root's and
+    fuzz/'s), through advisory_db.py, and ratchets each ignore list: the hand-written root and
+    `cd fuzz` audit steps were retired in favour of it."""
+    assert '"$GOH_DIR/gates/rust_gate.sh"' in _steps_line(), "the house rust gate left GOH_CI_STEPS"
 
 
 def test_no_bare_audit_invocation_remains():
-    """Every `cargo audit` in the step list sits behind the wrapper."""
+    """Any `cargo audit` the step list still carries sits behind the wrapper."""
     line = _steps_line()
-    hits = list(re.finditer(r"cargo audit", line))
-    assert hits, "the audit step went missing from GOH_CI_STEPS"
-    for m in hits:
+    for m in re.finditer(r"cargo audit", line):
         before = line[max(0, m.start() - 40) : m.start()]
         assert "run --fetch -- " in before, f"bare cargo audit at offset {m.start()}: {before!r}"
