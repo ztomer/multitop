@@ -74,31 +74,12 @@ pub fn parse_size_line(line: &[u8]) -> Option<(u16, u16)> {
 ///
 /// A line longer than the buffer is no command this reads, and is passed
 /// over whole, as is a line that states nothing.
-pub fn read_commands(mut input: impl Read, size: &PanelSize) {
-    let mut buf = [0u8; STDIN_WATCH_BUF];
-    let (mut filled, mut skipping) = (0, false);
-    while let Ok(n) = input.read(&mut buf[filled..]) {
-        if n == 0 {
-            break;
+pub fn read_commands(input: impl Read, size: &PanelSize) {
+    crate::proc_read::for_each_line_in(input, &mut [0u8; STDIN_WATCH_BUF], |line| {
+        if let Some((cols, lines)) = parse_size_line(line.as_bytes()) {
+            size.set(cols, lines);
         }
-        filled += n;
-        let mut start = 0;
-        while let Some(pos) = buf[start..filled].iter().position(|&b| b == b'\n') {
-            if skipping {
-                skipping = false;
-            } else if let Some((cols, lines)) = parse_size_line(&buf[start..start + pos]) {
-                size.set(cols, lines);
-            }
-            start += pos + 1;
-        }
-        if start == 0 && filled == buf.len() {
-            skipping = true;
-            filled = 0;
-        } else {
-            buf.copy_within(start..filled, 0);
-            filled -= start;
-        }
-    }
+    });
 }
 
 /// Watch stdin: record the sizes the client states in `size`, and return the

@@ -23,21 +23,32 @@ use crate::consts::PROC_LINE_BUF;
 /// order, through a fixed stack buffer: no heap allocation, and no file size
 /// the host can outgrow.
 ///
-/// A line longer than the buffer cannot be held, so it is passed over whole
-/// and the lines after it are read as usual. None of the rows a sampler reads
-/// comes near that length (a `cpu` row, an interface row and a `meminfo` row
-/// are under 200 bytes); the rows that do are ones nothing samples, like
-/// `/proc/stat`'s `intr`, which grows with the IRQ count. A line that is not
-/// UTF-8 is passed over too.
+/// None of the rows a sampler reads comes near the buffer's length (a `cpu`
+/// row, an interface row and a `meminfo` row are under 200 bytes); the rows
+/// that do are ones nothing samples, like `/proc/stat`'s `intr`, which grows
+/// with the IRQ count, and those are passed over (`for_each_line_in`).
 ///
 /// Returns whether the file was read to its end and held something. A file
 /// that failed part-way is `false` even though some lines were fed: a total
 /// over part of the file is a wrong number, and the caller discards it.
-pub fn for_each_line<P: AsRef<Path>>(path: P, mut line: impl FnMut(&str)) -> bool {
-    let Ok(mut file) = fs::File::open(path) else {
+pub fn for_each_line<P: AsRef<Path>>(path: P, line: impl FnMut(&str)) -> bool {
+    let Ok(file) = fs::File::open(path) else {
         return false;
     };
-    let mut buf = [0u8; PROC_LINE_BUF];
+    for_each_line_in(file, &mut [0u8; PROC_LINE_BUF], line)
+}
+
+/// Feed every line `input` holds to `line`, without its newline, in order,
+/// through `buf` -- the one line splitter, for the pseudofiles and for the
+/// commands on the agent's stdin.
+///
+/// A line as long as `buf` or longer cannot be held, so it is passed over
+/// whole and the lines after it are read as usual; so is a line that is not
+/// UTF-8. A last line without a newline is fed like any other.
+///
+/// Returns whether `input` was read to its end and held something; a read
+/// that fails part-way is `false`.
+pub fn for_each_line_in(mut input: impl Read, buf: &mut [u8], mut line: impl FnMut(&str)) -> bool {
     let mut emit = |bytes: &[u8]| {
         if let Ok(s) = std::str::from_utf8(bytes) {
             line(s);
@@ -47,7 +58,7 @@ pub fn for_each_line<P: AsRef<Path>>(path: P, mut line: impl FnMut(&str)) -> boo
     // `skipping`, they belong to a line too long to hold.
     let (mut filled, mut skipping, mut any) = (0, false, false);
     loop {
-        let Ok(n) = file.read(&mut buf[filled..]) else {
+        let Ok(n) = input.read(&mut buf[filled..]) else {
             return false;
         };
         if n == 0 {

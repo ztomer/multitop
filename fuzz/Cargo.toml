@@ -60,3 +60,10 @@ path = "fuzz_targets/fuzz_fetch.rs"
 test = false
 doc = false
 bench = false
+
+[[bin]]
+name = "fuzz_lines"
+path = "fuzz_targets/fuzz_lines.rs"
+test = false
+doc = false
+bench = false
