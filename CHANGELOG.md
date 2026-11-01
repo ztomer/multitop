@@ -7,6 +7,32 @@ This file starts at v0.47.0 — earlier history is in git (`git log`), and the
 per-defect record is `docs/detection-record.md`, which is the more useful
 document for anything before this point.
 
+## v0.67.6 — the agent reads whole files and sizes rows for the real panel _(2026-11-01)_
+
+### Fixed — a pseudofile the host sizes was read only to a fixed buffer (roadmap M2)
+- `/proc/net/dev` was 5,991 bytes on a busy server and read into 2 KiB, so the
+  network rate counted only the first interfaces. `/proc/stat`,
+  `/proc/meminfo` and `/proc/net/dev` now stream line by line through one
+  4 KiB stack buffer to their end. The per-tick read of
+  `/proc/self/mountinfo` (90 KB there) is gone: `statvfs("/")` needs no row.
+- The process filter carries 2,048 distinct names (was 512; a Mac runs 778).
+
+### Fixed — the stream's process rows came from a pretend 120x50 panel
+- The agent sent 72-92 rows whatever the panel was; a full-screen panel draws
+  up to ~190, and the panel is resized at will. The client now tells the agent
+  its panel size on stdin (`size <cols> <lines>`, after the Hello and on every
+  change), and each tick lays out at that size. An older agent discards the
+  line; an agent never told keeps the old layout.
+
+### Changed — a warm tick allocates nothing on Linux
+- Row names are inline, and CPU, temperature and clock readings fill buffers
+  the monitor keeps. Measured 0 allocations per tick + emit (was ~140); the
+  gate `rss_bound_test` asserts exactly zero on Linux.
+
+### Fixed — `release.sh` installs the build before its push
+- The push gate checks the installed binary is fresh; the release now installs
+  first, so its own push passes.
+
 ## v0.67.5 — the agent's memory stays flat while it runs _(2026-11-01)_
 
 ### Fixed — the remote agent's resident memory grew for as long as it ran (roadmap M1)

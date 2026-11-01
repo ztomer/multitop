@@ -1521,7 +1521,7 @@ dependencies = [
 
 [[package]]
 name = "multitop"
-version = "0.67.5"
+version = "0.67.6"
 dependencies = [
  "axum",
  "base64",
@@ -1555,7 +1555,7 @@ dependencies = [
 
 [[package]]
 name = "multitop-agent"
-version = "0.67.5"
+version = "0.67.6"
 dependencies = [
  "libc",
  "mach2",

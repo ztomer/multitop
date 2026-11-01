@@ -325,8 +325,9 @@ Linux it also bounds RssAnon over 600 ticks at 900 processes. Proven red three
 ways: the pre-fix code (+1,637 allocations a tick for +400 processes on musl),
 one injected `String` per name (+400), and a fresh packet buffer (+8.2 kB).
 
-Still open: the post-release RSS of the shipped agent on `.158` after a few
-hours (recorded here once read).
+The shipped v0.67.5 agent on `.158` (the Pi), probed from minute 1 to
+minute 51: VmRSS 2,220 kB and RssAnon 1,144 kB, flat from minute 8 on, where
+the previous agent stood at 5,880 kB after 18 minutes and was still climbing.
 
 ## M2 — sibling findings from M1 (opened 2026-11-01)
 
@@ -435,6 +436,7 @@ The tag is the record; the per-release detail is in `CHANGELOG.md`.
 
 | Release | What it carried | Commits |
 |---------|-----------------|---------|
+| v0.67.6 | M2 (host-sized pseudofiles read to their end, 2,048 filter names, the panel's real size on stdin, a warm tick that allocates nothing on Linux) and the release script installing before its push | `2f1e7d9`, `c5e95ad`, `fea6b1a`, `d4de496` |
 | v0.67.5 | M1 (the agent's memory stays flat: inline names, kept buffers, the allocation-bound gate) and the fuzz crate's own workspace root | `80f25fa`, `f6799e5` |
 | v0.56.0 | A2.4 (the Android pairing screen and its Keystore-sealed store, both QR polarities) and the installer's replace-by-rename fix (`install.sh` copies beside the target, signs the copy, and renames it over) | `e7da25a`, `2413764` |
 
