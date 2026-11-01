@@ -345,8 +345,16 @@ hours (recorded here once read).
   names, cpufreq paths and readings, the sensor map). Flat, but not zero; a
   zero-allocation tick would let the gate assert zero instead of "does not
   scale".
-* **The row budget is a layout computation in the agent** (`Chrome::of` at a
-  fixed 120x50), a client concern; a constant would do.
+* **Done: the agent samples rows for the panel the client really has.** The
+  stream's row count came from laying out a pretend 120x50 panel: 92 rows
+  from a small host, 72 from a 128-core one, while a full-screen 200x100
+  panel draws 192, and the client is resized at will. The client now says
+  its panel size on the agent's stdin (`size <cols> <lines>`, after the
+  Hello and on every change, `PacketStream::tell_size`); the agent lays out
+  each tick at the size it was last told (`stdin_watch`). An older agent
+  discards the line; a newer agent never told keeps the old layout. The
+  local agent's stdin became a pipe for it, and the watcher asks `fstat`
+  instead of `/proc/self/fd/0`, which a Mac lacks.
 
 ## Phase 3 — parked on a trigger: post-quantum KEM (size M when it fires)
 

@@ -275,3 +275,46 @@ mod handshake_tests {
         );
     }
 }
+
+mod tell_size_tests {
+    use super::PacketStream;
+    use std::process::Stdio;
+    use tokio::io::{AsyncBufReadExt, AsyncReadExt, BufReader};
+
+    /// The agent fits its rows to the panel only if it hears the panel's size,
+    /// once at the start and again on every resize (roadmap M2) -- and a size
+    /// it already has is not said again every frame.
+    #[tokio::test]
+    async fn the_agent_hears_each_new_panel_size_once() {
+        // `cat` stands in for the agent: what reaches its stdin comes back.
+        let mut child = tokio::process::Command::new("cat")
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .kill_on_drop(true)
+            .spawn()
+            .expect("cat");
+        let stdout = BufReader::new(child.stdout.take().expect("stdout"));
+        let stderr = BufReader::new(child.stderr.take().expect("stderr")).lines();
+        let mut stream = PacketStream {
+            child,
+            stdout,
+            stderr,
+            pending_header: None,
+            preamble: None,
+            told: None,
+        };
+        for size in [(80, 24), (80, 24), (120, 40), (120, 40), (80, 24)] {
+            stream.tell_size(size).await;
+        }
+        drop(stream.child.stdin.take());
+        let mut heard = String::new();
+        stream
+            .stdout
+            .read_to_string(&mut heard)
+            .await
+            .expect("read back");
+        assert_eq!(heard, "size 80 24\nsize 120 40\nsize 80 24\n");
+        let _ = stream.child.wait().await;
+    }
+}

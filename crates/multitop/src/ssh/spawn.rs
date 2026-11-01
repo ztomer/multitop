@@ -19,8 +19,11 @@ use tokio::process::{Child, Command};
 /// Returns an error if spawning the local process fails.
 pub fn spawn_local_agent(mode: Mode, sort: SortBy) -> io::Result<Child> {
     let mut cmd = local_agent_command();
+    // stdin is a pipe the client holds: the agent learns the panel's size on
+    // it (`PacketStream::tell_size`), and that the client is gone when it
+    // closes.
     cmd.args([mode.word(), "127.0.0.1", "80", "24", sort.word()])
-        .stdin(Stdio::null())
+        .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .kill_on_drop(true);

@@ -16,6 +16,7 @@ fn the_loop_emits_a_frame_before_it_ever_waits() {
         &Args::default(),
         false,
         &pal(),
+        &PanelSize::default(),
         &mut out,
         &mut next,
     );
@@ -38,6 +39,7 @@ fn the_loop_runs_until_the_tick_source_stops_it() {
         &Args::default(),
         false,
         &pal(),
+        &PanelSize::default(),
         &mut out,
         &mut next,
     );
@@ -74,6 +76,7 @@ fn the_loop_stops_when_the_reader_hangs_up() {
         &Args::default(),
         false,
         &pal(),
+        &PanelSize::default(),
         &mut sink,
         &mut next,
     );
@@ -100,6 +103,7 @@ fn the_loop_draws_to_a_terminal_when_there_is_one() {
         &args,
         true,
         &multitop_agent::palette_view::PaletteView::for_theme(&PLAIN),
+        &PanelSize::default(),
         &mut out,
         &mut next,
     );
@@ -174,4 +178,91 @@ fn no_color_selects_the_palette_with_no_escapes_in_it() {
         ANSI.bold
     };
     assert_eq!(pal.bold, expected_bold);
+}
+
+#[test]
+fn the_stream_samples_for_the_panel_the_client_says_it_has_and_follows_a_resize() {
+    // The client draws the panel and the user resizes it at will; the agent
+    // only decides how many rows to send. It laid out a pretend 120x50 panel
+    // instead, so a full-screen 200x100 panel got 92 rows of the 192 it draws
+    // (roadmap M2). The client now says its size on stdin; each tick reads it.
+    let panel = PanelSize::default();
+    let mut monitor = Monitor::new("h".into());
+    let mut out = Vec::new();
+    let mut sizes = vec![(40u16, 6u16), (200, 100)].into_iter();
+    let mut next = || {
+        let (cols, lines) = sizes.next()?;
+        // `read_commands` is what the stdin thread runs on the client's bytes.
+        multitop_agent::stdin_watch::read_commands(
+            format!("size {cols} {lines}\n").as_bytes(),
+            &panel,
+        );
+        Some(1.0)
+    };
+    monitor_loop(
+        &mut monitor,
+        &Args::default(),
+        false,
+        &pal(),
+        &panel,
+        &mut out,
+        &mut next,
+    );
+    let frames = monitor_frames(&out);
+    assert_eq!(frames.len(), 3, "one frame before any size, one per size");
+    let budget = |s: &Snapshot, cols, lines| {
+        multitop_agent::render::Chrome::of(s, cols, lines).proc_budget(lines)
+    };
+    let small = budget(&frames[1], 40, 6);
+    assert!(
+        frames[1].procs.len() <= small,
+        "the 40x6 panel got {} rows for a budget of {small}",
+        frames[1].procs.len()
+    );
+    // Stated as a precondition: a host running fewer processes than the
+    // default panel holds has no more rows to send a bigger one.
+    if frames[0].procs.len() == budget(&frames[0], 120, 50) {
+        assert!(
+            frames[2].procs.len() > frames[0].procs.len(),
+            "a 200x100 panel got {} rows, no more than the default's {}",
+            frames[2].procs.len(),
+            frames[0].procs.len()
+        );
+    }
+}
+
+/// Every monitor frame in a stream of packets, in order.
+fn monitor_frames(mut bytes: &[u8]) -> Vec<Snapshot> {
+    let mut frames = Vec::new();
+    while bytes.len() >= multitop_agent::proto::HEADER_LEN {
+        let len = usize::from(u16::from_le_bytes([bytes[6], bytes[7]]));
+        let end = multitop_agent::proto::HEADER_LEN + len;
+        if let Some(Payload::Monitor(s)) = decode_packet(&bytes[..end]) {
+            frames.push(s);
+        }
+        bytes = &bytes[end..];
+    }
+    frames
+}
+
+#[test]
+fn only_a_well_formed_size_line_is_a_size() {
+    use multitop_agent::stdin_watch::{parse_size_line, read_commands};
+    assert_eq!(parse_size_line(b"size 200 100"), Some((200, 100)));
+    for junk in [
+        &b"size 0 24"[..],
+        b"size 80",
+        b"size 80 24 1",
+        b"width 80 24",
+        b"size 99999 24",
+        b"\xff",
+    ] {
+        assert_eq!(parse_size_line(junk), None, "{junk:?}");
+    }
+    // An over-long line is passed over whole; the size after it still lands.
+    let panel = PanelSize::default();
+    let noise = "x".repeat(500);
+    read_commands(format!("{noise}\nbogus\nsize 80 24\n").as_bytes(), &panel);
+    assert_eq!(panel.get(), Some((80, 24)));
+    assert_eq!(PanelSize::default().get(), None);
 }

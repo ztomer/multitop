@@ -103,6 +103,7 @@ fn stream_from_script(script: &str) -> PacketStream {
         stderr: stderr.lines(),
         pending_header: None,
         preamble: None,
+        told: None,
     }
 }
 

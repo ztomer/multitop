@@ -23,6 +23,34 @@ pub struct PacketStream {
     /// went wrong when the packet reader then fails on it. Dropped, the panel
     /// could only report a connection that was never closed.
     pub preamble: Option<String>,
+    /// The panel size the agent was last told (`tell_size`).
+    pub told: Option<(u16, u16)>,
+}
+
+impl PacketStream {
+    /// Tell the agent the size of the panel it samples for, when that is not
+    /// what it was last told.
+    ///
+    /// The agent decides how many process rows to send, and it can only fit
+    /// them to a panel whose size it knows; the user resizes the terminal
+    /// whenever they like (roadmap M2). Called once the agent has spoken --
+    /// before that, bytes on this stdin reach the bootstrap `sh`, which reads
+    /// its script from it. A write that fails is not recorded, so it is tried
+    /// again with the next frame; an agent too old to know the line reads it
+    /// and throws it away.
+    pub async fn tell_size(&mut self, (cols, lines): (u16, u16)) {
+        use tokio::io::AsyncWriteExt;
+        if self.told == Some((cols, lines)) {
+            return;
+        }
+        let Some(stdin) = self.child.stdin.as_mut() else {
+            return;
+        };
+        let line = multitop_agent::stdin_watch::size_line(cols, lines);
+        if stdin.write_all(line.as_bytes()).await.is_ok() && stdin.flush().await.is_ok() {
+            self.told = Some((cols, lines));
+        }
+    }
 }
 
 /// What the first bytes of a session turned out to be.
@@ -238,6 +266,7 @@ pub async fn connect(
                     stderr,
                     pending_header,
                     preamble,
+                    told: None,
                 })
             }
             Bootstrap::Install(arch) => arch,

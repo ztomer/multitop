@@ -124,12 +124,17 @@ pub fn spawn_monitor(
                     while let Ok(Some(payload)) =
                         stream::next_packet(&mut stream, &mut errbuf).await
                     {
-                        match handshake_verdict(
+                        let verdict = handshake_verdict(
                             &payload,
                             &server.host,
                             &mut hello_seen,
                             &mut version_checked,
-                        ) {
+                        );
+                        // The agent has spoken, so its stdin is its own: say
+                        // the panel's size, and again whenever it changes.
+                        let panel = *dims_rx.borrow();
+                        stream.tell_size(panel).await;
+                        match verdict {
                             Handshake::Proceed => {}
                             Handshake::Skip => continue,
                             Handshake::End { line, mismatch } => {

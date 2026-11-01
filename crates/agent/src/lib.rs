@@ -15,8 +15,6 @@
 //! `exec/pump`, `proc`, `proc_sys`, `proc_disk`, `fetch`, `sys`, `sys_temps`,
 //! `tty_reply` and `monitor`.
 
-use std::os::unix::fs::FileTypeExt;
-
 pub mod adapt;
 pub mod chrome;
 pub mod color;
@@ -47,6 +45,7 @@ pub mod proc_sys;
 pub mod proto;
 pub mod render;
 pub mod render_layout;
+pub mod stdin_watch;
 pub mod surface;
 pub mod sys;
 pub mod sys_temps;
@@ -55,6 +54,7 @@ pub mod tty_reply;
 // Re-exported so the split is invisible to callers.
 use emit::emit_hello;
 pub use emit::{emit_docker, emit_fetch, emit_monitor, FrameBuf};
+pub use stdin_watch::{stdin_watcher, PanelSize};
 
 /// Frame delimiter on the wire between agent and TUI.
 pub const FRAME_MARKER: &str = "===MONITOR===";
@@ -213,21 +213,21 @@ pub fn parse_args<I: IntoIterator<Item = String>>(raw: I) -> Args {
     args
 }
 
-/// Columns sampled for the binary stream. The client re-renders locally at
-/// whatever size its panel happens to be, so the agent samples a generous
-/// fixed budget rather than guessing.
+/// Columns sampled for the binary stream until the client says its panel's
+/// size (`stdin_watch`), which an older client never does.
 const STREAM_COLS: usize = 120;
-/// Lines sampled for the binary stream — the process-list budget follows from
-/// this, and 50 is more rows than any panel draws.
+/// Lines sampled for the binary stream until the client says.
 const STREAM_LINES: usize = 50;
 
-/// How much to sample for one frame: exactly what this terminal draws, or the
-/// stream budget when the far end does the drawing.
-const fn sample_dims(args: &Args, is_tty: bool) -> (usize, usize) {
+/// How much to sample for one frame: exactly what this terminal draws, or
+/// what the client's panel draws when the far end does the drawing -- the
+/// size it last said (`told`), else the stream's default.
+#[must_use]
+pub fn sample_dims(args: &Args, is_tty: bool, told: Option<(usize, usize)>) -> (usize, usize) {
     if is_tty {
         (args.cols, args.lines)
     } else {
-        (STREAM_COLS, STREAM_LINES)
+        told.unwrap_or((STREAM_COLS, STREAM_LINES))
     }
 }
 
@@ -252,6 +252,7 @@ pub fn monitor_loop<W: std::io::Write>(
     args: &Args,
     is_tty: bool,
     pal: &crate::palette_view::PaletteView,
+    panel: &PanelSize,
     out: &mut W,
     next_tick: &mut dyn FnMut() -> Option<f64>,
 ) {
@@ -259,13 +260,15 @@ pub fn monitor_loop<W: std::io::Write>(
         let _ = emit_hello(out);
         let _ = out.flush();
     }
-    let (cols, lines) = sample_dims(args, is_tty);
     let mut buf = FrameBuf {
         text: String::with_capacity(consts::FRAME_BUF_CAPACITY),
         packet: Vec::with_capacity(consts::PACKET_CAPACITY),
     };
     let mut elapsed = 0.0;
     loop {
+        // Asked every tick: the client says a new size whenever its panel
+        // is resized.
+        let (cols, lines) = sample_dims(args, is_tty, panel.get());
         let snap = monitor.tick(elapsed, cols, lines, args.sort);
         if emit_monitor(snap, args, is_tty, pal, &mut buf, out).is_err() {
             return;
@@ -275,34 +278,6 @@ pub fn monitor_loop<W: std::io::Write>(
             None => return,
         }
     }
-}
-
-/// Watch stdin for EOF, which is how the agent learns its reader is gone.
-///
-/// Only a pipe is watched: a terminal's stdin belongs to the user, and a
-/// closed one there means nothing.
-#[must_use]
-pub fn stdin_eof_watcher() -> std::sync::Arc<std::sync::atomic::AtomicBool> {
-    use std::io::{self, IsTerminal, Read};
-    use std::sync::atomic::{AtomicBool, Ordering};
-    use std::sync::Arc;
-
-    let stdin_gone = Arc::new(AtomicBool::new(false));
-    let stdin_pipe = !io::stdin().is_terminal()
-        && std::fs::metadata("/proc/self/fd/0").is_ok_and(|m| m.file_type().is_fifo());
-    if stdin_pipe {
-        let sig = stdin_gone.clone();
-        std::thread::spawn(move || {
-            let mut buf = [0u8; consts::STDIN_WATCH_BUF];
-            while let Ok(n) = io::stdin().read(&mut buf) {
-                if n == 0 {
-                    break;
-                }
-            }
-            sig.store(true, Ordering::Relaxed);
-        });
-    }
-    stdin_gone
 }
 
 /// What the agent prints when asked what it is.
@@ -386,7 +361,8 @@ pub fn run_agent<I: IntoIterator<Item = String>>(raw: I) {
             }
         }
         Mode::Monitor => {
-            let stdin_gone = stdin_eof_watcher();
+            let panel = PanelSize::default();
+            let stdin_gone = stdin_watcher(&panel);
             if is_tty {
                 let _ = out.write_all(b"\x1b[?25l");
             }
@@ -402,7 +378,15 @@ pub fn run_agent<I: IntoIterator<Item = String>>(raw: I) {
                 last = Instant::now();
                 Some(elapsed)
             };
-            monitor_loop(&mut monitor, &args, is_tty, &view, &mut out, &mut next_tick);
+            monitor_loop(
+                &mut monitor,
+                &args,
+                is_tty,
+                &view,
+                &panel,
+                &mut out,
+                &mut next_tick,
+            );
         }
     }
 }

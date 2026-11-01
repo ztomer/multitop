@@ -78,7 +78,7 @@ fn the_fetch_mode_entry_point_runs_end_to_end() {
 fn watching_stdin_for_a_hangup_is_safe_wherever_stdin_came_from() {
     // Only a pipe is watched. On a host with no `/proc/self/fd/0` -- every
     // macOS build machine -- this must decide "not a pipe" rather than fail.
-    let gone = multitop_agent::stdin_eof_watcher();
+    let gone = multitop_agent::stdin_watcher(&multitop_agent::PanelSize::default());
 
     // The flag's *value* is deliberately not asserted, and asserting it was
     // false is what made this red under `cargo llvm-cov` while green under
