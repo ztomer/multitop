@@ -42,9 +42,10 @@ ALLOWED: dict[str, str] = {
     "crates/agent/src/monitor.rs": "Mach host statistics on macOS",
     "crates/agent/src/proc.rs": "proc_listpids/proc_pidinfo on macOS",
     "crates/agent/src/proc_disk.rs": "proc_pid_rusage for per-process disk I/O",
-    "crates/agent/src/proc_sys.rs": "sysctl process table on macOS",
+    "crates/agent/src/proc_sys.rs": "sysconf, and opendir/readdir(3) to walk /proc without a heap allocation per entry",
     "crates/agent/src/sys.rs": "sysctl/Mach sampling on macOS",
     "crates/agent/src/sys_temps.rs": "IOKit HID temperature sensors on macOS",
+    "crates/agent/tests/rss_bound_test.rs": "a counting GlobalAlloc, to measure what one tick allocates",
     "crates/agent/src/tty_reply.rs": "poll(2)/read(2) on stdin for a terminal's reply to a query",
     "crates/vault/src/mlock.rs": "mlock/munlock to pin key material in RAM",
 }

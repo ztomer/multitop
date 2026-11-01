@@ -74,7 +74,11 @@ pub struct Snapshot {
     /// is room to draw, capped by `proc_budget`, and this is what the machine
     /// is actually running. Filtering against the drawn list meant `/` could
     /// only find a host by a process near the top of its table.
-    pub proc_names: Vec<String>,
+    ///
+    /// Inline names (`ProcName`), not `String`s: the agent refills this list
+    /// every tick, and one heap allocation per process per tick is what the
+    /// static agent's allocator kept (roadmap M1).
+    pub proc_names: Vec<crate::proc_name::ProcName>,
 }
 
 /// Bar width for the aggregate rows, derived from the panel width.

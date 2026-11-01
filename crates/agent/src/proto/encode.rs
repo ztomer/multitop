@@ -16,10 +16,6 @@ use crate::render::{Snapshot, TempUnit};
 
 #[must_use]
 pub fn encode_packet(payload: &Payload) -> Vec<u8> {
-    let mut buf = Vec::with_capacity(crate::consts::PACKET_CAPACITY);
-    // Header: magic(4) + version(1) + mode(1) + payload_len(2)
-    buf.extend_from_slice(MAGIC);
-    buf.push(PROTO_VERSION);
     let mode = match payload {
         Payload::Monitor(_) => ProtoMode::Monitor,
         Payload::Docker { .. } => ProtoMode::Docker,
@@ -27,19 +23,45 @@ pub fn encode_packet(payload: &Payload) -> Vec<u8> {
         Payload::Exec(_) => ProtoMode::Exec,
         Payload::Hello(_) => ProtoMode::Hello,
     };
+    let mut buf = Vec::with_capacity(crate::consts::PACKET_CAPACITY);
+    frame(&mut buf, mode, |buf| match payload {
+        Payload::Monitor(snap) => encode_snapshot(snap, buf),
+        Payload::Docker { host, rows } => encode_docker(host, rows, buf),
+        Payload::Fetch(snap) => encode_fetch(snap, buf),
+        Payload::Exec(frame) => super::exec_codec::encode_exec(frame, buf),
+        Payload::Hello(h) => encode_hello(h, buf),
+    });
+    buf
+}
+
+/// A monitor packet, written into `buf` (cleared first), from a snapshot the
+/// caller keeps.
+///
+/// The same bytes as `encode_packet(&Payload::Monitor(snap.clone()))`, without
+/// the clone and without a fresh buffer. The agent encodes one of these every
+/// tick, for as long as it runs, and both were churn musl's allocator kept
+/// instead of reusing (roadmap M1): the clone copied every process name into a
+/// fresh `String`, and a fresh buffer grew 512 B -> 16 KiB by doubling, every
+/// frame, on a host whose name list fills the frame. A buffer the caller keeps
+/// grows only when a frame is bigger than every frame before it.
+pub fn encode_monitor_packet_into(snap: &Snapshot, buf: &mut Vec<u8>) {
+    frame(buf, ProtoMode::Monitor, |buf| encode_snapshot(snap, buf));
+}
+
+/// Header, then whatever `fill` writes, then the header's length set to it,
+/// all into `buf`, which is cleared first.
+fn frame(buf: &mut Vec<u8>, mode: ProtoMode, fill: impl FnOnce(&mut Vec<u8>)) {
+    buf.clear();
+    // Header: magic(4) + version(1) + mode(1) + payload_len(2)
+    buf.extend_from_slice(MAGIC);
+    buf.push(PROTO_VERSION);
     buf.push(mode.as_u8());
     buf.push(0); // payload_len placeholder byte 1
     buf.push(0); // payload_len placeholder byte 2
 
     let payload_start = buf.len();
 
-    match payload {
-        Payload::Monitor(snap) => encode_snapshot(snap, &mut buf),
-        Payload::Docker { host, rows } => encode_docker(host, rows, &mut buf),
-        Payload::Fetch(snap) => encode_fetch(snap, &mut buf),
-        Payload::Exec(frame) => super::exec_codec::encode_exec(frame, &mut buf),
-        Payload::Hello(h) => encode_hello(h, &mut buf),
-    }
+    fill(buf);
 
     // Truncate rather than lie. `as u16` wrapped here, so a payload over 64 KiB
     // wrote a header claiming `len % 65536` -- the reader consumed that many
@@ -62,8 +84,6 @@ pub fn encode_packet(payload: &Payload) -> Vec<u8> {
     let len_bytes = u16::try_from(payload_len).unwrap_or(u16::MAX).to_le_bytes();
     buf[6] = len_bytes[0];
     buf[7] = len_bytes[1];
-
-    buf
 }
 
 fn encode_str(s: &str, buf: &mut Vec<u8>) {
@@ -160,7 +180,7 @@ fn encode_docker(host: &str, rows: &[DockerRow], buf: &mut Vec<u8>) {
 /// what lets `decode_snapshot` gate this field on the version instead of
 /// refusing the packet, and refusing Monitor packets is the one thing it must
 /// never do -- the mismatch that replaces a stale agent is read out of one.
-fn encode_proc_names(names: &[String], buf: &mut Vec<u8>) {
+fn encode_proc_names(names: &[crate::proc_name::ProcName], buf: &mut Vec<u8>) {
     let count_pos = buf.len();
     buf.extend_from_slice(&0u16.to_le_bytes());
     let mut written: u16 = 0;

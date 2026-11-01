@@ -142,7 +142,7 @@ fn decode_snapshot(cur: &mut Cursor, version: u8) -> Option<Snapshot> {
         let count = cur.read_u16()? as usize;
         let mut names = Vec::with_capacity(count.min(cur.remaining() / 2));
         for _ in 0..count {
-            names.push(cur.read_str()?);
+            names.push(crate::proc_name::ProcName::new(&cur.read_str()?));
         }
         names
     } else {

@@ -1,8 +1,8 @@
 //! Low-level process sampling and stat parser functions.
 
 use crate::conv::signed;
+use crate::proc_name::ProcName;
 use std::collections::{HashMap, HashSet};
-use std::fs;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct PidSample {
@@ -15,7 +15,7 @@ pub struct RawProcStat {
     pub pid: u32,
     /// The authoritative name, when the scanner has one. Empty on Linux, where
     /// it is read lazily per drawn row -- see `stat_comm`.
-    pub comm: String,
+    pub comm: ProcName,
     /// The name as `/proc/[pid]/stat` spells it: free, because that file was
     /// read anyway, and truncated to fifteen characters by the kernel.
     ///
@@ -23,10 +23,18 @@ pub struct RawProcStat {
     /// enough for the table, which shows the name. The table therefore still
     /// pays `/proc/[pid]/comm` for the handful of rows it draws, and the filter
     /// pays nothing for the hundreds it does not.
-    pub stat_comm: String,
+    pub stat_comm: ProcName,
     pub ticks: u64,
     pub starttime: u64,
     pub rss_pages: u64,
+}
+
+/// A `/proc` entry's pid, when the entry is a process directory.
+fn pid_of(name: &[u8]) -> Option<u32> {
+    if !name.first().is_some_and(u8::is_ascii_digit) {
+        return None;
+    }
+    std::str::from_utf8(name).ok()?.parse().ok()
 }
 
 #[must_use]
@@ -37,7 +45,7 @@ pub fn parse_pid_stat(data: &str) -> Option<RawProcStat> {
         return None;
     }
     let pid: u32 = data[..open].trim().parse().ok()?;
-    let comm = data[open + 1..close].to_string();
+    let comm = ProcName::new(&data[open + 1..close]);
 
     let mut iter = data[close + 1..].split_ascii_whitespace();
     let utime_str = iter.nth(crate::consts::PROC_STAT_UTIME_FIELD)?;
@@ -54,7 +62,7 @@ pub fn parse_pid_stat(data: &str) -> Option<RawProcStat> {
 
     Some(RawProcStat {
         pid,
-        stat_comm: String::new(),
+        stat_comm: ProcName::default(),
         comm,
         ticks: utime.saturating_add(stime),
         starttime,
@@ -133,6 +141,8 @@ pub struct ProcSampler {
     pub scanned: Vec<RawProcStat>,
     pub active_pids: HashSet<u32>,
     pub temp_procs: Vec<(usize, f64, u64)>,
+    /// The pid list macOS's scan asks the kernel for, kept between ticks.
+    pub pid_buf: Vec<i32>,
 }
 
 impl Default for ProcSampler {
@@ -157,29 +167,38 @@ impl ProcSampler {
             scanned: Vec::with_capacity(crate::consts::PROC_SCAN_CAPACITY),
             active_pids: HashSet::with_capacity(crate::consts::PROC_SCAN_CAPACITY),
             temp_procs: Vec::with_capacity(crate::consts::PROC_SCAN_CAPACITY),
+            pid_buf: Vec::new(),
         }
     }
 
+    /// Read every process into `scanned`, reusing its capacity.
+    ///
+    /// No heap allocation per process: names are inline (`ProcName`), and
+    /// `/proc` is walked with `readdir(3)` rather than `std::fs::read_dir`,
+    /// which allocates two strings per entry -- the per-process churn the
+    /// static agent's allocator kept (roadmap M1). `scanned` itself grows only
+    /// when the host runs more processes than it has held before.
     pub fn scan(&mut self) {
         self.scanned.clear();
-        let Ok(entries) = fs::read_dir("/proc") else {
-            let macos = crate::sys::scan_macos();
-            self.scanned.reserve(macos.len());
-            for s in macos {
-                self.scanned.push(s);
-            }
+        // SAFETY: a NUL-terminated literal path; a null return is handled.
+        let dir = unsafe { libc::opendir(c"/proc".as_ptr()) };
+        if dir.is_null() {
+            crate::sys::scan_macos(&mut self.scanned, &mut self.pid_buf);
             return;
-        };
+        }
         let mut path_buf = [0u8; crate::consts::PROC_PATH_BUF];
         let mut file_buf = [0u8; crate::consts::PROC_PID_STAT_BUF];
 
-        for entry in entries.flatten() {
-            let name = entry.file_name();
-            let Some(name) = name.to_str() else { continue };
-            if !name.as_bytes().first().is_some_and(u8::is_ascii_digit) {
-                continue;
+        loop {
+            // SAFETY: `dir` is the open stream from above, closed only after
+            // this loop; the entry it returns is valid until the next call.
+            let entry = unsafe { libc::readdir(dir) };
+            if entry.is_null() {
+                break;
             }
-            let Ok(pid) = name.parse::<u32>() else {
+            // SAFETY: `d_name` is a NUL-terminated array inside `*entry`.
+            let name = unsafe { std::ffi::CStr::from_ptr((*entry).d_name.as_ptr()) };
+            let Some(pid) = pid_of(name.to_bytes()) else {
                 continue;
             };
             let path = fmt_proc_stat_path(pid, &mut path_buf);
@@ -198,5 +217,7 @@ impl ProcSampler {
                 }
             }
         }
+        // SAFETY: `dir` came from `opendir` and is closed exactly once.
+        unsafe { libc::closedir(dir) };
     }
 }

@@ -132,10 +132,10 @@ fn a_tick_samples_this_host_and_names_it() {
 fn a_tick_never_asks_for_more_processes_than_the_frame_can_hold() {
     let mut monitor = Monitor::new("h".into());
     // A frame with almost no room must not come back with a full process list.
-    let tiny = monitor.tick(1.0, 40, 6, SortBy::Cpu);
-    let roomy = monitor.tick(1.0, 200, 60, SortBy::Cpu);
+    let tiny = monitor.tick(1.0, 40, 6, SortBy::Cpu).procs.len();
+    let roomy = monitor.tick(1.0, 200, 60, SortBy::Cpu).procs.len();
     assert!(
-        tiny.procs.len() <= roomy.procs.len(),
+        tiny <= roomy,
         "a smaller frame asked for more processes than a larger one"
     );
 }

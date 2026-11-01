@@ -415,7 +415,8 @@ fn the_name_list_covers_processes_the_table_had_no_room_for() {
     let mut sampler = ProcSampler::new();
     sampler.prime();
     let table = sampler.top(1.0, 1, SortBy::Cpu);
-    let names = sampler.scanned_names();
+    let mut names = Vec::new();
+    sampler.fill_names(&mut names);
 
     assert!(table.len() <= 1, "the table ignored its budget");
     // Stated as a precondition rather than assumed: a host running one process
@@ -433,7 +434,7 @@ fn the_name_list_covers_processes_the_table_had_no_room_for() {
     }
     for p in &table {
         assert!(
-            names.iter().any(|n| n == &p.name),
+            names.iter().any(|n| *n == p.name.as_str()),
             "a process in the table is missing from the list: {}",
             p.name
         );
@@ -447,7 +448,8 @@ fn the_name_list_is_deduplicated_sorted_and_bounded() {
     // rather than a set's arbitrary order.
     let mut sampler = ProcSampler::new();
     sampler.prime();
-    let names = sampler.scanned_names();
+    let mut names = Vec::new();
+    sampler.fill_names(&mut names);
 
     let mut unique = names.clone();
     unique.dedup();
@@ -475,10 +477,13 @@ fn the_name_list_is_rebuilt_each_scan_rather_than_accumulating() {
     // that exited would stay findable forever.
     let mut sampler = ProcSampler::new();
     sampler.prime();
+    let mut names = Vec::new();
     let _ = sampler.top(1.0, 3, SortBy::Cpu);
-    let first = sampler.scanned_names().len();
+    sampler.fill_names(&mut names);
+    let first = names.len();
     let _ = sampler.top(1.0, 3, SortBy::Cpu);
-    let second = sampler.scanned_names().len();
+    sampler.fill_names(&mut names);
+    let second = names.len();
     // Processes come and go on a real host, so this is a band rather than an
     // equality -- but an accumulating list would roughly double.
     assert!(

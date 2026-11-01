@@ -146,7 +146,7 @@ fn a_docker_view_that_cannot_be_written_reports_the_failure() {
 
 #[test]
 fn a_piped_monitor_frame_is_a_packet_the_client_can_decode() {
-    let mut buf = String::new();
+    let mut buf = FrameBuf::default();
     let mut out = Vec::new();
     emit_monitor(
         &snapshot(),
@@ -164,7 +164,46 @@ fn a_piped_monitor_frame_is_a_packet_the_client_can_decode() {
     assert_eq!(got.host, "web-01");
     assert_eq!(got.procs.len(), 1);
     // Nothing was drawn, so the render buffer stays untouched.
-    multitop_testassert::assert_empty!(buf);
+    multitop_testassert::assert_empty!(buf.text);
+}
+
+#[test]
+fn the_packet_buffer_is_reused_without_accumulating_frames() {
+    // Kept between frames so a frame costs no allocation (roadmap M1), which
+    // is only right if each frame starts from an empty buffer: a packet
+    // appended to the last one would be a stream the client cannot parse.
+    let mut buf = FrameBuf {
+        packet: b"left over from an earlier frame".to_vec(),
+        ..FrameBuf::default()
+    };
+    let mut first = Vec::new();
+    emit_monitor(
+        &snapshot(),
+        &Args::default(),
+        false,
+        &pal(),
+        &mut buf,
+        &mut first,
+    )
+    .unwrap();
+    let mut second = Vec::new();
+    emit_monitor(
+        &snapshot(),
+        &Args::default(),
+        false,
+        &pal(),
+        &mut buf,
+        &mut second,
+    )
+    .unwrap();
+    assert_eq!(
+        first, second,
+        "the same snapshot encoded differently the second time"
+    );
+    assert!(
+        matches!(decode_packet(&first), Some(Payload::Monitor(_))),
+        "stale bytes survived into the packet"
+    );
 }
 
 #[test]
@@ -174,7 +213,7 @@ fn a_monitor_frame_on_a_terminal_repaints_in_place() {
         lines: 24,
         ..Args::default()
     };
-    let mut buf = String::new();
+    let mut buf = FrameBuf::default();
     let mut out = Vec::new();
     emit_monitor(&snapshot(), &args, true, &pal(), &mut buf, &mut out).unwrap();
     let text = String::from_utf8(out).unwrap();
@@ -195,17 +234,20 @@ fn the_render_buffer_is_reused_without_accumulating_frames() {
         lines: 20,
         ..Args::default()
     };
-    let mut buf = String::from("left over from an earlier frame");
+    let mut buf = FrameBuf {
+        text: String::from("left over from an earlier frame"),
+        ..FrameBuf::default()
+    };
     let mut out = Vec::new();
     emit_monitor(&snapshot(), &args, true, &pal(), &mut buf, &mut out).unwrap();
     assert!(
-        !buf.contains("left over"),
+        !buf.text.contains("left over"),
         "stale frame text survived into the next frame"
     );
 
-    let first = buf.len();
+    let first = buf.text.len();
     emit_monitor(&snapshot(), &args, true, &pal(), &mut buf, &mut out).unwrap();
-    assert_eq!(buf.len(), first, "the buffer grew across frames");
+    assert_eq!(buf.text.len(), first, "the buffer grew across frames");
 }
 
 // -------------------------------------------------------------------- loop

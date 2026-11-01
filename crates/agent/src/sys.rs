@@ -9,6 +9,8 @@ use crate::proc::{CpuStat, NetTotals, RawProcStat, Usage};
 // and the cfg says so.
 #[cfg(target_os = "macos")]
 use crate::proc::CpuTimes;
+#[cfg(target_os = "macos")]
+use crate::proc_name::ProcName;
 
 // libc deprecated its Mach bindings in favour of `mach2` (house rule: migrate
 // on sight). The three port calls come from mach2; mach2 0.7 has no
@@ -206,24 +208,25 @@ pub fn get_net_macos() -> NetTotals {
     NetTotals::default()
 }
 
+/// Every process, into `out`, with `pids` as the kernel's scratch list. Both
+/// are the caller's, kept between ticks, so a warm scan allocates nothing.
 #[cfg(target_os = "macos")]
-#[must_use]
-pub fn scan_macos() -> Vec<RawProcStat> {
-    let mut out = Vec::with_capacity(crate::consts::IOKIT_SENSOR_CAPACITY);
+pub fn scan_macos(out: &mut Vec<RawProcStat>, pids: &mut Vec<i32>) {
     let num_pids = unsafe { libc::proc_listallpids(std::ptr::null_mut(), 0) };
     if num_pids <= 0 {
-        return out;
+        return;
     }
     // `num_pids` is positive here (checked above); the buffer size in bytes is
     // what the kernel wants and fits `i32` for any real process count.
-    let mut pids = vec![0i32; usize::try_from(num_pids).unwrap_or(0) + 64];
+    pids.clear();
+    pids.resize(usize::try_from(num_pids).unwrap_or(0) + 64, 0);
     let buf_bytes = i32::try_from(pids.len() * std::mem::size_of::<i32>()).unwrap_or(i32::MAX);
     let bytes_got = unsafe { libc::proc_listallpids(pids.as_mut_ptr().cast(), buf_bytes) };
     let Ok(bytes_got) = usize::try_from(bytes_got) else {
-        return out;
+        return;
     };
     if bytes_got == 0 {
-        return out;
+        return;
     }
     let actual_count = bytes_got / std::mem::size_of::<i32>();
     let clk_tck = unsafe { libc::sysconf(libc::_SC_CLK_TCK) };
@@ -255,9 +258,17 @@ pub fn scan_macos() -> Vec<RawProcStat> {
         let name_res = unsafe { libc::proc_name(pid, name_buf.as_mut_ptr().cast(), name_len) };
         let comm = match usize::try_from(name_res) {
             Ok(n) if n > 0 => {
-                String::from_utf8_lossy(&name_buf[..n.min(name_buf.len())]).to_string()
+                ProcName::new(&String::from_utf8_lossy(&name_buf[..n.min(name_buf.len())]))
             }
-            _ => format!("pid_{pid}"),
+            // On the stack, like every other name the scan reads.
+            _ => {
+                use std::io::Write;
+                let mut b = [0u8; crate::consts::PROC_NAME_CAP];
+                let mut w = &mut b[..];
+                let _ = write!(w, "pid_{pid}");
+                let n = crate::consts::PROC_NAME_CAP - w.len();
+                ProcName::new(std::str::from_utf8(&b[..n]).unwrap_or_default())
+            }
         };
 
         let total_ns = task_info.pti_total_user + task_info.pti_total_system;
@@ -267,18 +278,14 @@ pub fn scan_macos() -> Vec<RawProcStat> {
         out.push(RawProcStat {
             // `pid > 0` was checked at the top of the loop.
             pid: u32::try_from(pid).unwrap_or(0),
-            stat_comm: String::new(),
+            stat_comm: ProcName::default(),
             comm,
             ticks,
             starttime: 0,
             rss_pages,
         });
     }
-    out
 }
 
 #[cfg(not(target_os = "macos"))]
-#[must_use]
-pub const fn scan_macos() -> Vec<RawProcStat> {
-    Vec::new()
-}
+pub const fn scan_macos(_out: &mut Vec<RawProcStat>, _pids: &mut Vec<i32>) {}

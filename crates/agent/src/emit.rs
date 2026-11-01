@@ -88,8 +88,19 @@ pub fn emit_docker<W: std::io::Write>(
     out.flush()
 }
 
-/// One monitor frame. `buf` is reused across frames so a repainting terminal
-/// costs no allocation per tick.
+/// The buffers a monitor frame is written through, kept between frames.
+///
+/// The repainted screen on a terminal, the packet on a pipe. Each grows only
+/// when a frame is bigger than every one before it, so a frame costs no
+/// allocation (roadmap M1: a fresh packet buffer per frame was the churn the
+/// static agent's allocator kept).
+#[derive(Debug, Default)]
+pub struct FrameBuf {
+    pub text: String,
+    pub packet: Vec<u8>,
+}
+
+/// One monitor frame, through the caller's kept buffers.
 ///
 /// # Errors
 ///
@@ -100,15 +111,15 @@ pub fn emit_monitor<W: std::io::Write>(
     args: &Args,
     is_tty: bool,
     pal: &crate::palette_view::PaletteView,
-    buf: &mut String,
+    bufs: &mut FrameBuf,
     out: &mut W,
 ) -> std::io::Result<()> {
     if !is_tty {
-        out.write_all(&proto::encode_packet(&proto::Payload::Monitor(
-            snap.clone(),
-        )))?;
+        proto::encode_monitor_packet_into(snap, &mut bufs.packet);
+        out.write_all(&bufs.packet)?;
         return out.flush();
     }
+    let buf = &mut bufs.text;
     buf.clear();
     buf.push_str("\x1b[H\x1b[J");
     render::render_to_buf(

@@ -25,7 +25,7 @@ fn mock_snapshot(host: &str) -> Snapshot {
         cpu_pct: 15.0,
         cpu_mhz: Some(2400.0),
         cores: vec![(0, 15.0, Some(45.0))],
-        proc_names: vec!["init".to_string()],
+        proc_names: vec!["init".into()],
         temp_unit: TempUnit::C,
         mem: Usage::new(1000, 200),
         disk: Usage::new(5000, 1000),

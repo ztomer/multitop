@@ -57,7 +57,7 @@ fn monitor_with_hidden(reported_host: &str, procs: &[&str], also_running: &[&str
     snap.proc_names = procs
         .iter()
         .chain(also_running.iter())
-        .map(|s| (*s).to_string())
+        .map(|s| (*s).into())
         .collect();
     Payload::Monitor(snap)
 }

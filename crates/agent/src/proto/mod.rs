@@ -229,7 +229,7 @@ mod encode;
 mod exec_codec;
 
 pub use decode::{decode_packet, Cursor};
-pub use encode::encode_packet;
+pub use encode::{encode_monitor_packet_into, encode_packet};
 pub use exec_codec::{decode_exec, encode_exec};
 
 #[cfg(test)]

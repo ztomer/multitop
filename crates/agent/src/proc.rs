@@ -281,6 +281,7 @@ pub struct Proc {
     pub mem: u64,
 }
 
+use crate::proc_name::ProcName;
 pub use crate::proc_sys::*;
 
 impl ProcSampler {
@@ -361,7 +362,7 @@ impl ProcSampler {
                 name: if scanned[i].comm.is_empty() {
                     crate::proc_sys::read_comm(scanned[i].pid)
                 } else {
-                    scanned[i].comm.clone()
+                    scanned[i].comm.to_string()
                 },
                 cpu,
                 mem,
@@ -382,9 +383,12 @@ impl ProcSampler {
     /// else. A pool would have to be filled by `top`, which makes this return
     /// nothing unless the caller happens to have called `top` first -- an
     /// ordering rule enforced by a comment, which is not enforced at all.
-    #[must_use]
-    pub fn scanned_names(&self) -> Vec<String> {
-        let mut names: Vec<String> = Vec::with_capacity(self.scanned.len());
+    ///
+    /// Filled into the caller's buffer, which the monitor keeps between ticks:
+    /// a list built fresh every tick, at the size of the process table, was
+    /// part of the churn the static agent's allocator kept (roadmap M1).
+    pub fn fill_names(&self, names: &mut Vec<ProcName>) {
+        names.clear();
         for s in &self.scanned {
             // Whichever the platform filled. On Linux that is the truncated
             // one, and truncated is what a substring filter can live with; on
@@ -395,7 +399,7 @@ impl ProcSampler {
                 &s.comm
             };
             if !name.is_empty() {
-                names.push(name.clone());
+                names.push(*name);
             }
         }
         // Sorted so an unchanged host produces the same bytes each tick -- and
@@ -405,7 +409,6 @@ impl ProcSampler {
         // Deduplicated first: a host with forty `nginx` workers spends one name
         // of the budget, not forty.
         names.truncate(crate::consts::MAX_FILTER_NAMES);
-        names
     }
 }
 

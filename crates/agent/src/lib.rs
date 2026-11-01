@@ -41,6 +41,7 @@ pub mod monitor;
 pub mod palette_view;
 pub mod proc;
 pub mod proc_disk;
+pub mod proc_name;
 pub mod proc_sys;
 pub mod proto;
 pub mod render;
@@ -52,7 +53,7 @@ pub mod tty_reply;
 
 // Re-exported so the split is invisible to callers.
 use emit::emit_hello;
-pub use emit::{emit_docker, emit_fetch, emit_monitor};
+pub use emit::{emit_docker, emit_fetch, emit_monitor, FrameBuf};
 
 /// Frame delimiter on the wire between agent and TUI.
 pub const FRAME_MARKER: &str = "===MONITOR===";
@@ -258,11 +259,14 @@ pub fn monitor_loop<W: std::io::Write>(
         let _ = out.flush();
     }
     let (cols, lines) = sample_dims(args, is_tty);
-    let mut buf = String::with_capacity(consts::FRAME_BUF_CAPACITY);
+    let mut buf = FrameBuf {
+        text: String::with_capacity(consts::FRAME_BUF_CAPACITY),
+        packet: Vec::with_capacity(consts::PACKET_CAPACITY),
+    };
     let mut elapsed = 0.0;
     loop {
         let snap = monitor.tick(elapsed, cols, lines, args.sort);
-        if emit_monitor(&snap, args, is_tty, pal, &mut buf, out).is_err() {
+        if emit_monitor(snap, args, is_tty, pal, &mut buf, out).is_err() {
             return;
         }
         match next_tick() {

@@ -461,7 +461,7 @@ fn a_name_list_too_large_for_one_packet_is_truncated_rather_than_split() {
     // desynchronise everything after it.
     let mut snap = snapshot();
     snap.proc_names = (0..20_000)
-        .map(|i| format!("process-with-a-long-name-{i}"))
+        .map(|i| multitop_agent::proc_name::ProcName::new(&format!("process-with-a-long-name-{i}")))
         .collect();
     let packet = multitop_agent::proto::encode_packet(&Payload::Monitor(snap));
     let Some(Payload::Monitor(back)) = multitop_agent::proto::decode_packet(&packet) else {

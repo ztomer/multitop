@@ -85,6 +85,10 @@ pub const PROC_PATH_BUF: usize = 48;
 pub const PID_DIGITS_BUF: usize = 16;
 /// `/proc/<pid>/comm` holds a truncated command name.
 pub const PROC_COMM_BUF: usize = 64;
+/// The longest process name a kernel hands out: macOS's `proc_name` returns up
+/// to `2 * MAXCOMLEN`, and Linux truncates `comm` to 15 bytes. Held inline in
+/// a `ProcName`, so it must stay below `u8::MAX`.
+pub const PROC_NAME_CAP: usize = 32;
 /// One `/proc/<pid>/stat` line.
 pub const PROC_PID_STAT_BUF: usize = 512;
 /// Processes to reserve room for before the first scan. A busy host has more,

@@ -23,8 +23,8 @@ use multitop_agent::proc::{Proc, Usage};
 use multitop_agent::proto::{decode_packet, Payload};
 use multitop_agent::render::Snapshot;
 use multitop_agent::{
-    emit_docker, emit_fetch, emit_monitor, monitor_loop, palette_for_env, parse_args, Args, Mode,
-    SortBy,
+    emit_docker, emit_fetch, emit_monitor, monitor_loop, palette_for_env, parse_args, Args,
+    FrameBuf, Mode, SortBy,
 };
 
 /// A writer that fails on the nth write, standing in for the reader hanging up.

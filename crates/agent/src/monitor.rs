@@ -6,10 +6,18 @@ use crate::proc::{self, CpuStat, NetTotals, ProcSampler};
 use crate::render::{Chrome, Snapshot};
 
 pub struct Monitor {
-    host: String,
     prev_cpu: CpuStat,
     prev_net: NetTotals,
     sampler: ProcSampler,
+    /// The frame, kept and refilled every tick rather than built afresh.
+    ///
+    /// Its lists -- cores, rows, every process name the filter searches -- are
+    /// buffers whose capacity stays between ticks, so a warm tick allocates
+    /// nothing in proportion to the process table, and they grow only when
+    /// the host runs more than they have held before. A fresh frame per tick
+    /// rebuilt the name list at the size of the table every two seconds, and
+    /// the static agent's allocator kept the churn (roadmap M1).
+    snap: Snapshot,
 }
 
 impl Monitor {
@@ -20,16 +28,20 @@ impl Monitor {
         let mut sampler = ProcSampler::new();
         sampler.prime();
         Self {
-            host,
             prev_cpu: proc::get_cpu_stat(),
             prev_net: proc::get_net(),
             sampler,
+            snap: Snapshot {
+                host,
+                agent_version: AGENT_VERSION.to_string(),
+                ..Snapshot::default()
+            },
         }
     }
 
     #[must_use]
     pub fn host(&self) -> &str {
-        &self.host
+        &self.snap.host
     }
 
     /// Sample everything once and return the frame to draw.
@@ -39,25 +51,21 @@ impl Monitor {
         cols: usize,
         lines: usize,
         sort_by: crate::SortBy,
-    ) -> Snapshot {
+    ) -> &Snapshot {
         let cpu = proc::get_cpu_stat();
         let net = proc::get_net();
-        let mem = proc::get_memory();
-        let disk = proc::get_disk();
-
-        let cpu_pct = cpu.aggregate.pct_since(&self.prev_cpu.aggregate);
 
         let temps = proc::get_core_temps();
-        let cores: Vec<(usize, f64, Option<f64>)> = cpu
-            .cores
-            .iter()
-            .filter_map(|(idx, curr)| {
-                let prev = self.prev_cpu.core(*idx)?;
+        let prev_cpu = &self.prev_cpu;
+        let snap = &mut self.snap;
+        snap.cores.clear();
+        snap.cores
+            .extend(cpu.cores.iter().filter_map(|(idx, curr)| {
+                let prev = prev_cpu.core(*idx)?;
                 let cp = curr.pct_since(&prev);
                 let t = temps.get(idx).copied().or_else(|| temps.get(&0).copied());
                 Some((*idx, cp, t))
-            })
-            .collect();
+            }));
 
         let rate = |curr: u64, prev: u64| {
             if interval > 0.0 {
@@ -66,28 +74,20 @@ impl Monitor {
                 0.0
             }
         };
-        let rx_rate = rate(net.rx, self.prev_net.rx);
-        let tx_rate = rate(net.tx, self.prev_net.tx);
+        snap.cpu_pct = cpu.aggregate.pct_since(&prev_cpu.aggregate);
+        snap.cpu_mhz = crate::cpufreq::get_cpu_mhz();
+        snap.temp_unit = crate::render::TempUnit::default();
+        snap.mem = proc::get_memory();
+        snap.disk = proc::get_disk();
+        snap.rx_rate = rate(net.rx, self.prev_net.rx);
+        snap.tx_rate = rate(net.tx, self.prev_net.tx);
 
         // Everything except the process list is known now, so the panel can
         // ask for exactly as many processes as it has room to draw.
-        let mut snap = Snapshot {
-            host: self.host.clone(),
-            agent_version: AGENT_VERSION.to_string(),
-            cpu_pct,
-            cpu_mhz: crate::cpufreq::get_cpu_mhz(),
-            cores,
-            temp_unit: crate::render::TempUnit::default(),
-            mem,
-            disk,
-            rx_rate,
-            tx_rate,
-            procs: Vec::new(),
-            proc_names: Vec::new(),
-        };
-        let budget = Chrome::of(&snap, cols, lines).proc_budget(lines);
+        snap.procs.clear();
+        let budget = Chrome::of(snap, cols, lines).proc_budget(lines);
         snap.procs = self.sampler.top(interval, budget, sort_by);
-        snap.proc_names = self.sampler.scanned_names();
+        self.sampler.fill_names(&mut snap.proc_names);
 
         self.prev_cpu = cpu;
         self.prev_net = net;
@@ -97,7 +97,7 @@ impl Monitor {
             libc::malloc_trim(0);
         }
 
-        snap
+        &self.snap
     }
 }
 

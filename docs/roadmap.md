@@ -275,6 +275,74 @@ The `repack`/`convert` logo pipeline (`scripts/repack_logos.py`,
 `scripts/convert_logos.py`, over `crates/multitop/data/logos.bin.zst`) already
 renders app icons, so an icon is not a blocker.
 
+## M1 — the agent's resident memory grows while it runs (opened 2026-11-01)
+
+The owner, 2026-11-01: "we may have a memory leak with the agent for monitor -
+it grows slowly, and reached 5mb on .158. investigate. consider porting it to
+rust. add to the roadmap."
+
+**The port is already done:** `multitop-agent` (`crates/agent`) is Rust, shipped
+as a static, stripped musl binary per Linux triple (`release.sh` `TRIPLES`). No
+port is planned; the question is what the Rust agent keeps.
+
+**The curve (2026-11-01, read-only sampling of the live agents, 1 min apart):**
+`.158` pid 75023 was at 5,880 kB VmRSS = VmHWM (RssAnon 4,804 kB) at 18 min;
+its successor sat at 244 kB anon for 40 min. `.33` grew to 12,548 kB anon in
+~13 min (~40 kB/s), then held there (12,552 kB at 43 min). `.90` crept 1,220 ->
+1,372 kB. So: bounded per host, but at up to ~11x the 1.1 MB working set, and
+the level is set by the host -- how many processes, how many distinct names.
+
+**Not a leak in Rust's sense, and not the code alone: the allocator.** A
+counting global allocator showed live bytes flat over hundreds of ticks. The
+same commit built for glibc sat at 532 kB anon on `.33` while the musl build
+(what ships) grew to 7,136 kB in the same 5 minutes. A census of the grown
+heap found ~4,700 dead copies of `containerd-shim`: freed per-tick strings
+that musl's mallocng kept instead of reusing. Bisected on `.33` component by
+component, two per-tick patterns set it off: (1) a fresh `String` per process
+per tick, three times over (the scan's `comm`, the filter's name list, and a
+`snap.clone()` to encode it) plus two more per `/proc` entry inside
+`std::fs::read_dir`; (2) a fresh packet buffer per frame, doubling 512 B ->
+16 KiB, on a host whose 409 distinct names fill the frame. mimalloc was tried
+and rejected: flat, but 8 MB resident from the first minute (VmData 1 GB).
+
+**The fix (the owner's design, 2026-11-01: "We have limited number of potential
+processes with limited length, and we can use a vector only if we're above this
+number"):** a warm tick does no heap work in proportion to the host. Names are
+inline (`proc_name.rs`, 32 bytes: Linux caps `comm` at 15, macOS at 32); `/proc`
+is walked with `readdir(3)`; the monitor keeps its `Snapshot` and the loop its
+`FrameBuf`, so the table, the name list and the packet are buffers that grow
+only past a new high-water mark; the monitor frame is encoded from a borrow.
+Measured on `.33` in-process: tick + encode held RssAnon at 1,140 kB over 600
+ticks (before: 1,692 -> 10,312 kB).
+
+**The gate:** `crates/agent/tests/rss_bound_test.rs` runs the real tick at 200
+and 600 distinctly named, churning processes under a counting allocator, and
+fails if one warm tick's allocation count or bytes grow with the host; on
+Linux it also bounds RssAnon over 600 ticks at 900 processes. Proven red three
+ways: the pre-fix code (+1,637 allocations a tick for +400 processes on musl),
+one injected `String` per name (+400), and a fresh packet buffer (+8.2 kB).
+
+Still open: the post-release RSS of the shipped agent on `.158` after a few
+hours (recorded here once read).
+
+## M2 — sibling findings from M1 (opened 2026-11-01)
+
+* **`/proc/net/dev` is read into a fixed 2,048-byte buffer** (`proc::net_from`),
+  and it is 5,984 bytes on `.33`: the network rates there count only the
+  interfaces in the first 2 KiB. `/proc/stat` (4 KiB buffer) is 3,341 bytes on
+  `.33` and would truncate per-core rows on a host past ~60 cores. The class: a
+  fixed one-`read` buffer over a pseudo-file whose size the host decides.
+  Proof: a fixture larger than the buffer whose last interface is counted.
+* **The filter's name list caps at 512 distinct names** (`MAX_FILTER_NAMES`).
+  The fleet is under it (409 / 206 / 144), the Mac is not (778), so `/` on
+  the local panel misses names. ~2,048 still fits the 64 KiB packet.
+* **A warm tick still makes ~140 small, fixed allocations** (the shipped rows'
+  names, cpufreq paths and readings, the sensor map). Flat, but not zero; a
+  zero-allocation tick would let the gate assert zero instead of "does not
+  scale".
+* **The row budget is a layout computation in the agent** (`Chrome::of` at a
+  fixed 120x50), a client concern; a constant would do.
+
 ## Phase 3 — parked on a trigger: post-quantum KEM (size M when it fires)
 
 Sequenced against its trigger, not a date. For a device-local vault file read by
