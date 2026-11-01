@@ -25,7 +25,7 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(__import__("pathlib").Path(__file__).resolve().parent))
-from _scope import scope_is_empty
+from _scope import own_rglob, scope_is_empty
 
 ROOT = Path(__file__).resolve().parent.parent
 
@@ -347,7 +347,7 @@ def main() -> int:
     if "--self-test" in sys.argv:
         return self_test()
 
-    scanned = sorted(ROOT.rglob("*.rs"))
+    scanned = sorted(own_rglob(ROOT, "*.rs"))
     if scope_is_empty("keychain-isolation", len(scanned), "Rust files"):
         return 1
     found = offenders(ROOT)

@@ -15,6 +15,7 @@ dispatch in `check_doc_paths.py`, which is where the `--self-test` handling
 stays, so the probe is still discovered and still run from where it always was.
 """
 
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -256,6 +257,37 @@ def self_test() -> int:
     (root / "crates" / "app" / "views.rs").unlink()
     (root / "crates" / "app").rmdir()
     (root / "crates").rmdir()
+
+    return _nested_checkout_case(root, never)
+
+
+def _nested_checkout_case(root: Path, never: set[str]) -> int:
+    """The last case, kept out of `self_test` only for its branch count."""
+    # Another CHECKOUT nested in this one is not a second copy of the file. A
+    # git worktree under `.claude/worktrees/` carries the whole tree again, and
+    # walking into it made every suffix-resolved path ambiguous: main's commits
+    # failed on `ops/triage.rs` while a parallel session had a worktree open
+    # (2026-11-01). Its `.git` FILE is what marks it as someone else's.
+    nested = root / ".claude" / "worktrees" / "other"
+    (nested / "src" / "app").mkdir(parents=True)
+    (nested / ".git").write_text("gitdir: /elsewhere\n", encoding="utf-8")
+    (nested / "src" / "app" / "views.rs").write_text("//\n", encoding="utf-8")
+    if target.offenders(root, never):
+        print(
+            "self-test FAILED: a file inside a nested worktree made a path "
+            "ambiguous -- another checkout's files are not this repository's"
+        )
+        return 1
+    # ...and a nested directory WITHOUT `.git` is still this repository's: the
+    # exclusion is the checkout marker, not the directory's name or depth.
+    (nested / ".git").unlink()
+    if not target.offenders(root, never):
+        print(
+            "self-test FAILED: a nested directory with no `.git` was skipped -- "
+            "only another checkout may be excluded, not any deep directory"
+        )
+        return 1
+    shutil.rmtree(root / ".claude")
 
     print("check_doc_paths self-test: ok")
     return 0

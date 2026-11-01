@@ -45,6 +45,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+from _scope import own_rglob
+
 REPO = Path(__file__).resolve().parent.parent
 
 #: The docs that instruct. CHANGELOG.md is absent on purpose -- see the module
@@ -140,7 +142,7 @@ def resolves(root: Path, relative: Path) -> str | None:
     if (root / relative).exists():
         return str(relative)
     tail = relative.parts
-    matches = [path for path in root.rglob(relative.name) if path.is_file() and path.parts[-len(tail) :] == tail]
+    matches = [path for path in own_rglob(root, relative.name) if path.is_file() and path.parts[-len(tail) :] == tail]
     if len(matches) == 1:
         return str(matches[0].relative_to(root))
     return None
