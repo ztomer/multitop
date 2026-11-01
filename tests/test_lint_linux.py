@@ -3,7 +3,8 @@
 Owner ruling D.MON2 (2026-10-31): on macOS the container runtime is Colima.
 When `docker info` succeeds, use it and stop nothing. When it fails, run `colima start`,
 run the lint, and ensure `colima stop` runs on every exit path (clean exit, lint failure,
-or signal). Overridable DOCKER and COLIMA environment variables allow fakes under test.
+or signal). Overridable DOCKER and COLIMA environment variables allow fakes under test; the
+runtime seam itself is goh's lib/container_runtime.sh (GOH.CR1).
 """
 
 from __future__ import annotations
@@ -43,6 +44,10 @@ def _setup(
         f"""#!/usr/bin/env bash
 set -e
 echo "$1" >> "{colima_log}"
+case "$1" in
+  start) : > "{tmp_path}/up" ;;
+  stop) rm -f "{tmp_path}/up" ;;
+esac
 exit 0
 """
     )
@@ -59,6 +64,7 @@ set -e
 echo "$1" >> "{docker_log}"
 case "$1" in
   info)
+    [ -f "{tmp_path}/up" ] && exit 0
     exit {info_exit}
     ;;
   run)
@@ -85,6 +91,8 @@ esac
         "COLIMA": str(fake_colima),
         "GOH_DIR": _goh(),
         "NO_COLOR": "1",
+        # The leases live here, never in the machine's real state dir.
+        "GOH_CONTAINER_STATE": str(tmp_path / "runtime_state"),
     }
     return env, colima_log, docker_log
 

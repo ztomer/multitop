@@ -14,26 +14,14 @@ GOH="${GOH_DIR:-$HOME/Projects/gates_of_heck}"
 . "$GOH/tui/lib.sh"
 
 DOCKER="${DOCKER:-docker}"
-COLIMA="${COLIMA:-colima}"
-
-started_colima=0
-cleanup() {
-    if [ "$started_colima" -eq 1 ]; then
-        info "stopping container runtime ($COLIMA stop)"
-        "$COLIMA" stop || true
-    fi
-}
-trap cleanup EXIT
+# Start the container runtime when it is down, and stop it after only if goh
+# started it and no other gate still holds it (goh lib/container_runtime.sh).
+# shellcheck source=/Users/ztomer/Projects/gates_of_heck/lib/container_runtime.sh
+. "$GOH/lib/container_runtime.sh"
+trap goh_container_runtime_down EXIT
 trap 'exit 130' INT
 trap 'exit 143' TERM
-
-if ! "$DOCKER" info >/dev/null 2>&1; then
-    info "starting container runtime ($COLIMA start)"
-    # Marked BEFORE the start: a start that fails half-way still leaves a VM
-    # this script owns, and the trap's stop is harmless when nothing came up.
-    started_colima=1
-    "$COLIMA" start
-fi
+goh_container_runtime_up "monitor lint_linux"
 
 info "clippy on linux/arm64 (rust:1-bookworm + libdbus-1-dev libtss2-dev)"
 # The host's ~/.cargo/config.toml (sccache wrapper, shared target dir) must
