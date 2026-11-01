@@ -30,7 +30,8 @@
 #      tag-exists precondition, because a dry run tags nothing)
 #   2. gates (make clippy-targets + cargo test, mirroring CI)
 #   3. ./build.sh — cross-compiles both agents from this checkout
-#   4. tag, push the tag, create the GitHub release with CHANGELOG notes,
+#   4. ./install.sh (the push gate compares the installed binary with this
+#      build), then tag, push, create the GitHub release with CHANGELOG notes,
 #      upload both agent binaries
 #   5. bump Formula/multitop.rb in ztomer/homebrew-tap THROUGH THE TAP'S OWN
 #      GATE (G3): one call to goh's tools/release-kit/tap_bump.sh -- the
@@ -117,6 +118,13 @@ done
 if [ "${DRY_RUN}" = 1 ]; then
   ok "[dry-run] cross-compile shown viable; skipping tag, push and release"
 else
+  # Installed BEFORE the push, because the push gate refuses it otherwise:
+  # tools/installed_freshness.py compares the installed multitop with this
+  # build, and the version bump this release carries changes the build's
+  # bytes, so whatever was installed before is stale by construction. v0.67.5
+  # was refused at its push for exactly that, with nothing else wrong.
+  info "installing this build (the push gate compares the installed binary) ..."
+  ./install.sh >/dev/null || die "./install.sh failed — nothing tagged"
   info "tagging ${TAG} ..."
   git tag -a "${TAG}" -m "Release ${TAG}"
   # Branch and tag in one atomic push: both refs move or neither, and the
