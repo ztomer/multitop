@@ -330,15 +330,17 @@ hours (recorded here once read).
 
 ## M2 — sibling findings from M1 (opened 2026-11-01)
 
-* **`/proc/net/dev` is read into a fixed 2,048-byte buffer** (`proc::net_from`),
-  and it is 5,984 bytes on `.33`: the network rates there count only the
-  interfaces in the first 2 KiB. `/proc/stat` (4 KiB buffer) is 3,341 bytes on
-  `.33` and would truncate per-core rows on a host past ~60 cores. The class: a
-  fixed one-`read` buffer over a pseudo-file whose size the host decides.
-  Proof: a fixture larger than the buffer whose last interface is counted.
-* **The filter's name list caps at 512 distinct names** (`MAX_FILTER_NAMES`).
-  The fleet is under it (409 / 206 / 144), the Mac is not (778), so `/` on
-  the local panel misses names. ~2,048 still fits the 64 KiB packet.
+* **Done: a pseudofile the host sizes is read to its end.** `/proc/net/dev`
+  was 5,991 bytes on `.33` and read into one 2 KiB `read`, so the network
+  rate counted only the first interfaces. `/proc/stat`, `/proc/meminfo` and
+  `/proc/net/dev` now stream through `proc_read::for_each_line` (one 4 KiB
+  stack buffer, no heap, a line too long to hold passed over whole). The
+  per-tick read of `/proc/self/mountinfo` (90,445 bytes on `.33`) is gone: it
+  found the row mounted at `/` in order to ask `statvfs` about `/`. Gate:
+  `proc_files_test` reads each file past any fixed size, the line that matters
+  last.
+* **Done: the filter's name list carries 2,048 distinct names** (was 512; the
+  Mac runs 778). Gate: 2,000 names through `fill_names` and the wire.
 * **A warm tick still makes ~140 small, fixed allocations** (the shipped rows'
   names, cpufreq paths and readings, the sensor map). Flat, but not zero; a
   zero-allocation tick would let the gate assert zero instead of "does not

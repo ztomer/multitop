@@ -54,13 +54,12 @@ pub const CORE_TEMP_WARM_C: f64 = 55.0;
 /// Network traffic below this many bytes per second is not worth a row.
 pub const NET_VISIBLE_BYTES_PER_SEC: f64 = 1024.0;
 
-/// Buffer sizes for the pseudofiles each sampler reads. Sized to hold the
-/// whole file in one read on a large host, because a short read means a
-/// truncated line and a truncated line means a wrong number.
-pub const PROC_STAT_BUF: usize = 4096;
-pub const PROC_MEMINFO_BUF: usize = 2048;
-pub const PROC_NET_DEV_BUF: usize = 2048;
-pub const PROC_MOUNTINFO_BUF: usize = 4096;
+/// The longest line `proc_read::for_each_line` can hold.
+///
+/// A size for the whole file is not a constant at all -- the host decides it, and a buffer sized
+/// for one host truncated another (roadmap M2). A row a sampler reads is under
+/// 200 bytes; one longer than this is passed over.
+pub const PROC_LINE_BUF: usize = 4096;
 pub const PROC_CHUNK_BUF: usize = 1024;
 pub const PROC_LINE_CAPACITY: usize = 512;
 /// `sysctl` string replies: names, models and kernel versions all fit.
@@ -130,10 +129,14 @@ pub const CPUFREQ_PROBE_CORES: usize = 32;
 
 /// How many distinct process names a snapshot will carry for the filter.
 ///
-/// Deduplicated names, so a busy host is nowhere near this; it is a ceiling on
-/// what the machine at the other end can make this packet cost, not a budget
-/// anyone is expected to spend.
-pub const MAX_FILTER_NAMES: usize = 512;
+/// The filter finds a panel by this list, so a name past the cap is a process
+/// `/` cannot find. It was 512, and a Mac desktop runs 778 distinct names
+/// (2026-11-01, roadmap M2) while the busiest server runs 409. 2,048 clears
+/// the desktop by more than half again, and at the 17 bytes a Linux name costs
+/// on the wire (two of length, fifteen of name) it is 35 KB of a 64 KiB
+/// packet. The packet's own bound is the encoder's: a name that would not fit
+/// is dropped whole.
+pub const MAX_FILTER_NAMES: usize = 2048;
 
 /// Columns a pty is given when nobody has said how wide it is.
 ///

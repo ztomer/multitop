@@ -152,28 +152,6 @@ fn meminfo_never_underflows() {
 }
 
 #[test]
-fn root_mount_found() {
-    let data = "1 2 3 4 / - ext4 /dev/sda1 rw,relatime\n";
-    assert_eq!(root_mount_point(data), Some("/"));
-}
-
-#[test]
-fn root_mount_absent() {
-    assert_eq!(
-        root_mount_point("1 2 3 4 /subdir - ext4 /dev/sda1 rw\n"),
-        None
-    );
-    assert_eq!(root_mount_point(""), None);
-    assert_eq!(root_mount_point("too few\n"), None);
-}
-
-#[test]
-fn root_mount_skips_non_root_first() {
-    let data = "1 2 3 / /boot - ext4 /dev/sda1 rw\n2 3 4 / / - ext4 /dev/sda2 rw\n";
-    assert_eq!(root_mount_point(data), Some("/"));
-}
-
-#[test]
 fn net_dev_sums_non_loopback() {
     let data = "Inter-|   Receive\n\
                 face |bytes    packets\n\

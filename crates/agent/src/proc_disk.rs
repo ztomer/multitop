@@ -1,20 +1,13 @@
-//! Disk usage: which filesystem to ask about, and asking it.
+//! Disk usage: the root filesystem, asked through `statvfs`.
 //!
 //! Split out of `proc` for length, along one of that module's real seams --
 //! this is the only part of it that calls `statvfs` rather than parsing a
-//! `/proc` pseudofile. The names stay reachable as `proc::*` (re-exported
+//! `/proc` pseudofile. It once read all of `/proc/self/mountinfo` every tick
+//! to find the row mounted at `/` and then asked about `/` -- the answer was
+//! the question (90 KB a tick on .33, roadmap M2), so it asks about `/`. The names stay reachable as `proc::*` (re-exported
 //! there) because that is the path every caller and test already uses.
 
-use crate::proc::{read_proc_bytes, Usage};
-
-#[must_use]
-pub fn root_mount_point(mountinfo: &str) -> Option<&str> {
-    mountinfo.lines().find_map(|line| {
-        let mut parts = line.split_ascii_whitespace();
-        let mount_point = parts.nth(4)?;
-        (mount_point == "/").then_some(mount_point)
-    })
-}
+use crate::proc::Usage;
 
 #[must_use]
 pub fn statvfs_bytes(path: &str) -> Option<(u64, u64)> {
@@ -35,21 +28,9 @@ pub fn statvfs_bytes(path: &str) -> Option<(u64, u64)> {
     }
 }
 
-/// The mount point `statvfs` should be asked about, per `/proc/self/mountinfo`.
-pub fn root_mount_from(path: &str) -> Option<String> {
-    let mut buf = [0u8; crate::consts::PROC_MOUNTINFO_BUF];
-    let n = read_proc_bytes(path, &mut buf);
-    if n == 0 {
-        return None;
-    }
-    root_mount_point(std::str::from_utf8(&buf[..n]).ok()?).map(str::to_string)
-}
-
 #[must_use]
 pub fn get_disk() -> Usage {
-    let root = root_mount_from("/proc/self/mountinfo");
-    let target = root.as_deref().unwrap_or("/");
-    if let Some((total, free)) = statvfs_bytes(target) {
+    if let Some((total, free)) = statvfs_bytes("/") {
         Usage::new(total, total.saturating_sub(free))
     } else {
         Usage::default()

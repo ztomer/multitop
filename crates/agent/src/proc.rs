@@ -11,51 +11,8 @@
 //! fraction that IS the answer. `conv::unsigned` is that conversion, exact.
 
 use crate::conv::unsigned;
-use std::fs;
-use std::path::Path;
 
-/// Read a pseudofile into a caller-owned stack buffer, with zero heap allocation.
-///
-/// Kernel pseudofiles report `st_size = 0`, so the usual read-to-String path
-/// cannot pre-size and reallocates its way up. Handing in a fixed `[u8; N]`
-/// removes the allocation entirely, which matters because this runs per process
-/// per sample tick.
-pub fn read_proc_bytes<P: AsRef<Path>, const N: usize>(path: P, out: &mut [u8; N]) -> usize {
-    use std::io::Read;
-    let Ok(mut file) = fs::File::open(path) else {
-        return 0;
-    };
-    file.read(out).unwrap_or_default()
-}
-
-/// Read a pseudofile into a caller-supplied String without allocating new memory buffers.
-pub fn read_proc_into<P: AsRef<Path>>(path: P, out: &mut String) -> bool {
-    use std::io::Read;
-    let Ok(mut file) = fs::File::open(path) else {
-        return false;
-    };
-    let mut buf = [0u8; crate::consts::PROC_CHUNK_BUF];
-    loop {
-        match file.read(&mut buf) {
-            Ok(0) => break,
-            Ok(n) => {
-                if let Ok(s) = std::str::from_utf8(&buf[..n]) {
-                    out.push_str(s);
-                } else {
-                    out.push_str(&String::from_utf8_lossy(&buf[..n]));
-                }
-            }
-            Err(_) => return false,
-        }
-    }
-    !out.is_empty()
-}
-
-pub fn read_proc<P: AsRef<Path>>(path: P) -> String {
-    let mut out = String::with_capacity(crate::consts::PROC_LINE_CAPACITY);
-    read_proc_into(path, &mut out);
-    out
-}
+pub use crate::proc_read::{for_each_line, read_proc, read_proc_bytes, read_proc_into};
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct CpuTimes {
@@ -113,27 +70,41 @@ fn parse_cpu_line(fields: &str) -> Option<CpuTimes> {
     })
 }
 
-/// Parse `/proc/stat`. Non-`cpu` lines (`intr`, `ctxt`, ...) are ignored.
-pub fn parse_proc_stat(data: &str) -> CpuStat {
-    let mut stat = CpuStat::default();
-    for line in data.lines() {
+impl CpuStat {
+    /// Take one line of `/proc/stat`; non-`cpu` lines (`intr`, `ctxt`, ...)
+    /// are ignored.
+    fn add_line(&mut self, line: &str) {
         let Some(rest) = line.strip_prefix("cpu") else {
-            continue;
+            return;
         };
         let Some((label, fields)) = rest.split_once(char::is_whitespace) else {
-            continue;
+            return;
         };
         let Some(times) = parse_cpu_line(fields) else {
-            continue;
+            return;
         };
         if label.is_empty() {
-            stat.aggregate = times;
+            self.aggregate = times;
         } else if let Ok(idx) = label.parse::<usize>() {
-            stat.cores.push((idx, times));
+            self.cores.push((idx, times));
         }
     }
-    stat.cores.sort_unstable_by_key(|(i, _)| *i);
-    stat
+
+    fn finish(mut self) -> Self {
+        self.cores.sort_unstable_by_key(|(i, _)| *i);
+        self
+    }
+}
+
+// reachability: fuzz/fuzz_targets/fuzz_proc_stat.rs drives this, from the fuzz crate's
+// own workspace, which the scan does not read; production feeds the same
+// `add_line` from `proc_read::for_each_line`.
+/// Parse `/proc/stat`. Non-`cpu` lines (`intr`, `ctxt`, ...) are ignored.
+#[must_use]
+pub fn parse_proc_stat(data: &str) -> CpuStat {
+    let mut stat = CpuStat::default();
+    data.lines().for_each(|l| stat.add_line(l));
+    stat.finish()
 }
 
 /// `/proc/stat`, or `None` when the file is absent, unreadable, or says
@@ -143,12 +114,11 @@ pub fn parse_proc_stat(data: &str) -> CpuStat {
 /// actually runs, is reachable from a test on a host that has no `/proc`.
 #[must_use]
 pub fn cpu_stat_from(path: &str) -> Option<CpuStat> {
-    let mut buf = [0u8; crate::consts::PROC_STAT_BUF];
-    let n = read_proc_bytes(path, &mut buf);
-    if n == 0 {
+    let mut stat = CpuStat::default();
+    if !for_each_line(path, |l| stat.add_line(l)) {
         return None;
     }
-    let stat = parse_proc_stat(std::str::from_utf8(&buf[..n]).ok()?);
+    let stat = stat.finish();
     (!stat.cores.is_empty() || stat.aggregate.total != 0).then_some(stat)
 }
 
@@ -175,46 +145,63 @@ impl Usage {
     }
 }
 
-/// Parse `/proc/meminfo`. Used = total - free - buffers - cached.
-#[must_use]
-pub fn parse_meminfo(data: &str) -> Usage {
-    if data.is_empty() {
-        return Usage::default();
-    }
-    let (mut total, mut free, mut buffers, mut cached) = (0u64, 0u64, 0u64, 0u64);
-    for line in data.lines() {
+/// The `/proc/meminfo` rows memory use is computed from, in kB.
+#[derive(Default)]
+struct MemInfo {
+    total: u64,
+    free: u64,
+    buffers: u64,
+    cached: u64,
+}
+
+impl MemInfo {
+    fn add_line(&mut self, line: &str) {
         let Some((key, value)) = line.split_once(':') else {
-            continue;
+            return;
         };
         let Some(kb) = value
             .split_ascii_whitespace()
             .next()
             .and_then(|v| v.parse::<u64>().ok())
         else {
-            continue;
+            return;
         };
         match key.trim() {
-            "MemTotal" => total = kb,
-            "MemFree" => free = kb,
-            "Buffers" => buffers = kb,
-            "Cached" => cached = kb,
+            "MemTotal" => self.total = kb,
+            "MemFree" => self.free = kb,
+            "Buffers" => self.buffers = kb,
+            "Cached" => self.cached = kb,
             _ => {}
         }
     }
-    let total = total * 1024;
-    let reclaimable = (free + buffers + cached) * 1024;
-    Usage::new(total, total.saturating_sub(reclaimable))
+
+    /// Used = total - free - buffers - cached.
+    fn usage(&self) -> Usage {
+        let total = self.total * 1024;
+        let reclaimable = (self.free + self.buffers + self.cached) * 1024;
+        Usage::new(total, total.saturating_sub(reclaimable))
+    }
+}
+
+// reachability: fuzz/fuzz_targets/fuzz_meminfo.rs drives this, from the fuzz crate's
+// own workspace, which the scan does not read; production feeds the same
+// `add_line` from `proc_read::for_each_line`.
+/// Parse `/proc/meminfo`. Used = total - free - buffers - cached.
+#[must_use]
+pub fn parse_meminfo(data: &str) -> Usage {
+    let mut info = MemInfo::default();
+    data.lines().for_each(|l| info.add_line(l));
+    info.usage()
 }
 
 /// `/proc/meminfo`, or `None` when it is absent or reports no total.
 #[must_use]
 pub fn memory_from(path: &str) -> Option<Usage> {
-    let mut buf = [0u8; crate::consts::PROC_MEMINFO_BUF];
-    let n = read_proc_bytes(path, &mut buf);
-    if n == 0 {
+    let mut info = MemInfo::default();
+    if !for_each_line(path, |l| info.add_line(l)) {
         return None;
     }
-    let mem = parse_meminfo(std::str::from_utf8(&buf[..n]).ok()?);
+    let mem = info.usage();
     (mem.total != 0).then_some(mem)
 }
 
@@ -228,49 +215,61 @@ pub struct NetTotals {
     pub tx: u64,
 }
 
-#[must_use]
-pub fn parse_net_dev(data: &str) -> NetTotals {
-    let mut totals = NetTotals::default();
-    for line in data.lines().skip(2) {
+impl NetTotals {
+    /// Take one interface row of `/proc/net/dev`. The two header rows have
+    /// no counters after their colon-free first field, so they add nothing.
+    fn add_line(&mut self, line: &str) {
         let Some((iface, counters)) = line.split_once(':') else {
-            continue;
+            return;
         };
         let iface = iface.trim();
         if iface == "lo" || iface.starts_with("lo:") {
-            continue;
+            return;
         }
         let mut iter = counters.split_ascii_whitespace();
         let Some(rx_str) = iter.next() else {
-            continue;
+            return;
         };
         let rx_val: u64 = rx_str.parse().unwrap_or(0);
         let Some(tx_str) = iter.nth(crate::consts::NET_DEV_TX_OFFSET) else {
-            continue;
+            return;
         };
         let tx_val: u64 = tx_str.parse().unwrap_or(0);
-        totals.rx = totals.rx.saturating_add(rx_val);
-        totals.tx = totals.tx.saturating_add(tx_val);
+        self.rx = self.rx.saturating_add(rx_val);
+        self.tx = self.tx.saturating_add(tx_val);
     }
+}
+
+// reachability: fuzz/fuzz_targets/fuzz_net_dev.rs drives this, from the fuzz crate's
+// own workspace, which the scan does not read; production feeds the same
+// `add_line` from `proc_read::for_each_line`.
+#[must_use]
+pub fn parse_net_dev(data: &str) -> NetTotals {
+    let mut totals = NetTotals::default();
+    data.lines().skip(2).for_each(|l| totals.add_line(l));
     totals
 }
 
 /// `/proc/net/dev`, or `None` when it is absent or every counter is zero.
 #[must_use]
 pub fn net_from(path: &str) -> Option<NetTotals> {
-    let mut buf = [0u8; crate::consts::PROC_NET_DEV_BUF];
-    let n = read_proc_bytes(path, &mut buf);
-    if n == 0 {
-        return None;
-    }
-    let net = parse_net_dev(std::str::from_utf8(&buf[..n]).ok()?);
-    (net.rx != 0 || net.tx != 0).then_some(net)
+    let mut net = NetTotals::default();
+    let mut row = 0usize;
+    let read = for_each_line(path, |l| {
+        // The two header rows, skipped as `parse_net_dev` skips them.
+        if row >= 2 {
+            net.add_line(l);
+        }
+        row += 1;
+    });
+    (read && (net.rx != 0 || net.tx != 0)).then_some(net)
 }
 
 pub fn get_net() -> NetTotals {
     net_from("/proc/net/dev").unwrap_or_else(crate::sys::get_net_macos)
 }
 
-pub use crate::proc_disk::{get_disk, root_mount_from, root_mount_point, statvfs_bytes};
+pub use crate::proc_disk::{get_disk, statvfs_bytes};
 pub use crate::sys_temps::get_core_temps;
 
 #[derive(Clone, Debug, PartialEq)]

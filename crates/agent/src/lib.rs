@@ -42,6 +42,7 @@ pub mod palette_view;
 pub mod proc;
 pub mod proc_disk;
 pub mod proc_name;
+pub mod proc_read;
 pub mod proc_sys;
 pub mod proto;
 pub mod render;

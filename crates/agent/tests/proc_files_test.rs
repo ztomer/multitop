@@ -2,8 +2,8 @@
 //!
 //! This is the path every deployed agent runs and no developer machine has:
 //! the agent is built on macOS and run on Linux, so without fixtures the read
-//! side of `/proc/stat`, `/proc/meminfo`, `/proc/net/dev` and
-//! `/proc/self/mountinfo` is never executed until it is in production.
+//! side of `/proc/stat`, `/proc/meminfo`, and `/proc/net/dev`
+//! is never executed until it is in production.
 
 // A test crate, said where clippy reads it: the restriction lints
 // (`unwrap_used`, `expect_used`, `panic`) are policy for production code and
@@ -13,6 +13,7 @@
 
 // Integration-test crate: helper fns outside #[test] are not covered by
 // clippy.toml's test exemption, so the restriction lints are expected here.
+use std::fmt::Write as _;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
@@ -72,13 +73,6 @@ Inter-|   Receive                                                |  Transmit
     lo: 123456     100    0    0    0     0          0         0   123456     100
   eth0: 900000    1500    0    0    0     0          0         0   450000     900
   eth1: 100000     200    0    0    0     0          0         0    50000     100
-";
-
-const MOUNTINFO: &str = "\
-23 28 0:21 / /proc rw,nosuid,nodev,noexec shared:12 - proc proc rw
-25 28 0:23 / /dev rw,nosuid shared:2 - devtmpfs udev rw
-28 1 259:2 / / rw,relatime shared:1 - ext4 /dev/nvme0n1p2 rw
-30 28 259:1 / /boot rw,relatime shared:14 - vfat /dev/nvme0n1p1 rw
 ";
 
 // ------------------------------------------------------------------ /proc/stat
@@ -237,29 +231,67 @@ fn malformed_net_dev_rows_are_skipped_rather_than_aborting_the_sum() {
     assert_eq!(net.tx, 250);
 }
 
-// -------------------------------------------------------- /proc/self/mountinfo
+// ------------------------------------------- files the host makes any size
+//
+// The size of a pseudofile is the host's to decide: `/proc/net/dev` was 5,991
+// bytes on .33 (2026-11-01, roadmap M2), and the reader that held it in one
+// 2 KiB `read` counted only the interfaces that fitted. So each file is read
+// here at a size no fixed buffer of the old kind holds, with the line that
+// matters LAST.
 
-#[test]
-fn the_root_mount_is_found_among_the_others() {
-    let f = Fixture::new("mountinfo", MOUNTINFO).expect("fixture written");
-    assert_eq!(
-        proc::root_mount_from(f.path().expect("utf-8 path")).as_deref(),
-        Some("/")
+/// `n` interfaces of 1 rx / 2 tx bytes each, plus loopback.
+fn net_dev_of(n: usize) -> String {
+    let mut s = String::from(
+        "Inter-|   Receive |  Transmit\n face |bytes packets errs drop fifo frame compressed multicast|bytes\n",
     );
+    s.push_str("    lo: 9 0 0 0 0 0 0 0 9 0 0 0 0 0 0 0\n");
+    for i in 0..n {
+        writeln!(s, "  veth{i:05}: 1 0 0 0 0 0 0 0 2 0 0 0 0 0 0 0").expect("String write");
+    }
+    s
 }
 
 #[test]
-fn a_mountinfo_without_a_root_row_names_no_mount() {
-    let f = Fixture::new("mountinfo-noroot", "23 28 0:21 / /proc rw - proc proc rw\n")
-        .expect("fixture written");
-    assert_eq!(proc::root_mount_from(f.path().expect("utf-8 path")), None);
-    assert_eq!(proc::root_mount_from("/no/such/mountinfo"), None);
-    // Rows too short to have a mount-point column are skipped.
-    let short = Fixture::new("mountinfo-short", "23 28\n").expect("fixture written");
-    assert_eq!(
-        proc::root_mount_from(short.path().expect("utf-8 path")),
-        None
-    );
+fn every_interface_is_counted_however_long_net_dev_is() {
+    let f = Fixture::new("netdev-big", &net_dev_of(400)).expect("fixture written");
+    let net = proc::net_from(f.path().expect("utf-8 path")).expect("parses");
+    assert_eq!((net.rx, net.tx), (400, 800));
+}
+
+#[test]
+fn every_core_is_read_however_long_proc_stat_is() {
+    let mut body = String::from("cpu  1 1 1 1 1\n");
+    for i in 0..512 {
+        writeln!(body, "cpu{i} 100000 200000 300000 400000 500000 0 0 0 0 0")
+            .expect("String write");
+    }
+    let f = Fixture::new("stat-big", &body).expect("fixture written");
+    let stat = proc::cpu_stat_from(f.path().expect("utf-8 path")).expect("parses");
+    assert_eq!(stat.cores.len(), 512);
+    assert_eq!(stat.core(511).map(|t| t.idle), Some(400_000 + 500_000));
+}
+
+#[test]
+fn meminfo_is_read_to_the_end() {
+    let mut body = String::new();
+    for i in 0..200 {
+        writeln!(body, "Filler{i:03}:      123456 kB").expect("String write");
+    }
+    body.push_str("MemTotal:  1000 kB\nMemFree:  250 kB\n");
+    let f = Fixture::new("meminfo-big", &body).expect("fixture written");
+    let mem = proc::memory_from(f.path().expect("utf-8 path")).expect("parses");
+    assert_eq!((mem.total, mem.used), (1000 * 1024, 750 * 1024));
+}
+
+#[test]
+fn a_line_too_long_to_hold_is_passed_over_and_the_next_one_is_read() {
+    // `/proc/stat`'s `intr` row grows with the IRQ count and nothing samples
+    // it; a row of that kind must cost the rows after it nothing.
+    let intr = format!("intr {}\n", "12345 ".repeat(10_000));
+    let body = format!("cpu  1 1 1 1 1\ncpu0 1 1 1 1 1\n{intr}cpu1 7 7 7 7 7\nctxt 1\n");
+    let f = Fixture::new("stat-longline", &body).expect("fixture written");
+    let stat = proc::cpu_stat_from(f.path().expect("utf-8 path")).expect("parses");
+    assert_eq!(stat.core(1).map(|t| t.total), Some(35));
 }
 
 // ------------------------------------------------------------- non-utf8 bytes
