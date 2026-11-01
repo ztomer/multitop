@@ -136,6 +136,10 @@ def self_test() -> int:
             print("self-test FAILED: a non-repo reported a readable history")
             return 1
 
+        rc = _stated_base_cases(root, never)
+        if rc:
+            return rc
+
     # The deletion exemption, against a repository this function BUILDS.
     #
     # It used to assert that `scripts/release.py` and
@@ -224,6 +228,12 @@ def self_test() -> int:
             )
             return 1
 
+    print("check_doc_paths self-test: ok")
+    return 0
+
+
+def _stated_base_cases(root: Path, never: set[str]) -> int:
+    """Cases on the populated root, kept out of `self_test` for its branch count."""
     # A path named relative to a base the sentence states, and one that is
     # genuinely missing. Both were false-positives in the first draft of this
     # rule, on text that was perfectly clear to a reader.
@@ -245,8 +255,7 @@ def self_test() -> int:
     # `app/views.rs`, and testing against it asserted a stricter rule than the
     # one the code implements -- a test that passes for the wrong reason is the
     # same failure as one that fails.
-    (root / "crates").mkdir()
-    (root / "crates" / "app").mkdir()
+    (root / "crates" / "app").mkdir()  # `crates/` already holds the proto case's tree
     (root / "crates" / "app" / "views.rs").write_text("//\n", encoding="utf-8")
     if not target.offenders(root, never):
         print(
@@ -256,7 +265,6 @@ def self_test() -> int:
         return 1
     (root / "crates" / "app" / "views.rs").unlink()
     (root / "crates" / "app").rmdir()
-    (root / "crates").rmdir()
 
     return _nested_checkout_case(root, never)
 
@@ -288,6 +296,4 @@ def _nested_checkout_case(root: Path, never: set[str]) -> int:
         )
         return 1
     shutil.rmtree(root / ".claude")
-
-    print("check_doc_paths self-test: ok")
     return 0
