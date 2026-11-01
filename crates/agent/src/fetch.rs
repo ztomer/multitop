@@ -114,7 +114,8 @@ pub fn sample_os() -> String {
     {
         let mut os_rev = [0u8; crate::consts::SYSCTL_BUF];
         let mut size = os_rev.len();
-        if let Ok(name) = std::ffi::CString::new("kern.osproductversion") {
+        {
+            let name = c"kern.osproductversion";
             let res = unsafe {
                 libc::sysctlbyname(
                     name.as_ptr(),
@@ -149,7 +150,8 @@ pub fn sample_kernel() -> String {
     {
         let mut k_ver = [0u8; crate::consts::SYSCTL_BUF];
         let mut size = k_ver.len();
-        if let Ok(name) = std::ffi::CString::new("kern.osrelease") {
+        {
+            let name = c"kern.osrelease";
             let res = unsafe {
                 libc::sysctlbyname(
                     name.as_ptr(),
@@ -202,7 +204,8 @@ pub fn sample_host_model() -> String {
     {
         let mut model_buf = [0u8; crate::consts::SYSCTL_BUF];
         let mut size = model_buf.len();
-        if let Ok(name) = std::ffi::CString::new("hw.model") {
+        {
+            let name = c"hw.model";
             let res = unsafe {
                 libc::sysctlbyname(
                     name.as_ptr(),
@@ -258,9 +261,7 @@ pub fn sample_cpu_model() -> String {
     {
         let mut cpu_buf = [0u8; crate::consts::SYSCTL_BUF];
         let mut size = cpu_buf.len();
-        let Ok(name) = std::ffi::CString::new("machdep.cpu.brand_string") else {
-            return "Apple Silicon".to_string();
-        };
+        let name = c"machdep.cpu.brand_string";
         let _res = unsafe {
             libc::sysctlbyname(
                 name.as_ptr(),
@@ -272,7 +273,8 @@ pub fn sample_cpu_model() -> String {
         };
         let mut num_cores: libc::natural_t = 0;
         let mut c_size = std::mem::size_of::<libc::natural_t>();
-        if let Ok(c_name) = std::ffi::CString::new("hw.logicalcpu") {
+        {
+            let c_name = c"hw.logicalcpu";
             let _ = unsafe {
                 libc::sysctlbyname(
                     c_name.as_ptr(),

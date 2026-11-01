@@ -268,32 +268,17 @@ fn a_warm_tick_allocates_nothing_per_process_and_memory_stays_flat() {
     churn.grow_to(600);
     let (large_allocs, large_bytes) = per_tick(&mut m, &mut churn, &args, &view);
 
-    // On Linux -- where the agent ships, and where CI runs this -- a warm tick
-    // allocates nothing at all: every name is inline, every list a buffer the
-    // loop keeps, every pseudofile streamed through the stack (roadmap M2).
-    // Zero, at both sizes, so a single new allocation anywhere in the tick is
-    // red, not only one that grows with the host.
-    #[cfg(target_os = "linux")]
+    // A warm tick allocates nothing at all, on Linux where the agent ships and
+    // on the Mac where the local panel's agent runs: every name is inline,
+    // every list a buffer the loop keeps, every pseudofile streamed through
+    // the stack, and the Mach and IOKit samplers fill the monitor's buffers
+    // (roadmap M2). Zero, at both sizes, so a single new allocation anywhere
+    // in the tick is red, not only one that grows with the host.
     assert_eq!(
         (small_allocs, small_bytes, large_allocs, large_bytes),
         (0, 0, 0, 0),
         "a warm tick allocated (allocations, bytes): {small_allocs}, {small_bytes} at 200 \
          processes; {large_allocs}, {large_bytes} at 600"
-    );
-
-    // Elsewhere the platform samplers (Mach, IOKit) still allocate a little,
-    // so the property is the one the leak needed: nothing per process. Four
-    // hundred more processes; a `String` per process per tick is +400
-    // allocations here, a fresh name list +400 x 33 bytes.
-    assert!(
-        large_allocs <= small_allocs + 8,
-        "a tick made {large_allocs} allocations at 600 processes and {small_allocs} at 200: \
-         something is allocated per process"
-    );
-    assert!(
-        large_bytes <= small_bytes + 4096,
-        "a tick allocated {large_bytes} bytes at 600 processes and {small_bytes} at 200: \
-         a buffer is rebuilt per tick at the size of the process table"
     );
 
     assert_resident_memory_is_flat(&mut m, &mut churn, &args, &view);

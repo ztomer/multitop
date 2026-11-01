@@ -140,7 +140,7 @@ pub fn get_cpu_stat() -> CpuStat {
 /// grown to the core count.
 pub fn get_cpu_stat_into(out: &mut CpuStat) {
     if !cpu_stat_into("/proc/stat", out) {
-        *out = crate::sys::get_cpu_stat_macos();
+        crate::sys::cpu_stat_macos_into(out);
     }
 }
 

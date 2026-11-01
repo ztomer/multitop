@@ -51,9 +51,11 @@ extern "C" {
 
 #[cfg(target_os = "macos")]
 pub fn fill_core_temps<S: std::hash::BuildHasher>(temps: &mut HashMap<usize, f64, S>) {
+    // Each die's reading goes straight into `temps`, a map the monitor keeps,
+    // and the dies are averaged as they are read: no collection of its own, so
+    // a warm tick does no heap work here.
     temps.clear();
-    let mut die_temps: HashMap<usize, f64> = HashMap::new();
-    let mut all_tdie = Vec::new();
+    let (mut tdie_sum, mut tdie_n) = (0.0, 0usize);
 
     unsafe {
         let client = IOHIDEventSystemClientCreate(std::ptr::null());
@@ -84,10 +86,11 @@ pub fn fill_core_temps<S: std::hash::BuildHasher>(temps: &mut HashMap<usize, f64
                                 let len = buf.iter().position(|&b| b == 0).unwrap_or(buf.len());
                                 let name = String::from_utf8_lossy(&buf[..len]);
                                 if name.contains("tdie") {
-                                    all_tdie.push(temp);
+                                    tdie_sum += temp;
+                                    tdie_n += 1;
                                     if let Some(idx_str) = name.strip_prefix("PMU tdie") {
                                         if let Ok(idx) = idx_str.parse::<usize>() {
-                                            die_temps.insert(idx.saturating_sub(1), temp);
+                                            temps.insert(idx.saturating_sub(1), temp);
                                         }
                                     }
                                 }
@@ -106,17 +109,19 @@ pub fn fill_core_temps<S: std::hash::BuildHasher>(temps: &mut HashMap<usize, f64
         CFRelease(client);
     }
 
-    let avg_temp = if all_tdie.is_empty() {
+    let avg_temp = if tdie_n == 0 {
         0.0
     } else {
-        all_tdie.iter().sum::<f64>() / count(all_tdie.len())
+        tdie_sum / count(tdie_n)
     };
 
+    // Every core has a reading: its own die's, or the dies' mean. A die past
+    // the core count names no core.
+    let num_cpus = macos_num_cpus();
+    temps.retain(|&i, _| i < num_cpus);
     if avg_temp > 0.0 {
-        let num_cpus = macos_num_cpus();
         for i in 0..num_cpus {
-            let t = die_temps.get(&i).copied().unwrap_or(avg_temp);
-            temps.insert(i, t);
+            temps.entry(i).or_insert(avg_temp);
         }
     }
 }
@@ -125,16 +130,14 @@ pub fn fill_core_temps<S: std::hash::BuildHasher>(temps: &mut HashMap<usize, f64
 fn macos_num_cpus() -> usize {
     let mut count: u32 = 0;
     let mut size = std::mem::size_of::<u32>();
-    if let Ok(name) = std::ffi::CString::new("hw.ncpu") {
-        unsafe {
-            libc::sysctlbyname(
-                name.as_ptr(),
-                (&raw mut count).cast(),
-                &raw mut size,
-                std::ptr::null_mut(),
-                0,
-            );
-        }
+    unsafe {
+        libc::sysctlbyname(
+            c"hw.ncpu".as_ptr(),
+            (&raw mut count).cast(),
+            &raw mut size,
+            std::ptr::null_mut(),
+            0,
+        );
     }
     if count > 0 {
         usize::try_from(count).unwrap_or(1)

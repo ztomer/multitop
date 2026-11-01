@@ -50,6 +50,16 @@ impl Drop for MachCpuInfoGuard {
 #[must_use]
 pub fn get_cpu_stat_macos() -> CpuStat {
     let mut stat = CpuStat::default();
+    cpu_stat_macos_into(&mut stat);
+    stat
+}
+
+/// This Mac's CPU times into `stat`, whose core list is a buffer kept between
+/// ticks: no heap work once it has grown to the core count.
+#[cfg(target_os = "macos")]
+pub fn cpu_stat_macos_into(stat: &mut CpuStat) {
+    stat.aggregate = CpuTimes::default();
+    stat.cores.clear();
     let mut num_cpus: libc::natural_t = 0;
     let mut cpu_info: libc::processor_info_array_t = std::ptr::null_mut();
     let mut msg_type: libc::mach_msg_type_number_t = 0;
@@ -96,7 +106,6 @@ pub fn get_cpu_stat_macos() -> CpuStat {
         };
         stat.cores.sort_unstable_by_key(|(i, _)| *i);
     }
-    stat
 }
 
 #[cfg(not(target_os = "macos"))]
@@ -105,21 +114,24 @@ pub fn get_cpu_stat_macos() -> CpuStat {
     CpuStat::default()
 }
 
+#[cfg(not(target_os = "macos"))]
+pub fn cpu_stat_macos_into(stat: &mut CpuStat) {
+    *stat = CpuStat::default();
+}
+
 #[cfg(target_os = "macos")]
 #[must_use]
 pub fn get_memory_macos() -> Usage {
     let mut total: u64 = 0;
     let mut size = std::mem::size_of::<u64>();
-    if let Ok(name) = std::ffi::CString::new("hw.memsize") {
-        unsafe {
-            libc::sysctlbyname(
-                name.as_ptr(),
-                (&raw mut total).cast(),
-                &raw mut size,
-                std::ptr::null_mut(),
-                0,
-            );
-        }
+    unsafe {
+        libc::sysctlbyname(
+            c"hw.memsize".as_ptr(),
+            (&raw mut total).cast(),
+            &raw mut size,
+            std::ptr::null_mut(),
+            0,
+        );
     }
     if total == 0 {
         return Usage::default();

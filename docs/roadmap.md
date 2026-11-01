@@ -355,9 +355,13 @@ high-water marks (155-162 processes); `.33` (~905 processes) held 1,736 kB
   inline (`Proc.name: ProcName`), `top_into`/`get_cpu_stat_into`/
   `fill_core_temps` fill buffers the monitor keeps, the clock is read through
   stack buffers, and the digit count is counted. Measured on `.33`: 0
-  allocations per tick + emit. Gate: `rss_bound_test` asserts exactly zero on
-  Linux (CI's platform) -- red on a single 2-byte allocation; macOS keeps the
-  does-not-scale bound, its Mach/IOKit samplers still allocating a little.
+  allocations per tick + emit. The Mac's tick made 12 more (a fresh Mach
+  core list, the IOKit temperatures' own map and list, two `CString`s for
+  `sysctl` names); the Mach reader now fills the monitor's `CpuStat`, the dies
+  go straight into its temperature map, and the names are `c""` literals.
+  Gate: `rss_bound_test` asserts exactly zero on every platform -- red on a
+  single 2-byte allocation on Linux, and on the Mac on the old core list (3)
+  and the old temperature list (4).
 * **Done: the agent samples rows for the panel the client really has.** The
   stream's row count came from laying out a pretend 120x50 panel: 92 rows
   from a small host, 72 from a 128-core one, while a full-screen 200x100
@@ -369,7 +373,16 @@ high-water marks (155-162 processes); `.33` (~905 processes) held 1,736 kB
   local agent's stdin became a pipe for it, and the watcher asks `fstat`
   instead of `/proc/self/fd/0`, which a Mac lacks. Checked live on `.158` with the
   shipped v0.67.6 agent: 88 rows untold, 2 after `size 40 8`, 155 after
-  `size 200 100`, and it exited at its stdin's EOF.
+  `size 200 100`, and it exited at its stdin's EOF. And through the real
+  client, in a pty against `.33` (~905 processes): 40 rows at 100x30, 222 at
+  240x120 (the pretend panel capped it at 72-92), 40 again on shrinking back.
+* **Done: one line splitter, fuzzed.** The pseudofile reader and the stdin
+  command reader were two copies of the same split-and-skip loop; both are
+  now `proc_read::for_each_line_in`. `fuzz/fuzz_targets/fuzz_lines.rs` drives
+  it at buffer sizes 1-64 and reads of 1-16 bytes against a reference split,
+  and checks `read_commands` lands on the last size a held line states and
+  that every size `parse_size_line` accepts round-trips through `size_line`.
+  2 million runs clean; red on a planted bug (a passed-over line's tail fed).
 
 ## Phase 3 — parked on a trigger: post-quantum KEM (size M when it fires)
 
