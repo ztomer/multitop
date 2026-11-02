@@ -1,0 +1,8 @@
+{
+  "why": "shellcheck findings below error severity when this repo adopted the ratcheted shell lint, per file#code; a count may only fall (gates_of_heck GOH.SHSEV)",
+  "files": {
+    "build.sh#SC2155": 2,
+    "install.sh#SC2034": 1,
+    "tools/install_ops_poller.sh#SC2034": 1
+  }
+}
