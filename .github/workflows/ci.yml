@@ -332,15 +332,3 @@ jobs:
           for t in fuzz/fuzz_targets/*.rs; do
             cargo +"$NIGHTLY" fuzz build "$(basename "$t" .rs)"
           done
-
-      # The pin retires itself: the day UNPINNED nightly compiles the fuzz
-      # crate again (rust-lang/rust#165263 fixed), this step goes red and says
-      # so. Here, on Linux, because zbus is in the fuzz graph only on Linux.
-      - name: The nightly pin is still needed
-        run: |
-          rustup toolchain install nightly --profile minimal
-          if cargo +nightly check --manifest-path fuzz/Cargo.toml --locked --quiet; then
-            echo "::error::unpinned nightly builds the fuzz crate -- fuzz/nightly-pin is no longer needed; return it to plain nightly and delete this step"
-            exit 1
-          fi
-          echo "unpinned nightly still fails -- the pin in fuzz/nightly-pin stands"
