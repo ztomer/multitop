@@ -2,9 +2,9 @@
 line-length = 120
 
 [tool.ruff.lint]
-# Gated whole via goh's gates/ruff_ratchet.py (G17c): what the rule set still reports is held to
-# a per-rule count in ruff_ratchet.json that can only fall (a rule over its count, a rule with
-# findings and no count, or a count above the truth is red). PLW1510 (G17b) is at 0.
+# Gated whole via goh's gates/py_staged.sh --all (G17c): what the rule set still reports is held
+# to a per-file ceiling in tools/py_lint_ceilings.json that can only fall (a file over its ceiling,
+# a file with findings and no ceiling, or a ceiling above the truth is red). PLW1510 (G17b) is at 0.
 select = ["E", "W", "F", "I", "UP", "B", "SIM", "DTZ", "S", "C4", "PIE", "ISC", "RUF", "PL", "FURB", "TRY", "BLE", "EXE"]
 
 [tool.ruff.lint.per-file-ignores]

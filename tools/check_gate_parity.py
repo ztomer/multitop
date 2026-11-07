@@ -124,8 +124,7 @@ PYTEST_DIR = re.compile(r"pytest[^\n]*[\"' ]tests/")
 # drift -- what matters is that each of the three compiles the fuzz crate
 # somehow.
 RATCHET_RUN = re.compile(r"ratchet_check\.py")
-RUFF_RATCHET_RUN = re.compile(r"ruff_ratchet\.py")
-RUFF_FMT_RUN = re.compile(r"ruff[^\n]*\bformat\s+--check\b")
+PY_ALL_RUN = re.compile(r"py_staged\.sh\"?\s+--all\b")
 # A *command*, not a path. The first version of this also accepted the bare
 # string `fuzz_targets`, which the CI workflow contains in the glob it loops
 # over -- so deleting the build command left the rule satisfied by the loop that
@@ -280,8 +279,7 @@ def always_run_problems() -> list[str]:
     for label, pattern in (
         ("the line-count ratchet", RATCHET_RUN),
         ("the fuzz targets", FUZZ_RUN),
-        ("the ruff lint ratchet (ruff_ratchet.py)", RUFF_RATCHET_RUN),
-        ("ruff format --check", RUFF_FMT_RUN),
+        ("ruff lint + format over every tracked .py (py_staged.sh --all)", PY_ALL_RUN),
     ):
         for name, path in places:
             text = _live(gatesrc_steps() if path is None else path.read_text(encoding="utf-8"))
@@ -416,19 +414,14 @@ def self_test() -> int:
         print("gate-parity self-test: a repo without android/ was asked for its gate", file=sys.stderr)
         return 1
 
-    # And that the ruff lint ratchet and ruff format --check patterns match live commands, not comments.
-    if not RUFF_RATCHET_RUN.search(_live('python3 "$GOH_DIR/gates/ruff_ratchet.py"\n')) or RUFF_RATCHET_RUN.search(
-        _live("# ruff_ratchet.py\n")
+    # And that the py_staged.sh --all pattern matches live commands, not comments or the staged scope.
+    if not PY_ALL_RUN.search(_live('"$GOH_DIR/gates/py_staged.sh" --all .\n')) or not PY_ALL_RUN.search(
+        _live(".gates_of_heck/gates/py_staged.sh --all .\n")
     ):
-        print("gate-parity self-test: ruff_ratchet.py pattern did not distinguish live from comment", file=sys.stderr)
+        print("gate-parity self-test: py_staged.sh --all pattern missed a live invocation", file=sys.stderr)
         return 1
-    if not RUFF_FMT_RUN.search(_live("ruff format --check .\n")) or not RUFF_FMT_RUN.search(
-        _live("pipx run ruff==0.17.2 format --check .\n")
-    ):
-        print("gate-parity self-test: ruff format --check pattern missed a live invocation", file=sys.stderr)
-        return 1
-    if RUFF_FMT_RUN.search(_live("# ruff format --check .\nruff check .\n")):
-        print("gate-parity self-test: ruff format --check matched a comment or ruff check", file=sys.stderr)
+    if PY_ALL_RUN.search(_live('# py_staged.sh --all .\n"$GOH_DIR/gates/py_staged.sh" .\n')):
+        print("gate-parity self-test: py_staged.sh --all matched a comment or the staged scope", file=sys.stderr)
         return 1
 
     print("gate-parity self-test: passed")

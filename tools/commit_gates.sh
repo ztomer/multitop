@@ -238,19 +238,12 @@ if ! cargo fmt --all -- --check >"$log" 2>&1; then
 fi
 ok "formatting clean"
 
-info "checking Python formatting (ruff format --check)"
-if ! proven_step 'ruff format --check .'; then
+info "checking Python lint + format over every tracked .py (py_staged.sh --all)"
+if ! proven_step '"$GOH_DIR/gates/py_staged.sh" --all .'; then
     cat "$log" >&2
-    die "Python formatting is dirty — run: ruff format ."
+    die "Python lint rose above a ceiling in tools/py_lint_ceilings.json (or fell: write the new count), or formatting is dirty -- run: ruff format ."
 fi
-ok "Python formatting clean"
-
-info "checking the Python lint ratchet (ruff_ratchet.py)"
-if ! proven_step 'python3 "$GOH_DIR/gates/ruff_ratchet.py"'; then
-    cat "$log" >&2
-    die "a ruff rule rose above its count in ruff_ratchet.json (or fell without --lower)"
-fi
-ok "Python lint ratchet"
+ok "Python lint ceilings + formatting"
 
 info "running clippy (all targets, all features, -D warnings)"
 if ! cargo clippy --workspace --all-targets --all-features -- -D warnings >"$log" 2>&1; then

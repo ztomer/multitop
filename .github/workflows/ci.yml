@@ -108,15 +108,15 @@ jobs:
            python3 tools/check_unsafe_scope.py --self-test
            python3 tools/check_unsafe_scope.py
 
-      # Python lint (goh G17c: the declared rule set in pyproject.toml, held to
-      # per-rule counts in ruff_ratchet.json that only fall; PLW1510 is at 0) and
-      # Python formatting (ruff format --check).
-      - name: Ruff (lint ratchet + format)
+      # Python lint + format over every tracked .py (goh py_staged.sh --all: the
+      # declared rule set in pyproject.toml held to per-file ceilings in
+      # tools/py_lint_ceilings.json that only fall, ruff format --check, noqa parity).
+      - name: Ruff (lint ceilings + format, every tracked .py)
         env:
           GOH_DIR: ${{ github.workspace }}/.gates_of_heck
         run: |
-          python3 .gates_of_heck/gates/ruff_ratchet.py --ruff "pipx run ruff==0.17.2"
-          pipx run ruff==0.17.2 format --check .
+          python3 -m pip install --quiet ruff==0.17.2
+          .gates_of_heck/gates/py_staged.sh --all .
 
       - name: Formatting
         run: cargo fmt --all -- --check
