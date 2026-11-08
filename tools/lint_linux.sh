@@ -10,13 +10,13 @@
 set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 GOH="${GOH_DIR:-$HOME/Projects/gates_of_heck}"
-# shellcheck source=/Users/ztomer/Projects/gates_of_heck/tui/lib.sh
+# shellcheck source=/dev/null # goh's tui/lib.sh: outside this repo; gates_of_heck lints it
 . "$GOH/tui/lib.sh"
 
 DOCKER="${DOCKER:-docker}"
 # Start the container runtime when it is down, and stop it after only if goh
 # started it and no other gate still holds it (goh lib/container_runtime.sh).
-# shellcheck source=/Users/ztomer/Projects/gates_of_heck/lib/container_runtime.sh
+# shellcheck source=/dev/null # goh's lib/container_runtime.sh: outside this repo; gates_of_heck lints it
 . "$GOH/lib/container_runtime.sh"
 trap goh_container_runtime_down EXIT
 trap 'exit 130' INT

@@ -24,7 +24,7 @@
 set -euo pipefail
 cd "$(git rev-parse --show-toplevel)"
 GOH="${GOH_DIR:-${GOH:-$HOME/Projects/gates_of_heck}}"
-# shellcheck source=/Users/ztomer/Projects/gates_of_heck/tui/lib.sh
+# shellcheck source=/dev/null # goh's tui/lib.sh: outside this repo; gates_of_heck lints it
 . "$GOH/tui/lib.sh"
 
 os="${MONITOR_ANDROID_BUILD_OS:-$(uname -s)}"

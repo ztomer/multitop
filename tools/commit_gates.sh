@@ -23,7 +23,7 @@ set -euo pipefail
 cd "$(git rev-parse --show-toplevel)"
 GOH="${GOH_DIR:-${GOH:-$HOME/Projects/gates_of_heck}}"
 export GOH_DIR="$GOH"
-# shellcheck source=/Users/ztomer/Projects/gates_of_heck/tui/lib.sh
+# shellcheck source=/dev/null # goh's tui/lib.sh: outside this repo; gates_of_heck lints it
 . "$GOH/tui/lib.sh"
 [ -f "$GOH/gates/_git_env.sh" ] || die "no gates/_git_env.sh in $GOH -- update gates_of_heck"
 
