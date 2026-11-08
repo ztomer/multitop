@@ -113,6 +113,58 @@ class ServeEndToEndTest {
         assertEquals(0, o.health.unread)
     }
 
+    /**
+     * A3 over the real wire: the registration this app writes is the one the
+     * Rust server reads, the status names the route, and a test alert to an
+     * endpoint that cannot be reached comes back as a failure with its reason.
+     */
+    @Test
+    fun `the push routes take this app's registration and report the route`() {
+        val api = ServerApi(pairing())
+        val before = api.pushStatus() as? Sent.Answered ?: fail("status unread")
+        assertTrue("\"route\":null" in before.body, before.body)
+        val key =
+            java.security.KeyPairGenerator
+                .getInstance("EC")
+                .apply { initialize(java.security.spec.ECGenParameterSpec("secp256r1")) }
+                .generateKeyPair()
+                .public as java.security.interfaces.ECPublicKey
+        val point = ByteArray(1 + 2 * P256_COORD) { 0 }
+        point[0] = UNCOMPRESSED
+
+        fun fixed(n: java.math.BigInteger) =
+            n
+                .toByteArray()
+                .takeLast(P256_COORD)
+                .toByteArray()
+                .let { ByteArray(P256_COORD - it.size) + it }
+        fixed(key.w.affineX).copyInto(point, 1)
+        fixed(key.w.affineY).copyInto(point, 1 + P256_COORD)
+        val b64 = Base64.getUrlEncoder().withoutPadding()
+        val reg =
+            com.ztomer.multitop.android.push.PushJson.unifiedPush(
+                "https://ntfy.invalid/upE2E?up=1",
+                b64.encodeToString(point),
+                b64.encodeToString(ByteArray(AUTH_LEN) { 1 }),
+            )
+        val registered = api.post("/api/push/register", reg) as? Sent.Answered ?: fail("register unsent")
+        assertEquals(HTTP_OK, registered.code, registered.body)
+        val after = api.pushStatus() as? Sent.Answered ?: fail("status unread")
+        assertTrue("\"route\":\"unifiedpush\"" in after.body, after.body)
+        val tested = api.post("/api/push/test", "{}")
+        val said =
+            com.ztomer.multitop.android.push.PushCopy
+                .tested(tested)
+        assertTrue(said.startsWith("✗ The test alert was not delivered: UnifiedPush (ntfy):"), said)
+        val refused = api.post("/api/push/register", "{\"kind\":\"apns\"}") as? Sent.Answered ?: fail("unsent")
+        assertEquals(HTTP_BAD_REQUEST, refused.code)
+        val wrong = ServerApi(pairing(token = "0".repeat(TOKEN_HEX))).post("/api/push/test", "{}")
+        assertTrue(wrong is Sent.Failed && "refused this phone's token" in wrong.reason, "$wrong")
+        val elsewhere = ServerApi(pairing(certificate = Fixtures.certificate("other")))
+        assertTrue(elsewhere.post("/api/push/test", "{}") is Sent.Failed)
+        assertTrue(elsewhere.pushStatus() is Sent.Failed)
+    }
+
     @Test
     fun `a client pinned to another certificate is refused before any request`() {
         val fetched = ServerApi(pairing(certificate = Fixtures.certificate("other"))).overview()
@@ -159,5 +211,10 @@ class ServeEndToEndTest {
         const val STOP_S = 10L
         const val POLL_MS = 200L
         const val CONNECT_MS = 500
+        const val P256_COORD = 32
+        const val UNCOMPRESSED: Byte = 4
+        const val AUTH_LEN = 16
+        const val HTTP_OK = 200
+        const val HTTP_BAD_REQUEST = 400
     }
 }
