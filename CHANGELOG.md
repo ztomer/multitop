@@ -7,6 +7,19 @@ This file starts at v0.47.0 — earlier history is in git (`git log`), and the
 per-defect record is `docs/detection-record.md`, which is the more useful
 document for anything before this point.
 
+## v0.69.2 — FCM by installation ID, no deprecated token API _(2026-11-08)_
+
+### Fixed — the FCM route on Firebase Messaging 26 (M.FCMDEPR)
+- The app now registers with FCM by Firebase installation ID: the manifest
+  carries `firebase_messaging_installation_id_enabled`, without which
+  `register()` failed ("API disabled") and only the deprecated token path ran.
+  The deprecated `onNewToken` override is gone; `onRegistered` receives the ID.
+- The server sends to it as HTTP v1's `fid` (its `token` target is deprecated).
+- Android lint's `MissingFirebaseInstanceTokenRefresh` predates this API and is
+  disabled with its reason (`docs/DECISIONS.md`, D1); a new unit test fails on
+  any deprecated declaration or deprecated override in the app.
+- Android app 0.2.1.
+
 ## v0.69.1 — a run's shell dies with its client _(2026-11-08)_
 
 ### Fixed — orphaned upgrade shells (M.FLOODREAP)
