@@ -7,6 +7,17 @@ This file starts at v0.47.0 — earlier history is in git (`git log`), and the
 per-defect record is `docs/detection-record.md`, which is the more useful
 document for anything before this point.
 
+## v0.69.1 — a run's shell dies with its client _(2026-11-08)_
+
+### Fixed — orphaned upgrade shells (M.FLOODREAP)
+- An exec agent whose client was gone (killed at a timeout, or died without
+  reaping) kept running its command: every write failed with `EPIPE` and was
+  dropped. It now stops the run at the first failed write.
+- Stopping a run ends the shell's whole session: the leader's process group
+  and the terminal's foreground group (where `zsh -i`/`bash -i` run the
+  command), with SIGHUP, SIGTERM, then SIGKILL after 2 s. One such shell had
+  been left blocked for 12h23m.
+
 ## v0.69.0 — alerts through the fleet's own ntfy _(2026-11-08)_
 
 ### Added — a private UnifiedPush distributor (servers SRV.NTFY)
