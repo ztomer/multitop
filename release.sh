@@ -102,7 +102,7 @@ grep -q "^## v${VER}\\b" CHANGELOG.md || die "CHANGELOG.md has no stanza for v${
 # refuses any step that sends output to /dev/null instead.
 step() {
   local label="$1"; shift
-  local log; log="$(mktemp -t "release-step")"
+  local log; log="$(mktemp "${TMPDIR:-/tmp}/release-step.XXXXXX")"
   if "$@" >"${log}" 2>&1; then rm -f "${log}"; return 0; fi
   echo "── ${label} failed; the last 150 lines of its output (full log: ${log}) ──" >&2
   tail -n 150 "${log}" >&2

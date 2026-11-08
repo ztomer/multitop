@@ -27,7 +27,7 @@ export GOH_DIR="$GOH"
 . "$GOH/tui/lib.sh"
 [ -f "$GOH/gates/_git_env.sh" ] || die "no gates/_git_env.sh in $GOH -- update gates_of_heck"
 
-log="$(mktemp -t multitop-precommit)"
+log="$(mktemp "${TMPDIR:-/tmp}/multitop-precommit.XXXXXX")"
 trap 'rm -f "$log"' EXIT
 
 # in_index <cmd...> -- run a checker against the INDEX BEING COMMITTED. The
