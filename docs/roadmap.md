@@ -478,6 +478,7 @@ The tag is the record; the per-release detail is in `CHANGELOG.md`.
 
 | Release | What it carried | Commits |
 |---------|-----------------|---------|
+| v0.68.0 | A3 push: `--serve` alerts on a host going down, crossing a threshold or recovering, over UnifiedPush (RFC 8291 Web Push) first and FCM after it; the app registers, shows the route and sends a test alert | `06d342e` |
 | v0.67.6 | M2 (host-sized pseudofiles read to their end, 2,048 filter names, the panel's real size on stdin, a warm tick that allocates nothing on Linux) and the release script installing before its push | `2f1e7d9`, `c5e95ad`, `fea6b1a`, `d4de496` |
 | v0.67.5 | M1 (the agent's memory stays flat: inline names, kept buffers, the allocation-bound gate) and the fuzz crate's own workspace root | `80f25fa`, `f6799e5` |
 | v0.56.0 | A2.4 (the Android pairing screen and its Keystore-sealed store, both QR polarities) and the installer's replace-by-rename fix (`install.sh` copies beside the target, signs the copy, and renames it over) | `e7da25a`, `2413764` |
