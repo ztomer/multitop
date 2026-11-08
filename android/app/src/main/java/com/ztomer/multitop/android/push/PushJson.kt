@@ -32,7 +32,8 @@ object PushJson {
             .put("auth", auth)
             .toString()
 
-    fun fcm(token: String): String = JSONObject().put("kind", "fcm").put("token", token).toString()
+    /** The FCM registration: the app instance's Firebase installation ID, under the wire's `token` key. */
+    fun fcm(installationId: String): String = JSONObject().put("kind", "fcm").put("token", installationId).toString()
 
     /**
      * The alert, or null for anything this version does not draw: another

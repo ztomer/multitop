@@ -71,7 +71,7 @@ fn up() -> Registration {
 
 fn fcm_reg() -> Registration {
     Registration::Fcm {
-        token: "synthetic:APA91b-token_1".into(),
+        token: "cSyntheticFid_1-abcdef".into(),
     }
 }
 
@@ -229,7 +229,7 @@ async fn send_falls_back_to_fcm_when_the_distributor_fails() {
     );
     let send = sender.seen.lock().expect("lock")[2].clone();
     let body: serde_json::Value = serde_json::from_slice(&send.body).expect("json");
-    assert_eq!(body["message"]["token"], "synthetic:APA91b-token_1");
+    assert_eq!(body["message"]["fid"], "cSyntheticFid_1-abcdef");
     let inner: serde_json::Value =
         serde_json::from_str(body["message"]["data"]["alert"].as_str().expect("string"))
             .expect("json");

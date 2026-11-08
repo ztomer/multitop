@@ -66,6 +66,13 @@ fn requests_go_where_google_documents_them() {
     let msg: serde_json::Value = serde_json::from_slice(&send.body).expect("json");
     assert_eq!(msg["message"]["android"]["priority"], "HIGH");
     assert_eq!(msg["message"]["data"]["alert"], r#"{"v":1}"#);
+    // The phone registers by Firebase installation ID (Firebase Messaging
+    // 25.1+), and HTTP v1 targets it by `fid`; `token` is deprecated there.
+    assert_eq!(msg["message"]["fid"], "dev");
+    assert!(
+        msg["message"].get("token").is_none(),
+        "the deprecated target"
+    );
     assert!(
         !format!("{fcm:?}").contains("PRIVATE"),
         "Debug never prints the key"

@@ -48,7 +48,8 @@ pub enum Registration {
         p256dh: String,
         auth: String,
     },
-    /// An FCM registration token.
+    /// The phone's Firebase installation ID (FID), under the wire key
+    /// `token` the app has always sent it in; the send targets it as `fid`.
     #[serde(rename = "fcm")]
     Fcm { token: String },
 }
@@ -126,7 +127,7 @@ impl Registration {
                 if fits && clean {
                     Ok(())
                 } else {
-                    Err("token is not an FCM registration token".into())
+                    Err("token is not a Firebase installation ID".into())
                 }
             }
         }

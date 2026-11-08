@@ -25,8 +25,8 @@ android {
         // app (koffee_big) already ships to, so the phone it is for meets it.
         minSdk = 28
         targetSdk = 37
-        versionCode = 2
-        versionName = "0.2.0"
+        versionCode = 3
+        versionName = "0.2.1"
         // 64-bit only (house platform policy). The app is pure Kotlin today and
         // packages no native code; the filter is what keeps a future native
         // dependency from smuggling 32-bit ABIs into the APK.
@@ -75,7 +75,14 @@ android {
         abortOnError = true
         checkAllWarnings = true
         checkTestSources = true
-        // No baseline and no disabled ids: a finding is fixed, never suppressed.
+        // No baseline. One disabled id, a false positive with its reason
+        // (docs/DECISIONS.md, D1): MissingFirebaseInstanceTokenRefresh demands
+        // an override of onNewToken, which Firebase Messaging 25.1 deprecated
+        // and never calls under FID registration (the manifest's
+        // firebase_messaging_installation_id_enabled; PushAndroidTest holds it
+        // on). The check is unchanged through lint 32.6.0-alpha03, so no AGP
+        // release retires it; this line goes when one does.
+        disable += "MissingFirebaseInstanceTokenRefresh"
     }
 
     testOptions {

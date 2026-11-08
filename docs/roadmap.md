@@ -7,25 +7,10 @@ clause; an id marked `(queue: X)` is also an item in the umbrella queue
 (`~/Projects/.loop/queue.json`). The estate plan the Ops view follows is the
 servers repo's ROADMAP (O92); this file is the plan for the phone and the agent.
 
-State on 2026-11-08: v0.69.0 is the latest tag. The phone push (A3) is
+State on 2026-11-08: v0.69.2 is the latest tag. The phone push (A3) is
 built end to end - `--serve` alerts over UnifiedPush first and FCM after it, and
 a private distributor (the fleet's own ntfy, servers DECISIONS #17) is named in
-`push-distributor.toml` - and what is left is its live delivery and two defects.
-
-## Phase 1 - defects in released code (no owner input needed)
-
-Why first: both are violations of a standing rule in code that is already out
-(the house load rule, and engineering rule #17), and neither waits on anything.
-
-* **M.FCMDEPR** (queue: M.FCMDEPR). `push/FcmService.kt` still overrides the
-  deprecated `onNewToken` (Firebase 26 calls it on its legacy path beside
-  `onRegistered`) because Android lint's `MissingFirebaseInstanceTokenRefresh`
-  predates Firebase 26 and demands it. Rule 17: no deprecated API. Use the
-  current path and configure lint for Firebase 26, or report the false positive
-  upstream and record it here.
-  Done when: no deprecated FCM API is in the app, `tools/android_gate.sh` is
-  green without the forced override, and the deprecation ratchet
-  (`android/gradle_deprecations.txt`) is red on a reintroduced one.
+`push-distributor.toml` - and what is left is its live delivery.
 
 ## Phase 2 - the phone push reaches the phone (waits on the fleet and the owner)
 

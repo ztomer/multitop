@@ -188,7 +188,10 @@ impl Fcm {
         })
     }
 
-    /// The send: a data message, high priority, to one registration token.
+    /// The send: a data message, high priority, to one app instance by its
+    /// Firebase installation ID. HTTP v1's `token` target is deprecated
+    /// ("Use fid instead"), as the phone's registration token is since
+    /// Firebase Messaging 25.1; the app registers by FID.
     #[must_use]
     pub fn send_request(
         &self,
@@ -200,7 +203,7 @@ impl Fcm {
         // under one key, read by the app exactly as the UnifiedPush body is.
         let message = serde_json::json!({
             "message": {
-                "token": device,
+                "fid": device,
                 "data": { "alert": payload.to_string() },
                 "android": { "priority": "HIGH", "ttl": MESSAGE_TTL },
             }
@@ -237,11 +240,11 @@ impl Fcm {
         Ok(parsed.access_token)
     }
 
-    /// One delivery. A 404 is FCM's "this token is no longer registered".
+    /// One delivery. A 404 is FCM's "this installation is no longer registered".
     ///
     /// # Errors
     ///
-    /// The exchange or the send failed; [`super::Failure::Gone`] for a dead token.
+    /// The exchange or the send failed; [`super::Failure::Gone`] for a dead installation.
     pub async fn deliver(
         &self,
         sender: &dyn Sender,

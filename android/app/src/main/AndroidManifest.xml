@@ -45,6 +45,12 @@
                 <action android:name="org.unifiedpush.android.connector.PUSH_EVENT" />
             </intent-filter>
         </service>
+        <!-- FCM registers by Firebase installation ID (Firebase Messaging 25.1+):
+             without this flag register() fails ("API disabled") and only the
+             deprecated token path and onNewToken run (docs/DECISIONS.md, D1). -->
+        <meta-data
+            android:name="firebase_messaging_installation_id_enabled"
+            android:value="true" />
         <!-- The FCM fallback; inert unless the build carried a Firebase config. -->
         <service
             android:name=".push.FcmService"

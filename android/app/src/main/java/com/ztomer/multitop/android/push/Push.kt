@@ -48,8 +48,9 @@ object Push {
             }
 
             PushChoice.Fcm -> {
-                // Firebase 26: register() replaces the deprecated token getter;
-                // the token arrives in FcmService.onRegistered.
+                // FID registration (the manifest's installation-ID flag):
+                // register() replaces the deprecated token getter, and the
+                // FID arrives in FcmService.onRegistered.
                 FirebaseMessaging.getInstance().register()
             }
 

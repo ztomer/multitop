@@ -2,6 +2,7 @@ package com.ztomer.multitop.android.push
 
 import android.app.Application
 import android.app.NotificationManager
+import android.content.pm.PackageManager
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.v2.createComposeRule
 import androidx.compose.ui.test.onNodeWithText
@@ -73,7 +74,16 @@ class PushAndroidTest {
         assertTrue(posted().isEmpty())
         service.onMessageReceived(RemoteMessage.Builder("x@fcm").addData("alert", wire).build())
         assertEquals("beelink is unreachable", shadowOf(posted().single()).contentTitle)
-        service.onRegistered("synthetic-token")
+        service.onRegistered("synthetic-fid")
+    }
+
+    @Test
+    fun fcmRegistersByInstallationId() {
+        // Without the flag, register() fails and Firebase falls back to the
+        // deprecated onNewToken, which FcmService does not override -- and the
+        // lint check that would demand it is disabled on the strength of this.
+        val meta = app.packageManager.getApplicationInfo(app.packageName, PackageManager.GET_META_DATA).metaData
+        assertTrue(meta.getBoolean("firebase_messaging_installation_id_enabled"))
     }
 
     @Test
