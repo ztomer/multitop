@@ -7,6 +7,17 @@ This file starts at v0.47.0 — earlier history is in git (`git log`), and the
 per-defect record is `docs/detection-record.md`, which is the more useful
 document for anything before this point.
 
+## v0.69.0 — alerts through the fleet's own ntfy _(2026-11-08)_
+
+### Added — a private UnifiedPush distributor (servers SRV.NTFY)
+- `push-distributor.toml` (`0600`, beside `config.toml`) names a self-hosted
+  distributor: its `origin`, the publisher `token` (sent as a bearer) and an
+  optional `ca` PEM. Token and roots apply to that origin only; FCM and any
+  other endpoint see neither. Without the file nothing changes.
+- Why: ntfy.sh answers 507 when the sender and the phone share one public
+  address, so the fleet runs its own ntfy - `deny-all`, under the media.home
+  private CA - and the push client could reach neither before this.
+
 ## v0.68.0 — alerts reach the phone: UnifiedPush first, FCM after it _(2026-11-08)_
 
 ### Added — A3 push (roadmap A3; owner ruling OW.26, "both, ntfy first")
