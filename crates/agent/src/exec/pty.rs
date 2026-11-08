@@ -334,6 +334,41 @@ pub const fn decode_status(status: libc::c_int) -> Outcome {
     }
 }
 
+/// Set by `SIGTERM` or `SIGHUP` to the agent: the client asked the run to stop.
+static STOP: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+extern "C" fn note_stop(_sig: libc::c_int) {
+    // Async-signal-safe: one atomic store, nothing else.
+    STOP.store(true, std::sync::atomic::Ordering::SeqCst);
+}
+
+/// Turn `SIGTERM` and `SIGHUP` to the agent into a request to stop the run.
+///
+/// At their default disposition either signal ends the agent on the spot, and
+/// its teardown -- [`terminate`], which ends the child's whole session -- never
+/// runs: the shell and its command are orphaned to init. With this installed
+/// the pump sees [`stop_requested`] within one poll and tears the run down the
+/// way it does for a client that vanished (M.KILLDROP). A forked child gets the
+/// default dispositions back at `exec`, so the command is unaffected.
+pub fn install_stop_handlers() {
+    for sig in [libc::SIGTERM, libc::SIGHUP] {
+        // SAFETY: a zeroed `sigaction` with a valid handler and empty mask is a
+        // well-formed argument; the handler only stores to an atomic.
+        unsafe {
+            let mut act: libc::sigaction = std::mem::zeroed();
+            act.sa_sigaction = note_stop as extern "C" fn(libc::c_int) as libc::sighandler_t;
+            libc::sigemptyset(&raw mut act.sa_mask);
+            libc::sigaction(sig, &raw const act, std::ptr::null_mut());
+        }
+    }
+}
+
+/// Whether the agent has been asked to stop (see [`install_stop_handlers`]).
+#[must_use]
+pub fn stop_requested() -> bool {
+    STOP.load(std::sync::atomic::Ordering::SeqCst)
+}
+
 /// How long a child's session has to end after the hangup before it is killed.
 const TERMINATE_GRACE: std::time::Duration = std::time::Duration::from_secs(2);
 /// How often the grace looks for the leader having ended.

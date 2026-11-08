@@ -93,8 +93,9 @@ pub fn pump<W: Write>(
         // The client is gone: nobody will read another byte of this run, and a
         // shell left writing to a pty nobody drains blocks forever. The agent
         // started the shell, so the agent ends it -- its whole session, not
-        // just the pid it forked (see `pty::terminate`).
-        if reaped.is_none() && out.gone() {
+        // just the pid it forked (see `pty::terminate`). A `SIGTERM` or `SIGHUP`
+        // to the agent is the client saying the same thing out loud.
+        if reaped.is_none() && (out.gone() || pty::stop_requested()) {
             reaped = Some(pty::terminate(child));
             break;
         }

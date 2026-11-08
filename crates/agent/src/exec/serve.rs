@@ -72,6 +72,9 @@ pub fn serve<W: Write>(host: &str, cols: usize, lines: usize, out: &mut W) {
         host,
         lock_path: None,
     };
+    // Only now: a stop before the request is read needs no teardown, and the
+    // default disposition ending the agent is the right answer to it.
+    super::pty::install_stop_handlers();
     run(&req, out);
 }
 

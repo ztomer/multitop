@@ -1,3 +1,4 @@
+use super::exec_child::ExecChild;
 use crate::config::Server;
 use crate::ssh::command::{
     bootstrap_script, cleanup_old_agents_command, detached, exec_bootstrap_arg, is_local,
@@ -119,7 +120,7 @@ pub async fn spawn_agent(server: &Server, mode: Mode, sort: SortBy) -> io::Resul
 ///
 /// Returns an error if the process could not be spawned or the request could
 /// not be written.
-pub async fn spawn_exec(server: &Server, request: &ExecFrame) -> io::Result<Child> {
+pub async fn spawn_exec(server: &Server, request: &ExecFrame) -> io::Result<ExecChild> {
     let mut cmd = if is_local(server) {
         let mut c = local_agent_command();
         c.arg("exec");
@@ -133,8 +134,10 @@ pub async fn spawn_exec(server: &Server, request: &ExecFrame) -> io::Result<Chil
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
-        .kill_on_drop(true)
-        .spawn()?;
+        // Not `kill_on_drop`: its `SIGKILL` skips the agent's teardown.
+        // `ExecChild` stops it with `SIGTERM` first (M.KILLDROP).
+        .spawn()
+        .map(ExecChild::new)?;
 
     let packet = multitop_agent::proto::encode_packet(&multitop_agent::proto::Payload::Exec(
         request.clone(),
