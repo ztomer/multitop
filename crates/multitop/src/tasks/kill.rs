@@ -112,7 +112,7 @@ pub fn spawn_tail(
     })
 }
 
-/// Refresh interval for custom exec panels per roadmap Phase 3.
+/// Refresh interval for custom exec panels.
 const CUSTOM_PANEL_POLL_INTERVAL_MS: u64 = 250;
 
 /// `[[panels]] command="nvidia-smi …"` — runs every 250 ms via Exec pty,

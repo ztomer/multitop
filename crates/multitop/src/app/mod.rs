@@ -69,7 +69,7 @@ pub struct App {
     pub alert_disk: Option<u8>,
     pub alert_targets: Vec<crate::config::AlertTarget>,
     pub saved_filters: Vec<String>,
-    /// `x/o/r` armed for `host:pid:name` per roadmap Phase 3.
+    /// `x/o/r` armed for `host:pid:name`.
     pub kill_confirm: Option<ExecConfirm>,
 }
 

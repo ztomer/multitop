@@ -54,7 +54,7 @@ pub fn parse(text: &str) -> Result<Config, ConfigError> {
 
     let (mut out, plaintext) = parse_servers(servers)?;
 
-    // `[[panels]] command="nvidia-smi …"` per roadmap Phase 3 — treated as
+    // `[[panels]] command="nvidia-smi …"` — treated as
     // additional servers whose panel runs the command every 250 ms via Exec
     // and is rendered as a Fetch card (`crates/multitop/src/render_payload.rs:20`).
     if let Some(toml::Value::Array(panels)) = value.get("panels") {

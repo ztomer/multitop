@@ -23,7 +23,7 @@ jobs:
       # which the structural gate's no-credential-in-git-config check refuses
       # (gates_of_heck 0560b72), and no step here does git network work after
       # the clone (2026-10-08).
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7.0.1
         with:
           persist-credentials: false
           # fetch-depth: 0, and not for speed. tools/check_doc_paths.py exempts a
@@ -63,7 +63,7 @@ jobs:
       # name -- the repo carried its own copy of the emoji checker until
       # 2026-09-14, and a copy is a checker that drifts.
       - name: Check out the shared gate harness
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7.0.1
         with:
           persist-credentials: false
           repository: ztomer/gates_of_heck
@@ -134,7 +134,7 @@ jobs:
     name: test
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7.0.1
         with:
           persist-credentials: false
       - uses: dtolnay/rust-toolchain@stable
@@ -156,7 +156,7 @@ jobs:
       # it had been doing on every push since the delegation landed. A merge
       # gate that cannot run is not a merge gate.
       - name: Check out the shared gate harness
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7.0.1
         with:
           persist-credentials: false
           repository: ztomer/gates_of_heck
@@ -200,7 +200,7 @@ jobs:
     name: coverage (95% floor)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7.0.1
         with:
           persist-credentials: false
       - uses: dtolnay/rust-toolchain@stable
@@ -215,7 +215,7 @@ jobs:
       # it had been doing on every push since the delegation landed. A merge
       # gate that cannot run is not a merge gate.
       - name: Check out the shared gate harness
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7.0.1
         with:
           persist-credentials: false
           repository: ztomer/gates_of_heck
@@ -253,11 +253,11 @@ jobs:
     name: android (ktlint / lint / unit tests / build)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7.0.1
         with:
           persist-credentials: false
       - name: Check out the shared gate harness
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7.0.1
         with:
           persist-credentials: false
           repository: ztomer/gates_of_heck
@@ -293,7 +293,7 @@ jobs:
     name: fuzz targets build
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7.0.1
         with:
           persist-credentials: false
 

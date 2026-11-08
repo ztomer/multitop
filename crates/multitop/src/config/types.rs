@@ -31,7 +31,7 @@ pub struct Server {
     pub port: u16,
     pub user: String,
     pub upgrade_cmd: Option<String>,
-    /// `[[panels]] command="nvidia-smi …"` per roadmap Phase 3 — when present
+    /// `[[panels]] command="nvidia-smi …"` — when present
     /// the panel runs this command on the host every `250ms` via the `Exec` pty
     /// and is rendered as a `Fetch` card.
     pub custom_command: Option<String>,

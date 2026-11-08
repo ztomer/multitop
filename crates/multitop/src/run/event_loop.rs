@@ -58,7 +58,7 @@ fn spawn_initial_tasks(
     // decides how many monitors exist.
     for (i, panel) in app.panels.iter().enumerate() {
         if let Some(cmd) = panel.server.custom_command.clone() {
-            // `[[panels]] command="…"` per roadmap Phase 3 — runs every 250 ms
+            // `[[panels]] command="…"` — runs every 250 ms
             // via Exec pty, rendered as a Fetch card (`render_payload.rs:20`).
             let gen = panel.gen;
             let server = panel.server.clone();
