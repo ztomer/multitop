@@ -19,9 +19,21 @@ sealed interface Fetch {
     ) : Fetch
 }
 
+/** The outcome of one write: the server's status and body, or why it was not reached. */
+sealed interface Sent {
+    data class Answered(
+        val code: Int,
+        val body: String,
+    ) : Sent
+
+    data class Failed(
+        val reason: String,
+    ) : Sent
+}
+
 /**
- * The read-only API of the paired `multitop --serve`: `/api/health` and
- * `/api/hosts`, over [PinnedTls] and nothing else. The socket factory trusts
+ * The API of the paired `multitop --serve`: `/api/health` and
+ * `/api/hosts`, and A3's push routes, over [PinnedTls] and nothing else. The socket factory trusts
  * only the pinned certificate and the verifier requires the leaf to BE it; the
  * host name is not checked, because the LAN address may change and the pin may
  * not. There is no plain-HTTP path to fall back to (the manifest forbids
@@ -60,7 +72,44 @@ class ServerApi(
         message: String,
     ) : IOException(message)
 
+    /**
+     * A3 push: one POST to the paired server, answered with what it said.
+     * Never throws: a failure is [Sent.Failed] in words a person can act on.
+     */
+    fun post(
+        path: String,
+        json: String,
+    ): Sent =
+        try {
+            val (code, body) = exchange("POST", path, json)
+            Sent.Answered(code, body)
+        } catch (e: Refused) {
+            Sent.Failed(e.message.orEmpty())
+        } catch (e: SSLException) {
+            Sent.Failed("the server at $where did not present the paired certificate (${e.javaClass.simpleName})")
+        } catch (e: IOException) {
+            Sent.Failed("could not reach $where: ${e.message ?: e.javaClass.simpleName}")
+        }
+
+    /** The A3 push status (`GET /api/push`), never throwing. */
+    fun pushStatus(): Sent =
+        try {
+            Sent.Answered(HttpURLConnection.HTTP_OK, get("/api/push"))
+        } catch (e: IOException) {
+            Sent.Failed(e.message ?: e.javaClass.simpleName)
+        }
+
     private fun get(path: String): String {
+        val (code, body) = exchange("GET", path, null)
+        if (code != HttpURLConnection.HTTP_OK) throw Refused("the server at $where answered $path with HTTP $code")
+        return body
+    }
+
+    private fun exchange(
+        method: String,
+        path: String,
+        json: String?,
+    ): Pair<Int, String> {
         val url = URI("https", null, bracketed(pairing.host), pairing.port, path, null, null).toURL()
         val connection = url.openConnection() as? HttpsURLConnection ?: throw IOException("$url is not HTTPS")
         connection.sslSocketFactory = tls
@@ -69,22 +118,22 @@ class ServerApi(
         connection.readTimeout = timeoutMs
         connection.instanceFollowRedirects = false
         connection.useCaches = false
+        connection.requestMethod = method
         connection.setRequestProperty("Authorization", "Bearer ${pairing.token}")
         connection.setRequestProperty("Accept", "application/json")
         try {
-            return when (val code = connection.responseCode) {
-                HttpURLConnection.HTTP_OK -> {
-                    connection.inputStream.use { it.readBytes().toString(Charsets.UTF_8) }
-                }
-
-                HttpURLConnection.HTTP_UNAUTHORIZED -> {
-                    throw Refused("the server at $where refused this phone's token: pair again")
-                }
-
-                else -> {
-                    throw Refused("the server at $where answered $path with HTTP $code")
-                }
+            if (json != null) {
+                connection.doOutput = true
+                connection.setRequestProperty("Content-Type", "application/json")
+                connection.outputStream.use { it.write(json.toByteArray(Charsets.UTF_8)) }
             }
+            val code = connection.responseCode
+            if (code == HttpURLConnection.HTTP_UNAUTHORIZED) {
+                throw Refused("the server at $where refused this phone's token: pair again")
+            }
+            val stream = if (code < HttpURLConnection.HTTP_BAD_REQUEST) connection.inputStream else connection.errorStream
+            val body = stream?.use { it.readBytes().toString(Charsets.UTF_8) }.orEmpty()
+            return code to body
         } finally {
             connection.disconnect()
         }

@@ -48,6 +48,10 @@ fn state() -> AppState {
         token: TOKEN.into(),
         servers: cfg.servers.clone(),
         config: cfg,
+        push: std::sync::Arc::new(multitop::push::Hub::new(
+            std::sync::Arc::new(multitop::push::http::HyperSender::new().expect("push client")),
+            None,
+        )),
     }
 }
 

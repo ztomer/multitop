@@ -84,6 +84,34 @@ pub fn read_or_create(
     Ok(Outcome::Created(bytes))
 }
 
+/// Replace `path` with `bytes`, owner-only.
+///
+/// Written `0600` to a sibling, synced,
+/// and renamed over, so a reader sees the old file or the new one and never a
+/// half-written one, and the mode is right before the first byte lands.
+///
+/// # Errors
+///
+/// A sentence naming `path` for any I/O failure.
+pub fn write_private(path: &Path, bytes: &[u8]) -> Result<(), String> {
+    let shown = path.display();
+    let mut tmp_name = path.file_name().unwrap_or_default().to_os_string();
+    tmp_name.push(format!(".{}.tmp", std::process::id()));
+    let tmp = path.with_file_name(tmp_name);
+    let _ = std::fs::remove_file(&tmp);
+    let written = std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .mode(0o600)
+        .open(&tmp)
+        .and_then(|mut f| f.write_all(bytes).and_then(|()| f.sync_all()))
+        .and_then(|()| std::fs::rename(&tmp, path));
+    written.map_err(|e| {
+        let _ = std::fs::remove_file(&tmp);
+        format!("cannot write {shown}: {e}")
+    })
+}
+
 fn read_existing(path: &Path, meta: &std::fs::Metadata) -> Result<Outcome, String> {
     refuse_if_open(path, meta.permissions().mode())?;
     std::fs::read(path)

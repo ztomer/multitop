@@ -25,13 +25,30 @@ android {
         // app (koffee_big) already ships to, so the phone it is for meets it.
         minSdk = 28
         targetSdk = 37
-        versionCode = 1
-        versionName = "0.1.0"
+        versionCode = 2
+        versionName = "0.2.0"
         // 64-bit only (house platform policy). The app is pure Kotlin today and
         // packages no native code; the filter is what keeps a future native
         // dependency from smuggling 32-bit ABIs into the APK.
         ndk {
             abiFilters += listOf("arm64-v8a", "x86_64")
+        }
+    }
+
+    // A3's FCM fallback: Firebase's client reads its project from string
+    // resources, which Google's google-services plugin writes from
+    // google-services.json. This build writes the same five itself, and only
+    // when the owner has put that file at android/app/google-services.json
+    // (gitignored: it names the owner's Firebase project). Without it the
+    // resources are absent, Firebase does not start, and the app registers
+    // over UnifiedPush or says it cannot -- never a build failure.
+    googleServices()?.let { g ->
+        defaultConfig {
+            resValue("string", "google_app_id", g.appId)
+            resValue("string", "gcm_defaultSenderId", g.senderId)
+            resValue("string", "google_api_key", g.apiKey)
+            resValue("string", "project_id", g.projectId)
+            resValue("string", "google_storage_bucket", g.bucket)
         }
     }
 
@@ -43,6 +60,7 @@ android {
 
     buildFeatures {
         compose = true
+        resValues = true
     }
 
     compileOptions {
@@ -127,6 +145,12 @@ dependencies {
     implementation("androidx.camera:camera-lifecycle:1.6.2")
     implementation("androidx.camera:camera-view:1.6.2")
     implementation("com.google.zxing:core:3.5.4")
+    // A3 push (owner ruling OW.26, "both, ntfy first"). The UnifiedPush
+    // connector 3.3.5 (newest, 2026) registers with the phone's distributor and
+    // decrypts RFC 8291 Web Push itself; Firebase Messaging 26.0.1 (newest) is
+    // the fallback route when the phone has no distributor.
+    implementation("org.unifiedpush.android:connector:3.3.5")
+    implementation("com.google.firebase:firebase-messaging:26.0.1")
 
     testImplementation("org.junit.jupiter:junit-jupiter:6.1.3")
     // org.json is the platform's on a phone; android.jar's copy is stubs on the
@@ -144,4 +168,33 @@ dependencies {
     testImplementation("androidx.test.espresso:espresso-core:3.7.0")
     testRuntimeOnly("org.junit.vintage:junit-vintage-engine:6.1.3")
     debugImplementation("androidx.compose.ui:ui-test-manifest")
+}
+
+/** The five values Firebase reads, from android/app/google-services.json, or null without it. */
+data class GoogleServices(
+    val appId: String,
+    val senderId: String,
+    val apiKey: String,
+    val projectId: String,
+    val bucket: String,
+)
+
+fun googleServices(): GoogleServices? {
+    val file = layout.projectDirectory.file("google-services.json").asFile
+    if (!file.isFile) return null
+
+    fun Any?.obj(key: String): Any? = (this as? Map<*, *>)?.get(key)
+    val root = groovy.json.JsonSlurper().parse(file)
+    val project = root.obj("project_info")
+    val client =
+        (root.obj("client") as? List<*>).orEmpty().firstOrNull {
+            it.obj("client_info").obj("android_client_info").obj("package_name") == "com.ztomer.multitop.android"
+        } ?: error("google-services.json has no client for com.ztomer.multitop.android")
+    return GoogleServices(
+        appId = client.obj("client_info").obj("mobilesdk_app_id").toString(),
+        senderId = project.obj("project_number").toString(),
+        apiKey = (client.obj("api_key") as? List<*>)?.firstOrNull().obj("current_key").toString(),
+        projectId = project.obj("project_id").toString(),
+        bucket = project.obj("storage_bucket")?.toString().orEmpty(),
+    )
 }

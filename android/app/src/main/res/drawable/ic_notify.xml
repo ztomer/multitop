@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The status-bar mark for an alert: the launcher's three host bars, in the
+     one colour Android draws a notification icon with (its alpha). -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M4,14h4v6h-4z M10,9h4v11h-4z M16,4h4v16h-4z" />
+</vector>

@@ -28,6 +28,10 @@ fn test_state(token: &str) -> AppState {
             alert_disk: None,
             alerts: vec![],
         },
+        push: Arc::new(crate::push::Hub::new(
+            Arc::new(crate::push::http::HyperSender::new().expect("push client")),
+            None,
+        )),
     }
 }
 

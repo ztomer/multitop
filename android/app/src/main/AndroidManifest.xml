@@ -8,6 +8,8 @@
     <uses-permission android:name="android.permission.CAMERA" />
     <!-- The paired server's read-only API, over pinned TLS on the LAN. -->
     <uses-permission android:name="android.permission.INTERNET" />
+    <!-- A3: a pushed alert is drawn as a notification (asked for at runtime, API 33+). -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
     <!--
       allowBackup is off and the extraction rules exclude everything: the
@@ -34,5 +36,22 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+        <!-- A3 push, UnifiedPush first (owner ruling OW.26): the connector binds
+             this service with the distributor's endpoint and each message. -->
+        <service
+            android:name=".push.UpService"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="org.unifiedpush.android.connector.PUSH_EVENT" />
+            </intent-filter>
+        </service>
+        <!-- The FCM fallback; inert unless the build carried a Firebase config. -->
+        <service
+            android:name=".push.FcmService"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="com.google.firebase.MESSAGING_EVENT" />
+            </intent-filter>
+        </service>
     </application>
 </manifest>

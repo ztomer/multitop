@@ -77,6 +77,10 @@ fn test_state(token: &str) -> (AppState, multitop::server::SharedState) {
         token: token.to_string(),
         servers: cfg.servers.clone(),
         config: cfg,
+        push: std::sync::Arc::new(multitop::push::Hub::new(
+            std::sync::Arc::new(multitop::push::http::HyperSender::new().expect("push client")),
+            None,
+        )),
     };
     (app_state, shared)
 }

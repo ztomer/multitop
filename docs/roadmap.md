@@ -70,7 +70,7 @@ call that missed it named, the host is gathered with the rest of its
 reading kept, and the pass still says the gap instead of passing for
 clear. The 20-second budget is the estate's and was not raised. **A2.5,
 the read-only screens over `/api/hosts` and `/api/health` through
-`PinnedTls`, closed on 2026-10-24 in `72efd5f`.** The next open work is A3 (push). **The Ops view draws the machine's VERDICT since 2026-10-24** (servers
+`PinnedTls`, closed on 2026-10-24 in `72efd5f`.** A3 (push) was built on 2026-11-08; its state is item 3 of Phase 2. **The Ops view draws the machine's VERDICT since 2026-10-24** (servers
 ROADMAP O92, this repo's client half, `60babc5`): `machine.triage` is asked with the
 other sections and drawn at the top of the card - one `✗` row per item,
 naming its stack, the owner's fix verbatim or `fix: none stated by the
@@ -263,13 +263,35 @@ In the order it blocks:
    token is). A leaf (`CA:FALSE`), since nothing it signs should be trusted. Proof: a
    server test that a non-loopback bind answers TLS and a loopback one plain
    HTTP; the client's test that a different certificate is refused.
-3. **A3 — push.** Android push is **FCM** (or UnifiedPush/ntfy to avoid a
-   Google dependency), not APNs as an older entry of this file said; APNs is
-   Apple's and would only apply to an iOS client. Needs the app, so it is third.
-   The trigger is the server noticing a *transition* (host down, upgrade failed,
-   health degraded), which the current request model does not have, so this is
-   new server code. Proof: a server test that a synthetic transition emits
-   exactly one notification and a steady state emits none.
+3. **A3 — push (built 2026-11-08; owner ruling OW.26, "both, ntfy first").**
+   One seam, two transports, chosen at send time by what the phone registered
+   (`crates/multitop/src/push/`):
+   * **Server.** `--serve` watches each host's coarse state (up, past a
+     threshold, unreachable) every 15 s and reports a change only once it has
+     held for two looks (`push/watch.rs`); a steady state, good or bad, says
+     nothing. Each alert goes down `push::plan`: UnifiedPush first, FCM after
+     it (also when UnifiedPush fails), none when nothing is registered. The
+     UnifiedPush body is RFC 8291 `aes128gcm` ciphertext (`push/webpush.rs`,
+     pinned to the RFC's Appendix A vector), so ntfy carries bytes it cannot
+     read. FCM is HTTP v1 with an RS256 service-account assertion
+     (`push/fcm.rs`). A 404/410 drops the dead registration. Routes, behind
+     the token: `GET /api/push`, `POST /api/push/register`, `POST
+     /api/push/test`. Registrations live `0600` in `push-registrations.json`
+     beside the serve token.
+   * **Phone.** `PushPlan` picks the installed distributor (ntfy), else FCM
+     when the build carried a Firebase config, else says no route exists; the
+     connector (UnifiedPush 3.3.5) registers and decrypts, and a message that
+     did NOT decrypt is dropped (an endpoint is a URL anyone who learns it can
+     POST to). The hosts screen shows the route and a test-alert button.
+   * **Proof.** `push::watch` tests: a synthetic transition through the real
+     loop sends exactly one push and a steady state none; `push::mod_tests`:
+     selection, fallback and the gone-drop; `webpush_tests`: the RFC vector.
+   * **What the FCM route needs from the owner** (it is built and tested, and
+     inert without these): `android/app/google-services.json` (Firebase
+     console, Android app `com.ztomer.multitop.android`; gitignored) at build
+     time, and `fcm-service-account.json` (Project settings, Service
+     accounts, Generate new private key), `chmod 600`, beside the server's
+     `config.toml`.
 
 The `repack`/`convert` logo pipeline (`scripts/repack_logos.py`,
 `scripts/convert_logos.py`, over `crates/multitop/data/logos.bin.zst`) already

@@ -16,7 +16,7 @@ use axum::{
     http::{HeaderMap, StatusCode},
     middleware::{self, Next},
     response::{Html, IntoResponse, Json, Response},
-    routing::get,
+    routing::{get, post},
     Router,
 };
 use serde::Serialize;
@@ -44,6 +44,8 @@ pub struct AppState {
     pub token: String,
     pub servers: Vec<Server>,
     pub config: crate::config::Config,
+    /// A3: the phone's push registrations and the routes to it.
+    pub push: Arc<crate::push::Hub>,
 }
 
 /// Authorize a request against the serve token.
@@ -318,6 +320,9 @@ pub fn router(state: AppState) -> Router {
         .route("/api/snapshot/{host}", get(api_snapshot))
         .route("/api/history/{host}", get(api_history))
         .route("/api/mtop", get(api_mtop_raw))
+        .route("/api/push", get(crate::push::routes::status))
+        .route("/api/push/register", post(crate::push::routes::register))
+        .route("/api/push/test", post(crate::push::routes::test))
         // LAST, so it wraps every route above AND the fallback: an unmatched path
         // is authenticated before it is a 404.
         .layer(middleware::from_fn_with_state(state.clone(), require_token))

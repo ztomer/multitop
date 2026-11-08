@@ -37,6 +37,7 @@ pub mod panel;
 pub mod password_actions;
 pub mod password_store;
 pub mod passwords;
+pub mod push;
 pub mod refit;
 pub mod render_payload;
 pub mod run;

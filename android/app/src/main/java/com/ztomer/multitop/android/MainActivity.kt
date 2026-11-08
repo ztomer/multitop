@@ -2,6 +2,7 @@ package com.ztomer.multitop.android
 
 import android.Manifest
 import android.content.pm.PackageManager
+import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -9,6 +10,8 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.darkColorScheme
@@ -20,12 +23,13 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.dp
 import com.ztomer.multitop.android.api.ServerApi
 import com.ztomer.multitop.android.pairing.Pairing
+import com.ztomer.multitop.android.push.Push
+import com.ztomer.multitop.android.push.PushController
+import com.ztomer.multitop.android.push.PushPanel
 import com.ztomer.multitop.android.scan.CameraScanner
-import com.ztomer.multitop.android.store.AesGcmSealer
-import com.ztomer.multitop.android.store.KeystoreKey
-import com.ztomer.multitop.android.store.PairingStore
 import com.ztomer.multitop.android.ui.CameraAccess
 import com.ztomer.multitop.android.ui.HostsController
 import com.ztomer.multitop.android.ui.HostsPanel
@@ -33,7 +37,6 @@ import com.ztomer.multitop.android.ui.PairingActions
 import com.ztomer.multitop.android.ui.PairingController
 import com.ztomer.multitop.android.ui.PairingScreen
 import com.ztomer.multitop.android.ui.ScanSlot
-import java.io.File
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 
@@ -54,7 +57,7 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
-        val store = PairingStore(File(noBackupFilesDir, STORE_FILE), AesGcmSealer(KeystoreKey::get))
+        val store = Push.store(this)
         val controller = PairingController(store)
         val hasCamera = packageManager.hasSystemFeature(PackageManager.FEATURE_CAMERA_ANY)
         setContent {
@@ -84,12 +87,32 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    /** The paired server's hosts, read when the pairing is shown and on demand. */
+    /**
+     * The paired server's hosts, read when the pairing is shown and on demand;
+     * and A3's alert route, registered with the server each time it is shown.
+     */
     @Composable
     private fun Hosts(pairing: Pairing) {
         val hosts = remember(pairing) { HostsController(ServerApi(pairing)::overview, network::execute) }
-        LaunchedEffect(hosts) { hosts.refresh() }
-        HostsPanel(hosts.state, hosts::refresh)
+        val push =
+            remember(pairing) {
+                PushController({ Push.choice(this@MainActivity) }, ServerApi(pairing)::pushStatus, { Push.test(pairing) }, network::execute)
+            }
+        val notifications = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { }
+        LaunchedEffect(hosts) {
+            hosts.refresh()
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+                checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
+            ) {
+                notifications.launch(Manifest.permission.POST_NOTIFICATIONS)
+            }
+            Push.start(this@MainActivity)
+            push.refresh()
+        }
+        Column(verticalArrangement = Arrangement.spacedBy(SECTION_GAP.dp)) {
+            HostsPanel(hosts.state, hosts::refresh)
+            PushPanel(push)
+        }
     }
 
     private fun cameraAccess(hasCamera: Boolean): CameraAccess =
@@ -100,6 +123,6 @@ class MainActivity : ComponentActivity() {
         }
 
     private companion object {
-        const val STORE_FILE = "pairing.sealed"
+        const val SECTION_GAP = 24
     }
 }

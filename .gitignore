@@ -28,3 +28,8 @@ rustc-ice-*.txt
 /android/build/
 /android/app/build/
 /android/local.properties
+
+# A3's FCM fallback: the owner's Firebase project config (android/app) and its
+# server credential, if ever copied into the tree. Never committed.
+android/app/google-services.json
+fcm-service-account.json

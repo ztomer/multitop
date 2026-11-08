@@ -7,6 +7,24 @@ This file starts at v0.47.0 — earlier history is in git (`git log`), and the
 per-defect record is `docs/detection-record.md`, which is the more useful
 document for anything before this point.
 
+## v0.68.0 — alerts reach the phone: UnifiedPush first, FCM after it _(2026-11-08)_
+
+### Added — A3 push (roadmap A3; owner ruling OW.26, "both, ntfy first")
+- `--serve` now watches each host and pushes a notification when one goes
+  unreachable, crosses an alert threshold, or recovers. A change is reported
+  once it has held for two 15-second looks; a steady state sends nothing.
+- One seam, two transports, chosen per alert from what the phone registered:
+  UnifiedPush (ntfy) first, FCM when there is no distributor or the
+  distributor fails, nothing when neither is set up. The UnifiedPush body is
+  RFC 8291 Web Push ciphertext, so ntfy carries bytes it cannot read; the app
+  drops any message that did not decrypt.
+- New routes behind the serve token: `GET /api/push` (which route an alert
+  takes), `POST /api/push/register`, `POST /api/push/test`. Registrations are
+  kept `0600` in `push-registrations.json` beside the token.
+- Android: the hosts screen registers the phone, shows the alert route, and
+  sends a test alert. FCM needs the owner's Firebase files (roadmap A3): it is
+  built and tested, and says it is not set up until they exist.
+
 ## v0.67.6 — the agent reads whole files and sizes rows for the real panel _(2026-11-01)_
 
 ### Fixed — a pseudofile the host sizes was read only to a fixed buffer (roadmap M2)

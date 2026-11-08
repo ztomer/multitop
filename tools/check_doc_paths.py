@@ -79,6 +79,9 @@ SUFFIXES = (
 ALLOW = {
     "config.toml": "the reader's own file, not the repo's -- the repo ships config.example.toml, which IS checked",
     "LICENSE": "not present in this tree",
+    "android/app/google-services.json": "the owner's Firebase project config for "
+    "A3's FCM route -- gitignored, so it is never in this tree; the roadmap "
+    "names where it goes",
     "sh.rustup.rs": "a hostname -- rustup's installer. Undecidable from the "
     "shape, since `sh` and `rs` are both real extensions",
     "gates_of_heck/gates/local_ci.sh": "lives in the gates_of_heck repo, "

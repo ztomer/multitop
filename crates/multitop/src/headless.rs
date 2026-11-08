@@ -79,6 +79,13 @@ pub fn serve_headless(
         }
     };
     eprintln!("{}", ready.banner);
+    let push = match push_hub(&token_path, config_path) {
+        Ok(h) => std::sync::Arc::new(h),
+        Err(e) => {
+            eprintln!("[Error] {e} -- refusing to start --serve");
+            return ExitCode::FAILURE;
+        }
+    };
     let runtime = match tokio::runtime::Builder::new_multi_thread()
         .enable_all()
         .build()
@@ -96,11 +103,13 @@ pub fn serve_headless(
             live: live.clone(),
             token: ready.token,
             servers: servers.clone(),
-            config: cfg,
+            config: cfg.clone(),
+            push: push.clone(),
         };
         // Sort for collectors
         let sort = multitop_agent::SortBy::Cpu;
-        crate::server::spawn_collectors(servers, &live, sort);
+        crate::server::spawn_collectors(servers.clone(), &live, sort);
+        crate::push::watch::spawn(live.clone(), servers, cfg, push);
         crate::server::serve(addr, app_state, ready.tls).await
     });
     match code {
@@ -111,6 +120,21 @@ pub fn serve_headless(
         }
     }
 }
+/// A3's push hub for `--serve`.
+///
+/// The phone's registrations beside the token, and FCM when the owner installed a service account beside the config
+/// (`fcm-service-account.json`); without one, `UnifiedPush` is the only route.
+///
+/// # Errors
+///
+/// A registrations file or service account that is open to others or broken.
+pub fn push_hub(token_path: &Path, config_path: &Path) -> Result<crate::push::Hub, String> {
+    let sender = std::sync::Arc::new(crate::push::http::HyperSender::new()?);
+    let fcm = crate::push::fcm::load(&crate::push::fcm::default_path(config_path))?;
+    let store = token_path.with_file_name(crate::push::REGISTRATIONS_FILE);
+    crate::push::Hub::with_store(&store, sender, fcm)
+}
+
 /// `--ops-poll`: ONE pass of the Ops poll, and exit.
 ///
 /// The poll is a JOB, not a screen (servers ROADMAP E36): it was bound to

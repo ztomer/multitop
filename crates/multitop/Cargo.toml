@@ -59,6 +59,16 @@ sha2 = "0.11"
 base64 = "0.23"
 # The pairing string as a terminal QR code; no image backend.
 qrcode = { version = "0.14.1", default-features = false }
+# A3 push (docs/roadmap.md): the alert's way to the phone. `ring` is already the
+# one crypto provider in the graph (rustls, rcgen); declared so the RFC 8291
+# WebPush seal (P-256 ECDH, HKDF, AES-128-GCM) and FCM's RS256 assertion are ours.
+ring = "0.17.14"
+# The push client: hyper's own HTTP/1 connection over tokio-rustls, both already
+# in the tree through axum and the serve side. Mozilla's roots, compiled in, so
+# a host with no CA bundle (a musl container) still verifies ntfy and Google.
+hyper = { version = "1.12", default-features = false, features = ["client", "http1"] }
+hyper-util = { version = "0.1.21", default-features = false, features = ["tokio"] }
+webpki-roots = "1.0.11"
 
 [[bench]]
 name = "client_bench"
