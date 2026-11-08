@@ -96,9 +96,22 @@ WS_V="$(grep -m1 '^version = ' Cargo.toml | cut -d'"' -f2)"
 [ "${WS_V}" = "${VER}" ] || die "workspace Cargo.toml is ${WS_V}, tag wants ${VER} — bump it in a commit first"
 grep -q "^## v${VER}\\b" CHANGELOG.md || die "CHANGELOG.md has no stanza for v${VER} — add it first"
 
+# A gate step is quiet when it passes and SHOWS its output when it fails: the
+# v0.69.2 release stopped at "cargo test failed" with the test's name sent to
+# /dev/null. The full log is kept on failure. tests/test_release_shows_failures.py
+# refuses any step that sends output to /dev/null instead.
+step() {
+  local label="$1"; shift
+  local log; log="$(mktemp -t "release-step")"
+  if "$@" >"${log}" 2>&1; then rm -f "${log}"; return 0; fi
+  echo "── ${label} failed; the last 150 lines of its output (full log: ${log}) ──" >&2
+  tail -n 150 "${log}" >&2
+  return 1
+}
+
 info "running the gates (mirrors CI) ..."
-make clippy-targets >/dev/null || die "clippy-targets failed — nothing tagged"
-cargo test --workspace >/dev/null 2>&1 || die "cargo test failed — nothing tagged"
+step "make clippy-targets" make clippy-targets || die "clippy-targets failed — nothing tagged"
+step "cargo test --workspace" cargo test --workspace || die "cargo test failed — nothing tagged"
 ok "gates green"
 
 info "cross-compiling the agents ..."
@@ -124,7 +137,7 @@ else
   # bytes, so whatever was installed before is stale by construction. v0.67.5
   # was refused at its push for exactly that, with nothing else wrong.
   info "installing this build (the push gate compares the installed binary) ..."
-  ./install.sh >/dev/null || die "./install.sh failed — nothing tagged"
+  step "./install.sh" ./install.sh || die "./install.sh failed — nothing tagged"
   info "tagging ${TAG} ..."
   git tag -a "${TAG}" -m "Release ${TAG}"
   # Branch and tag in one atomic push: both refs move or neither, and the
@@ -229,5 +242,5 @@ fi
 
 info "proving it: brew update + fetch ..."
 brew update >/dev/null 2>&1
-brew fetch "ztomer/tap/multitop" --force >/dev/null 2>&1 || die "brew fetch failed after tap bump"
+step "brew fetch" brew fetch "ztomer/tap/multitop" --force || die "brew fetch failed after tap bump"
 ok "released ${TAG}: tarball + both agent resources verified through Homebrew"
