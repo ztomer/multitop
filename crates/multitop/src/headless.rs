@@ -124,12 +124,20 @@ pub fn serve_headless(
 ///
 /// The phone's registrations beside the token, and FCM when the owner installed a service account beside the config
 /// (`fcm-service-account.json`); without one, `UnifiedPush` is the only route.
+/// A private distributor's origin, token and roots come from
+/// `push-distributor.toml` beside the config, when the owner installed one.
 ///
 /// # Errors
 ///
-/// A registrations file or service account that is open to others or broken.
+/// A registrations file, service account or distributor file that is open to
+/// others or broken.
 pub fn push_hub(token_path: &Path, config_path: &Path) -> Result<crate::push::Hub, String> {
-    let sender = std::sync::Arc::new(crate::push::http::HyperSender::new()?);
+    let distributor =
+        crate::push::distributor::load(&crate::push::distributor::default_path(config_path))?;
+    let sender = std::sync::Arc::new(match distributor {
+        Some(d) => crate::push::http::HyperSender::with_distributor(d)?,
+        None => crate::push::http::HyperSender::new()?,
+    });
     let fcm = crate::push::fcm::load(&crate::push::fcm::default_path(config_path))?;
     let store = token_path.with_file_name(crate::push::REGISTRATIONS_FILE);
     crate::push::Hub::with_store(&store, sender, fcm)

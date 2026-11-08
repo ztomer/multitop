@@ -277,7 +277,12 @@ In the order it blocks:
      (`push/fcm.rs`). A 404/410 drops the dead registration. Routes, behind
      the token: `GET /api/push`, `POST /api/push/register`, `POST
      /api/push/test`. Registrations live `0600` in `push-registrations.json`
-     beside the serve token.
+     beside the serve token. A PRIVATE distributor (the fleet's own ntfy,
+     servers DECISIONS #17: `deny-all`, a private CA) is named in
+     `push-distributor.toml`, `0600`, beside `config.toml`: `origin`, `token`
+     (sent as a bearer) and an optional `ca` PEM, all three applied to that
+     origin ONLY (`push/distributor.rs`); FCM and any other endpoint see
+     neither the token nor the extra roots.
    * **Phone.** `PushPlan` picks the installed distributor (ntfy), else FCM
      when the build carried a Firebase config, else says no route exists; the
      connector (UnifiedPush 3.3.5) registers and decrypts, and a message that

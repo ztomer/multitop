@@ -81,6 +81,28 @@ pub trait Sender: Send + Sync {
 /// distributor and the tests use; a LAN or internet endpoint is TLS or refused.
 pub struct HyperSender {
     tls: tokio_rustls::TlsConnector,
+    /// The owner's private distributor and the connector that also trusts
+    /// its roots - used for its origin ONLY ([`super::distributor`]).
+    distributor: Option<(super::distributor::Distributor, tokio_rustls::TlsConnector)>,
+}
+
+fn connector(
+    extra: &[rustls::pki_types::CertificateDer<'static>],
+) -> Result<tokio_rustls::TlsConnector, String> {
+    let mut roots = rustls::RootCertStore::empty();
+    roots.extend(webpki_roots::TLS_SERVER_ROOTS.iter().cloned());
+    for cert in extra {
+        roots
+            .add(cert.clone())
+            .map_err(|e| format!("push TLS: distributor ca: {e}"))?;
+    }
+    let provider = Arc::new(rustls::crypto::ring::default_provider());
+    let config = rustls::ClientConfig::builder_with_provider(provider)
+        .with_safe_default_protocol_versions()
+        .map_err(|e| format!("push TLS: {e}"))?
+        .with_root_certificates(roots)
+        .with_no_client_auth();
+    Ok(tokio_rustls::TlsConnector::from(Arc::new(config)))
 }
 
 impl HyperSender {
@@ -88,16 +110,24 @@ impl HyperSender {
     ///
     /// When rustls cannot build a client for the `ring` provider.
     pub fn new() -> Result<Self, String> {
-        let mut roots = rustls::RootCertStore::empty();
-        roots.extend(webpki_roots::TLS_SERVER_ROOTS.iter().cloned());
-        let provider = Arc::new(rustls::crypto::ring::default_provider());
-        let config = rustls::ClientConfig::builder_with_provider(provider)
-            .with_safe_default_protocol_versions()
-            .map_err(|e| format!("push TLS: {e}"))?
-            .with_root_certificates(roots)
-            .with_no_client_auth();
         Ok(Self {
-            tls: tokio_rustls::TlsConnector::from(Arc::new(config)),
+            tls: connector(&[])?,
+            distributor: None,
+        })
+    }
+
+    /// The sender with the owner's distributor: its origin gets the bearer and
+    /// is verified against Mozilla's roots plus its own; every other host is
+    /// exactly as [`HyperSender::new`] treats it.
+    ///
+    /// # Errors
+    ///
+    /// When rustls cannot build a client, or refuses one of the extra roots.
+    pub fn with_distributor(d: super::distributor::Distributor) -> Result<Self, String> {
+        let own = connector(d.roots())?;
+        Ok(Self {
+            tls: connector(&[])?,
+            distributor: Some((d, own)),
         })
     }
 }
@@ -166,6 +196,10 @@ where
 
 impl HyperSender {
     async fn send(&self, req: Request) -> Result<Response, String> {
+        let (req, connector) = match &self.distributor {
+            Some((d, own)) if d.serves(&req.url) => (d.authorize(req), own),
+            _ => (req, &self.tls),
+        };
         let (uri, host, port, tls) = target(&req.url)?;
         let bare = host
             .trim_start_matches('[')
@@ -177,8 +211,7 @@ impl HyperSender {
         if tls {
             let name = rustls::pki_types::ServerName::try_from(bare)
                 .map_err(|_| format!("push: bad host {host}"))?;
-            let stream = self
-                .tls
+            let stream = connector
                 .connect(name, tcp)
                 .await
                 .map_err(|e| format!("push: TLS to {host}: {e}"))?;

@@ -120,3 +120,90 @@ async fn hyper_sender_verifies_tls_and_reports_a_refused_connection() {
         .expect_err("cleartext off loopback");
     assert!(err.contains("loopback"), "{err}");
 }
+
+/// A TLS listener on localhost whose leaf is signed by a private CA: answers
+/// 201 to one request per connection and hands back the request's head.
+async fn private_ca_server() -> (u16, String, tokio::sync::mpsc::UnboundedReceiver<String>) {
+    use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
+    let ca_key = rcgen::KeyPair::generate().expect("ca key");
+    let mut ca_params = rcgen::CertificateParams::new(Vec::<String>::new()).expect("ca params");
+    ca_params.is_ca = rcgen::IsCa::Ca(rcgen::BasicConstraints::Unconstrained);
+    let ca = ca_params.self_signed(&ca_key).expect("ca");
+    let issuer = rcgen::Issuer::new(ca_params, ca_key);
+    let leaf_key = rcgen::KeyPair::generate().expect("leaf key");
+    let leaf =
+        rcgen::CertificateParams::new(vec!["localhost".to_string(), "127.0.0.1".to_string()])
+            .expect("leaf params")
+            .signed_by(&leaf_key, &issuer)
+            .expect("leaf");
+    let provider = Arc::new(rustls::crypto::ring::default_provider());
+    let config = rustls::ServerConfig::builder_with_provider(provider)
+        .with_safe_default_protocol_versions()
+        .expect("versions")
+        .with_no_client_auth()
+        .with_single_cert(
+            vec![leaf.der().clone()],
+            rustls::pki_types::PrivatePkcs8KeyDer::from(leaf_key.serialize_der()).into(),
+        )
+        .expect("server config");
+    let acceptor = tokio_rustls::TlsAcceptor::from(Arc::new(config));
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("bind");
+    let port = listener.local_addr().expect("addr").port();
+    let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
+    tokio::spawn(async move {
+        while let Ok((tcp, _)) = listener.accept().await {
+            let Ok(mut tls) = acceptor.accept(tcp).await else {
+                continue;
+            };
+            let mut buf = vec![0u8; 8192];
+            let n = tls.read(&mut buf).await.unwrap_or(0);
+            let _ = tx.send(String::from_utf8_lossy(&buf[..n]).to_lowercase());
+            let _ = tls
+                .write_all(b"HTTP/1.1 201 Created\r\ncontent-length: 0\r\n\r\n")
+                .await;
+            let _ = tls.shutdown().await;
+        }
+    });
+    (port, ca.pem(), rx)
+}
+
+#[tokio::test]
+async fn a_private_distributor_is_trusted_and_authorized_on_its_origin_only() {
+    let (port, ca, mut heads) = private_ca_server().await;
+    let url = format!("https://localhost:{port}/upTOPIC?up=1");
+    let plain = Request {
+        url: url.clone(),
+        headers: vec![],
+        body: vec![7; 10],
+    };
+
+    // Mozilla's roots alone do not know the private CA.
+    let err = HyperSender::new()
+        .expect("client")
+        .post(plain.clone())
+        .await
+        .expect_err("unknown issuer");
+    assert!(err.contains("UnknownIssuer"), "{err}");
+
+    let file = format!(
+        "origin = \"https://localhost:{port}\"\ntoken = \"tk_SECRET\"\nca = \"\"\"{ca}\"\"\"\n"
+    );
+    let d = super::super::distributor::Distributor::parse(&file).expect("distributor");
+    let sender = HyperSender::with_distributor(d).expect("client");
+    let got = sender.post(plain).await.expect("delivered");
+    assert_eq!(got.status, 201);
+    let head = heads.recv().await.expect("a request");
+    assert!(head.contains("authorization: bearer tk_secret"), "{head}");
+
+    // The same CA is NOT trusted for any other origin, so the token cannot
+    // be the only thing standing between this sender and a look-alike.
+    let other = Request {
+        url: format!("https://127.0.0.1:{port}/upTOPIC?up=1"),
+        headers: vec![],
+        body: vec![],
+    };
+    let err = sender.post(other).await.expect_err("not the origin");
+    assert!(err.contains("UnknownIssuer"), "{err}");
+}

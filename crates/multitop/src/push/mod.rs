@@ -13,6 +13,7 @@
 //! it (also when the `UnifiedPush` delivery fails), nothing when neither is set up
 //! -- and the status endpoint says which, rather than a send failing silently.
 
+pub mod distributor;
 pub mod fcm;
 pub mod http;
 pub mod routes;
