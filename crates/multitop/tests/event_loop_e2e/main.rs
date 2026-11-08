@@ -410,4 +410,5 @@ fn dims_for(size: (u16, u16), panels: usize) -> (u16, u16) {
 // what all four modules share; the split is by what each one drives.
 mod liveness;
 mod panel_gen;
+mod reap;
 mod resize;

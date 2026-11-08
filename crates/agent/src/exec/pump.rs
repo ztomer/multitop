@@ -5,7 +5,7 @@ use std::os::fd::RawFd;
 use std::time::{Duration, Instant};
 
 use super::pty;
-use super::run::{send, send_out, Request};
+use super::run::{send, send_out, Request, Watched};
 use super::sieve::{Piece, Sieve};
 use super::{ExecFrame, MarkerKind, Stream};
 
@@ -57,7 +57,7 @@ struct Reader<'a> {
 /// Returns `(reaped_outcome, sudo_rejected)`.
 pub fn pump<W: Write>(
     req: &Request<'_>,
-    out: &mut W,
+    out: &mut Watched<'_, W>,
     seq: &mut u32,
     child: &mut pty::Child,
 ) -> (Option<pty::Outcome>, bool) {
@@ -88,6 +88,15 @@ pub fn pump<W: Write>(
 
         if reaped.is_none() {
             reaped = pty::try_wait(child.pid);
+        }
+
+        // The client is gone: nobody will read another byte of this run, and a
+        // shell left writing to a pty nobody drains blocks forever. The agent
+        // started the shell, so the agent ends it -- its whole session, not
+        // just the pid it forked (see `pty::terminate`).
+        if reaped.is_none() && out.gone() {
+            reaped = Some(pty::terminate(child));
+            break;
         }
 
         // If the shell process has exited, background daemons or subshells may

@@ -334,6 +334,59 @@ pub const fn decode_status(status: libc::c_int) -> Outcome {
     }
 }
 
+/// How long a child's session has to end after the hangup before it is killed.
+const TERMINATE_GRACE: std::time::Duration = std::time::Duration::from_secs(2);
+/// How often the grace looks for the leader having ended.
+const TERMINATE_POLL: std::time::Duration = std::time::Duration::from_millis(20);
+
+/// End the child's whole session and reap it.
+///
+/// The pid this module forked is not the whole tree. It is `/bin/sh`, the
+/// session leader; the `zsh -l -i` it starts turns job control on and moves
+/// itself into a process group of its own, the terminal's foreground group,
+/// and the command runs there. A signal to the pid, or to the pid's group,
+/// leaves that group running -- with its parent gone, as an orphan of init.
+/// So both groups are signalled: the leader's and the terminal's foreground
+/// one, read off the master while it is still open.
+///
+/// `SIGHUP` first, because that is what a terminal going away sends and what
+/// an interactive shell honours -- it IGNORES `SIGTERM` -- then `SIGTERM` for
+/// anything that ignores a hangup, and `SIGKILL` to every group still standing
+/// once the grace is over. A `SIGKILL` alone would skip the cleanup an upgrade
+/// in progress is owed (`apt`'s and `dpkg`'s own locks).
+#[must_use]
+pub fn terminate(child: &mut Child) -> Outcome {
+    let mut groups = vec![child.pid];
+    if child.master >= 0 {
+        // SAFETY: `master` is a live descriptor this module opened.
+        let fg = unsafe { libc::tcgetpgrp(child.master) };
+        if fg > 0 && fg != child.pid {
+            groups.push(fg);
+        }
+    }
+    let signal_all = |sig: libc::c_int| {
+        for g in &groups {
+            // SAFETY: a negative pid names a process group; at worst it is gone
+            // and `kill` says ESRCH, which is the outcome being asked for.
+            unsafe { libc::kill(-g, sig) };
+        }
+    };
+    signal_all(libc::SIGHUP);
+    signal_all(libc::SIGTERM);
+    child.close();
+    let deadline = std::time::Instant::now() + TERMINATE_GRACE;
+    while std::time::Instant::now() < deadline {
+        if let Some(outcome) = try_wait(child.pid) {
+            // The leader is gone; a group member may not be. Kill what is left.
+            signal_all(libc::SIGKILL);
+            return outcome;
+        }
+        std::thread::sleep(TERMINATE_POLL);
+    }
+    signal_all(libc::SIGKILL);
+    wait(child.pid)
+}
+
 /// Ask whether the child has ended, without blocking.
 #[must_use]
 pub fn try_wait(pid: libc::pid_t) -> Option<Outcome> {

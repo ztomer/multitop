@@ -61,6 +61,48 @@ pub(crate) fn send_out<W: Write>(out: &mut W, stream: Stream, seq: &mut u32, byt
     }
 }
 
+/// The client's end of the stream, and whether it is still there.
+///
+/// [`send`] drops write errors, and that is right for the frame: there is
+/// nowhere left to report it. It was wrong for the RUN. A client that is gone
+/// -- a test binary killed at its timeout, a `multitop` that died without
+/// reaping -- is told nothing by an agent that keeps pumping, and the agent
+/// kept pumping: Rust ignores `SIGPIPE`, so every frame failed with `EPIPE`,
+/// every failure was dropped, and the shell ran to its own end with nobody
+/// reading. An interactive login shell whose pty nobody drains blocks for good
+/// (M.FLOODREAP: one was found orphaned after 12h23m). So the first failed
+/// write is latched here, and the pump reads it as "stop the run".
+pub struct Watched<'a, W: Write> {
+    inner: &'a mut W,
+    gone: bool,
+}
+
+impl<'a, W: Write> Watched<'a, W> {
+    pub const fn new(inner: &'a mut W) -> Self {
+        Self { inner, gone: false }
+    }
+
+    /// Whether a write to the client has failed: no one is reading.
+    #[must_use]
+    pub const fn gone(&self) -> bool {
+        self.gone
+    }
+}
+
+impl<W: Write> Write for Watched<'_, W> {
+    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        let r = self.inner.write(buf);
+        self.gone |= r.is_err();
+        r
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        let r = self.inner.flush();
+        self.gone |= r.is_err();
+        r
+    }
+}
+
 /// Read one framed request off `input`.
 ///
 /// `read_exact` for both the header and the body, never `read`: a pipe may hand
@@ -106,9 +148,10 @@ pub fn emit_failure<W: Write>(out: &mut W, seq: &mut u32, stream: Stream, why: &
 /// Returns the exit code it reported, for the caller's own process status.
 pub fn run<W: Write>(req: &Request, out: &mut W) -> i32 {
     let mut seq: u32 = 0;
-    let outcome = execute(req, out, &mut seq);
+    let mut out = Watched::new(out);
+    let outcome = execute(req, &mut out, &mut seq);
     send(
-        out,
+        &mut out,
         &ExecFrame::Exit {
             code: outcome.code,
             signalled: outcome.signalled,
@@ -121,7 +164,7 @@ pub fn run<W: Write>(req: &Request, out: &mut W) -> i32 {
 ///
 /// Split from [`run`] so that every `return` here is still followed by the
 /// terminal frame. The obligation is structural rather than remembered.
-fn execute<W: Write>(req: &Request, out: &mut W, seq: &mut u32) -> pty::Outcome {
+fn execute<W: Write>(req: &Request, out: &mut Watched<W>, seq: &mut u32) -> pty::Outcome {
     let default_lock;
     let lock_path = if let Some(p) = req.lock_path {
         p

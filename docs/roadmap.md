@@ -17,16 +17,6 @@ a private distributor (the fleet's own ntfy, servers DECISIONS #17) is named in
 Why first: both are violations of a standing rule in code that is already out
 (the house load rule, and engineering rule #17), and neither waits on anything.
 
-* **M.FLOODREAP** (queue: M.FLOODREAP). A test shell started with
-  `zsh -l -i -c 'i=0; while [ $i -lt 20000 ]; do echo flood-$i; ...'` (the
-  command in `crates/multitop/tests/event_loop_e2e/liveness.rs`; the marker is
-  `STARTED_SENTINEL`, `__multitop_started__`, in `crates/agent/src/exec/mod.rs`)
-  was found orphaned (parent 1) after 12h23m on 2026-11-08, blocked until the
-  coordinator killed it. The owner of a spawned process reaps it, pass or fail:
-  find the path that starts it and make the spawn reap its whole tree on every
-  exit, including test failure and timeout.
-  Done when: a test that fails the run asserts no `__multitop_started__` shell
-  outlives it (red first on the current spawn), and the fix is released.
 * **M.FCMDEPR** (queue: M.FCMDEPR). `push/FcmService.kt` still overrides the
   deprecated `onNewToken` (Firebase 26 calls it on its legacy path beside
   `onRegistered`) because Android lint's `MissingFirebaseInstanceTokenRefresh`
