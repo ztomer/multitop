@@ -7,6 +7,25 @@ This file starts at v0.47.0 — earlier history is in git (`git log`), and the
 per-defect record is `docs/detection-record.md`, which is the more useful
 document for anything before this point.
 
+## v0.69.4 — a closed terminal no longer aborts multitop _(2026-11-08)_
+
+### Fixed — SIGABRT when the terminal went away (M.CIPARITY)
+- Closing the window multitop ran in (a `SIGHUP`, which is a quit) aborted it:
+  the terminal restore failed on the dead tty, reporting that with `eprintln!`
+  failed too and panicked inside `TerminalGuard::drop`, and the panic hook's
+  second restore panicked again. Every one of the 12 crash reports of
+  2026-11-08 was this stack. The restore and its report can no longer panic,
+  multitop installs its own terminal panic hook in place of `ratatui`'s, and
+  everything said on stderr after the TUI ends is written the same way.
+
+### Changed — the release runs CI's test steps
+- `release.sh` ran a plain `cargo test --workspace`, which neither CI nor the
+  pre-push hook runs. It now runs `bash tools/coverage_check.sh` and
+  `cargo test --workspace --all-features --doc`, the `GOH_CI_STEPS` strings CI
+  also runs (`tests/test_release_test_set.py`).
+- CI actions are named releases: `Swatinem/rust-cache@v2.9.3`,
+  `dtolnay/rust-toolchain` by commit, `upload-artifact@v7.0.2`.
+
 ## v0.69.3 — a client stop lets the exec agent tear down _(2026-11-08)_
 
 ### Fixed — stopping a run left a HUP-ignoring command at PPID 1 (M.KILLDROP)
