@@ -61,7 +61,8 @@ GOH_INSTALLED_VERSION_MIN_FILES=4
 # tools/android_gate.sh, tools/coverage_check.sh and tools/ratchet_check.py); a
 # scan reading fewer has lost its subject.
 GOH_CI_PARITY_MIN_SCRIPTS=16
-GOH_CI_PARITY_EXEMPT='tools/check_agent_version.py: run by tools/checkers.sh, which globs tools/check_*.py (check_gate_parity.py holds the glob to the CI list)
+GOH_CI_PARITY_EXEMPT='tools/gate.sh: the gate itself -- gate.yml execs `tools/gate.sh --full`, which runs every GOH_CI_STEPS step, so no step can name it (CI.PUBLIC2)
+tools/check_agent_version.py: run by tools/checkers.sh, which globs tools/check_*.py (check_gate_parity.py holds the glob to the CI list)
 tools/check_codesign.py: run by tools/checkers.sh, which globs tools/check_*.py (check_gate_parity.py holds the glob to the CI list)
 tools/check_doc_paths.py: run by tools/checkers.sh, which globs tools/check_*.py (check_gate_parity.py holds the glob to the CI list)
 tools/check_gate_parity.py: run by tools/checkers.sh, which globs tools/check_*.py (check_gate_parity.py holds the glob to the CI list)
