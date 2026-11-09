@@ -43,7 +43,7 @@ jobs:
           git clone --depth 1 --branch "$GOH_TAG" https://github.com/ztomer/gates_of_heck "$GOH_DIR"
           git -C "$GOH_DIR" describe --tags --exact-match
       - name: Meet goh's tool floors
-        uses: ztomer/gates_of_heck/.github/actions/goh-floors@109650116906a049fc29e37452c28f7100c01916 # v0.92.0
+        uses: ztomer/gates_of_heck/.github/actions/goh-floors@fd26a9fb7d6420582c2c4f7a5be018615a96f7cb # v0.92.0
         with:
           goh-dir: ${{ env.GOH_DIR }}
       - name: Rust toolchain from rust-toolchain.toml, and the shipped targets
