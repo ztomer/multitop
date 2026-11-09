@@ -28,7 +28,7 @@
 #   1. preconditions (clean tree, on main, main pushed, version match,
 #      CHANGELOG stanza, rustup musl targets, gh present; --dry-run skips the
 #      tag-exists precondition, because a dry run tags nothing)
-#   2. gates (make clippy-targets + cargo test, mirroring CI)
+#   2. gates (make clippy-targets + CI's test steps, by GOH_CI_STEPS' strings)
 #   3. ./build.sh — cross-compiles both agents from this checkout
 #   4. ./install.sh (the push gate compares the installed binary with this
 #      build), then tag, push, create the GitHub release with CHANGELOG notes,
@@ -109,9 +109,28 @@ step() {
   return 1
 }
 
-info "running the gates (mirrors CI) ..."
+# The tests a release runs are CI's tests, run by CI's own command strings:
+# each entry below is, to the letter, a GOH_CI_STEPS token (.gatesrc) that the
+# CI workflow also runs. This step said `cargo test --workspace` and the header
+# said "mirroring CI" -- but neither CI nor the pre-push hook ever ran that
+# command: they run the suite once, instrumented, under the coverage gate,
+# plus the doc tests. It was the ONLY place a plain macOS run happened, and the
+# one place a test failed that nothing else saw (v0.69.2, 2026-11-08,
+# M.RELFAIL/M.CIPARITY). Through goh's proven-step cache, keyed on the same
+# string as the pre-push run, so the push that follows over this same clean
+# tree skips them rather than running the suite twice.
+# tests/test_release_test_set.py holds this list to GOH_CI_STEPS and CI.
+GOH="${GOH_DIR:-$HOME/Projects/gates_of_heck}"
+RELEASE_TEST_STEPS=(
+  'bash tools/coverage_check.sh'
+  'cargo test --workspace --all-features --doc'
+)
+
+info "running the gates (CI's commands) ..."
 step "make clippy-targets" make clippy-targets || die "clippy-targets failed — nothing tagged"
-step "cargo test --workspace" cargo test --workspace || die "cargo test failed — nothing tagged"
+for s in "${RELEASE_TEST_STEPS[@]}"; do
+  step "${s}" "${GOH}/gates/proven.sh" --label release -- "${s}" || die "${s} failed — nothing tagged"
+done
 ok "gates green"
 
 info "cross-compiling the agents ..."

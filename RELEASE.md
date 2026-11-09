@@ -59,7 +59,11 @@ per job, and the fix is to delete the copy rather than to keep both in step.
    `origin/main` (the bump commit may be unpushed), tag not
    already existing, workspace `Cargo.toml` version equal to the tag, the
    CHANGELOG stanza present, musl targets installed, `gh` present
-2. **Gates and builds** — `make clippy-targets` and `cargo test`, then
+2. **Gates and builds** — `make clippy-targets` and CI's own test steps,
+   `bash tools/coverage_check.sh` and `cargo test --workspace --all-features --doc`,
+   spelled as `GOH_CI_STEPS` spells them and run through goh's proven-step
+   cache, so the pre-push run over the same tree skips them
+   (`tests/test_release_test_set.py`); then
    `./build.sh` cross-compiles both agents and refuses one that does not embed
    the version (the bump itself is the commit made beforehand, above)
 3. **Tags and pushes** — annotated tag, then branch and tag in ONE
