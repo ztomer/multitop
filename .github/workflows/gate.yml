@@ -1,0 +1,70 @@
+name: gate
+
+# ONE job, ONE command: `tools/gate.sh --full`, the command the pre-push hook runs (it runs
+# gates_of_heck's local_ci.sh over .gatesrc's GOH_CI_STEPS), so the hosted run and the local gate
+# cannot disagree about what green means (CI.PUBLIC2, owner ruling 2026-11-08: "Yes, public
+# repos"). The jobs in ci.yml run pieces of the same list; this one runs the list itself.
+#
+# Every action is pinned to a released tag's commit, the tag beside it, and gates_of_heck to a
+# NAMED release (GOH_TAG); raise either in its own commit, never to a moving tag.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: never
+  GOH_TAG: v0.92.0
+
+jobs:
+  gate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      # persist-credentials: false: the structural gate refuses a job token left in git config.
+      # fetch-depth 0: tools/check_doc_paths.py reads deleted paths from history.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - name: GOH_DIR under the runner's temp
+        run: echo "GOH_DIR=$RUNNER_TEMP/gates_of_heck" >> "$GITHUB_ENV"
+      - name: gates_of_heck at a named release
+        run: |
+          git clone --depth 1 --branch "$GOH_TAG" https://github.com/ztomer/gates_of_heck "$GOH_DIR"
+          git -C "$GOH_DIR" describe --tags --exact-match
+      - name: Meet goh's tool floors
+        uses: ztomer/gates_of_heck/.github/actions/goh-floors@109650116906a049fc29e37452c28f7100c01916 # v0.92.0
+        with:
+          goh-dir: ${{ env.GOH_DIR }}
+      - name: Rust toolchain from rust-toolchain.toml, and the shipped targets
+        run: |
+          rustup toolchain install
+          rustup target add x86_64-unknown-linux-musl aarch64-unknown-linux-musl aarch64-apple-darwin
+          rustc -V
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+      - uses: ./.github/actions/system-deps
+      - uses: actions/setup-java@77dd5b2ce225ea11469928ac317850245a74ae78 # v6.2.0
+        with:
+          distribution: temurin
+          java-version: '27'
+      - uses: android-actions/setup-android@be39fa834029ff78f1a44aa3bb0819b8fc2bd8fd # v4.0.4
+      # The gate's own manifest, never a copy: captured under pipefail, each line under bash -eux.
+      - name: Install the tools the gate requires
+        run: |
+          set -euo pipefail
+          cmds="$(python3 "$GOH_DIR/gates/required_tools.py" --repo . --install)"
+          printf '%s\n' "$cmds"
+          grep -v '^#' <<<"$cmds" | bash -eux
+          python3 -m pip install --quiet pytest
+      - name: The gate
+        run: ./tools/gate.sh --full
