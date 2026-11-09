@@ -115,3 +115,48 @@ fn a_run_whose_client_is_gone_ends_its_whole_session() {
         "the run's shell outlived the run: pids {left:?}"
     );
 }
+
+/// The shell itself is outside both groups the old teardown signalled: the
+/// session leader's (`/bin/sh`) and the terminal's foreground one, which is
+/// the group of whatever JOB the interactive shell is running at that moment,
+/// not the shell's own (M.REAPFLAKE). Here the output comes from a foreground
+/// job, so the teardown always lands while that job holds the terminal; the
+/// job dies, and a shell that was never signalled goes on to its next command.
+/// Signalling every group in the session is what ends it.
+#[test]
+fn the_shell_dies_when_its_foreground_job_holds_the_terminal() {
+    let token = format!("reap-fgjob-{}", std::process::id());
+    let _reap = ReapOnDrop(token.clone());
+    // The shell's own command line carries the token, so a surviving shell is
+    // seen; `sleep 60` is what it does next, and bounds a leak.
+    let cmd = format!("sh -c 'while :; do echo {token}; sleep 0.05; done'; sleep 60");
+    let req = Request {
+        command: &cmd,
+        password: None,
+        use_lock: false,
+        cols: 80,
+        rows: 24,
+        host: "test",
+        lock_path: None,
+    };
+    let mut out = Vanishing {
+        seen: Vec::new(),
+        token: token.as_bytes().to_vec(),
+        gone: false,
+    };
+    let _ = run(&req, &mut out);
+    assert!(
+        out.gone,
+        "calibration: the run's output never reached the client"
+    );
+    let deadline = Instant::now() + Duration::from_secs(5);
+    let mut left = holders(&token);
+    while !left.is_empty() && Instant::now() < deadline {
+        std::thread::sleep(Duration::from_millis(50));
+        left = holders(&token);
+    }
+    assert!(
+        left.is_empty(),
+        "the run's shell outlived the run: pids {left:?}"
+    );
+}

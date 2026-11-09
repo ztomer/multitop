@@ -377,48 +377,67 @@ const TERMINATE_POLL: std::time::Duration = std::time::Duration::from_millis(20)
 /// End the child's whole session and reap it.
 ///
 /// The pid this module forked is not the whole tree. It is `/bin/sh`, the
-/// session leader; the `zsh -l -i` it starts turns job control on and moves
-/// itself into a process group of its own, the terminal's foreground group,
-/// and the command runs there. A signal to the pid, or to the pid's group,
-/// leaves that group running -- with its parent gone, as an orphan of init.
-/// So both groups are signalled: the leader's and the terminal's foreground
-/// one, read off the master while it is still open.
+/// session leader; the `zsh -l -i` or `bash -i` it starts turns job control
+/// on and moves itself into a process group of its own, and every foreground
+/// job the shell then runs gets a group of ITS own, which the terminal's
+/// foreground group follows. A signal to the pid, or to the pid's group,
+/// leaves the shell running -- with its parent gone, as an orphan of init.
+///
+/// So every group in the session is signalled, found by asking each process
+/// which session it is in ([`super::session::groups`]). The terminal's
+/// foreground group is NOT a stand-in for the shell's: while a loop's `sleep`
+/// runs, it is the `sleep`'s group, the shell is outside it, and the hangup
+/// missed the shell (M.REAPFLAKE). On Linux `bash -i` then outlived its run in 3 of 5 probes,
+/// and CI run 42549434587 found it as the one survivor of a killed test;
+/// on macOS the same probe left nothing in 20 of 20, which is why it never
+/// showed there. `exec_reap_test` pins it: red 6 of 6 on Linux before this.
 ///
 /// `SIGHUP` first, because that is what a terminal going away sends and what
 /// an interactive shell honours -- it IGNORES `SIGTERM` -- then `SIGTERM` for
 /// anything that ignores a hangup, and `SIGKILL` to every group still standing
 /// once the grace is over. A `SIGKILL` alone would skip the cleanup an upgrade
-/// in progress is owed (`apt`'s and `dpkg`'s own locks).
+/// in progress is owed (`apt`'s and `dpkg`'s own locks). The session is read
+/// again before the `SIGKILL`: a shell forks new groups as it runs.
 #[must_use]
 pub fn terminate(child: &mut Child) -> Outcome {
-    let mut groups = vec![child.pid];
+    let sid = child.pid;
+    let mut groups = super::session::groups(sid);
     if child.master >= 0 {
-        // SAFETY: `master` is a live descriptor this module opened.
+        // SAFETY: `master` is a live descriptor this module opened. Kept beside
+        // the scan for a host whose process table hides other pids.
         let fg = unsafe { libc::tcgetpgrp(child.master) };
-        if fg > 0 && fg != child.pid {
+        if fg > 0 && !groups.contains(&fg) {
             groups.push(fg);
         }
     }
-    let signal_all = |sig: libc::c_int| {
-        for g in &groups {
+    let signal_all = |groups: &[libc::pid_t], sig: libc::c_int| {
+        for g in groups {
             // SAFETY: a negative pid names a process group; at worst it is gone
             // and `kill` says ESRCH, which is the outcome being asked for.
             unsafe { libc::kill(-g, sig) };
         }
     };
-    signal_all(libc::SIGHUP);
-    signal_all(libc::SIGTERM);
+    let kill_rest = |mut groups: Vec<libc::pid_t>| {
+        for g in super::session::groups(sid) {
+            if !groups.contains(&g) {
+                groups.push(g);
+            }
+        }
+        signal_all(&groups, libc::SIGKILL);
+    };
+    signal_all(&groups, libc::SIGHUP);
+    signal_all(&groups, libc::SIGTERM);
     child.close();
     let deadline = std::time::Instant::now() + TERMINATE_GRACE;
     while std::time::Instant::now() < deadline {
         if let Some(outcome) = try_wait(child.pid) {
             // The leader is gone; a group member may not be. Kill what is left.
-            signal_all(libc::SIGKILL);
+            kill_rest(groups);
             return outcome;
         }
         std::thread::sleep(TERMINATE_POLL);
     }
-    signal_all(libc::SIGKILL);
+    kill_rest(groups);
     wait(child.pid)
 }
 

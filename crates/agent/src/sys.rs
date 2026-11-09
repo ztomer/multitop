@@ -233,14 +233,16 @@ pub fn scan_macos(out: &mut Vec<RawProcStat>, pids: &mut Vec<i32>) {
     pids.clear();
     pids.resize(usize::try_from(num_pids).unwrap_or(0) + 64, 0);
     let buf_bytes = i32::try_from(pids.len() * std::mem::size_of::<i32>()).unwrap_or(i32::MAX);
-    let bytes_got = unsafe { libc::proc_listallpids(pids.as_mut_ptr().cast(), buf_bytes) };
-    let Ok(bytes_got) = usize::try_from(bytes_got) else {
+    // A COUNT of pids, not a byte length: dividing it by `size_of::<i32>()`
+    // read a quarter of the table (tests/scan_macos_test.rs).
+    let got = unsafe { libc::proc_listallpids(pids.as_mut_ptr().cast(), buf_bytes) };
+    let Ok(got) = usize::try_from(got) else {
         return;
     };
-    if bytes_got == 0 {
+    if got == 0 {
         return;
     }
-    let actual_count = bytes_got / std::mem::size_of::<i32>();
+    let actual_count = got.min(pids.len());
     let clk_tck = unsafe { libc::sysconf(libc::_SC_CLK_TCK) };
     let hz = u64::try_from(clk_tck)
         .ok()

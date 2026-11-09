@@ -38,6 +38,7 @@ pub mod pump;
 pub mod run;
 pub mod script;
 pub mod serve;
+pub mod session;
 pub mod sieve;
 
 /// Printed by the sudo preamble once it has turned echo off and is ready to

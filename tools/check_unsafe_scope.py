@@ -37,6 +37,7 @@ CRATES = Path("crates")
 ALLOWED: dict[str, str] = {
     "crates/agent/src/exec/lock.rs": "flock(2) on the exec lock file",
     "crates/agent/src/exec/pty.rs": "openpty/fork/ioctl for the command PTY",
+    "crates/agent/src/exec/session.rs": "getsid/getpgid and proc_listallpids to find every group in a run's session",
     "crates/agent/src/exec/pump.rs": "raw read(2)/close(2) on the PTY master",
     "crates/agent/src/fetch.rs": "sysctl/uname for the fetch card",
     "crates/agent/src/monitor.rs": "Mach host statistics on macOS",
