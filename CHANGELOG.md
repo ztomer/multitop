@@ -7,6 +7,24 @@ This file starts at v0.47.0 — earlier history is in git (`git log`), and the
 per-defect record is `docs/detection-record.md`, which is the more useful
 document for anything before this point.
 
+## v0.69.5 — a stopped run ends its shell on Linux too _(2026-11-08)_
+
+### Fixed — a run's interactive shell outlived its teardown on Linux (M.REAPFLAKE)
+- `pty::terminate` signalled the session leader's group and the terminal's
+  foreground group. The foreground group is the running JOB's (a loop's
+  `sleep`), not the interactive shell's, so `bash -i` was never signalled and
+  kept running, orphaned to init. Seen as CI run 42549434587's one survivor
+  (`reap::the_run_shell_dies_with_a_test_that_is_killed`); on Linux the old
+  teardown left the shell alive in 3 of 5 probes and 6 of 6 runs of the new
+  `exec_reap_test` case. The teardown now signals every process group in the
+  run's session, read from the process table, and reads it again before the
+  `SIGKILL`.
+
+### Fixed — the macOS process list read a quarter of the processes
+- `proc_listallpids` answers a count of pids, and the scan divided it by four
+  as though it were bytes: 323 of 1294 pids were read, and 599 of this user's
+  868 processes were missing (`tests/scan_macos_test.rs`).
+
 ## v0.69.4 — a closed terminal no longer aborts multitop _(2026-11-08)_
 
 ### Fixed — SIGABRT when the terminal went away (M.CIPARITY)
