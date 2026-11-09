@@ -1,0 +1,12 @@
+{
+ "why": "goh changelog-tags (GOH.CHANGELOGALL): the changelog against the v* tags -- this repository's findings on the day the check landed, keyed by its root commit. At or under its count warns; over it, unseeded, or an entry a full run finds clean is red. Fix the site and delete or lower its entry in the same commit: done is an empty list. A seed entry lives in its own repository's tree or goh's private store, never another repository's (GOH.SEEDPRIVATE).",
+ "entries": [
+  {
+   "root": "b39e3e8b286e7408139f584cfbb781ddc02ab8af",
+   "repo": "monitor",
+   "path": "CHANGELOG.md",
+   "count": 22,
+   "reason": "unreviewed: 22 finding(s): 21 tag(s) with no heading, 1 heading(s) no tag names"
+  }
+ ]
+}
