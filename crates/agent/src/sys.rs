@@ -248,6 +248,11 @@ pub fn scan_macos(out: &mut Vec<RawProcStat>, pids: &mut Vec<i32>) {
         .ok()
         .filter(|&h| h > 0)
         .unwrap_or(100);
+    // The same fallback as `ProcSampler::new`, so both sides of the product agree.
+    let page_size = u64::try_from(unsafe { libc::sysconf(libc::_SC_PAGESIZE) })
+        .ok()
+        .filter(|&p| p > 0)
+        .unwrap_or(4096);
 
     for &pid in &pids[..actual_count] {
         if pid <= 0 {
@@ -287,7 +292,10 @@ pub fn scan_macos(out: &mut Vec<RawProcStat>, pids: &mut Vec<i32>) {
 
         let total_ns = task_info.pti_total_user + task_info.pti_total_system;
         let ticks = (total_ns as u64) * hz / 1_000_000_000;
-        let rss_pages = task_info.pti_resident_size / 4096;
+        // `pti_resident_size` is BYTES. The consumer (`proc.rs`) multiplies
+        // `rss_pages` by this same `sysconf` page size, so divide by it here:
+        // a 4096 constant made every RSS 4x too large on 16 KiB pages (M.PAGESIZE).
+        let rss_pages = task_info.pti_resident_size / page_size;
 
         out.push(RawProcStat {
             // `pid > 0` was checked at the top of the loop.
