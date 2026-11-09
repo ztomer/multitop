@@ -1506,7 +1506,7 @@ dependencies = [
 
 [[package]]
 name = "multitop"
-version = "0.69.5"
+version = "0.69.6"
 dependencies = [
  "axum",
  "base64",
@@ -1547,7 +1547,7 @@ dependencies = [
 
 [[package]]
 name = "multitop-agent"
-version = "0.69.5"
+version = "0.69.6"
 dependencies = [
  "libc",
  "mach2",
@@ -1562,7 +1562,7 @@ dependencies = [
 
 [[package]]
 name = "multitop-testassert"
-version = "0.69.5"
+version = "0.69.6"
 
 [[package]]
 name = "multitop-vault"

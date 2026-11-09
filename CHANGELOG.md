@@ -7,6 +7,17 @@ This file starts at v0.47.0 — earlier history is in git (`git log`), and the
 per-defect record is `docs/detection-record.md`, which is the more useful
 document for anything before this point.
 
+## v0.69.6 — macOS process RSS was 4x too high _(2026-11-08)_
+
+### Fixed — the macOS scan divided resident bytes by 4096, not the OS page size (M.PAGESIZE)
+- `proc_taskinfo.pti_resident_size` is bytes. `scan_macos` stored it divided by
+  a 4096 constant as `rss_pages`, and `proc.rs` multiplied by
+  `sysconf(_SC_PAGESIZE)`, which is 16384 on Apple silicon: every process's RSS
+  read 4x high (4456448 B against `ps`'s 1114112 B for one idle `sleep`). The
+  scan now divides by the same `sysconf` page size; `scan_macos_test`
+  `rss_matches_ps_for_a_live_process` holds it to `ps -o rss=` within 5% and
+  was red on the constant.
+
 ## v0.69.5 — a stopped run ends its shell on Linux too _(2026-11-08)_
 
 ### Fixed — a run's interactive shell outlived its teardown on Linux (M.REAPFLAKE)
