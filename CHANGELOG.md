@@ -7,6 +7,18 @@ This file starts at v0.47.0 — earlier history is in git (`git log`), and the
 per-defect record is `docs/detection-record.md`, which is the more useful
 document for anything before this point.
 
+## v0.69.3 — a client stop lets the exec agent tear down _(2026-11-08)_
+
+### Fixed — stopping a run left a HUP-ignoring command at PPID 1 (M.KILLDROP)
+- The client stopped the exec agent with `SIGKILL` (tokio `kill_on_drop`), so
+  the agent's teardown never ran. Dropping the agent now sends `SIGTERM`, then
+  `SIGKILL` after a 5 s grace; the agent turns `SIGTERM`/`SIGHUP` into a stop
+  that ends both process groups of the run and reaps them.
+- New tests bite on the old drop, on a missing handler, and on the
+  foreground-group kill being removed, which no earlier test caught.
+- `release.sh` and `tools/commit_gates.sh` use `mktemp` templates GNU accepts,
+  so `step()` runs on Linux CI.
+
 ## v0.69.2 — FCM by installation ID, no deprecated token API _(2026-11-08)_
 
 ### Fixed — the FCM route on Firebase Messaging 26 (M.FCMDEPR)
