@@ -46,6 +46,12 @@ GOH_CHECKOUT_CREDENTIALS_MIN_FILES=2
 GOH_MD_LINKS_MIN_LINKS=11
 GOH_UNREAPED_SPAWN_MIN_FILES=249
 GOH_SUBPROCESS_STDIN_MIN_CALLS=42
+# The last three scanners to declare a floor (M.REMOTESTOP), at nine tenths of
+# what the structural step read on 2026-11-08: tap writes 75, busy loop 20,
+# installed version 5.
+GOH_TAP_WRITES_MIN_FILES=67
+GOH_BUSY_LOOP_MIN_FILES=18
+GOH_INSTALLED_VERSION_MIN_FILES=4
 
 # goh's check_ci_local_parity.py matches CI's scripts by NAME in GOH_CI_STEPS,
 # and the pre-push step runs the checkers through tools/checkers.sh's glob, which
