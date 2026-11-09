@@ -5,6 +5,7 @@
 
 use crossterm::event::{DisableMouseCapture, EnableMouseCapture};
 use crossterm::execute;
+use std::io::Write as _;
 
 /// Signals that decide whether this process may keep the terminal.
 ///
@@ -97,7 +98,7 @@ pub(super) async fn next_terminal_signal(_signals: &mut Option<()>) -> SignalAct
     std::future::pending().await
 }
 
-/// Every terminal mode multitop turns on beyond the two `ratatui::init` knows
+/// Every terminal mode multitop turns on beyond the two `ratatui` knows
 /// about, in one place.
 ///
 /// There were three copies of this list -- startup, the resume path, and the
@@ -119,17 +120,26 @@ pub(super) fn leave_terminal_modes(w: &mut impl std::io::Write) {
     let _ = execute!(w, DisableMouseCapture);
 }
 
-/// Take the modes off on a panic too.
+/// Take the terminal over: raw mode, the alternate screen, and a panic hook
+/// that gives both back -- what `ratatui::try_init` does, except the hook.
 ///
-/// The release profile aborts, so `Drop` does not run and the hook is the only
-/// cover. `ratatui::init` installs one; it restores what `ratatui` turned on,
-/// which is not what this program turned on.
-pub(super) fn hook_terminal_modes_into_panics() {
+/// The release profile aborts, so `Drop` does not run on a panic and the hook
+/// is the only cover. `ratatui`'s own hook restores only what `ratatui` turned
+/// on (not mouse capture), and reports a failed restore with `eprintln!`, which
+/// panics inside the panic hook when the terminal is gone. This one takes off
+/// every mode [`enter_terminal_modes`] set and reports through
+/// [`restore_terminal`], which cannot panic.
+pub(super) fn take_terminal() -> std::io::Result<ratatui::DefaultTerminal> {
+    use crossterm::terminal::{enable_raw_mode, EnterAlternateScreen};
     let previous = std::panic::take_hook();
     std::panic::set_hook(Box::new(move |info| {
         leave_terminal_modes(&mut std::io::stdout());
+        restore_terminal(ratatui::try_restore, &mut std::io::stderr());
         previous(info);
     }));
+    enable_raw_mode()?;
+    execute!(std::io::stdout(), EnterAlternateScreen)?;
+    ratatui::Terminal::new(ratatui::backend::CrosstermBackend::new(std::io::stdout()))
 }
 
 /// Rebuild the terminal after a resume. Anything that stopped this process left
@@ -146,13 +156,42 @@ pub(super) fn reclaim_terminal() {
 #[cfg(not(unix))]
 pub(super) fn reclaim_terminal() {}
 
+/// Put the terminal back, and say on `report` if that failed.
+///
+/// Never panics. `ratatui::restore` says it with `eprintln!`, which PANICS when
+/// the write fails -- and the write fails exactly when the restore did: the
+/// terminal window was closed, `SIGHUP` became a quit, the restore hit a dead
+/// tty, and so did the report. A panic inside `TerminalGuard::drop` is an abort
+/// under the release profile (and a panic inside a panic everywhere, since the
+/// panic hook restores again): every `multitop` SIGABRT crash report of
+/// 2026-11-08 was this stack (M.CIPARITY).
+pub(super) fn restore_terminal(
+    restore: impl FnOnce() -> std::io::Result<()>,
+    report: &mut impl std::io::Write,
+) {
+    if let Err(err) = restore() {
+        // Ignored: the terminal is gone and there is nobody left to tell.
+        let _ = writeln!(report, "Failed to restore terminal: {err}");
+    }
+}
+
+/// Write a line to stderr on the way out, and never panic doing it.
+///
+/// Everything said after the TUI ends is said exactly when the terminal may
+/// have gone away -- a closed window is a `SIGHUP`, which is a quit -- and
+/// `eprintln!` panics on a failed write, an abort under the release profile.
+/// What could not be said is dropped: there is nobody left to read it.
+pub fn say_on_stderr(line: std::fmt::Arguments<'_>) {
+    let _ = writeln!(std::io::stderr(), "{line}");
+}
+
 /// Puts the terminal back on every exit path, including early returns.
 pub struct TerminalGuard;
 
 impl Drop for TerminalGuard {
     fn drop(&mut self) {
         leave_terminal_modes(&mut std::io::stdout());
-        ratatui::restore();
+        restore_terminal(ratatui::try_restore, &mut std::io::stderr());
     }
 }
 
@@ -208,6 +247,71 @@ mod tests {
             }
         }
         leave_terminal_modes(&mut Broken);
+    }
+
+    /// Set in the child [`a_restore_with_stderr_gone_does_not_panic`] spawns.
+    const DEAD_STDERR_CHILD: &str = "MULTITOP_TEST_DEAD_STDERR_CHILD";
+
+    /// The child half: a restore that failed, reported to the process's real
+    /// stderr, which the parent has closed. Does nothing in a normal run.
+    #[test]
+    fn restore_reports_into_a_dead_stderr() {
+        if std::env::var_os(DEAD_STDERR_CHILD).is_none() {
+            return;
+        }
+        restore_terminal(
+            || Err(std::io::Error::other("the terminal went away")),
+            &mut std::io::stderr(),
+        );
+    }
+
+    /// The crash every `multitop` SIGABRT report of 2026-11-08 shows: the
+    /// terminal goes away, the restore fails, and reporting that failure on the
+    /// same dead terminal panicked inside `TerminalGuard::drop`. Reproduced for
+    /// real: this test binary is re-run with its stderr a pipe nobody reads, so
+    /// every write to it fails (`EPIPE`; Rust ignores `SIGPIPE`), as a write to a
+    /// closed tty does (`EIO`).
+    #[test]
+    fn a_restore_with_stderr_gone_does_not_panic() {
+        let name = format!(
+            "{}::restore_reports_into_a_dead_stderr",
+            module_path!().split_once("::").map_or("", |(_, rest)| rest)
+        );
+        let mut child = std::process::Command::new(std::env::current_exe().unwrap())
+            .args([name.as_str(), "--exact", "--nocapture", "--test-threads=1"])
+            .env(DEAD_STDERR_CHILD, "1")
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped())
+            .spawn()
+            .expect("re-run this test binary");
+        // Close the only reader before the child can write.
+        drop(child.stderr.take());
+        let out = child.wait_with_output().expect("reap the child");
+        let stdout = String::from_utf8_lossy(&out.stdout);
+        assert!(
+            stdout.contains("running 1 test\n"),
+            "the child did not run exactly the restore test: {stdout}"
+        );
+        assert!(
+            out.status.success(),
+            "reporting a failed restore to a dead stderr panicked: {stdout}"
+        );
+    }
+
+    /// A failed restore is still said when there is somewhere to say it.
+    #[test]
+    fn a_failed_restore_is_reported() {
+        let mut said = Vec::new();
+        restore_terminal(|| Err(std::io::Error::other("no tty")), &mut said);
+        let said = String::from_utf8(said).unwrap();
+        assert!(
+            said.contains("Failed to restore terminal: no tty"),
+            "{said:?}"
+        );
+        let mut quiet = Vec::new();
+        restore_terminal(|| Ok(()), &mut quiet);
+        assert!(quiet.is_empty(), "a restore that worked said {quiet:?}");
     }
 
     /// Without handlers installed there is no signal to wait for, so the arm

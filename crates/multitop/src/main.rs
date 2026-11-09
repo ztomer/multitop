@@ -343,7 +343,7 @@ fn main() -> ExitCode {
     let code = match runtime.block_on(run::run(servers, config_path, initial_theme)) {
         Ok(()) => ExitCode::SUCCESS,
         Err(e) => {
-            eprintln!("[Error] {e}");
+            run::say_on_stderr(format_args!("[Error] {e}"));
             ExitCode::FAILURE
         }
     };

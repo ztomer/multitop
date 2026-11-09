@@ -27,6 +27,7 @@ pub use event_loop::{event_loop, panel_at_pos, LoopOutcome};
 pub use handle_key::handle_key;
 pub use spawn::spawn_biometric_unlock;
 pub use tasks::Tasks;
+pub use terminal::say_on_stderr;
 pub use terminal::SignalAction;
 pub use terminal::TerminalGuard;
 
