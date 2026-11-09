@@ -1,6 +1,6 @@
 # Selects the STABLE CHANNEL and the components the gates need. It does NOT pin
 # a compiler: `channel = "stable"` floats, so the local gate builds with
-# whichever stable rustup last installed, and CI (dtolnay/rust-toolchain@stable)
+# whichever stable rustup last installed, and CI (dtolnay/rust-toolchain, its stable branch)
 # with whichever stable is current on the runner that day. The two agree only
 # while neither side has updated -- the 2026-10-01 `rustup update` turned the
 # local gate red with no commit, which is the receipt.
