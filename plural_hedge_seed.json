@@ -1,0 +1,82 @@
+{
+ "why": "goh plural-hedge (GOH.PLURALHEDGE): a hedged plural (`file(s)`) in a string literal -- this repository's findings on the day the check landed, keyed by its root commit. At or under its count warns; over it, unseeded, or an entry a full run finds clean is red. Fix the site through the tui lib's counted/noun helper and delete or lower its entry in the same commit: done is an empty list. A seed entry lives in its own repository's tree or goh's private store, never another repository's (GOH.SEEDPRIVATE).",
+ "entries": [
+  {
+   "root": "b39e3e8b286e7408139f584cfbb781ddc02ab8af",
+   "repo": "monitor",
+   "path": "crates/multitop/src/app/vault.rs",
+   "count": 1,
+   "reason": "unreviewed: 1 hedged plural: line 246"
+  },
+  {
+   "root": "b39e3e8b286e7408139f584cfbb781ddc02ab8af",
+   "repo": "monitor",
+   "path": "crates/multitop/src/password_actions.rs",
+   "count": 2,
+   "reason": "unreviewed: 2 hedged plurals: lines 445, 449"
+  },
+  {
+   "root": "b39e3e8b286e7408139f584cfbb781ddc02ab8af",
+   "repo": "monitor",
+   "path": "crates/multitop/tests/event_loop_e2e/liveness.rs",
+   "count": 1,
+   "reason": "unreviewed: 1 hedged plural: line 158"
+  },
+  {
+   "root": "b39e3e8b286e7408139f584cfbb781ddc02ab8af",
+   "repo": "monitor",
+   "path": "crates/multitop/tests/event_loop_e2e/main.rs",
+   "count": 1,
+   "reason": "unreviewed: 1 hedged plural: line 359"
+  },
+  {
+   "root": "b39e3e8b286e7408139f584cfbb781ddc02ab8af",
+   "repo": "monitor",
+   "path": "crates/multitop/tests/panel_row0_test/banner_and_views.rs",
+   "count": 1,
+   "reason": "unreviewed: 1 hedged plural: line 158"
+  },
+  {
+   "root": "b39e3e8b286e7408139f584cfbb781ddc02ab8af",
+   "repo": "monitor",
+   "path": "crates/multitop/tests/password_argv_live_e2e.rs",
+   "count": 1,
+   "reason": "unreviewed: 1 hedged plural: line 241"
+  },
+  {
+   "root": "b39e3e8b286e7408139f584cfbb781ddc02ab8af",
+   "repo": "monitor",
+   "path": "tests/test_tmux_e2e.py",
+   "count": 1,
+   "reason": "unreviewed: 1 hedged plural: line 197"
+  },
+  {
+   "root": "b39e3e8b286e7408139f584cfbb781ddc02ab8af",
+   "repo": "monitor",
+   "path": "tools/check_doc_paths.py",
+   "count": 3,
+   "reason": "unreviewed: 3 hedged plurals: lines 405, 413, 419"
+  },
+  {
+   "root": "b39e3e8b286e7408139f584cfbb781ddc02ab8af",
+   "repo": "monitor",
+   "path": "tools/check_msrv_claim.py",
+   "count": 1,
+   "reason": "unreviewed: 1 hedged plural: line 158"
+  },
+  {
+   "root": "b39e3e8b286e7408139f584cfbb781ddc02ab8af",
+   "repo": "monitor",
+   "path": "tools/check_no_hard_coded_colour.py",
+   "count": 2,
+   "reason": "unreviewed: 2 hedged plurals: lines 289, 301"
+  },
+  {
+   "root": "b39e3e8b286e7408139f584cfbb781ddc02ab8af",
+   "repo": "monitor",
+   "path": "tools/light_terminal_check.py",
+   "count": 2,
+   "reason": "unreviewed: 2 hedged plurals: lines 252, 260"
+  }
+ ]
+}
