@@ -252,14 +252,6 @@ if [ "${DRY_RUN}" = 1 ]; then
 fi
 
 info "proving it: brew update + fetch ..."
-ok "formula bump handed to tap_bump.sh"
-
-if [ "${DRY_RUN}" = 1 ]; then
-  ok "[dry-run] stopped short: nothing tagged, released, bumped, or pushed"
-  exit 0
-fi
-
-info "proving it: brew update + fetch ..."
 brew update >/dev/null 2>&1
 step "brew fetch" brew fetch "ztomer/tap/multitop" --force || die "brew fetch failed after tap bump"
 ok "released ${TAG}: tarball + both agent resources verified through Homebrew"
