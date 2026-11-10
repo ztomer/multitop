@@ -129,7 +129,7 @@ class ServeEndToEndTest {
                 .apply { initialize(java.security.spec.ECGenParameterSpec("secp256r1")) }
                 .generateKeyPair()
                 .public as java.security.interfaces.ECPublicKey
-        val point = ByteArray(1 + 2 * P256_COORD) { 0 }
+        val point = ByteArray(1 + 2 * P256_COORD)
         point[0] = UNCOMPRESSED
 
         fun fixed(n: java.math.BigInteger) =

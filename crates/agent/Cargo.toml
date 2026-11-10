@@ -33,7 +33,7 @@ vte = "0.15"
 # queue MCP.MON): protocol upkeep -- versions, framing, the 2026-07-28
 # stateless lifecycle -- is upstream's; this crate says only which tools exist,
 # what each does to the machine, and how a call reaches it (src/mcp.rs).
-rmcp = { version = "3.7", default-features = false, features = ["server", "transport-io"] }
+rmcp = { version = "3.9", default-features = false, features = ["server", "transport-io"] }
 # rmcp is async and nothing else in the agent is: one current-thread runtime,
 # built by `mcp::run` for the session, is the only place tokio runs.
 tokio = { version = "1", default-features = false, features = ["rt", "io-std", "io-util"] }
