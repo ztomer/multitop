@@ -7,6 +7,22 @@ This file starts at v0.47.0 — earlier history is in git (`git log`), and the
 per-defect record is `docs/detection-record.md`, which is the more useful
 document for anything before this point.
 
+## v0.69.7 — rmcp 3.9.0 for RUSTSEC-2026-0462 _(2026-11-10)_
+
+### Security — rmcp moved past the Streamable HTTP buffering advisory (SEC.RMCP.MONITOR)
+- RUSTSEC-2026-0462 (unbounded response body buffering in Streamable HTTP
+  clients) covers rmcp below 3.9.0; `Cargo.lock` held 3.7.0 and
+  `fuzz/Cargo.lock` 3.8.0. Both now resolve 3.9.0.
+
+### Fixed — Android lint failed on a superseded Gradle (SEC.RMCP.MONITOR)
+- Gradle 9.9.1 shipped and lint's AndroidGradlePluginVersion is an Error here,
+  so `tools/android_gate.sh` went red on the 9.9.0 wrapper. The wrapper names
+  9.9.1 with its published sha256.
+
+### Changed — CI runs goh v0.93.0 (CI.PUBLIC2)
+- `.github/workflows/gate.yml` moves to goh v0.93.0, whose install lines no
+  longer call `brew` on Linux, with its floors pinned to d1205a2.
+
 ## v0.69.6 — macOS process RSS was 4x too high _(2026-11-08)_
 
 ### Fixed — the macOS scan divided resident bytes by 4096, not the OS page size (M.PAGESIZE)
