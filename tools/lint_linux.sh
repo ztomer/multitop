@@ -21,12 +21,20 @@ DOCKER="${DOCKER:-docker}"
 trap goh_container_runtime_down EXIT
 trap 'exit 130' INT
 trap 'exit 143' TERM
+# The container runs the HOST's architecture: arm64 on the owner's Apple-silicon Mac, amd64 on an
+# x86_64 Linux runner, which cannot exec an arm64 image (multitop run 42926394892: "exec format
+# error"). `ARCH` is the seam (house rule 3); a 32-bit or unknown host is refused, never guessed.
+case "${ARCH:-$(uname -m)}" in
+    arm64|aarch64) PLATFORM=linux/arm64 ;;
+    x86_64|amd64) PLATFORM=linux/amd64 ;;
+    *) err "lint_linux: unsupported host architecture '${ARCH:-$(uname -m)}' (64-bit arm64 or x86_64 only)"; exit 2 ;;
+esac
 goh_container_runtime_up "monitor lint_linux"
 
-info "clippy on linux/arm64 (rust:1-bookworm + libdbus-1-dev libtss2-dev)"
+info "clippy on $PLATFORM (rust:1-bookworm + libdbus-1-dev libtss2-dev)"
 # The host's ~/.cargo/config.toml (sccache wrapper, shared target dir) must
 # not leak in: the source is copied and its .cargo/config.toml dropped.
-"$DOCKER" run --rm --platform linux/arm64 -v "$ROOT":/src:ro \
+"$DOCKER" run --rm --platform "$PLATFORM" -v "$ROOT":/src:ro \
   -e CARGO_TARGET_DIR=/tmp/target -e RUSTC_WRAPPER= -w /tmp rust:1-bookworm bash -c '
     set -e
     apt-get update -qq >/dev/null && apt-get install -y -qq libdbus-1-dev libtss2-dev pkg-config >/dev/null 2>&1

@@ -203,6 +203,9 @@ def installed_binary() -> Path | None:
     on_path = which(BINARY)
     if on_path:
         return Path(on_path)
+    # No brew is no brew install, never a crash (a Linux runner has none: multitop run 42926394892).
+    if which("brew") is None:
+        return None
     brew = subprocess.run(["brew", "--prefix"], capture_output=True, text=True, check=False, stdin=subprocess.DEVNULL)
     if brew.returncode == 0 and brew.stdout.strip():
         candidate = Path(brew.stdout.strip()) / "bin" / BINARY

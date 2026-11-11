@@ -27,7 +27,7 @@ env:
 
 jobs:
   gate:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 90
     steps:
       # persist-credentials: false: the structural gate refuses a job token left in git config.
@@ -66,5 +66,9 @@ jobs:
           printf '%s\n' "$cmds"
           grep -v '^#' <<<"$cmds" | bash -eux
           python3 -m pip install --quiet pytest
+      # tools/coverage_check.sh runs goh's coverage gate itself, so goh's manifest cannot see the
+      # coverage-rust layer: the repo names its one tool here, at a named release.
+      - name: Install cargo-llvm-cov
+        run: cargo install --locked cargo-llvm-cov@0.9.1
       - name: The gate
         run: ./tools/gate.sh --full

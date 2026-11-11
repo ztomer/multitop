@@ -25,6 +25,8 @@ runs it; a `time` that does not report instructions fails closed.
 from __future__ import annotations
 
 import json
+import os
+import platform
 import re
 import subprocess
 import sys
@@ -53,6 +55,8 @@ UNITS = {"decode": "packet", "render": "frame"}
 # Iterations per count. The 2N run minus the N run is N iterations; a few
 # thousand keeps the slower (render) pair near a second on a quiet machine.
 ITERS = 5_000
+# EX_CONFIG, the NOT APPLICABLE verdict goh's local_ci reads (lib/not_applicable.py).
+NOT_APPLICABLE = 78
 
 INSTRUCTIONS = re.compile(r"^\s*(\d+)\s+instructions retired\s*$", re.MULTILINE)
 
@@ -165,6 +169,21 @@ def count(exe: Path, which: str, iters: int) -> int:
 def main() -> int:
     if "--self-test" in sys.argv:
         return self_test()
+    # The instruction counter is macOS's time(1). Off macOS there is no figure to judge, so the
+    # gate cannot say green: on a GitHub-hosted run that is the runner, said as NOT APPLICABLE
+    # (exit 78, gates_of_heck lib/not_applicable.py, accepted by local_ci on a hosted run only);
+    # anywhere else it fails closed. `OS` is the seam the tests drive (house rule 3).
+    host = os.environ.get("OS") or platform.system()
+    if host != "Darwin":
+        if os.environ.get("GITHUB_ACTIONS") == "true":
+            print(
+                f"NOT APPLICABLE on this hosted runner: bench-check needs macOS's `/usr/bin/time -l` "
+                f"instruction count, which a {host} runner does not have -- not a pass and not a "
+                "failure; the owner's machine is the judge of record and runs it"
+            )
+            return NOT_APPLICABLE
+        print(f"bench-check: needs macOS's `/usr/bin/time -l` instruction count; this host is {host}", file=sys.stderr)
+        return 1
     exe = bench_binary()
     counts = {name: per_op(count(exe, name, ITERS), count(exe, name, 2 * ITERS), ITERS) for name in BUDGETS}
     passed, line = verdict(counts)
