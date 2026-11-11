@@ -10,6 +10,7 @@ runtime seam itself is goh's lib/container_runtime.sh (GOH.CR1).
 from __future__ import annotations
 
 import os
+import re
 import subprocess
 from pathlib import Path
 
@@ -142,3 +143,11 @@ def test_runtime_down_stops_colima_on_sigint(tmp_path: Path) -> None:
     proc = _run_lint(env)
     assert proc.returncode in (130, -2), proc.stdout + proc.stderr  # noqa: S101
     assert colima_log.read_text().splitlines() == ["start", "stop"]  # noqa: S101
+
+
+def test_image_is_a_named_release() -> None:
+    """The lint image is a named release, never a moving tag (house rule: cutting edge)."""
+    images = re.findall(r"\brust:([\w.\-]+)", LINT_LINUX.read_text())
+    assert images, "lint_linux.sh names no rust image"  # noqa: S101
+    for tag in images:
+        assert re.fullmatch(r"\d+\.\d+\.\d+-\w+", tag), f"moving image tag rust:{tag}"  # noqa: S101

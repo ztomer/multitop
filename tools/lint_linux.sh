@@ -31,11 +31,11 @@ case "${ARCH:-$(uname -m)}" in
 esac
 goh_container_runtime_up "monitor lint_linux"
 
-info "clippy on $PLATFORM (rust:1-bookworm + libdbus-1-dev libtss2-dev)"
+info "clippy on $PLATFORM (rust:1.99.1-bookworm + libdbus-1-dev libtss2-dev)"
 # The host's ~/.cargo/config.toml (sccache wrapper, shared target dir) must
 # not leak in: the source is copied and its .cargo/config.toml dropped.
 "$DOCKER" run --rm --platform "$PLATFORM" -v "$ROOT":/src:ro \
-  -e CARGO_TARGET_DIR=/tmp/target -e RUSTC_WRAPPER= -w /tmp rust:1-bookworm bash -c '
+  -e CARGO_TARGET_DIR=/tmp/target -e RUSTC_WRAPPER= -w /tmp rust:1.99.1-bookworm bash -c '
     set -e
     apt-get update -qq >/dev/null && apt-get install -y -qq libdbus-1-dev libtss2-dev pkg-config >/dev/null 2>&1
     rustup component add clippy >/dev/null 2>&1
