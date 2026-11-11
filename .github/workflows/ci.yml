@@ -73,7 +73,7 @@ jobs:
         with:
           persist-credentials: false
           repository: ztomer/gates_of_heck
-          ref: v0.95.0   # a NAMED goh release, never the default branch (RUFF.ADOPT2); raise it deliberately
+          ref: v0.96.0   # a NAMED goh release, never the default branch (RUFF.ADOPT2); raise it deliberately
           path: .gates_of_heck
       # goh's tool floors (python3, shellcheck), met the ONE way goh provides: its
       # goh-floors action reads them from goh's own floor table (gates/required_tools.tsv),
@@ -167,7 +167,7 @@ jobs:
         with:
           persist-credentials: false
           repository: ztomer/gates_of_heck
-          ref: v0.95.0   # a NAMED goh release, never the default branch (RUFF.ADOPT2); raise it deliberately
+          ref: v0.96.0   # a NAMED goh release, never the default branch (RUFF.ADOPT2); raise it deliberately
           path: .gates_of_heck
       # goh's tool floors (python3, shellcheck), met the ONE way goh provides: its
       # goh-floors action reads them from goh's own floor table (gates/required_tools.tsv),
@@ -227,7 +227,7 @@ jobs:
         with:
           persist-credentials: false
           repository: ztomer/gates_of_heck
-          ref: v0.95.0   # a NAMED goh release, never the default branch (RUFF.ADOPT2); raise it deliberately
+          ref: v0.96.0   # a NAMED goh release, never the default branch (RUFF.ADOPT2); raise it deliberately
           path: .gates_of_heck
       # goh's tool floors (python3, shellcheck), met the ONE way goh provides: its
       # goh-floors action reads them from goh's own floor table (gates/required_tools.tsv),
@@ -270,7 +270,7 @@ jobs:
         with:
           persist-credentials: false
           repository: ztomer/gates_of_heck
-          ref: v0.95.0   # a NAMED goh release, never the default branch (RUFF.ADOPT2); raise it deliberately
+          ref: v0.96.0   # a NAMED goh release, never the default branch (RUFF.ADOPT2); raise it deliberately
           path: .gates_of_heck
       # goh's tool floors (python3, shellcheck), met the ONE way goh provides: its
       # goh-floors action reads them from goh's own floor table (gates/required_tools.tsv),

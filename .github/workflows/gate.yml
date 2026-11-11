@@ -23,7 +23,7 @@ permissions:
 
 env:
   CARGO_TERM_COLOR: never
-  GOH_TAG: v0.95.0
+  GOH_TAG: v0.96.0
 
 jobs:
   gate:
@@ -43,7 +43,7 @@ jobs:
           git clone --depth 1 --branch "$GOH_TAG" https://github.com/ztomer/gates_of_heck "$GOH_DIR"
           git -C "$GOH_DIR" describe --tags --exact-match
       - name: Meet goh's tool floors
-        uses: ztomer/gates_of_heck/.github/actions/goh-floors@8e90921e140d97bfdb8afc312cbfc93d85090b5a # v0.95.0
+        uses: ztomer/gates_of_heck/.github/actions/goh-floors@620a0f99f18dcb74a6f122fbe09a1d2c8f7a794e # v0.96.0
         with:
           goh-dir: ${{ env.GOH_DIR }}
       - name: Rust toolchain from rust-toolchain.toml, and the shipped targets
