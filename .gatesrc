@@ -129,3 +129,6 @@ GOH_MCP_SERVERS='HOME="$GOH_MCP_SCRATCH" cargo run --quiet --locked -p multitop-
 # A commit that ADDS a test names, in a `Red-run:` trailer, the mutation that
 # turned that test red (goh red-run, BACKLOG 4.11; owner OW.8, 2026-10-31).
 GOH_RED_RUN=1
+
+# Roadmap file the goh roadmap gate checks (GOH.ROADMAPREQ).
+GOH_ROADMAP=docs/roadmap.md

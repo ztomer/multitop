@@ -1,0 +1,7 @@
+{
+  "why": "the roadmap's findings when this repo adopted goh roadmap; a count may only fall -- prune completed work to git and the CHANGELOG, give every open entry an id and a `Done when:`, keep one plan file (house rule #16, GOH.ROADMAPGATE)",
+  "roadmap": "docs/roadmap.md",
+  "entries": {
+    "docs/roadmap.md#queue-done": 2
+  }
+}
