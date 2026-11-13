@@ -9,6 +9,9 @@ document for anything before this point.
 
 ## Unreleased
 
+### Fixed — `build.sh` docker backend keeps its cargo target in a named volume (`EST.HOSTMOUNTTARGET`)
+- `build.sh`'s docker backend mounted `$PWD:/src` read-write with `CARGO_TARGET_DIR=/src/target/docker` on moving tag `rust:alpine`. The container now mounts the repo read-only (`/src:ro`), builds with a pinned compiler/alpine release (`rust:1.100.0-alpine3.23`), keeps the cargo target and registry in named volumes (`multitop-agent-target`, `multitop-agent-cargo`), and copies only the built agent binary out through `/out`. Pinned by `tests/test_build_docker.py`.
+
 ## v0.69.8 — A release kit so goh ship tags, installs and records monitor releases _(2026-11-13)_
 
 ### Added — a release kit for `goh ship` (MON.SHIPKIT)

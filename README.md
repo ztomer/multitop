@@ -335,7 +335,7 @@ cross-compilation backend. `build.sh` picks whichever is available:
 ```bash
 ./build.sh                      # auto-detect
 ./build.sh --backend zigbuild   # cargo-zigbuild + rustup musl targets
-./build.sh --backend docker     # rust:alpine container
+./build.sh --backend docker     # pinned rust alpine container
 ```
 
 For the zigbuild path:

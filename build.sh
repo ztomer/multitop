@@ -7,7 +7,7 @@
 # supported; the first available one is used.
 #
 #   zigbuild  cargo-zigbuild + rustup musl targets  (fast, no daemon)
-#   docker    rust:alpine container                 (no local toolchain setup)
+#   docker    rust:<version>-alpine container       (no local toolchain setup)
 #
 # Usage: ./build.sh [--backend zigbuild|docker] [--debug]
 set -euo pipefail
@@ -91,23 +91,47 @@ build_agent_zigbuild() {
     cargo zigbuild -p multitop-agent --target "$target" $CARGO_PROFILE_FLAG
 }
 
+# >>> docker backend
+# A named release, never rust:alpine (house rule: latest is a named release). The pin names the
+# image AND RUSTUP_TOOLCHAIN, which overrides rust-toolchain.toml's floating `stable` so the
+# container cannot fetch another compiler. Raise it with the host's stable, in its own commit.
+AGENT_RUST_VERSION="${MULTITOP_AGENT_RUST_VERSION:-1.100.0}"
+AGENT_ALPINE="${MULTITOP_AGENT_ALPINE:-alpine3.23}"
+AGENT_IMAGE="rust:$AGENT_RUST_VERSION-$AGENT_ALPINE"
+# The cargo target and registry live in docker NAMED volumes, on the VM's own Linux filesystem,
+# never on a bind mount of the checkout: a build script on a colima virtiofs mount lost its exec
+# bit intermittently ("Permission denied" running build-script-build, DV.LINTEXEC, EST.HOSTMOUNTTARGET).
+# The source is mounted read-only; the ONE host mount that is written is the output directory,
+# which receives the finished agent as a plain file where release.sh and
+# tools/check_agent_version.py read it (target/docker/<triple>/<profile>/multitop-agent).
+AGENT_TARGET_VOLUME="${MULTITOP_AGENT_TARGET_VOLUME:-multitop-agent-target}"
+AGENT_CARGO_VOLUME="${MULTITOP_AGENT_CARGO_VOLUME:-multitop-agent-cargo}"
+
 build_agent_docker() {
-    local target="$1"
+    local target="$1" out="$PWD/target/docker"
+    mkdir -p "$out"
+    # RUSTC_WRAPPER= : the checkout's .cargo/config.toml names sccache, which the image lacks.
     docker run --rm \
-        -v "$PWD":/src -w /src \
-        -e CARGO_TARGET_DIR=/src/target/docker \
-        rust:alpine sh -c "
-            apk add --no-cache musl-dev >/dev/null &&
-            rustup target add $target >/dev/null &&
+        -v "$PWD":/src:ro -w /src \
+        -v "$AGENT_TARGET_VOLUME":/cache/target -v "$AGENT_CARGO_VOLUME":/cache/cargo \
+        -v "$out":/out \
+        -e CARGO_TARGET_DIR=/cache/target -e CARGO_HOME=/cache/cargo -e RUSTC_WRAPPER= \
+        -e RUSTUP_TOOLCHAIN="$AGENT_RUST_VERSION" \
+        "$AGENT_IMAGE" sh -c "
+            set -eu
+            apk add --no-cache musl-dev >/dev/null
+            rustup target add $target >/dev/null
             cargo build -p multitop-agent --target $target $CARGO_PROFILE_FLAG
+            mkdir -p /out/$target/$PROFILE
+            cp /cache/target/$target/$PROFILE/multitop-agent /out/$target/$PROFILE/multitop-agent
         "
 }
+# <<< docker backend
 
 agent_path() {
     local target="$1" root="$TARGET_DIR"
-    # The docker backend sets its own CARGO_TARGET_DIR inside the container,
-    # so its artifacts land under the project-local target/docker regardless
-    # of the host's shared target dir.
+    # The docker backend builds in a named volume and copies the agent out to
+    # the project-local target/docker, regardless of the host's target dir.
     [ "$BACKEND" = docker ] && root="$PWD/target/docker"
     echo "$root/$target/$PROFILE/multitop-agent"
 }
