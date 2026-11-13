@@ -84,6 +84,12 @@ CHANGELOG = """# Changelog
 - It exists.
 """
 
+BUILDER = """#!/usr/bin/env bash
+# What the real ./build.sh must see: the bumped manifest, and no release commit yet.
+{ grep -m1 '^version = ' Cargo.toml; git log -1 --format=%s; } > tools/.build-saw
+[ ! -f tools/.build-fails ]
+"""
+
 RECORDER = """#!/usr/bin/env bash
 echo "$@" > "$(dirname "$0")/tools/.release-args"
 """
@@ -109,6 +115,8 @@ def _fixture(tmp: Path, *, tree_v: str = "0.1.0", changelog: str = CHANGELOG) ->
     shutil.copy(KIT, repo / "tools" / "ship_release.sh")
     (repo / "release.sh").write_text(RECORDER)
     (repo / "release.sh").chmod(0o755)
+    (repo / "build.sh").write_text(BUILDER)
+    (repo / "build.sh").chmod(0o755)
     (repo / "Cargo.toml").write_text(MANIFEST.format(v=tree_v))
     (repo / "Cargo.lock").write_text(LOCK.format(v=tree_v))
     (repo / "fuzz" / "Cargo.lock").write_text(FUZZ_LOCK.format(v=tree_v))
@@ -209,6 +217,40 @@ def test_an_already_bumped_tree_with_its_stanza_goes_straight_to_release_sh(tmp_
     assert done.returncode == 0, done.stdout + done.stderr  # noqa: S101
     assert _run(repo, "git", "rev-parse", "HEAD").stdout == before, "no second commit"  # noqa: S101
     assert (repo / "tools" / ".release-args").read_text().strip() == "v0.1.1"  # noqa: S101
+
+
+def test_the_agents_are_rebuilt_at_the_new_version_before_the_release_commit(tmp_path: Path) -> None:
+    """The first ship died in the release commit's gate: check_agent_version.py refuses musl agents
+    built from the old number, and the kit bumped the version without ever calling ./build.sh."""
+    repo = _fixture(tmp_path)
+    done = _kit(repo, "0.1.1")
+    assert done.returncode == 0, done.stdout + done.stderr  # noqa: S101
+    saw = (repo / "tools" / ".build-saw").read_text().splitlines()
+    assert saw == ['version = "0.1.1"', "seed"], saw  # noqa: S101
+
+
+def test_a_failed_agent_build_commits_nothing_and_leaves_the_checkout_as_it_was(tmp_path: Path) -> None:
+    repo = _fixture(tmp_path)
+    (repo / "tools" / ".build-fails").write_text("")
+    done = _kit(repo, "0.1.1")
+    assert done.returncode != 0  # noqa: S101
+    assert "build.sh failed" in done.stdout + done.stderr  # noqa: S101
+    assert _run(repo, "git", "status", "--porcelain", "--untracked-files=no").stdout == ""  # noqa: S101
+    assert not (repo / "tools" / ".release-args").exists()  # noqa: S101
+
+
+def test_a_refused_release_commit_leaves_nothing_staged(tmp_path: Path) -> None:
+    """`git checkout -- FILE` restores from the INDEX: after the hooks refused the commit it kept the
+    staged bump, and the re-ship found a tree that already declared the new version."""
+    repo = _fixture(tmp_path)
+    hook = repo / ".git" / "hooks" / "pre-commit"
+    hook.write_text("#!/bin/sh\necho refused >&2\nexit 1\n")
+    hook.chmod(0o755)
+    done = _kit(repo, "0.1.1")
+    assert done.returncode != 0  # noqa: S101
+    assert _run(repo, "git", "status", "--porcelain", "--untracked-files=no").stdout == ""  # noqa: S101
+    assert _run(repo, "git", "diff", "--cached", "--name-only").stdout == ""  # noqa: S101
+    assert 'version = "0.1.0"' in (repo / "Cargo.toml").read_text()  # noqa: S101
 
 
 # -- the real tree -------------------------------------------------------------------------------

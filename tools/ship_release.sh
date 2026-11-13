@@ -12,6 +12,8 @@
 #      it (Cargo.lock and fuzz/Cargo.lock), written to VERSION when the tree still says the newest
 #      tag's version; a tree that already declares ANOTHER new version is refused, naming
 #      `goh ship --version` (a commit decided the number; ship must not override it);
+#      and both musl agents rebuilt with ./build.sh, because the release commit's gate
+#      (tools/check_agent_version.py) refuses agents built from the old number;
 #   2. the `## vVERSION` stanza cut from Unreleased (goh's changelog_cut.py, titled with ship's
 #      --summary when there is one), when the file has none yet;
 #   3. one `release vVERSION: TITLE` commit of exactly those files, through the hooks;
@@ -71,7 +73,9 @@ bump_lock() {
 }
 
 # A refusal below leaves the checkout as it found it: ship runs in the main checkout.
-restore() { git checkout -q -- Cargo.toml Cargo.lock fuzz/Cargo.lock CHANGELOG.md; rm -f Cargo.toml.ship Cargo.lock.ship fuzz/Cargo.lock.ship; }
+# From HEAD, index AND tree: `git checkout -- FILE` restores from the INDEX, so after a refused
+# commit it kept the staged bump (the first ship, 2026-11-13, left four staged files behind).
+restore() { git restore -q --staged --worktree --source=HEAD -- Cargo.toml Cargo.lock fuzz/Cargo.lock CHANGELOG.md; rm -f Cargo.toml.ship Cargo.lock.ship fuzz/Cargo.lock.ship; }
 trap restore EXIT
 
 changed=()
@@ -84,6 +88,12 @@ if [ "$TREE_V" != "$VERSION" ]; then
     bump_lock Cargo.lock
     bump_lock fuzz/Cargo.lock
     changed+=(Cargo.toml Cargo.lock fuzz/Cargo.lock)
+    # Both musl agents embed the workspace version, and the release commit's own gate
+    # (tools/check_agent_version.py) refuses bytes built from the old number: the first ship
+    # stopped there. ./build.sh is the one builder (its backend choice is its own); nothing it
+    # writes is tracked, so the release commit stays exactly the files above.
+    section "./build.sh: both agents rebuilt at $VERSION"
+    ./build.sh || die "./build.sh failed; the agents still carry $TREE_V and nothing is committed"
 fi
 
 if ! grep -q "^## v$VERSION" CHANGELOG.md; then

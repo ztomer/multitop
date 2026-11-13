@@ -17,7 +17,9 @@ document for anything before this point.
   then runs `./release.sh`, which installs before its one atomic push of main and the tag.
   `.gatesrc` declares it with `GOH_SHIP_CHANGELOG=cut`, `GOH_SHIP_RELEASE_PUSHES=1` (the push gate
   compares the installed binary, so the install must come before the push) and `GOH_INSTALLS`.
-  Pinned by `tests/test_ship_release.py`.
+  The first ship stopped in the release commit's `check_agent_version.py` (the bump left both musl
+  agents on the old number) and its rollback kept the staged bump: the kit now runs `./build.sh`
+  after the bump and restores from HEAD, index and tree. Pinned by `tests/test_ship_release.py`.
 
 ### Fixed — `tools/lint_linux.sh` could read PASSED while its container failed (MON.LINTLINUX)
 - On 2026-11-13 the Linux lint read PASSED while its container died of input/output errors on a
