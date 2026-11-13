@@ -9,6 +9,8 @@ document for anything before this point.
 
 ## Unreleased
 
+## v0.69.9 — Move docker agent cargo target to named volume and pin base image (old_phones penumbra out of scope: vendored interactive tool with no cargo target) _(2026-11-13)_
+
 ### Fixed — `build.sh` docker backend keeps its cargo target in a named volume (`EST.HOSTMOUNTTARGET`)
 - `build.sh`'s docker backend mounted `$PWD:/src` read-write with `CARGO_TARGET_DIR=/src/target/docker` on moving tag `rust:alpine`. The container now mounts the repo read-only (`/src:ro`), builds with a pinned compiler/alpine release (`rust:1.100.0-alpine3.23`), keeps the cargo target and registry in named volumes (`multitop-agent-target`, `multitop-agent-cargo`), and copies only the built agent binary out through `/out`. Pinned by `tests/test_build_docker.py`.
 
