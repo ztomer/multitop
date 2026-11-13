@@ -46,7 +46,6 @@ serde_bytes = "0.11"
 # System
 dirs = "7.0"
 thiserror = "2.0"
-tokio = { version = "1", features = ["macros", "rt-multi-thread", "time"] }
 hex = "0.4"
 fs2 = "0.4"
 libc = "0.2"
@@ -86,11 +85,18 @@ security-framework-sys = "2.17"
 # fingerprint DAEMON cannot be exercised without hardware. CI's ubuntu
 # jobs are what check that this compiles for the platform that ships it.
 zbus = { version = "5", features = ["tokio"] }
+# tokio's timer is the fprintd poll's only use of tokio in the library, and
+# fprintd.rs is Linux-only, so tokio is a Linux dependency. Declared for every
+# target it was unused on macOS, which cargo 1.100's unused-dependency lint
+# reports (EST.REDGATES3).
+tokio = { version = "1", features = ["time"] }
 # Sealing the vault key to this machine's TPM. Linux only: there is no
 # tpm2-tss on macOS, which has the Secure Enclave instead.
 tss-esapi = "7.7"
 
 [dev-dependencies]
+# The async tests (`#[tokio::test]`, the durability test's runtime).
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "time"] }
 tempfile = "3.10"
 hex = "0.4"
 # One definition of the emptiness assertions, shared with the other two crates'

@@ -16,6 +16,9 @@ document for anything before this point.
   `double_must_use` and the agent-tick test discarded the loop's exit code.
   Twelve sites rewritten, three attributes removed, the test's task returns
   the code. No `#[allow]`.
+- cargo 1.100's unused-dependency lint fired on `multitop-vault`'s `tokio`,
+  used in the library only by the Linux-only fprintd poll: it is now a Linux
+  dependency (`time`) plus a dev-dependency for the async tests.
 
 ## v0.69.7 — rmcp 3.9.0 for RUSTSEC-2026-0462 _(2026-11-10)_
 
