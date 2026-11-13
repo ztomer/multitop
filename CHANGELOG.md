@@ -7,6 +7,16 @@ This file starts at v0.47.0 — earlier history is in git (`git log`), and the
 per-defect record is `docs/detection-record.md`, which is the more useful
 document for anything before this point.
 
+## Unreleased
+
+### Fixed — clippy 1.100 refused the workspace (EST.REDGATES3)
+- rustc/clippy 1.100.0 extended `map_unwrap_or` to `.map(f).unwrap_or_default()`
+  (now `map_or_default`, stable in 1.100) and made `std::process::ExitCode`
+  `#[must_use]`, so `#[must_use]` on the three `headless` passes was
+  `double_must_use` and the agent-tick test discarded the loop's exit code.
+  Twelve sites rewritten, three attributes removed, the test's task returns
+  the code. No `#[allow]`.
+
 ## v0.69.7 — rmcp 3.9.0 for RUSTSEC-2026-0462 _(2026-11-10)_
 
 ### Security — rmcp moved past the Streamable HTTP buffering advisory (SEC.RMCP.MONITOR)

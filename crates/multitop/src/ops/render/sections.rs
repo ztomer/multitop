@@ -175,8 +175,7 @@ fn cron(f: &mut Frame<'_>, jobs: &[Job], now: i64) {
         if let Some(rc) = j.last_rc.filter(|rc| *rc != 0) {
             let when = j
                 .last_start
-                .map(|t| format!(", {} ago", age(t, now)))
-                .unwrap_or_default();
+                .map_or_default(|t| format!(", {} ago", age(t, now)));
             why.push(format!("rc {rc}{when}"));
         }
         if let Some(t) = j.alert_since {

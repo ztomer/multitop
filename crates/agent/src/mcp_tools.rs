@@ -288,8 +288,7 @@ impl System for Live {
         Command::new("ps")
             .args(["-o", "pid=,etime=", "-p", &list])
             .output()
-            .map(|o| String::from_utf8_lossy(&o.stdout).into_owned())
-            .unwrap_or_default()
+            .map_or_default(|o| String::from_utf8_lossy(&o.stdout).into_owned())
     }
 
     fn docker(&self) -> Option<DockerEndpoint> {

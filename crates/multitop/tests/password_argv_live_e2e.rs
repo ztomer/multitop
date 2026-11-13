@@ -112,8 +112,7 @@ fn args_of(pid: u32) -> String {
     std::process::Command::new("/bin/ps")
         .args(["-ww", "-p", &pid.to_string(), "-o", "args="])
         .output()
-        .map(|o| String::from_utf8_lossy(&o.stdout).into_owned())
-        .unwrap_or_default()
+        .map_or_default(|o| String::from_utf8_lossy(&o.stdout).into_owned())
 }
 
 /// Read the exec channel to its end and return what the operator would see.

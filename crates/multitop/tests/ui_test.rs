@@ -298,7 +298,7 @@ fn the_borrowed_window_matches_the_materialised_one() {
                 let tail: Vec<String> = (0..t_len).map(|i| format!("T{i}")).collect();
                 let ring = multitop::panel::RingLines::from(body.clone());
                 let mut whole = header.clone();
-                whole.extend(body.clone());
+                whole.extend(body);
                 whole.extend(tail.clone());
 
                 for height in 0..8usize {

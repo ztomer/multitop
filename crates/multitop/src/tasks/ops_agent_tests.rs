@@ -200,7 +200,9 @@ async fn the_agent_passes_again_only_after_the_tick() {
     let counter = Arc::clone(&opened);
     let agent = tokio::spawn(async move {
         let mut open = opener(Some(300), counter);
-        run(&servers, &cache, now, &mut open).await;
+        // The loop's exit code is the task's output: a healthy agent never returns, and the
+        // abort below ends it, so there is no code to read -- but it is not thrown away here.
+        run(&servers, &cache, now, &mut open).await
     });
     // The first pass runs at once.
     tokio::task::yield_now().await;

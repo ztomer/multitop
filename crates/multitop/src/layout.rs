@@ -259,7 +259,7 @@ pub fn fit_banner(user: &str, host: &str, budget: usize) -> String {
     // budget of 1 every host used to render as a bare `…`, which is the exact
     // failure this function exists to prevent, reached from the other end.
     if budget == 1 {
-        return host.chars().last().map(String::from).unwrap_or_default();
+        return host.chars().last().map_or_default(String::from);
     }
     // Keep the end: `…b-01` says more than `web-0…`.
     let tail: String = host

@@ -322,8 +322,7 @@ pub fn collect_from(endpoint: &DockerEndpoint) -> Vec<Row> {
         "--format",
         "{{.Name}}\t{{.CPUPerc}}\t{{.MemUsage}}",
     ])
-    .map(|s| parse_cli_stats(&s))
-    .unwrap_or_default();
+    .map_or_default(|s| parse_cli_stats(&s));
 
     rows_from_cli(&ps, &stats)
 }

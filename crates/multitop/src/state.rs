@@ -198,14 +198,13 @@ pub fn load_state(config_path: &Path) -> StateLoad {
         .as_table()
         .and_then(|t| t.get("saved_filters"))
         .and_then(toml::Value::as_array)
-        .map(|arr| {
+        .map_or_default(|arr| {
             arr.iter()
                 .filter_map(toml::Value::as_str)
                 .map(ToString::to_string)
                 .take(3)
                 .collect::<Vec<_>>()
-        })
-        .unwrap_or_default();
+        });
 
     StateLoad {
         state: AppState {

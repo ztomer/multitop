@@ -153,7 +153,6 @@ pub fn push_hub(token_path: &Path, config_path: &Path) -> Result<crate::push::Hu
 /// One pass, not a daemon: a pass that exits cannot be left half-dead, and
 /// the next pass opens a fresh session. The exit code is the outcome - a
 /// host that could not be reached is a failure the operator has to see.
-#[must_use]
 pub fn ops_poll_pass(servers: &[config::Server], config_path: &Path) -> ExitCode {
     let cache = crate::ops::cache::Cache::beside(config_path);
     let runtime = match tokio::runtime::Builder::new_multi_thread()
@@ -197,7 +196,6 @@ pub fn ops_poll_pass(servers: &[config::Server], config_path: &Path) -> ExitCode
 ///
 /// It runs until it is stopped, so the exit code is the outcome of the
 /// runtime it could not build, and nothing else.
-#[must_use]
 pub fn ops_agent_run(servers: &[config::Server], config_path: &Path) -> ExitCode {
     let cache = crate::ops::cache::Cache::beside(config_path);
     let runtime = match tokio::runtime::Builder::new_multi_thread()
@@ -228,7 +226,6 @@ mod tests;
 ///
 /// Read-only, and it asks the estate for nothing: the frame is drawn from
 /// the answer the poll already found.
-#[must_use]
 pub fn ops_frame_pass(servers: &[config::Server], config_path: &Path, host: &str) -> ExitCode {
     match ops_frame_lines(servers, config_path, host) {
         Ok(lines) => {

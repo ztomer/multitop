@@ -85,8 +85,7 @@ pub fn save_servers(path: &Path, servers: &[Server]) -> Result<(), String> {
     let existing: Vec<toml_edit::Table> = doc
         .get("servers")
         .and_then(toml_edit::Item::as_array_of_tables)
-        .map(|a| a.iter().cloned().collect())
-        .unwrap_or_default();
+        .map_or_default(|a| a.iter().cloned().collect());
 
     // Matched on the full identity -- host, port and user -- and each existing
     // table is handed out at most once.

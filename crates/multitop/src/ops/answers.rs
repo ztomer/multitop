@@ -320,8 +320,7 @@ pub fn parse_facts(v: &Value) -> Result<Facts, String> {
         load: v
             .get("load")
             .and_then(Value::as_array)
-            .map(|l| l.iter().filter_map(Value::as_f64).map(load_milli).collect())
-            .unwrap_or_default(),
+            .map_or_default(|l| l.iter().filter_map(Value::as_f64).map(load_milli).collect()),
         mem: memory,
         instances,
         repo: super::deploy::parse_repo(v),
@@ -333,7 +332,7 @@ fn parse_instances(v: &Value) -> Instances {
     let rows = v
         .get("rows")
         .and_then(Value::as_array)
-        .map(|rows| {
+        .map_or_default(|rows| {
             rows.iter()
                 .map(|r| InstanceRow {
                     instance: text(r, "instance"),
@@ -342,8 +341,7 @@ fn parse_instances(v: &Value) -> Instances {
                     problem: opt_text(r, "problem"),
                 })
                 .collect()
-        })
-        .unwrap_or_default();
+        });
     Instances {
         declared: v
             .get("declared")
