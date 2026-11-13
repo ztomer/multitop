@@ -117,6 +117,9 @@ set +e
     echo "$SENTINEL $ver"' >"$LOG" 2>&1
 rc=$?
 set -e
+# A signal's exit (130 INT, 143 TERM) is the caller stopping the step, not a lint verdict: pass it
+# on as the trap would, whichever of the status and the trap bash happens to act on first.
+case "$rc" in 130|143) exit "$rc" ;; esac
 [ "$rc" -eq 0 ] || fail_with "the container exited $rc"
 # Exit 0 is not proof: the verdict is the sentinel, on the pinned compiler.
 got="$(grep -m 1 "^$SENTINEL " "$LOG" || true)"

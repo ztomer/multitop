@@ -73,7 +73,18 @@ def test_installed_binary_without_brew_is_nothing_installed(tmp_path: Path) -> N
 def _lint_platform(tmp_path: Path, arch: str) -> subprocess.CompletedProcess[str]:
     log = tmp_path / "docker.log"
     docker = tmp_path / "docker"
-    docker.write_text(f'#!/usr/bin/env bash\necho "$*" >> "{log}"\nexit 0\n')
+    # A `run` reports clippy clean the way the real container does (the sentinel, on the pinned
+    # rustc); a bare `exit 0` is exactly the false pass lint_linux.sh now refuses (MON.LINTLINUX).
+    docker.write_text(
+        f"""#!/usr/bin/env bash
+echo "$*" >> "{log}"
+if [ "$1" = run ]; then
+  for a in "$@"; do case "$a" in RUSTUP_TOOLCHAIN=*) v="${{a#RUSTUP_TOOLCHAIN=}}" ;; esac; done
+  echo "MONITOR_LINT_LINUX_OK rustc $v (fake)"
+fi
+exit 0
+"""
+    )
     docker.chmod(0o755)
     goh = os.environ.get("GOH_DIR") or str(Path.home() / "Projects" / "gates_of_heck")
     env = _env(
