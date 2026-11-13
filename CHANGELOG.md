@@ -9,6 +9,8 @@ document for anything before this point.
 
 ## Unreleased
 
+## v0.69.8 — A release kit so goh ship tags, installs and records monitor releases _(2026-11-13)_
+
 ### Added — a release kit for `goh ship` (MON.SHIPKIT)
 - monitor tagged releases and named no `GOH_SHIP_RELEASE`, so `goh ship` refused it and agents fell
   back to a bare `git push`, which tags nothing and installs nothing. `tools/ship_release.sh` is the
