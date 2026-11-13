@@ -5,6 +5,7 @@
 { # parse-guard -- bash reads this group whole before running it (tests/test_parse_guard.py)
 set -euo pipefail
 GOH="${GOH_DIR:-${GOH:-$HOME/Projects/gates_of_heck}}"
+[ ! -f "$GOH/lib/bash5.sh" ] || { . "$GOH/lib/bash5.sh" && goh_bash5 "$@"; }   # an older GOH has none
 runner="$GOH/gates/commit_msg.sh"
 if [ ! -d "$GOH/gates" ]; then
     echo "✗ commit-msg: cannot find gates_of_heck at $GOH (set GOH_DIR or run its install.sh)" >&2

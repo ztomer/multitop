@@ -1,12 +1,13 @@
 #!/usr/bin/env bash
 # pre-push — runs the FULL gate on the COMMIT being pushed, in a clean worktree.
-# Installed by gates_of_heck/install.sh. There is no CI behind this; if this
-# hook is skipped, it is not run. The logic lives in gates_of_heck (push_gate.sh)
-# so a fix there reaches every repo without a re-install.
+# Installed by gates_of_heck/install.sh. A push made with --no-verify, or from a
+# clone without these hooks, is not gated by it. The logic lives in gates_of_heck
+# (push_gate.sh) so a fix there reaches every repo without a re-install.
 { # parse-guard -- bash reads this group whole before running it (tests/test_parse_guard.py)
 set -euo pipefail
-
 GOH="${GOH_DIR:-${GOH:-$HOME/Projects/gates_of_heck}}"
+[ ! -f "$GOH/lib/bash5.sh" ] || { . "$GOH/lib/bash5.sh" && goh_bash5 "$@"; }   # an older GOH has none
+
 push_gate="$GOH/gates/push_gate.sh"
 # No fallback to gating the working tree: that is a different object than the push. Name the remedy
 # instead of a bare "No such file or directory" (upstreamed from ztools, 2026-10-05).
