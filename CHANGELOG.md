@@ -9,6 +9,16 @@ document for anything before this point.
 
 ## Unreleased
 
+### Added — a release kit for `goh ship` (MON.SHIPKIT)
+- monitor tagged releases and named no `GOH_SHIP_RELEASE`, so `goh ship` refused it and agents fell
+  back to a bare `git push`, which tags nothing and installs nothing. `tools/ship_release.sh` is the
+  kit: it writes the version into `[workspace.package]`, `Cargo.lock` and `fuzz/Cargo.lock` (the
+  three crates that follow it; the vault keeps its own), cuts the stanza from Unreleased, commits,
+  then runs `./release.sh`, which installs before its one atomic push of main and the tag.
+  `.gatesrc` declares it with `GOH_SHIP_CHANGELOG=cut`, `GOH_SHIP_RELEASE_PUSHES=1` (the push gate
+  compares the installed binary, so the install must come before the push) and `GOH_INSTALLS`.
+  Pinned by `tests/test_ship_release.py`.
+
 ### Fixed — `tools/lint_linux.sh` could read PASSED while its container failed (MON.LINTLINUX)
 - On 2026-11-13 the Linux lint read PASSED while its container died of input/output errors on a
   full disk. The verdict was the container's exit status alone, in a `bash -c` whose `a && b`

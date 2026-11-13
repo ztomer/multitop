@@ -23,6 +23,15 @@ so a plain `gh auth login` (keyring, no env var) is enough.
 
 ## Procedure
 
+### Through `goh ship` (agents)
+
+`goh ship --item ID --bump patch --summary "..."` from the main checkout lands a commit end to end:
+its kit (`.gatesrc` `GOH_SHIP_RELEASE`, `tools/ship_release.sh`) writes the version into
+`Cargo.toml`, `Cargo.lock` and `fuzz/Cargo.lock`, cuts the CHANGELOG stanza from `## Unreleased`,
+commits, and runs `./release.sh` below. Ship's own push step is skipped
+(`GOH_SHIP_RELEASE_PUSHES=1`) because `release.sh` installs first and pushes once, the order the
+push gate's installed-binary check needs. `tests/test_ship_release.py` pins the kit.
+
 ### Recommended: `./release.sh`
 The primary release tool is `./release.sh`. It gates, cross-compiles both Linux agents, tags, pushes, creates the GitHub release with agent binary assets attached, bumps `Formula/multitop.rb` in `ztomer/homebrew-tap` (both source tarball and agent resources), and verifies the formula via `brew update` and `brew fetch`:
 

@@ -132,3 +132,19 @@ GOH_RED_RUN=1
 
 # Roadmap file the goh roadmap gate checks (GOH.ROADMAPREQ).
 GOH_ROADMAP=docs/roadmap.md
+
+# How `goh ship` lands this repo (GOH.SHIP, MON.SHIPKIT, 2026-11-13). release.sh alone cannot be the
+# kit: it refuses unless the Cargo.toml bump (and both lockfiles) and the CHANGELOG stanza are already
+# committed, and ship decides the number. tools/ship_release.sh writes them (stanza cut from
+# Unreleased, titled with ship's --summary), commits, then runs release.sh: gates, agents, ./install.sh,
+# tag, ONE atomic push of main and the tag, GitHub release, tap bump.
+#   GOH_SHIP_RELEASE_PUSHES=1: ship's own push step is skipped. It would run the push gate (which
+#       includes tools/installed_freshness.py) over a tree whose installed binary is the PREVIOUS
+#       release's; release.sh installs first and pushes once, which is the order the gate needs.
+#   No GOH_SHIP_INSTALL: release.sh already ran ./install.sh before the push; a second one after it
+#       would rebuild bytes the gate had judged. GOH_INSTALLS lets `loopctl verify` read the result
+#       (the installed multitop must answer with the newest tag's version).
+GOH_SHIP_RELEASE='tools/ship_release.sh {version}'
+GOH_SHIP_CHANGELOG='cut'  # tools/ship_release.sh runs goh's changelog_cut.py cut from Unreleased
+GOH_SHIP_RELEASE_PUSHES=1
+GOH_INSTALLS='multitop'
