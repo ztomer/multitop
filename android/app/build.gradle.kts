@@ -168,7 +168,7 @@ dependencies {
     // JUnit 4's; the vintage engine runs them on the same JUnit Platform.
     testImplementation(platform("androidx.compose:compose-bom:2026.09.00"))
     testImplementation("androidx.compose.ui:ui-test-junit4")
-    testImplementation("org.robolectric:robolectric:4.17")
+    testImplementation("org.robolectric:robolectric:4.18")
     testImplementation("junit:junit:4.13.2")
     // ui-test-junit4 pulls espresso-core 3.5.0, whose input injection calls
     // InputManager.getInstance(), gone from the platform Robolectric runs.
