@@ -9,6 +9,19 @@ document for anything before this point.
 
 ## Unreleased
 
+### Fixed — `tools/lint_linux.sh` could read PASSED while its container failed (MON.LINTLINUX)
+- On 2026-11-13 the Linux lint read PASSED while its container died of input/output errors on a
+  full disk. The verdict was the container's exit status alone, in a `bash -c` whose `a && b`
+  lines exempt `a` from errexit, whose tar pipe had no pipefail, and whose output all went to
+  /dev/null. The container now prints `MONITOR_LINT_LINUX_OK <rustc>` only after clippy
+  succeeded, and the step passes on exit 0 AND that line on the pinned compiler; anything else
+  is FAILED with the log's tail. A real run also showed the first FAILED: `docker build
+  --progress` is unknown without buildx.
+- One pin (`RUST_VERSION`, 1.100.0) names the image (`monitor-linux-lint:1.100.0-bookworm`, the
+  libraries and clippy baked in) and `RUSTUP_TOOLCHAIN`, so the container no longer fetches a
+  different compiler at run time than its image tag claimed (rust:1.99.1 pulled 1.100). The
+  cargo target and registry are docker named volumes.
+
 ### Fixed — clippy 1.100 refused the workspace (EST.REDGATES3)
 - rustc/clippy 1.100.0 extended `map_unwrap_or` to `.map(f).unwrap_or_default()`
   (now `map_or_default`, stable in 1.100) and made `std::process::ExitCode`
