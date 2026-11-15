@@ -39,7 +39,7 @@ WORKSPACE_CRATES="multitop multitop-agent multitop-testassert"
 VERSION="${1:-}"
 VERSION="${VERSION#v}"
 [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || die "usage: tools/ship_release.sh X.Y.Z (got '${1:-}')"
-[ -z "$(git status --porcelain --untracked-files=no)" ] || die "the tree has uncommitted changes; a release names a commit"
+[ -z "$(GIT_OPTIONAL_LOCKS=0 git status --porcelain --untracked-files=no)" ] || die "the tree has uncommitted changes; a release names a commit"
 
 TAGS="$(git tag --list 'v*' --sort=-v:refname)"
 TAG_V="$(grep -E -m 1 '^v[0-9]+\.[0-9]+\.[0-9]+$' <<<"$TAGS" || true)"

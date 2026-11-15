@@ -78,7 +78,7 @@ for t in ${TRIPLES}; do
     || die "musl target ${t} missing — run: rustup target add ${t}"
 done
 
-git diff --quiet || die "working tree is dirty — commit or stash first"
+GIT_OPTIONAL_LOCKS=0 git diff --quiet || die "working tree is dirty — commit or stash first"
 git diff --cached --quiet || die "staged changes present — commit first"
 [ "$(git branch --show-current)" = "main" ] || die "not on main"
 # The bump commit may be unpushed: it and the tag go to origin in ONE atomic

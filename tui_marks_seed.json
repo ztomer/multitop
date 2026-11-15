@@ -1,0 +1,26 @@
+{
+  "why": "goh tui-marks (GOH.TUIMARKS, 2026-11-15): a shell echo/printf or Python print whose text opens with a Kare mark, where tui/lib.sh / tui.lib print it. Keyed by root commit; judged from 2026-11-23 (crate::grace). At or under its count warns; over it, unseeded, or stale is red. Done is an empty list.",
+  "entries": [
+    {
+      "root": "b39e3e8b286e7408139f584cfbb781ddc02ab8af",
+      "repo": "monitor",
+      "path": "release.sh",
+      "count": 2,
+      "reason": "unreviewed: hand-rolled TUI mark at line(s) 69, 70; print through tui/lib.sh or tui.lib (GOH.TUIMARKS seed, 2026-11-15)"
+    },
+    {
+      "root": "b39e3e8b286e7408139f584cfbb781ddc02ab8af",
+      "repo": "monitor",
+      "path": "tools/installed_freshness.py",
+      "count": 3,
+      "reason": "unreviewed: hand-rolled TUI mark at line(s) 89, 93, 97; print through tui/lib.sh or tui.lib (GOH.TUIMARKS seed, 2026-11-15)"
+    },
+    {
+      "root": "b39e3e8b286e7408139f584cfbb781ddc02ab8af",
+      "repo": "monitor",
+      "path": "tools/light_terminal_check.py",
+      "count": 1,
+      "reason": "unreviewed: hand-rolled TUI mark at line(s) 273; print through tui/lib.sh or tui.lib (GOH.TUIMARKS seed, 2026-11-15)"
+    }
+  ]
+}

@@ -148,3 +148,12 @@ GOH_SHIP_RELEASE='tools/ship_release.sh {version}'
 GOH_SHIP_CHANGELOG='cut'  # tools/ship_release.sh runs goh's changelog_cut.py cut from Unreleased
 GOH_SHIP_RELEASE_PUSHES=1
 GOH_INSTALLS='multitop'
+
+# Every scanner's floor, at nine tenths of what it read at GOH_GRACE=over
+# on 2026-11-15 (GOH.FLOORREQ; required from 2026-11-23, GOH.GRACEEND).
+GOH_BARE_OPEN_MIN_FILES=67
+GOH_GIT_DEADLINE_MIN_FILES=44
+GOH_MKTEMP_PORTABLE_MIN_FILES=18
+GOH_PLURAL_HEDGE_MIN_FILES=448
+GOH_RELEASE_QUIET_MIN_FILES=1
+GOH_WORKFLOW_PINS_MIN_REFS=29
