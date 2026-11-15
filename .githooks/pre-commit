@@ -9,6 +9,24 @@
 set -euo pipefail
 GOH="${GOH_DIR:-${GOH:-$HOME/Projects/gates_of_heck}}"
 [ ! -f "$GOH/lib/bash5.sh" ] || { . "$GOH/lib/bash5.sh" && goh_bash5 "$@"; }   # an older GOH has none
+# A GOH_DIR naming a REMOVED HEAD export (inherited by a long-lived process) falls back to a live
+# gates_of_heck: lib/goh_root.sh's rule, copied verbatim (tests/test_dead_goh_dir.py; GOH.TRANSIENTDIR).
+goh_dir_repair() {
+    [ -n "${GOH_DIR:-}" ] && [ ! -d "$GOH_DIR" ] || return 0
+    local c
+    # path-ok: house default, after GOH_DIR and GOH_LIVE_ROOT (the export itself is gone)
+    for c in "${GOH_LIVE_ROOT:-}" "$HOME/Projects/gates_of_heck"; do
+        if [ -n "$c" ] && [ -d "$c/gates" ]; then
+            echo "⚠ gates_of_heck: GOH_DIR=$GOH_DIR no longer exists (a pruned HEAD export this" \
+                "process inherited; restart it) -- using $c" >&2
+            export GOH_DIR="$c"
+            return 0
+        fi
+    done
+    return 0
+}
+goh_dir_repair
+GOH="${GOH_DIR:-$GOH}"
 
 commit_gate="$GOH/gates/commit_gate.sh"
 if [ ! -f "$commit_gate" ]; then
