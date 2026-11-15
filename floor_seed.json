@@ -1,0 +1,12 @@
+{
+  "why": "goh floors (GOH.FLOORREQ): an undeclared scanner floor is red from 2026-11-23; a seeded key warns. Done is an empty list.",
+  "entries": [
+    {
+      "root": "b39e3e8b286e7408139f584cfbb781ddc02ab8af",
+      "repo": "monitor",
+      "path": "GOH_MOVING_TAGS_MIN_REFS",
+      "count": 2,
+      "reason": "moving-tags reads 0 image references until goh's grace ends (2026-11-23) and 2 after (shell docker run/pull and coarse release lines are judged only then), so a floor declared today reds the pre-grace gate (read NONE); declare GOH_MOVING_TAGS_MIN_REFS=1 and delete this entry in one commit on or after 2026-11-23 (EST.GRACEFIX)"
+    }
+  ]
+}
