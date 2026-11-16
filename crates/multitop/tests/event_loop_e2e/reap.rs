@@ -38,11 +38,12 @@ async fn victim() {
     };
     let _keychain = isolate_keychain().await;
     let servers = vec![local_server(42031, &victim_cmd(&token))];
+    let account = password_store::account(&servers[0]);
     let (h, tx) = PacedHarness::start(servers, (80, 24));
     press_until(
         &tx,
         KeyCode::Char('u'),
-        || state_says_started(&h.cfg, "admin@127.0.0.1:42031"),
+        || state_says_started(&h.cfg, &account),
         "the victim's run never started",
     )
     .await;

@@ -10,6 +10,7 @@ use super::*;
 async fn monitor_packets_use_the_panel_gen_after_a_view_switch() {
     let _keychain = isolate_keychain().await;
     let servers = vec![local_server(42025, "echo hi")];
+    let account = password_store::account(&servers[0]);
     let (mut h, tx) = PacedHarness::start(servers, (80, 24));
 
     // Enter the upgrade view -- this increments panel.gen -- then confirm.
@@ -44,9 +45,8 @@ async fn monitor_packets_use_the_panel_gen_after_a_view_switch() {
     // one always did. That is the price of local and remote behaving alike, and
     // it is milliseconds against an upgrade that takes minutes -- but it moved
     // this test across the line it was already sitting on.
-    let account = "admin@127.0.0.1:42025";
     settle(
-        || state_says_finished(&h.cfg, account),
+        || state_says_finished(&h.cfg, &account),
         "the upgrade recording a finished_at on disk (it did not run, or the loop \
          is not applying AuxDone)",
         || state_dump(&h.cfg),

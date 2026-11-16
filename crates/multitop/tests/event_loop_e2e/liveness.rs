@@ -45,8 +45,8 @@ async fn the_loop_still_quits_after_the_upgrade_completes() {
     // promptly at any load, and the thing under test is unchanged.
     let cmd = "i=0; while [ $i -lt 40 ]; do echo tick-$i; i=$((i+1)); sleep 0.02; done";
     let servers = vec![local_server(42022, cmd)];
+    let account = password_store::account(&servers[0]);
     let (mut h, tx) = PacedHarness::start(servers, (80, 24));
-    let account = "admin@127.0.0.1:42022";
 
     // Entering the upgrade view dispatches the credential-store lookup off the
     // loop thread, and the confirm is deferred until that answer lands (the
@@ -57,7 +57,7 @@ async fn the_loop_still_quits_after_the_upgrade_completes() {
     press_until(
         &tx,
         KeyCode::Char('u'),
-        || state_says_started(&h.cfg, account),
+        || state_says_started(&h.cfg, &account),
         "the upgrade never started",
     )
     .await;
@@ -65,9 +65,8 @@ async fn the_loop_still_quits_after_the_upgrade_completes() {
     // Completion, proven from the durable record rather than assumed. The
     // streamer takes ~3s, so a wedged loop would have all the time in the
     // world to fail this deadline.
-    let account = "admin@127.0.0.1:42022";
     settle(
-        || state_says_finished(&h.cfg, account),
+        || state_says_finished(&h.cfg, &account),
         "the upgrade recording a finished_at on disk (it did not run, or the loop \
          is not applying AuxDone)",
         || state_dump(&h.cfg),
@@ -111,6 +110,7 @@ async fn a_quit_key_lands_while_the_upgrade_channel_is_flooded() {
     let _keychain = isolate_keychain().await;
     let cmd = "i=0; while [ $i -lt 20000 ]; do echo flood-$i; i=$((i+1)); done";
     let servers = vec![local_server(42023, cmd)];
+    let account = password_store::account(&servers[0]);
     let (mut h, tx) = PacedHarness::start(servers, (80, 24));
 
     // Press `u` until the run has started on the durable record, so the
@@ -120,7 +120,7 @@ async fn a_quit_key_lands_while_the_upgrade_channel_is_flooded() {
     press_until(
         &tx,
         KeyCode::Char('u'),
-        || state_says_started(&h.cfg, "admin@127.0.0.1:42023"),
+        || state_says_started(&h.cfg, &account),
         "the flood run never started",
     )
     .await;
@@ -233,6 +233,7 @@ fn the_loop_stays_live_while_a_credential_load_blocks() {
         let _keychain = isolate_keychain().await;
         password_store::set_mock_load_delay(Some(Duration::from_secs(15)));
         let servers = vec![local_server(42024, "echo hi")];
+        let account = password_store::account(&servers[0]);
         let (mut h, tx) = PacedHarness::start(servers, (80, 24));
 
         // Entering the upgrade view dispatches the lookup; the answer takes 15s.
@@ -258,7 +259,7 @@ fn the_loop_stays_live_while_a_credential_load_blocks() {
         .await
         .expect("the loop never wrote its state file, so it never acted");
         assert!(
-            !state_says_started(&h.cfg, "admin@127.0.0.1:42024"),
+            !state_says_started(&h.cfg, &account),
             "the confirm must be deferred while the credential lookup is in flight"
         );
 
