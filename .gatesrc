@@ -89,6 +89,11 @@ export GOH_DIR="${GOH_DIR:-$HOME/Projects/gates_of_heck}"
 export MULTITOP_MOCK_KEYCHAIN=1   # the suites never reach the real keychain
 export CI=1
 export CARGO_INCREMENTAL=0
+# The pytest step runs under pytest-xdist, one worker per core, `--dist loadscope` so a
+# class sharing one tmux session or one prepared host stays on one worker: 98 s serial,
+# 44 s across workers, with identical pass, skip and subtest counts (CIP.MONITOR,
+# 2026-11-15). The suite's own subprocesses never fork the threaded worker
+# (tests/test_background_probe.py spawns its pty child through subprocess).
 # MULTITOP_LIVE=1 is set on the pytest step and nowhere else: the live exec suite
 # talks to real hosts for ~3.5 minutes, which is right before a push and a gate
 # people learn to --no-verify past on a commit.
@@ -118,7 +123,7 @@ export CARGO_INCREMENTAL=0
 # fall), ruff format --check and noqa parity, over EVERY tracked .py -- gates_of_heck's
 # py_staged.sh --all, one step where ruff_ratchet.py and a separate format check were two.
 GOH_PY_LINT_CEILINGS=tools/py_lint_ceilings.json
-GOH_CI_STEPS='"$GOH_DIR/gates/structural.sh" --full:tools/checkers.sh:"$GOH_DIR/gates/py_staged.sh" --all .:"$GOH_DIR/gates/rust_gate.sh":cargo test --workspace --all-features --doc:cargo build -p multitop && MULTITOP_LIVE=1 python3 -m pytest tests/ -q:python3 tools/ratchet_check.py --self-test && python3 tools/ratchet_check.py:tools/fuzz_check.sh:bash tools/android_gate.sh:bash "$GOH_DIR/gates/python.sh" "$GOH_DIR/checks/check_ci_local_parity.py":python3 tools/bench_check.py --self-test && python3 tools/bench_check.py:bash tools/coverage_check.sh:python3 tools/installed_freshness.py:tools/lint_linux.sh'
+GOH_CI_STEPS='"$GOH_DIR/gates/structural.sh" --full:tools/checkers.sh:"$GOH_DIR/gates/py_staged.sh" --all .:"$GOH_DIR/gates/rust_gate.sh":cargo test --workspace --all-features --doc:cargo build -p multitop && MULTITOP_LIVE=1 python3 -m pytest tests/ -q -n auto --dist loadscope:python3 tools/ratchet_check.py --self-test && python3 tools/ratchet_check.py:tools/fuzz_check.sh:bash tools/android_gate.sh:bash "$GOH_DIR/gates/python.sh" "$GOH_DIR/checks/check_ci_local_parity.py":python3 tools/bench_check.py --self-test && python3 tools/bench_check.py:bash tools/coverage_check.sh:python3 tools/installed_freshness.py:tools/lint_linux.sh'
 
 # The agent's MCP server (`multitop-agent mcp`), judged on the wire by goh's
 # check_mcp_wire.py (queue MCP.MON). HOME is the gate's scratch directory, so

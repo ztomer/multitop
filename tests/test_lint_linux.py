@@ -125,6 +125,9 @@ esac
         "NO_COLOR": "1",
         # The leases live here, never in the machine's real state dir.
         "GOH_CONTAINER_STATE": str(tmp_path / "runtime_state"),
+        # lint_linux.sh keeps its log at $TMPDIR/monitor_lint_linux.log: a shared TMPDIR let a
+        # concurrent run (xdist, tests/test_hosted_linux_gate.py) truncate the sentinel away.
+        "TMPDIR": str(tmp_path),
     }
     return env, colima_log, docker_log
 

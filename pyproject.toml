@@ -17,4 +17,8 @@ quote-style = "double"
 indent-style = "space"
 
 [tool.pytest.ini_options]
+# The suite runs under xdist (.gatesrc), whose workers are threaded: a fork() there may
+# deadlock the child before exec, and CPython says so with this warning. It is an error,
+# so a test that forks the worker goes red instead of hanging one push in a hundred.
+filterwarnings = ["error:This process \\(pid=\\d+\\) is multi-threaded:DeprecationWarning"]
 testpaths = ["tests", "checks/tests", "scripts/music/tests", "scripts/maintenance/tests", "lidarr/extended/tests", "sonarr/extended/tests", "radarr/extended/tests"]

@@ -37,7 +37,10 @@ IMAGE="monitor-linux-lint:$RUST_VERSION-$DEBIAN"
 TARGET_VOLUME="${MONITOR_LINT_TARGET_VOLUME:-monitor-linux-lint-target}"
 CARGO_VOLUME="${MONITOR_LINT_CARGO_VOLUME:-monitor-linux-lint-cargo}"
 SENTINEL="MONITOR_LINT_LINUX_OK"
-LOG="${TMPDIR:-/tmp}/monitor_lint_linux.log"
+# One log per run: a fixed name was truncated by any second run started meanwhile (another gate,
+# the suite under xdist), which wiped this run's sentinel before the grep and failed a clean clippy
+# (tests/test_hosted_linux_gate.py). Kept on failure, its path printed; removed when green.
+LOG="$(mktemp "${TMPDIR:-/tmp}/monitor_lint_linux.XXXXXX")"
 
 # Start the container runtime when it is down, and stop it after only if goh
 # started it and no other gate still holds it (goh lib/container_runtime.sh).
@@ -129,3 +132,4 @@ case "$got" in
     *) fail_with "clippy ran on '${got#"$SENTINEL "}', not the pinned rustc $RUST_VERSION" ;;
 esac
 ok "linux clippy clean (${got#"$SENTINEL "})"
+rm -f "$LOG"

@@ -70,7 +70,7 @@ def test_installed_binary_without_brew_is_nothing_installed(tmp_path: Path) -> N
     assert got.stdout.strip() == "None", got.stdout  # noqa: S101
 
 
-def _lint_platform(tmp_path: Path, arch: str) -> subprocess.CompletedProcess[str]:
+def _lint_platform(tmp_path: Path, arch: str, after_run: str = "") -> subprocess.CompletedProcess[str]:
     log = tmp_path / "docker.log"
     docker = tmp_path / "docker"
     # A `run` reports clippy clean the way the real container does (the sentinel, on the pinned
@@ -81,6 +81,7 @@ echo "$*" >> "{log}"
 if [ "$1" = run ]; then
   for a in "$@"; do case "$a" in RUSTUP_TOOLCHAIN=*) v="${{a#RUSTUP_TOOLCHAIN=}}" ;; esac; done
   echo "MONITOR_LINT_LINUX_OK rustc $v (fake)"
+  {after_run}
 fi
 exit 0
 """
@@ -94,6 +95,9 @@ exit 0
         ARCH=arch,
         NO_COLOR="1",
         GOH_CONTAINER_STATE=str(tmp_path / "state"),
+        # lint_linux.sh's log is $TMPDIR/monitor_lint_linux.log: a TMPDIR of the case's own keeps a
+        # concurrent run (xdist, tests/test_lint_linux.py) from truncating the sentinel away.
+        TMPDIR=str(tmp_path),
     )
     return subprocess.run(  # noqa: S603
         ["bash", str(ROOT / "tools" / "lint_linux.sh")],  # noqa: S607
@@ -120,6 +124,19 @@ def test_lint_linux_runs_the_hosts_architecture(tmp_path: Path) -> None:
         assert got.returncode == 0, got.stdout + got.stderr  # noqa: S101
         runs = _runs(case)
         assert len(runs) == 1 and f"--platform {platform} " in runs[0], runs  # noqa: S101
+
+
+def test_lint_linux_reads_only_its_own_log(tmp_path: Path) -> None:
+    # A second lint_linux.sh started while this one runs (another gate, the suite under xdist)
+    # truncates the log the moment it starts. With one fixed path for every run, that wiped this
+    # run's sentinel between the container writing it and the grep reading it, and a clean clippy
+    # was reported red (seen 2026-11-15 in the pre-push gate, CIP.MONITOR). The sibling is played
+    # here by the container itself, truncating the shared name right after it reports.
+    # _lint_platform runs it with TMPDIR at tmp_path.
+    got = _lint_platform(tmp_path, "arm64", after_run=f': > "{tmp_path}/monitor_lint_linux.log"')
+    assert got.returncode == 0, got.stdout + got.stderr  # noqa: S101
+    # A green run leaves no log of its own behind; the sibling's empty one is all there is.
+    assert [p.name for p in tmp_path.glob("monitor_lint_linux*")] == ["monitor_lint_linux.log"]  # noqa: S101
 
 
 def test_lint_linux_refuses_a_32_bit_host(tmp_path: Path) -> None:

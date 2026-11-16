@@ -186,7 +186,7 @@ jobs:
       - name: Install pytest
         # Without it the e2e step dies on `No module named pytest`, which is
         # what it did the first time it ran here.
-        run: python3 -m pip install --quiet pytest
+        run: python3 -m pip install --quiet pytest pytest-xdist
 
       - name: End-to-end suites (tests/test_exec_live.py, tests/test_tmux_e2e.py)
         # They drive the built binary, so build it first. Both skip with a
@@ -199,7 +199,7 @@ jobs:
           GOH_DIR: ${{ github.workspace }}/.gates_of_heck
         run: |
           cargo build -p multitop
-          python3 -m pytest tests/ -q
+          python3 -m pytest tests/ -q -n auto --dist loadscope
 
       - name: Benches build
         run: cargo bench --no-run

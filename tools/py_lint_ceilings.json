@@ -5,7 +5,7 @@
   "tests/test_android_gate.py": 11,
   "tests/test_audit_routing.py": 3,
   "tests/test_background_probe.py": 7,
-  "tests/test_comprehensive_e2e.py": 17,
+  "tests/test_comprehensive_e2e.py": 16,
   "tests/test_exec_live.py": 10,
   "tests/test_gate_lock.py": 10,
   "tests/test_install_replace.py": 9,

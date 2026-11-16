@@ -9,8 +9,8 @@ the binary, on a pty, with `--print-background`, the app's own answer.
 """
 
 import os
-import pty
 import select
+import subprocess
 import sys
 import time
 
@@ -22,27 +22,47 @@ BINARY = find_binary()
 
 
 def _run(reply):
-    """`multitop --print-background` on a pty that sends `reply` when asked."""
-    pid, fd = pty.fork()
-    if pid == 0:
-        env = {k: v for k, v in os.environ.items() if k != "COLORFGBG"}
-        os.execve(BINARY, [BINARY, "--print-background"], env)
+    """`multitop --print-background` on a pty that sends `reply` when asked.
+
+    Spawned by `subprocess`, never `pty.fork()`: the suite runs under xdist,
+    whose workers are multi-threaded, and a bare fork of a threaded interpreter
+    may deadlock the child before it reaches exec (CPython warns as much). The
+    probe reads stdin and writes stdout, so the pty's slave end as both is the
+    whole terminal it needs.
+    """
+    env = {k: v for k, v in os.environ.items() if k != "COLORFGBG"}
+    fd, slave = os.openpty()
+    proc = subprocess.Popen(
+        [BINARY, "--print-background"],
+        stdin=slave,
+        stdout=slave,
+        stderr=slave,
+        env=env,
+        start_new_session=True,
+    )
+    os.close(slave)
     out, answered, end = b"", False, time.time() + 5
-    while time.time() < end:
-        ready, _, _ = select.select([fd], [], [], 0.005)
-        if not ready:
-            continue
-        try:
-            chunk = os.read(fd, 4096)
-        except OSError:
-            break
-        if not chunk:
-            break
-        out += chunk
-        if reply is not None and not answered and b"\x1b]11;?" in out:
-            os.write(fd, reply)
-            answered = True
-    os.waitpid(pid, 0)
+    try:
+        while time.time() < end:
+            ready, _, _ = select.select([fd], [], [], 0.005)
+            if not ready:
+                continue
+            try:
+                chunk = os.read(fd, 4096)
+            except OSError:
+                break
+            if not chunk:
+                break
+            out += chunk
+            if reply is not None and not answered and b"\x1b]11;?" in out:
+                os.write(fd, reply)
+                answered = True
+        proc.wait(timeout=5)
+    finally:
+        if proc.poll() is None:
+            proc.kill()
+            proc.wait()
+        os.close(fd)
     return out.decode(errors="replace"), answered
 
 

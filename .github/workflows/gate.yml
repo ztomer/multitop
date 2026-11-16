@@ -65,7 +65,7 @@ jobs:
           cmds="$(python3 "$GOH_DIR/gates/required_tools.py" --repo . --install)"
           printf '%s\n' "$cmds"
           grep -v '^#' <<<"$cmds" | bash -eux
-          python3 -m pip install --quiet pytest
+          python3 -m pip install --quiet pytest pytest-xdist
       # tools/coverage_check.sh runs goh's coverage gate itself, so goh's manifest cannot see the
       # coverage-rust layer: the repo names its one tool here, at a named release.
       - name: Install cargo-llvm-cov

@@ -2,10 +2,11 @@
 
 Covers: Help, Layout memory, Focus, Command palette, Yank, Vault, Alerts,
 History, Graphs zoom, Server --serve, and the Hello+Token auth.
-All waits are on conditions, not sleeps.
+All waits are on conditions, not sleeps (a test-side poll interval aside).
 """
 
 import os
+import socket
 import subprocess
 import sys
 import tempfile
@@ -67,6 +68,23 @@ class ComprehensiveE2E(unittest.TestCase):
 
             shutil.rmtree(self.tmpdir, ignore_errors=True)
 
+    def wait_until(self, predicate, what):
+        """Wait until `predicate(screen)` holds; return that screen."""
+
+        def probe():
+            screen = self.session.capture()
+            return screen if predicate(screen) else None
+
+        return self.session.wait_for(probe, timeout=10, what=what)
+
+    @staticmethod
+    def _answers(port):
+        try:
+            with socket.create_connection(("127.0.0.1", port), timeout=1):
+                return True
+        except OSError:
+            return False
+
     def test_help_overlay(self):
         self.session.send("?")
         self.session.wait_for_screen("Help  ? to close", timeout=10)
@@ -80,17 +98,13 @@ class ComprehensiveE2E(unittest.TestCase):
 
     def test_focus_enter_z(self):
         # Focus the first panel
+        # Keys reach the app in the order sent, so "z" needs no pause after "1".
         self.session.send("1")
-        time.sleep(0.5)
         self.session.send("z")
-        time.sleep(1)
-        s = self.session.capture()
         # Focus shows unzoom in keybar
-        self.assertIn("unzoom", s.lower())
+        self.wait_until(lambda s: "unzoom" in s.lower(), "the keybar to offer unzoom")
         self.session.send("Escape")
-        time.sleep(1)
-        s2 = self.session.capture()
-        self.assertNotIn("unzoom", s2.lower())
+        self.wait_until(lambda s: "unzoom" not in s.lower(), "unzoom to leave the keybar")
 
     def test_command_palette(self):
         self.session.send(":")
@@ -98,47 +112,42 @@ class ComprehensiveE2E(unittest.TestCase):
         s = self.session.capture()
         self.assertIn("filter", s.lower())
         self.session.send("Escape")
-        time.sleep(0.5)
-        self.assertNotIn("Command Palette", self.session.capture())
+        self.wait_until(lambda s: "Command Palette" not in s, "the palette to close")
         # Execute a palette command: filter via palette
         self.session.send(":")
-        time.sleep(1)
+        self.session.wait_for_screen("Command Palette", timeout=10)
         self.session.send("filter 127")
-        time.sleep(0.5)
         self.session.send("Enter")
-        time.sleep(1)
-        s2 = self.session.capture()
+        s2 = self.wait_until(lambda s: "[filter: 127]" in s, "the palette's filter to apply")
         self.assertIn("127.0.0.1", s2)
 
     def test_yank_does_not_crash(self):
         # y should not crash, even though we can't easily verify clipboard in tmux
         self.session.send("y")
-        time.sleep(0.5)
+        # A dump is written by the event loop itself, so one arriving after the
+        # key proves the loop is still turning, not merely that the pid exists.
+        self.session.diag()
         # Should still be running
         self.assertIsNone(self.session.exited())
 
     def test_layout_persists_sort_and_filter(self):
         # Change sort to mem
         self.session.send("m")
-        time.sleep(0.5)
         # Set filter
         self.session.send("/")
-        time.sleep(0.5)
         self.session.send("127")
-        time.sleep(0.5)
         self.session.send("Enter")
-        time.sleep(1)
-        s = self.session.capture()
+        s = self.wait_until(lambda s: "[filter: 127]" in s, "the filter to apply")
         self.assertIn("127.0.0.1", s)
         # Check state.toml was written
         import pathlib
 
         state_path = pathlib.Path(self.config_path).with_name("state.toml")
-        # Give persist_state a moment
-        time.sleep(1)
-        if state_path.exists():
-            content = state_path.read_text()
-            self.assertIn("filter_query", content)
+        content = self.session.wait_for(
+            lambda: state_path.exists() and "filter_query" in state_path.read_text() and state_path.read_text(),
+            what="state.toml to persist the filter",
+        )
+        self.assertIn("filter_query", content)
 
     def test_graphs_and_H_and_zoom(self):
         self.session.send("g")
@@ -147,17 +156,15 @@ class ComprehensiveE2E(unittest.TestCase):
         self.assertIn("CPU", s)
         # Zoom
         self.session.send("+")
-        time.sleep(0.5)
         self.session.send("-")
-        time.sleep(0.5)
         # H for alerts (reuses graphs)
         self.session.send("H")
-        time.sleep(1)
-        s2 = self.session.capture()
         # Alerts view should show ALERTS 30m graph
-        self.assertIn("ALERTS 30m", s2)
+        self.session.wait_for_screen("ALERTS 30m", timeout=10)
         self.session.send("s")
-        time.sleep(1)
+        # The keys above went through the loop without ending it.
+        self.session.diag()
+        self.assertIsNone(self.session.exited())
 
     def test_unhealthy_filter(self):
         # unhealthy is a synthetic token: it matches hosts breaching any
@@ -168,16 +175,11 @@ class ComprehensiveE2E(unittest.TestCase):
         # host matches" unconditionally made this test fail whenever the
         # box was loaded, correctly reporting a healthy filter as broken.
         self.session.send("/")
-        time.sleep(0.5)
         self.session.send("unhealthy")
-        time.sleep(0.5)
         self.session.send("Enter")
-        time.sleep(1)
-        s = self.session.capture()
-        self.assertIn("[filter: unhealthy]", s)
+        s = self.session.wait_for_screen("[filter: unhealthy]", timeout=10)
         if "No host matches" in s:
             self.session.send("Escape")
-            time.sleep(0.5)
             return  # healthy host, correctly filtered out
         # The config holds TWO hosts, and either may be the one breaching:
         # `is_breaching_with_vault` also counts a locked vault (app-wide, so
@@ -192,7 +194,6 @@ class ComprehensiveE2E(unittest.TestCase):
             "a breaching host must stay visible under the unhealthy filter",
         )
         self.session.send("Escape")
-        time.sleep(0.5)
 
     def test_vault_settings_shows_stored(self):
         self.session.send("e")
@@ -203,13 +204,11 @@ class ComprehensiveE2E(unittest.TestCase):
         # Check that vault section is there
         self.assertIn("Server", s)
         self.session.send("Escape")
-        time.sleep(1)
 
     def test_server_mode_via_http(self):
         # Server mode is tested via the Rust unit tests, but we also test the binary directly
         # Start a server on a random port and curl it
         import json
-        import socket
         import tempfile
 
         # Find a free port
@@ -231,7 +230,13 @@ class ComprehensiveE2E(unittest.TestCase):
                 stdin=subprocess.DEVNULL,
             )
             try:
-                time.sleep(3)
+                # Ready means the token is written and the port answers; both
+                # are waited for, never guessed at with a fixed pause.
+                deadline = time.monotonic() + 20
+                while not (os.path.exists(token_file) and self._answers(port)):
+                    self.assertIsNone(proc.poll(), "multitop --serve exited before it listened")
+                    self.assertLess(time.monotonic(), deadline, "multitop --serve never listened")
+                    time.sleep(0.05)
                 with open(token_file) as f:
                     token = f.read().strip()
                 self.assertEqual(os.stat(token_file).st_mode & 0o777, 0o600)

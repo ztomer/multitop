@@ -33,6 +33,7 @@ from __future__ import annotations
 
 import re
 import sys
+from collections import Counter
 from pathlib import Path
 
 sys.path.insert(0, str(__import__("pathlib").Path(__file__).resolve().parent))
@@ -149,8 +150,33 @@ def collect_declarations(files: list[Path]) -> dict[str, list[tuple[Path, int, s
     return decls
 
 
+# One pass over the text finds every use of every name: a word token, not preceded by a word
+# character, followed by what a call, path, argument or end of statement puts after a name. The
+# per-name regex this replaced (`(?<!\w)NAME\s*(?:\(|::|,|\)|\]|\}|;|$)`, one scan of every line
+# for each of ~800 names) counted exactly these: the name has to end where the punctuation starts,
+# so it is always a whole token, and what a match consumes holds no word character the next match
+# could start in. The self-test pins the two to the same counts.
+USE_RE = re.compile(r"(?<!\w)(\w+)(?=\s*(?:\(|::|,|\)|\]|\}|;|$))")
+
+
+def use_counts(sources: list[tuple[Path, str]]) -> Counter[str]:
+    """Uses of every name in `sources`, each line's own `pub fn` declaration excluded."""
+    counts: Counter[str] = Counter()
+    for _path, text in sources:
+        for line in text.splitlines():
+            decl = PUB_FN_RE.match(line)
+            own = decl.group(1) if decl else None
+            counts.update(tok for tok in USE_RE.findall(line) if tok != own)
+    return counts
+
+
 def count_production_uses(name: str, sources: list[tuple[Path, str]]) -> int:
     """Uses of `name` in production code, excluding its own declaration."""
+    return use_counts(sources)[name]
+
+
+def count_production_uses_one(name: str, sources: list[tuple[Path, str]]) -> int:
+    """The per-name scan `use_counts` replaced, kept as the self-test's reference."""
     call = re.compile(rf"(?<!\w){re.escape(name)}\s*(?:\(|::|,|\)|\]|\}}|;|$)")
     total = 0
     for _path, text in sources:
@@ -194,11 +220,12 @@ def run_check() -> int:
         for p in src
     ]
 
+    prod_uses, test_uses = use_counts(production), use_counts(test_sources)
     flagged = []
     for name, sites in sorted(decls.items()):
-        if count_production_uses(name, production) > 0:
+        if prod_uses[name] > 0:
             continue
-        if count_production_uses(name, test_sources) == 0:
+        if test_uses[name] == 0:
             continue  # Called by nothing at all: dead, but not *falsely assured*.
         for path, line, note in sites:
             if note:
@@ -288,6 +315,23 @@ def self_test() -> int:
             got += 1
         if got != want:
             print(f"  self-test FAILED [{label}]: expected {want} flagged, got {got}")
+            failures += 1
+    # The one-pass counter agrees with the per-name scan on every shape a use takes, including
+    # the ones that are not uses (a longer name, a field, a macro-free mention) and a line that
+    # declares the name it also calls.
+    tricky = (
+        "pub fn walk(a: u8) -> u8 { walk(a) }\n"
+        "let w = walker(1); x.walk(2); walk ; walk::<u8>(3); m::walk(4)\n"
+        "f(walk, 1); [walk]; {walk}; (walk) ; walk\n"
+        "let walk_x = 1; walk2(1); _walk(1); walkx; walk = 3; walk.0\n"
+        "pub(crate) fn other() { walk(walk(1)) } // walk(\n"
+        "\u00e9walk(1); walk\u00e9(1); walk \t(5)\n"
+    )
+    for name in ("walk", "walker", "walk2", "_walk", "other", "x", "m", "f", "absent"):
+        one = count_production_uses_one(name, [(Path("x.rs"), tricky)])
+        many = count_production_uses(name, [(Path("x.rs"), tricky)])
+        if one != many:
+            print(f"  self-test FAILED [one-pass count]: {name!r} per-name {one}, one-pass {many}")
             failures += 1
     if failures:
         return 1
