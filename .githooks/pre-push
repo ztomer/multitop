@@ -1,40 +1,17 @@
-#!/usr/bin/env bash
-# pre-push — runs the FULL gate on the COMMIT being pushed, in a clean worktree.
-# Installed by gates_of_heck/install.sh. A push made with --no-verify, or from a
-# clone without these hooks, is not gated by it. The logic lives in gates_of_heck
-# (push_gate.sh) so a fix there reaches every repo without a re-install.
-{ # parse-guard -- bash reads this group whole before running it (tests/test_parse_guard.py)
-set -euo pipefail
-GOH="${GOH_DIR:-${GOH:-$HOME/Projects/gates_of_heck}}"
-[ ! -f "$GOH/lib/bash5.sh" ] || { . "$GOH/lib/bash5.sh" && goh_bash5 "$@"; }   # an older GOH has none
-# A GOH_DIR naming a REMOVED HEAD export (inherited by a long-lived process) falls back to a live
-# gates_of_heck: lib/goh_root.sh's rule, copied verbatim (tests/test_dead_goh_dir.py; GOH.TRANSIENTDIR).
-goh_dir_repair() {
-    [ -n "${GOH_DIR:-}" ] && [ ! -d "$GOH_DIR" ] || return 0
-    local c
-    # path-ok: house default, after GOH_DIR and GOH_LIVE_ROOT (the export itself is gone)
-    for c in "${GOH_LIVE_ROOT:-}" "$HOME/Projects/gates_of_heck"; do
-        if [ -n "$c" ] && [ -d "$c/gates" ]; then
-            echo "⚠ gates_of_heck: GOH_DIR=$GOH_DIR no longer exists (a pruned HEAD export this" \
-                "process inherited; restart it) -- using $c" >&2
-            export GOH_DIR="$c"
-            return 0
-        fi
-    done
-    return 0
-}
-goh_dir_repair
-GOH="${GOH_DIR:-$GOH}"
-
-push_gate="$GOH/gates/push_gate.sh"
-# No fallback to gating the working tree: that is a different object than the push. Name the remedy
-# instead of a bare "No such file or directory" (upstreamed from ztools, 2026-10-05).
-if [ ! -f "$push_gate" ]; then
-    echo "✗ pre-push: no gates_of_heck push gate at $push_gate -- clone gates_of_heck there," \
-        "or point GOH_DIR at your checkout, then re-run its install.sh" >&2
-    exit 1
-fi
-# "$@" carries the remote's name: push_gate.sh needs it to skip commits the remote already has.
-exec bash "$push_gate" "$@"
-exit
-} # parse-guard
+#!/bin/sh
+# goh's hook shim (GOH.CLASS.ROLLOUT): the SAME bytes under every hook name, and no logic of its
+# own. It finds the gates_of_heck checkout -- GOH_DIR (or GOH), then GOH_LIVE_ROOT, then the house
+# default, then this repo when it IS gates_of_heck -- and runs that checkout's gates/hook.sh, read
+# at run time. So a goh release changes what every repo's hooks do with no refresh: what a copy
+# holds can go stale, and this holds nothing. A dead GOH_DIR (a pruned HEAD export) is skipped
+# here and named by hook.sh. tests/test_hook_shim.py pins these bytes: changing them is the one
+# change that needs every consumer refreshed, so it is a deliberate ABI bump, never an edit.
+want="${GOH_DIR:-${GOH:-$HOME/Projects/gates_of_heck}}"
+# path-ok: house default, after GOH_DIR, GOH and GOH_LIVE_ROOT
+for GOH in "${GOH_DIR:-${GOH:-}}" "${GOH_LIVE_ROOT:-}" "$HOME/Projects/gates_of_heck" "${0%/*}/.."; do
+    if [ -n "$GOH" ] && [ -f "$GOH/gates/hook.sh" ]; then
+        exec bash "$GOH/gates/hook.sh" "$0" "$@"
+    fi
+done
+echo "✗ ${0##*/}: no gates_of_heck at $want -- clone it there, or point GOH_DIR at your checkout" >&2
+exit 1

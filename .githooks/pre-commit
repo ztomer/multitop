@@ -1,45 +1,17 @@
-#!/bin/bash
-# pre-commit — delegates to the shared checkout's gates/commit_gate.sh, which runs the repo's gate in
-# STAGED scope (tools/gate.sh --staged) and the house structural layer even when that gate leaves it
-# out; without a tools/gate.sh, structural runs alone.
-# Installed by gates_of_heck/install.sh. It decides NOTHING itself: hooks are COPIED, so any logic
-# here reached a repo only when it re-installed (14 repos ran a retired copy on 2026-10-12), while
-# commit_gate.sh is read at runtime. The pre-push hook delegates to gates/push_gate.sh the same way.
-{ # parse-guard -- bash reads this group whole before running it (tests/test_parse_guard.py)
-set -euo pipefail
-GOH="${GOH_DIR:-${GOH:-$HOME/Projects/gates_of_heck}}"
-[ ! -f "$GOH/lib/bash5.sh" ] || { . "$GOH/lib/bash5.sh" && goh_bash5 "$@"; }   # an older GOH has none
-# A GOH_DIR naming a REMOVED HEAD export (inherited by a long-lived process) falls back to a live
-# gates_of_heck: lib/goh_root.sh's rule, copied verbatim (tests/test_dead_goh_dir.py; GOH.TRANSIENTDIR).
-goh_dir_repair() {
-    [ -n "${GOH_DIR:-}" ] && [ ! -d "$GOH_DIR" ] || return 0
-    local c
-    # path-ok: house default, after GOH_DIR and GOH_LIVE_ROOT (the export itself is gone)
-    for c in "${GOH_LIVE_ROOT:-}" "$HOME/Projects/gates_of_heck"; do
-        if [ -n "$c" ] && [ -d "$c/gates" ]; then
-            echo "⚠ gates_of_heck: GOH_DIR=$GOH_DIR no longer exists (a pruned HEAD export this" \
-                "process inherited; restart it) -- using $c" >&2
-            export GOH_DIR="$c"
-            return 0
-        fi
-    done
-    return 0
-}
-goh_dir_repair
-GOH="${GOH_DIR:-$GOH}"
-
-commit_gate="$GOH/gates/commit_gate.sh"
-if [ ! -f "$commit_gate" ]; then
-    root="$(git rev-parse --show-toplevel)"
-    commit_gate="$root/gates/commit_gate.sh"   # self-hosted: this IS gates_of_heck
-fi
-if [ ! -f "$commit_gate" ]; then
-    echo "✗ pre-commit: no gates_of_heck commit gate at $GOH/gates/commit_gate.sh -- clone" \
-        "gates_of_heck there, or point GOH_DIR at your checkout, then re-run its install.sh" >&2
-    exit 1
-fi
-# `bash <path>`, not `exec <path>`: executing the file directly also needs its exec bit, which lives
-# in another repo and is what a clone or tarball silently loses (upstreamed from ztools, 2026-10-05).
-exec bash "$commit_gate" "$@"
-exit
-} # parse-guard
+#!/bin/sh
+# goh's hook shim (GOH.CLASS.ROLLOUT): the SAME bytes under every hook name, and no logic of its
+# own. It finds the gates_of_heck checkout -- GOH_DIR (or GOH), then GOH_LIVE_ROOT, then the house
+# default, then this repo when it IS gates_of_heck -- and runs that checkout's gates/hook.sh, read
+# at run time. So a goh release changes what every repo's hooks do with no refresh: what a copy
+# holds can go stale, and this holds nothing. A dead GOH_DIR (a pruned HEAD export) is skipped
+# here and named by hook.sh. tests/test_hook_shim.py pins these bytes: changing them is the one
+# change that needs every consumer refreshed, so it is a deliberate ABI bump, never an edit.
+want="${GOH_DIR:-${GOH:-$HOME/Projects/gates_of_heck}}"
+# path-ok: house default, after GOH_DIR, GOH and GOH_LIVE_ROOT
+for GOH in "${GOH_DIR:-${GOH:-}}" "${GOH_LIVE_ROOT:-}" "$HOME/Projects/gates_of_heck" "${0%/*}/.."; do
+    if [ -n "$GOH" ] && [ -f "$GOH/gates/hook.sh" ]; then
+        exec bash "$GOH/gates/hook.sh" "$0" "$@"
+    fi
+done
+echo "✗ ${0##*/}: no gates_of_heck at $want -- clone it there, or point GOH_DIR at your checkout" >&2
+exit 1
