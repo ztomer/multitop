@@ -223,7 +223,10 @@ def wiring_mismatches(hook_text: str, gate_text: str) -> list[str]:
     # tools/gate.sh --staged itself (the hook decides nothing, so a re-install
     # cannot leave stale logic behind).
     house = "gates/commit_gate.sh" in hook and re.search(r"\bexec bash\b", hook)
-    if not (direct or house):
+    # GOH.CLASS.ROLLOUT's shim holds no logic either: it execs gates/hook.sh, which routes the
+    # pre-commit hook to gates/commit_gate.sh at run time.
+    shim = "gates/hook.sh" in hook and re.search(r"\bexec bash\b", hook)
+    if not (direct or house or shim):
         problems.append(".githooks/pre-commit does not hand off to tools/gate.sh --staged")
     arm = STAGED_ARM.search(_live(gate_text))
     if arm is None:
@@ -390,6 +393,14 @@ def self_test() -> int:
         return 1
     if not wiring_mismatches("# gates/commit_gate.sh\nexit 0\n", wired):
         print("gate-parity self-test: a hook that only MENTIONS the commit gate was NOT reported", file=sys.stderr)
+        return 1
+    # goh's rollout shim (GOH.CLASS.ROLLOUT) execs gates/hook.sh, which holds the routing.
+    shim_hook = 'for GOH in "$GOH_DIR"; do\n    exec bash "$GOH/gates/hook.sh" "$0" "$@"\ndone\n'
+    if wiring_mismatches(shim_hook, wired):
+        print("gate-parity self-test: the rollout shim hook was reported broken", file=sys.stderr)
+        return 1
+    if not wiring_mismatches("# gates/hook.sh\nexit 0\n", wired):
+        print("gate-parity self-test: a hook that only MENTIONS gates/hook.sh was NOT reported", file=sys.stderr)
         return 1
     unwired = (
         "  --staged)\n    # bash tools/commit_gates.sh\n    ;;\n  --full)\n    bash tools/commit_gates.sh\n    ;;\n"
