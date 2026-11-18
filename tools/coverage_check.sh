@@ -57,7 +57,10 @@ cd "$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
 
 GOH="${GOH_DIR:-$HOME/Projects/gates_of_heck}"
 
-"$GOH/gates/coverage_gate.sh" --lang rust --floor 95 \
+# The uniform floor stays 95; tools/coverage_floors.json lowers ONE crate at a time to its honest
+# measured value (GOH.CRATEFLOOR) after goh v0.137.1 stopped forgiving spans (GOH.SPANFORGIVE,
+# owner ruling 2026-11-18). Queue item COVUP.MONITOR raises each back to 95.
+"$GOH/gates/coverage_gate.sh" --lang rust --floor 95 --floors-json tools/coverage_floors.json \
     --ignore 'ssh\.rs|password_store\.rs|sparkline\.rs|main\.rs|entry\.rs|build\.rs|spawn\.rs|sys\.rs|secure_enclave\.rs|fprintd\.rs|enclave\.rs|tpm2\.rs|kill\.rs|exec_runner\.rs'
 
 # CI uploads target/lcov.info as a workflow artifact (if-no-files-found:
