@@ -5,8 +5,8 @@
       "reason": "honest count (GOH.SPANFORGIVE, owner 2026-11-18 ratchet): measured 90.50, was 95; test back up (reruns measured 90.48 and 90.35: the count moves between runs, so the floor is the lowest seen rounded down)"
     },
     "multitop": {
-      "floor": 89.7,
-      "reason": "honest count (GOH.SPANFORGIVE, owner 2026-11-18 ratchet): measured 89.74, was 95; test back up"
+      "floor": 89.6,
+      "reason": "honest count (GOH.SPANFORGIVE, owner 2026-11-18 ratchet): measured 89.74, was 95; test back up (reruns measured 89.67 to 89.82: the count moves between runs, so the floor is the lowest seen rounded down)"
     },
     "testassert": {
       "floor": 93.9,
